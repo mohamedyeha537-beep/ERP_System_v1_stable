@@ -1,0 +1,1080 @@
+{% extends "base.html" %}
+{% block title %}لوحة التحكم{% endblock %}
+{% block head_extra %}
+<style>
+  /* ============== Dashboard layout ============== */
+  .dash-hero {
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 55%, #3b82f6 100%);
+    color: #fff;
+    padding: 1.4rem 1.5rem;
+    border-radius: 14px;
+    margin-bottom: 1.25rem;
+    box-shadow: 0 12px 28px -16px rgba(37, 99, 235, 0.55);
+  }
+  .dash-hero::after {
+    content: "";
+    position: absolute;
+    inset-inline-start: -40px;
+    inset-block-end: -60px;
+    width: 220px;
+    height: 220px;
+    background: radial-gradient(circle, rgba(255,255,255,0.18), transparent 70%);
+    pointer-events: none;
+  }
+  .dash-hero h1 { margin: 0 0 0.25rem; font-size: 1.55rem; }
+  .dash-hero p { margin: 0; opacity: 0.9; font-size: 0.95rem; }
+  .dash-hero .role {
+    display: inline-block;
+    margin-top: 0.55rem;
+    padding: 0.2rem 0.65rem;
+    background: rgba(255,255,255,0.2);
+    border-radius: 999px;
+    font-size: 0.78rem;
+    backdrop-filter: blur(4px);
+  }
+
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.85rem;
+    margin-bottom: 1.25rem;
+  }
+  .kpi {
+    position: relative;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1rem 1.1rem;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    overflow: hidden;
+  }
+  .kpi:hover { transform: translateY(-2px); box-shadow: 0 14px 28px -22px rgba(15,23,42,0.35); }
+  .kpi a.kpi-link {
+    display: block;
+    color: inherit;
+    text-decoration: none;
+    margin: -1rem -1.1rem;
+    padding: 1rem 1.1rem;
+    border-radius: 14px;
+  }
+  .kpi a.kpi-link:hover { text-decoration: none; background: linear-gradient(180deg, rgba(59,130,246,0.04), transparent); }
+  .kpi a.kpi-link::after {
+    content: "↗";
+    position: absolute;
+    inset-inline-end: 0.85rem;
+    inset-block-end: 0.6rem;
+    color: var(--muted);
+    font-size: 0.75rem;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+  .kpi:hover a.kpi-link::after { opacity: 0.7; }
+  .kpi .kpi-icon {
+    position: absolute;
+    inset-inline-end: 0.85rem;
+    inset-block-start: 0.85rem;
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    border-radius: 12px;
+    color: #fff;
+  }
+  .kpi .kpi-label { color: var(--muted); font-size: 0.85rem; }
+  .kpi .kpi-value { font-size: 1.55rem; font-weight: 700; margin-top: 0.2rem; line-height: 1.15; }
+  .kpi .kpi-sub { color: var(--muted); font-size: 0.78rem; margin-top: 0.3rem; }
+  .kpi .delta {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    margin-top: 0.4rem;
+    padding: 0.18rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+  .kpi .delta.up { background: #dcfce7; color: #15803d; }
+  .kpi .delta.down { background: #fee2e2; color: #b91c1c; }
+  .kpi .delta.flat { background: #f1f5f9; color: #475569; }
+
+  /* Color schemes per KPI */
+  .kpi.kpi-rev .kpi-icon { background: linear-gradient(135deg,#10b981,#059669); }
+  .kpi.kpi-yest .kpi-icon { background: linear-gradient(135deg,#6366f1,#4f46e5); }
+  .kpi.kpi-month .kpi-icon { background: linear-gradient(135deg,#0ea5e9,#0369a1); }
+  .kpi.kpi-profit .kpi-icon { background: linear-gradient(135deg,#f59e0b,#d97706); }
+  .kpi.kpi-products .kpi-icon { background: linear-gradient(135deg,#8b5cf6,#6d28d9); }
+  .kpi.kpi-cats .kpi-icon { background: linear-gradient(135deg,#ec4899,#be185d); }
+  .kpi.kpi-stock .kpi-icon { background: linear-gradient(135deg,#14b8a6,#0f766e); }
+  .kpi.kpi-low .kpi-icon { background: linear-gradient(135deg,#ef4444,#b91c1c); }
+
+  /* ============== Two-column area ============== */
+  .dash-cols {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+  }
+  @media (max-width: 900px) { .dash-cols { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1rem 1.1rem;
+  }
+  .panel-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+  }
+  .panel-head h2 { margin: 0; font-size: 1.05rem; }
+  .panel-head a { font-size: 0.85rem; }
+  .panel-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+  .row-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.55rem 0.7rem;
+    background: #f8fafc;
+    border: 1px solid #eef2f7;
+    border-radius: 10px;
+    font-size: 0.92rem;
+  }
+  .row-item .name { font-weight: 600; }
+  .row-item .meta { color: var(--muted); font-size: 0.82rem; }
+  .row-item.warn { background: #fef2f2; border-color: #fecaca; }
+  .pill-num {
+    background: #fff;
+    border: 1px solid var(--border);
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 0.85rem;
+  }
+
+  /* ============== Quick links ============== */
+  .quick-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 0.75rem;
+  }
+  .qlink {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    padding: 0.85rem 1rem;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    color: inherit;
+    text-decoration: none;
+    transition: all 0.15s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .qlink::before {
+    content: "";
+    position: absolute;
+    inset-inline-start: 0;
+    inset-block-start: 0;
+    inset-block-end: 0;
+    width: 4px;
+    background: var(--accent, var(--primary));
+    border-radius: 4px 0 0 4px;
+  }
+  .qlink:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 24px -18px rgba(15,23,42,0.4);
+    text-decoration: none;
+    border-color: var(--accent, var(--primary));
+  }
+  .qlink .qicon {
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--accent, var(--primary)) 14%, white);
+    color: var(--accent, var(--primary));
+    flex-shrink: 0;
+  }
+  .qlink .qtitle { font-weight: 600; line-height: 1.2; font-size: 0.95rem; }
+  .qlink .qhint { color: var(--muted); font-size: 0.78rem; }
+
+  /* Empty state */
+  .empty {
+    text-align: center;
+    color: var(--muted);
+    padding: 1rem;
+    font-size: 0.92rem;
+  }
+
+  .section-title {
+    margin: 1.4rem 0 0.65rem;
+    font-size: 0.95rem;
+    color: var(--muted);
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+
+  /* ============== Collapsible sections ============== */
+  details.dash-section {
+    margin: 1.2rem 0 0.4rem;
+    border-radius: 10px;
+  }
+  details.dash-section > summary {
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+    padding: 0.55rem 0.85rem;
+    background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #1e293b;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: all 0.18s ease;
+  }
+  details.dash-section > summary::-webkit-details-marker { display: none; }
+  details.dash-section > summary::before {
+    content: '▼';
+    font-size: 0.7rem;
+    color: var(--muted);
+    transition: transform 0.18s ease;
+    display: inline-block;
+  }
+  details.dash-section:not([open]) > summary::before {
+    transform: rotate(-90deg);
+  }
+  details.dash-section > summary:hover {
+    background: linear-gradient(180deg, #e0e7ff 0%, #ddd6fe 100%);
+    color: #312e81;
+    border-color: #a5b4fc;
+  }
+  details.dash-section[open] > summary {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    margin-bottom: 0;
+  }
+  details.dash-section .dash-section-body {
+    padding: 0.85rem 0.5rem 0.5rem;
+    border: 1px solid var(--border);
+    border-top: none;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+    background: #fff;
+  }
+  details.dash-section[open] .dash-section-body {
+    animation: slideDown 0.2s ease;
+  }
+  @keyframes slideDown {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .section-meta {
+    margin-inline-start: auto;
+    font-size: 0.78rem;
+    color: var(--muted);
+    font-weight: 500;
+  }
+
+  /* ============== Quick Links Bar (top) ============== */
+  .ql-bar {
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 0.85rem 1rem;
+    margin: 1rem 0;
+  }
+  .ql-bar-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--muted);
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 0.55rem;
+  }
+  .ql-bar-title .pill {
+    background: #ede9fe;
+    color: #6d28d9;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+  }
+
+  /* ============== Income statement ============== */
+  .income {
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.1rem 1.25rem;
+    margin-bottom: 1.25rem;
+  }
+  .income h2 {
+    margin: 0 0 0.25rem;
+    font-size: 1.05rem;
+  }
+  .income .income-sub {
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin-bottom: 1rem;
+  }
+  .income-line {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 0.6rem;
+    align-items: baseline;
+    padding: 0.55rem 0;
+    border-bottom: 1px dashed #e2e8f0;
+  }
+  .income-line:last-of-type { border-bottom: none; }
+  .income-line .op {
+    width: 1.4rem;
+    text-align: center;
+    color: var(--muted);
+    font-weight: 700;
+    font-size: 1.05rem;
+  }
+  .income-line .lbl { color: #334155; font-size: 0.95rem; }
+  .income-line .lbl small { color: var(--muted); display: block; font-size: 0.78rem; margin-top: 0.1rem; }
+  .income-line .val {
+    font-weight: 700;
+    font-size: 1.02rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .income-line.subtotal {
+    background: #eef2ff;
+    margin: 0.2rem -0.5rem;
+    padding: 0.55rem 0.5rem;
+    border-radius: 8px;
+    border: none;
+  }
+  .income-line.subtotal .lbl { color: #3730a3; font-weight: 700; }
+  .income-line.subtotal .val { color: #3730a3; }
+  .income-line.subtotal.pos { background: #d1fae5; }
+  .income-line.subtotal.pos .lbl, .income-line.subtotal.pos .val { color: #065f46; }
+  .income-line.subtotal.neg { background: #fee2e2; }
+  .income-line.subtotal.neg .lbl, .income-line.subtotal.neg .val { color: #991b1b; }
+  .income-line.total {
+    margin-top: 0.5rem;
+    padding: 0.85rem 0.6rem;
+    border-radius: 10px;
+    border: none;
+  }
+  .income-line.total.pos { background: #dcfce7; color: #14532d; }
+  .income-line.total.neg { background: #fee2e2; color: #7f1d1d; }
+  .income-line.total .lbl { font-weight: 800; font-size: 1.05rem; color: inherit; }
+  .income-line.total .val { font-size: 1.2rem; color: inherit; }
+  .income-line a.row-link { display: contents; color: inherit; text-decoration: none; }
+  .income-line:has(a.row-link):hover { background: rgba(99,102,241,0.06); cursor: pointer; }
+  .income-line a.row-link::after { content: "↗"; color: var(--muted); font-size: 0.7rem; margin-inline-start: 0.4rem; opacity: 0; }
+  .income-line:has(a.row-link):hover a.row-link::after { opacity: 0.7; }
+  .income .footnote {
+    margin-top: 0.85rem;
+    font-size: 0.78rem;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+  .margin-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-inline-start: 0.5rem;
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    background: rgba(255,255,255,0.55);
+  }
+</style>
+{% endblock %}
+{% block body %}
+
+{# ====================== HERO ====================== #}
+<div class="dash-hero">
+  <h1>أهلاً، {{ user.username }}</h1>
+  <p>نظرة سريعة على أداء متجرك اليوم — التاريخ والإيرادات والمخزون والتنبيهات.</p>
+  {% if user.roles %}
+  <div>
+    {% for r in user.roles %}<span class="role">{{ r.name_ar }}</span>{% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+{# ====================== Quick Links (TOP) ====================== #}
+<div class="ql-bar">
+  <div class="ql-bar-title">
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+    </svg>
+    روابط سريعة
+    <span class="pill">انقر للوصول المباشر</span>
+  </div>
+  <div class="quick-grid">
+    {% if perm('sales:create') %}
+    <a class="qlink" href="/pos" style="--accent:#10b981">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"></rect><circle cx="12" cy="12" r="3"></circle></svg></div>
+      <div><div class="qtitle">نقطة البيع</div><div class="qhint">شاشة الكاشير</div></div>
+    </a>
+    {% endif %}
+    {% if perm('reports:view') %}
+    <a class="qlink" href="/reports" style="--accent:#0ea5e9">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"></line><line x1="18" y1="20" x2="18" y2="4"></line><line x1="6" y1="20" x2="6" y2="16"></line></svg></div>
+      <div><div class="qtitle">مركز التقارير</div><div class="qhint">مبيعات/أرباح/مخزون</div></div>
+    </a>
+    {% endif %}
+    {% if perm('inventory:view') %}
+    <a class="qlink" href="/inventory" style="--accent:#14b8a6">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7l-8-4-8 4 8 4 8-4z"></path><path d="M4 12l8 4 8-4"></path></svg></div>
+      <div><div class="qtitle">المخزون</div><div class="qhint">الأرصدة والحركات</div></div>
+    </a>
+    {% endif %}
+    {% if perm('catalog:write') %}
+    <a class="qlink" href="/catalog/products" style="--accent:#8b5cf6">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg></div>
+      <div><div class="qtitle">الأصناف</div><div class="qhint">منتجات ووصفات</div></div>
+    </a>
+    {% endif %}
+    {% if perm('catalog:write') %}
+    <a class="qlink" href="/catalog/categories" style="--accent:#ec4899">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></div>
+      <div><div class="qtitle">الفئات</div><div class="qhint">رئيسية وفرعية</div></div>
+    </a>
+    {% endif %}
+    {% if perm('tables:manage') %}
+    <a class="qlink" href="/admin/tables" style="--accent:#0891b2">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="14" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="8" y1="17" x2="8" y2="21"></line><line x1="16" y1="17" x2="16" y2="21"></line></svg></div>
+      <div><div class="qtitle">الطاولات</div><div class="qhint">مطعم/مقهى</div></div>
+    </a>
+    {% endif %}
+    {% if perm('kds:view') %}
+    <a class="qlink" href="/admin/kds" style="--accent:#dc2626">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg></div>
+      <div><div class="qtitle">شاشة المطبخ</div><div class="qhint">KDS — الطلبات</div></div>
+    </a>
+    {% endif %}
+    {% if perm('hr:view') %}
+    <a class="qlink" href="/admin/employees" style="--accent:#0d9488">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></div>
+      <div><div class="qtitle">الموظفون</div><div class="qhint">بيانات وأجور</div></div>
+    </a>
+    <a class="qlink" href="/admin/attendance" style="--accent:#16a34a">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></div>
+      <div><div class="qtitle">الحضور والانصراف</div><div class="qhint">دخول/خروج وتسجيل سريع</div></div>
+    </a>
+    <a class="qlink" href="/admin/payroll" style="--accent:#7c2d12">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line><circle cx="7" cy="15" r="1.5"></circle></svg></div>
+      <div><div class="qtitle">الرواتب الشهرية</div><div class="qhint">دفعات وصرف</div></div>
+    </a>
+    <a class="qlink" href="/admin/advances" style="--accent:#b45309">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22"></path><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></div>
+      <div><div class="qtitle">سلف الموظفين</div><div class="qhint">صرف واسترداد</div></div>
+    </a>
+    {% endif %}
+    {% if perm('hotel:rooms:manage') %}
+    <a class="qlink" href="/admin/hotel/rooms" style="--accent:#b45309">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"></path><path d="M5 21V7l8-4 8 4v14"></path><path d="M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01"></path></svg></div>
+      <div><div class="qtitle">غرف الفندق</div><div class="qhint">إدارة الأرقام والنزلاء</div></div>
+    </a>
+    {% endif %}
+    {% if perm('hotel:settle') %}
+    <a class="qlink" href="/hotel/settle" style="--accent:#f59e0b">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14"></path><circle cx="18" cy="17" r="3"></circle><path d="M16 17h.01M20 17h.01"></path></svg></div>
+      <div><div class="qtitle">تسوية حسابات الغرف</div><div class="qhint">للاستقبال — استلام النقد</div></div>
+    </a>
+    {% endif %}
+    {% if perm('customers:view') %}
+    <a class="qlink" href="/admin/customers" style="--accent:#10b981">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></div>
+      <div><div class="qtitle">العملاء ونقاط الولاء</div><div class="qhint">قاعدة العملاء + الولاء</div></div>
+    </a>
+    {% endif %}
+    {% if perm('customers:manage') %}
+    <a class="qlink" href="/admin/loyalty" style="--accent:#f59e0b">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg></div>
+      <div><div class="qtitle">إعدادات الولاء</div><div class="qhint">معدلات الكسب والاستخدام</div></div>
+    </a>
+    {% endif %}
+    {% if perm('purchases:manage') %}
+    <a class="qlink" href="/admin/purchases" style="--accent:#f59e0b">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11H5a2 2 0 0 0-2 2v7h18v-7a2 2 0 0 0-2-2h-4"></path><path d="M9 7h6"></path><path d="M12 7v8"></path></svg></div>
+      <div><div class="qtitle">فواتير الشراء</div><div class="qhint">بضاعة للمخزون</div></div>
+    </a>
+    <a class="qlink" href="/admin/expenses" style="--accent:#dc2626">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22"></path><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></div>
+      <div><div class="qtitle">المصروفات</div><div class="qhint">إيجار/فواتير/رواتب</div></div>
+    </a>
+    <a class="qlink" href="/admin/assets" style="--accent:#7c3aed">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg></div>
+      <div><div class="qtitle">الأصول/الأدوات</div><div class="qhint">للاستهلاك الداخلي</div></div>
+    </a>
+    <a class="qlink" href="/admin/recurring-costs" style="--accent:#f59e0b">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"></line><line x1="18" y1="20" x2="18" y2="4"></line><line x1="6" y1="20" x2="6" y2="16"></line></svg></div>
+      <div><div class="qtitle">التكاليف الشهرية</div><div class="qhint">عتبة التعادل</div></div>
+    </a>
+    {% endif %}
+    {% if perm('payments:manage') %}
+    <a class="qlink" href="/admin/payment-methods" style="--accent:#2563eb">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line></svg></div>
+      <div><div class="qtitle">أساليب الدفع</div><div class="qhint">مصارف وكاش</div></div>
+    </a>
+    {% endif %}
+    {% if perm('admin:roles') %}
+    <a class="qlink" href="/catalog/units" style="--accent:#06b6d4">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg></div>
+      <div><div class="qtitle">وحدات القياس</div><div class="qhint">جرام، كيلو، لتر...</div></div>
+    </a>
+    {% endif %}
+    {% if perm('admin:users') %}
+    <a class="qlink" href="/admin/users" style="--accent:#0891b2">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg></div>
+      <div><div class="qtitle">المستخدمون</div><div class="qhint">إدارة الحسابات</div></div>
+    </a>
+    {% endif %}
+    {% if perm('admin:roles') %}
+    <a class="qlink" href="/admin/roles" style="--accent:#9333ea">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg></div>
+      <div><div class="qtitle">الأدوار</div><div class="qhint">RBAC</div></div>
+    </a>
+    {% endif %}
+    {% if perm('admin:settings') %}
+    <a class="qlink" href="/admin/settings" style="--accent:#475569">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle></svg></div>
+      <div><div class="qtitle">الإعدادات</div><div class="qhint">الطباعة/المتجر</div></div>
+    </a>
+    <a class="qlink" href="/admin/alerts" style="--accent:#ef4444">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg></div>
+      <div><div class="qtitle">تنبيهات النفاد</div><div class="qhint">إيميل/WhatsApp</div></div>
+    </a>
+    {% endif %}
+    {% if perm('branding:manage') %}
+    <a class="qlink" href="/admin/branding" style="--accent:#ec4899">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".5"></circle><circle cx="17.5" cy="10.5" r=".5"></circle><circle cx="8.5" cy="7.5" r=".5"></circle><circle cx="6.5" cy="12.5" r=".5"></circle><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"></path></svg></div>
+      <div><div class="qtitle">الهويّة البصرية</div><div class="qhint">شعار + ألوان</div></div>
+    </a>
+    {% endif %}
+    {% if perm('backup:manage') %}
+    <a class="qlink" href="/admin/backup" style="--accent:#0ea5e9">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg></div>
+      <div><div class="qtitle">نسخ احتياطي</div><div class="qhint">حفظ/استعادة</div></div>
+    </a>
+    {% endif %}
+  </div>
+</div>
+
+{% if not stats %}
+<div class="alert">تعذّر تحميل الإحصائيات الآن. يمكنك استخدام الروابط أعلاه.</div>
+{% else %}
+
+{# ====================== KPIs (sales focus) ====================== #}
+<details class="dash-section" open>
+  <summary>المبيعات <span class="section-meta">اليوم وأمس والشهر</span></summary>
+  <div class="dash-section-body">
+<div class="kpi-grid">
+  <div class="kpi kpi-rev" title="انقر لعرض تفاصيل مبيعات اليوم">
+    <a class="kpi-link" href="/reports/sales?period=day">
+      <div class="kpi-icon">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="12" y1="1" x2="12" y2="23"></line>
+          <path d="M17 5H9.5a3.5 3.5 0 1 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+        </svg>
+      </div>
+      <div class="kpi-label">إيرادات اليوم</div>
+      <div class="kpi-value">{{ stats.today.revenue }} <span style="font-size:0.65em;color:var(--muted)">د.ل</span></div>
+      <div class="kpi-sub">{{ stats.today.count }} فاتورة — متوسط {{ stats.today.avg_basket }} د.ل</div>
+      {% if stats.revenue_change_dir == 'up' %}
+      <span class="delta up">▲ {{ stats.revenue_change_pct }}% مقارنة بالأمس</span>
+      {% elif stats.revenue_change_dir == 'down' %}
+      <span class="delta down">▼ {{ stats.revenue_change_pct|abs }}% مقارنة بالأمس</span>
+      {% else %}
+      <span class="delta flat">— لا تغيير عن الأمس</span>
+      {% endif %}
+    </a>
+  </div>
+
+  <div class="kpi kpi-yest" title="انقر لعرض تفاصيل مبيعات الأمس">
+    <a class="kpi-link" href="/reports/sales?period=custom&start={{ stats.yesterday_date }}&end={{ stats.yesterday_date }}">
+      <div class="kpi-icon">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="10"></circle>
+          <polyline points="12 6 12 12 16 14"></polyline>
+        </svg>
+      </div>
+      <div class="kpi-label">إيرادات أمس</div>
+      <div class="kpi-value">{{ stats.yesterday.revenue }} <span style="font-size:0.65em;color:var(--muted)">د.ل</span></div>
+      <div class="kpi-sub">{{ stats.yesterday.count }} فاتورة</div>
+    </a>
+  </div>
+
+  <div class="kpi kpi-month" title="انقر لعرض تقرير المبيعات الشهري">
+    <a class="kpi-link" href="/reports/sales?period=month">
+      <div class="kpi-icon">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="18" rx="2"></rect>
+          <line x1="16" y1="2" x2="16" y2="6"></line>
+          <line x1="8" y1="2" x2="8" y2="6"></line>
+          <line x1="3" y1="10" x2="21" y2="10"></line>
+        </svg>
+      </div>
+      <div class="kpi-label">إيرادات الشهر</div>
+      <div class="kpi-value">{{ stats.month.revenue }} <span style="font-size:0.65em;color:var(--muted)">د.ل</span></div>
+      <div class="kpi-sub">{{ stats.month.count }} فاتورة منذ بداية الشهر</div>
+    </a>
+  </div>
+
+  <div class="kpi kpi-profit" title="انقر لعرض تقرير الأرباح الكامل">
+    <a class="kpi-link" href="/reports/profit?period=month">
+      <div class="kpi-icon">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
+          <polyline points="17 6 23 6 23 12"></polyline>
+        </svg>
+      </div>
+      <div class="kpi-label">صافي ربح الشهر</div>
+      <div class="kpi-value" style="color: {% if stats.month_net_profit >= 0 %}#16a34a{% else %}#b91c1c{% endif %}">
+        {{ stats.month_net_profit }} <span style="font-size:0.65em;color:var(--muted)">د.ل</span>
+      </div>
+      <div class="kpi-sub">بعد طرح تكلفة المباع والمصروفات والأصول</div>
+    </a>
+  </div>
+</div>
+  </div>
+</details>
+
+{# ====================== KPIs (inventory/admin focus) ====================== #}
+<details class="dash-section" open>
+  <summary>المخزون والكتالوج <span class="section-meta">عدد الأصناف والقيمة والتنبيهات</span></summary>
+  <div class="dash-section-body">
+<div class="kpi-grid">
+  <div class="kpi kpi-products" title="انقر لعرض قائمة الأصناف">
+    <a class="kpi-link" href="/catalog/products">
+      <div class="kpi-icon">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+          <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+          <line x1="12" y1="22.08" x2="12" y2="12"></line>
+        </svg>
+      </div>
+      <div class="kpi-label">عدد الأصناف النشطة</div>
+      <div class="kpi-value">{{ stats.products_count }}</div>
+      <div class="kpi-sub">إدارة الأصناف</div>
+    </a>
+  </div>
+
+  <div class="kpi kpi-cats" title="انقر لعرض الفئات والأقسام">
+    <a class="kpi-link" href="/catalog/categories">
+      <div class="kpi-icon">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+        </svg>
+      </div>
+      <div class="kpi-label">عدد الفئات</div>
+      <div class="kpi-value">{{ stats.categories_count }}</div>
+      <div class="kpi-sub">إدارة الفئات</div>
+    </a>
+  </div>
+
+  <div class="kpi kpi-stock" title="انقر لعرض تقرير المخزون التفصيلي">
+    <a class="kpi-link" href="/reports/inventory">
+      <div class="kpi-icon">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M20 7l-8-4-8 4 8 4 8-4z"></path>
+          <path d="M4 12l8 4 8-4"></path>
+          <path d="M4 17l8 4 8-4"></path>
+        </svg>
+      </div>
+      <div class="kpi-label">قيمة المخزون</div>
+      <div class="kpi-value">{{ stats.inventory_value }} <span style="font-size:0.65em;color:var(--muted)">د.ل</span></div>
+      <div class="kpi-sub">تقدير بمتوسط سعر الشراء</div>
+    </a>
+  </div>
+
+  <div class="kpi kpi-low" title="انقر لعرض الأصناف المنخفضة فقط">
+    <a class="kpi-link" href="/reports/inventory?only_low=1">
+      <div class="kpi-icon">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+          <line x1="12" y1="9" x2="12" y2="13"></line>
+          <line x1="12" y1="17" x2="12.01" y2="17"></line>
+        </svg>
+      </div>
+      <div class="kpi-label">تنبيهات نفاد</div>
+      <div class="kpi-value" style="color: {% if stats.low_stock_count > 0 %}#b91c1c{% else %}#16a34a{% endif %}">{{ stats.low_stock_count }}</div>
+      <div class="kpi-sub">عرض الأصناف المنخفضة</div>
+    </a>
+  </div>
+</div>
+
+{# ====================== Two-col panels ====================== #}
+<div class="dash-cols">
+  {# ----- Recent sales ----- #}
+  <div class="panel">
+    <div class="panel-head">
+      <h2>آخر فواتير البيع</h2>
+      <a href="/reports/sales">عرض كل المبيعات →</a>
+    </div>
+    {% if stats.recent_sales %}
+    <div class="panel-list">
+      {% for s in stats.recent_sales %}
+      <div class="row-item">
+        <div>
+          <div class="name">فاتورة #{{ s.id }}</div>
+          <div class="meta">{{ s.created_at.strftime('%Y-%m-%d %H:%M') }} — {{ s.items }} بند</div>
+        </div>
+        <div style="display:flex; gap:0.4rem; align-items:center">
+          <span class="pill-num">{{ s.total }} د.ل</span>
+          <a href="/pos/receipt/{{ s.id }}" class="btn" style="padding:0.2rem 0.5rem; font-size:0.8rem">طباعة</a>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">لم تسجَّل أي فواتير بعد.</div>
+    {% endif %}
+  </div>
+
+  {# ----- Top products today ----- #}
+  <div class="panel">
+    <div class="panel-head">
+      <h2>الأكثر مبيعاً اليوم</h2>
+      <a href="/reports/sales">المزيد →</a>
+    </div>
+    {% if stats.top_today %}
+    <div class="panel-list">
+      {% for t in stats.top_today %}
+      <div class="row-item">
+        <div>
+          <div class="name">{{ t.name_ar }}</div>
+          <div class="meta">كمية: {{ t.qty }}</div>
+        </div>
+        <span class="pill-num">{{ t.revenue }} د.ل</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">لا توجد مبيعات اليوم بعد.</div>
+    {% endif %}
+  </div>
+</div>
+
+{# ====================== Wallets + Low stock ====================== #}
+<div class="dash-cols">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>رصيد المحافظ</h2>
+      <a href="/admin/payment-methods">إدارة الأساليب →</a>
+    </div>
+    {% if stats.wallets %}
+    <div class="panel-list">
+      {% for w in stats.wallets %}
+      <div class="row-item">
+        <div>
+          <div class="name">{{ w.method.name_ar }}{% if not w.method.is_active %} <span class="meta">(معطّل)</span>{% endif %}</div>
+          <div class="meta">
+            وارد: <span style="color:#16a34a">+{{ w.sales_in }}</span>
+            · مرتجع: <span style="color:#b91c1c">−{{ w.refunds_out }}</span>
+            · توصيل: <span style="color:#b45309">−{{ w.delivery_fees_out }}</span>
+            · شراء: <span style="color:#b91c1c">−{{ w.purchases_out }}</span>
+          </div>
+        </div>
+        <span class="pill-num" style="color: {% if w.net >= 0 %}#16a34a{% else %}#b91c1c{% endif %}">{{ w.net }} د.ل</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">لا توجد محافظ بعد. <a href="/admin/payment-methods">أضف أسلوب دفع</a>.</div>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <h2>أصناف قاربت على النفاد</h2>
+      <a href="/admin/alerts">إعدادات التنبيهات →</a>
+    </div>
+    {% if stats.low_rows %}
+    <div class="panel-list">
+      {% for p, qty in stats.low_rows %}
+      <div class="row-item warn">
+        <div>
+          <div class="name">{{ p.name_ar }}</div>
+          <div class="meta">الحد الأدنى {{ p.reorder_level }} {{ p.unit }}</div>
+        </div>
+        <span class="pill-num" style="color:#b91c1c">{{ qty }} {{ p.unit }}</span>
+      </div>
+      {% endfor %}
+      {% if stats.low_stock_count > stats.low_rows|length %}
+      <a href="/reports/inventory?only_low=1" class="empty" style="display:block; padding:0.5rem">+ {{ stats.low_stock_count - stats.low_rows|length }} صنف آخر منخفض...</a>
+      {% endif %}
+    </div>
+    {% else %}
+    <div class="empty">جميع الأصناف بمستوى آمن.</div>
+    {% endif %}
+  </div>
+</div>
+  </div>
+</details>
+
+{# ====================== Break-Even Widget ====================== #}
+{% if stats.daily_burden %}
+{% set b = stats.daily_burden %}
+<details class="dash-section" open id="break-even-section">
+  <summary>تحليل التعادل اليومي <span class="section-meta">كم يجب أن تبيع اليوم لتغطية تكاليفك</span></summary>
+  <div class="dash-section-body">
+<div style="background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%); color:#fff; padding: 1.4rem 1.6rem; border-radius: 14px; margin-bottom: 1rem">
+  <div class="row" style="justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem">
+    <div>
+      <div style="font-size: 0.82rem; opacity: 0.85; margin-bottom: 0.25rem">عتبة التعادل اليومية للإيراد</div>
+      <div style="font-size: 2.4rem; font-weight: 800; color: #fde68a; line-height: 1">
+        {{ b.break_even_daily_revenue }} <span style="font-size: 1rem; color: #fff; opacity: 0.85">د.ل</span>
+      </div>
+      <div style="font-size: 0.82rem; opacity: 0.85; margin-top: 0.4rem">يجب بيع هذا أو أكثر يومياً لتغطية كل تكاليفك (عبء يومي {{ b.grand_daily }} د.ل ÷ هامش مساهمة {{ (b.cm_ratio * 100)|round(1) }}٪)</div>
+    </div>
+    <div style="text-align: center">
+      <div style="font-size: 0.82rem; opacity: 0.85">إيراد اليوم</div>
+      <div style="font-size: 2.4rem; font-weight: 800; line-height: 1; color: {% if b.is_above_break_even %}#bbf7d0{% else %}#fecaca{% endif %}">
+        {{ b.today_revenue }} <span style="font-size: 1rem; opacity: 0.85; color:#fff">د.ل</span>
+      </div>
+      <div style="font-size: 0.85rem; margin-top: 0.4rem; font-weight: 600; color: {% if b.is_above_break_even %}#bbf7d0{% else %}#fecaca{% endif %}">
+        {% if b.is_above_break_even %}
+          ✓ ربح صافٍ +{{ b.today_net_position }} د.ل
+        {% else %}
+          ⚠ ينقص {{ -b.today_net_position }} د.ل
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div style="margin-top: 1rem; background: rgba(255,255,255,0.18); height: 16px; border-radius: 999px; overflow: hidden; border: 1px solid rgba(255,255,255,0.25)">
+    <div style="height: 100%; width: {{ [b.coverage_pct, 100]|min }}%; background: linear-gradient(90deg, #22d3ee, #fbbf24, #ef4444); transition: width 0.4s"></div>
+  </div>
+  <div style="text-align: center; margin-top: 0.4rem; font-size: 0.88rem; opacity: 0.95">
+    {{ b.coverage_pct }}٪ من العتبة مغطّاة الآن
+  </div>
+  <div style="margin-top: 1rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.6rem">
+    <a href="/admin/recurring-costs" style="background: rgba(255,255,255,0.13); border: 1px solid rgba(255,255,255,0.3); padding: 0.55rem 0.85rem; border-radius: 10px; color: #fff; text-decoration: none; text-align: center">
+      <div style="font-size: 0.78rem; opacity: 0.85">التكاليف الشهرية</div>
+      <div style="font-weight: 700">{{ b.fixed_monthly_total }} د.ل</div>
+    </a>
+    <a href="/reports/fixed-assets" style="background: rgba(255,255,255,0.13); border: 1px solid rgba(255,255,255,0.3); padding: 0.55rem 0.85rem; border-radius: 10px; color: #fff; text-decoration: none; text-align: center">
+      <div style="font-size: 0.78rem; opacity: 0.85">إهلاك الأصول الشهري</div>
+      <div style="font-weight: 700">{{ b.depreciation_monthly }} د.ل</div>
+    </a>
+    <a href="/reports/break-even" style="background: rgba(255,255,255,0.13); border: 1px solid rgba(255,255,255,0.3); padding: 0.55rem 0.85rem; border-radius: 10px; color: #fff; text-decoration: none; text-align: center">
+      <div style="font-size: 0.78rem; opacity: 0.85">تقرير تفصيلي يومي</div>
+      <div style="font-weight: 700">عرض ←</div>
+    </a>
+    <a href="/reports/accounting-help#cvp" style="background: rgba(255,255,255,0.13); border: 1px solid rgba(255,255,255,0.3); padding: 0.55rem 0.85rem; border-balance: 10px; border-radius: 10px; color: #fff; text-decoration: none; text-align: center">
+      <div style="font-size: 0.78rem; opacity: 0.85">شرح CVP</div>
+      <div style="font-weight: 700">دليل المحاسبة ←</div>
+    </a>
+  </div>
+  {% if b.fixed_monthly_total <= 0 %}
+  <div style="margin-top: 0.85rem; background: #fef3c7; color: #78350f; padding: 0.6rem 0.95rem; border-radius: 10px; border: 1px solid #f59e0b">
+    <strong>⚠ لم تُدخل تكاليفك الشهرية بعد!</strong> العتبة لا تشمل سوى الإهلاك حالياً.
+    <a href="/admin/recurring-costs" style="color: #1e40af; font-weight: 700">أضِف الرواتب والإيجار وفواتير الكهرباء/الإنترنت الآن</a>
+    حتى تعرف الموقف المالي الحقيقي.
+  </div>
+  {% endif %}
+</div>
+  </div>
+</details>
+{% endif %}
+
+{# ====================== Month income statement ====================== #}
+<details class="dash-section" open id="income-section">
+  <summary>بيان الدخل الشهري <span class="section-meta">الحسبتان الرئيسيتان</span></summary>
+  <div class="dash-section-body">
+<div class="income">
+  <h2>الحسبة (١): الفرق بين البيع وتكلفة البضاعة فقط</h2>
+  <p class="income-sub">يُسمّى محاسبياً «إجمالي الربح» — يعكس كفاءة سعر البيع مقابل تكلفة الشراء فقط، قبل أي مصاريف أخرى.</p>
+
+  <a class="row-link" href="/reports/sales?period=month" style="display:contents">
+  <div class="income-line">
+    <div class="op">+</div>
+    <div class="lbl">إيرادات المبيعات
+      <small>انقر لعرض تفاصيل {{ stats.month.count }} فاتورة (مبيعات الشهر)</small>
+    </div>
+    <div class="val" style="color:#16a34a">{{ stats.month.revenue }} د.ل</div>
+  </div>
+  </a>
+
+  <a class="row-link" href="/reports/profit?period=month" style="display:contents">
+  <div class="income-line">
+    <div class="op">−</div>
+    <div class="lbl">تكلفة المباع (COGS)
+      <small>تكلفة الوحدة (وصفة التركيب أو متوسط الشراء) × الكميات المباعة — انقر للتفاصيل لكل صنف</small>
+    </div>
+    <div class="val" style="color:#b91c1c">−{{ stats.month_cogs }} د.ل</div>
+  </div>
+  </a>
+
+  <a class="row-link" href="/reports/profit?period=month" style="display:contents">
+  <div class="income-line subtotal {% if stats.month_gross_profit >= 0 %}pos{% else %}neg{% endif %}">
+    <div class="op">=</div>
+    <div class="lbl"><strong>الفرق (إجمالي الربح / هامش المساهمة)</strong>
+      <small>هذا ما تجنيه قبل طرح أي مصروف أو راتب — انقر للتفاصيل بكل منتج</small>
+    </div>
+    <div class="val">
+      <strong>{{ stats.month_gross_profit }} د.ل</strong>
+      {% if stats.month_gross_margin_pct %}
+      <span class="margin-pill">هامش {{ stats.month_gross_margin_pct }}%</span>
+      {% endif %}
+    </div>
+  </div>
+  </a>
+
+  <h2 style="margin-top:1.6rem; padding-top:1rem; border-top:2px dashed #cbd5e1">
+    الحسبة (٢): صافي الربح بعد كل المصاريف الأخرى
+  </h2>
+  <p class="income-sub">نأخذ الفرق من الحسبة الأولى ونطرح منه: المصاريف اليومية، الرواتب والإيجار، المستلزمات، وإهلاك الأصول.</p>
+
+  <div class="income-line">
+    <div class="op">+</div>
+    <div class="lbl">الفرق من الحسبة (١)
+      <small>إجمالي الربح من سعر البيع وتكلفة المباع</small>
+    </div>
+    <div class="val" style="color:{% if stats.month_gross_profit >= 0 %}#16a34a{% else %}#b91c1c{% endif %}">
+      {{ stats.month_gross_profit }} د.ل
+    </div>
+  </div>
+
+  <a class="row-link" href="/reports/expenses?period=month" style="display:contents">
+  <div class="income-line">
+    <div class="op">−</div>
+    <div class="lbl">المصاريف التشغيلية اليومية
+      <small>كهرباء، ماء، غاز، صيانة، مواصلات... — انقر لعرض كل المصروفات</small>
+    </div>
+    <div class="val" style="color:#b91c1c">−{{ stats.month_expenses }} د.ل</div>
+  </div>
+  </a>
+
+  <a class="row-link" href="/admin/recurring-costs" style="display:contents">
+  <div class="income-line">
+    <div class="op">−</div>
+    <div class="lbl">الرواتب والإيجار والاشتراكات (حصة الشهر)
+      <small>إجمالي ثابت شهرياً = {{ stats.month_recurring_total }} د.ل — انقر لإدارة التكاليف الشهرية</small>
+    </div>
+    <div class="val" style="color:#b91c1c">−{{ stats.month_recurring_share }} د.ل</div>
+  </div>
+  </a>
+
+  {% if stats.month_recurring_breakdown %}
+  {% for code, label, monthly, share in stats.month_recurring_breakdown %}
+  <div class="income-line" style="padding-inline-start: 2rem; opacity: 0.78; font-size: 0.92em">
+    <div class="op">·</div>
+    <div class="lbl">{{ label }}
+      <small>{{ monthly }} د.ل/شهر</small>
+    </div>
+    <div class="val" style="color:#b91c1c">−{{ share }} د.ل</div>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  <a class="row-link" href="/reports/assets?period=month" style="display:contents">
+  <div class="income-line">
+    <div class="op">−</div>
+    <div class="lbl">مستلزمات استهلاكية
+      <small>أكياس، ورق، مواد تنظيف... — تُخصم كاملةً في شهر الشراء</small>
+    </div>
+    <div class="val" style="color:#b91c1c">−{{ stats.month_assets_consumable }} د.ل</div>
+  </div>
+  </a>
+
+  <a class="row-link" href="/reports/fixed-assets?period=month" style="display:contents">
+  <div class="income-line">
+    <div class="op">−</div>
+    <div class="lbl">إهلاك الأصول الثابتة
+      <small>حصة الشهر من قسط الإهلاك (فرن، أثاث، طابعة...) — وفق المعيار الدولي IAS 16</small>
+    </div>
+    <div class="val" style="color:#b91c1c">−{{ stats.month_assets_depreciation }} د.ل</div>
+  </div>
+  </a>
+
+  <a class="row-link" href="/reports/comprehensive?period=month" style="display:contents">
+  <div class="income-line total {% if stats.month_net_profit >= 0 %}pos{% else %}neg{% endif %}">
+    <div class="op">=</div>
+    <div class="lbl">صافي الربح/الخسارة (Net Profit)
+      <small style="color: inherit; opacity: 0.85">المتبقّي فعلياً بعد كل التكاليف — انقر للتقرير الشامل</small>
+    </div>
+    <div class="val">
+      {{ stats.month_net_profit }} د.ل
+      {% if stats.month_net_margin_pct %}
+      <span class="margin-pill">هامش {{ stats.month_net_margin_pct }}%</span>
+      {% endif %}
+    </div>
+  </div>
+  </a>
+
+  <div class="footnote">
+    <strong>كيف تُحسب تكلفة المباع؟</strong> لكل بيع: الكمية × تكلفة الوحدة. تكلفة الوحدة للمنتج المركّب (برجر، شيش...) = Σ(كمية كل مكوّن في الوصفة × متوسط سعر شراء المكوّن). للمنتج البسيط = متوسط سعر شرائه.
+    <br>
+    <strong>كيف تُعالَج «الأصول الثابتة»؟</strong> وفق المعيار الدولي
+    <a href="https://www.ifrs.org/issued-standards/list-of-standards/ias-16-property-plant-and-equipment/" target="_blank">IAS 16 (الممتلكات والمصانع والمعدات)</a>:
+    لا تُخصم كلفة الأصل الكاملة في شهر شرائه، بل تُوزَّع على عمره الإنتاجي بطريقة <em>القسط الثابت</em>:
+    <code style="direction:ltr; display:inline-block; background:#fff; padding:0 0.4rem; border-radius:4px">Monthly Depr = (Cost − Salvage) / Useful Life Months</code>.
+    لذا الفرن مثلاً (٥٠٠٠ د.ل، عمره ٥ سنوات) يُخصم منه ~٨٣ د.ل/شهر فقط من الربح، وليس ٥٠٠٠ ضربةً واحدة.
+    <br>
+    <strong>الفرق بين الربح والتدفق النقدي:</strong> «المشتريات» ({{ stats.month_purchases }} د.ل) و«الأصول الكاملة» ({{ stats.month_assets }} د.ل) خرجَت نقداً من المحفظة كاملةً (تدفق نقدي سالب)، لكن صافي الربح لا يطرح إلا «تكلفة المباع» + «الإهلاك» + «المستلزمات» — لأن الباقي تحوّل لأصل (مخزون أو معدات) لم يُستهلك بعد.
+    <br>
+    <a href="/reports/fixed-assets">تفاصيل الأصول الثابتة وحسابات الإهلاك »</a>
+    <br>
+    <strong>ملاحظة محاسبية:</strong> <span style="color:#475569">المشتريات</span> ({{ stats.month_purchases }} د.ل) لا تُطرح هنا مباشرة — لأنها <em>أصل (مخزون)</em> يتحوّل تدريجياً إلى تكلفة مع كل بيع. لذلك الربح هنا قد يبدو مرتفعاً وتظل المحفظة تنخفض من الشراء — وكلاهما صحيح من زوايا مختلفة (دخل مقابل تدفق نقدي).
+    <br>
+    لتفاصيل أعمق: <a href="/reports/profit">تقرير الأرباح بالتفصيل</a> · <a href="/reports/comprehensive">التقرير الشامل</a>.
+  </div>
+</div>
+  </div>
+</details>
+
+{# ====================== Cash movement summary ====================== #}
+<details class="dash-section" id="cashflow-section">
+  <summary>حركة الشهر النقدية <span class="section-meta">مدخل/خرج المحافظ</span></summary>
+  <div class="dash-section-body">
+<div class="kpi-grid">
+  <div class="kpi" title="انقر لعرض فواتير الشراء">
+    <a class="kpi-link" href="/reports/purchases?period=month">
+      <div class="kpi-label">مشتريات مخزون</div>
+      <div class="kpi-value" style="color:#b45309">{{ stats.month_purchases }} <span style="font-size:0.65em;color:var(--muted)">د.ل</span></div>
+      <div class="kpi-sub">خرج من المحافظ — يُضاف للمخزون</div>
+    </a>
+  </div>
+  <div class="kpi" title="انقر لعرض المصروفات">
+    <a class="kpi-link" href="/reports/expenses?period=month">
+      <div class="kpi-label">مصروفات</div>
+      <div class="kpi-value" style="color:#b45309">{{ stats.month_expenses }} <span style="font-size:0.65em;color:var(--muted)">د.ل</span></div>
+      <div class="kpi-sub">خرج من المحافظ — مصروف فوري</div>
+    </a>
+  </div>
+  <div class="kpi" title="انقر لعرض الأصول والأدوات">
+    <a class="kpi-link" href="/reports/assets?period=month">
+      <div class="kpi-label">أصول وأدوات (نقد)</div>
+      <div class="kpi-value" style="color:#b45309">{{ stats.month_assets }} <span style="font-size:0.65em;color:var(--muted)">د.ل</span></div>
+      <div class="kpi-sub">خرج من المحافظ — تدفق نقدي</div>
+    </a>
+  </div>
+  <div class="kpi" title="انقر لعرض تقرير الأرباح">
+    <a class="kpi-link" href="/reports/profit?period=month">
+      <div class="kpi-label">تكلفة المباع</div>
+      <div class="kpi-value" style="color:#b45309">{{ stats.month_cogs }} <span style="font-size:0.65em;color:var(--muted)">د.ل</span></div>
+      <div class="kpi-sub">مكوّنات استُهلكت في البيع</div>
+    </a>
+  </div>
+</div>
+  </div>
+</details>
+
+{% endif %}
+
+{% endblock %}

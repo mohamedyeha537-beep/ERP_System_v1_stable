@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <title>تذكرة مطبخ — {{ section.name_ar }} — #{{ sale.id }}</title>
+  <link rel="stylesheet" href="/static/app.css" />
+  <style>
+    @page { size: 80mm auto; margin: 4mm; }
+    body { font-family: "Noto Sans Arabic", system-ui, sans-serif; }
+    .ticket-page {
+      max-width: 80mm;
+      margin: 0 auto;
+      padding: 0.5rem;
+      border: 2px dashed #1d4ed8;
+      border-radius: 8px;
+    }
+    .head {
+      text-align: center;
+      border-bottom: 2px dashed #94a3b8;
+      padding-bottom: 0.4rem;
+      margin-bottom: 0.5rem;
+    }
+    .head h1 { margin: 0; font-size: 1.1rem; color: #1d4ed8; }
+    .head .meta { font-size: 0.85rem; color: #475569; margin-top: 0.2rem; }
+    .table-line { font-size: 1rem; font-weight: 800; color: #b91c1c; text-align: center; padding: 0.35rem 0; border: 1px solid #fecaca; background: #fef2f2; border-radius: 6px; margin-bottom: 0.5rem; }
+    table { width: 100%; border-collapse: collapse; }
+    table td { padding: 0.3rem 0.2rem; border-bottom: 1px dashed #cbd5e1; font-size: 0.95rem; }
+    table td.qty { text-align: center; font-weight: 800; width: 3rem; }
+    .actions { text-align: center; margin-top: 0.6rem; }
+    @media print { .actions { display: none; } }
+  </style>
+  {% if autoprint %}
+  <script>
+    window.addEventListener("load", function () {
+      setTimeout(function () { window.print(); }, 250);
+    });
+  </script>
+  {% endif %}
+</head>
+<body>
+  <div class="ticket-page">
+    <div class="head">
+      <h1>{{ section.name_ar }}</h1>
+      <div class="meta">طلب #{{ sale.id }} — {{ ticket.created_at.strftime('%H:%M') }}</div>
+    </div>
+    {% if sale.table %}
+    <div class="table-line">الطاولة: {{ sale.table.name_ar }}</div>
+    {% endif %}
+    <table>
+      <tbody>
+        {% for ln in lines %}
+        <tr>
+          <td>{{ ln.product.name_ar }}</td>
+          <td class="qty">× {{ ln.quantity }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="actions">
+      <button onclick="window.print()" class="btn btn-primary">طباعة</button>
+      <a href="/admin/kds" class="btn">رجوع</a>
+    </div>
+  </div>
+</body>
+</html>

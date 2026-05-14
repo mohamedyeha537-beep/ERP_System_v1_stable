@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}شاشة المطبخ (KDS){% endblock %}
+{% block head_extra %}
+<style>
+  .kds-tabs { display:flex; gap:0.4rem; flex-wrap:wrap; margin-bottom: 0.8rem; }
+  .kds-tab { padding:0.45rem 0.85rem; border-radius: 999px; border:1px solid var(--border); background:#fff; color:#0f172a; text-decoration:none; }
+  .kds-tab.active { background: linear-gradient(135deg, #2563eb, #1e40af); color:#fff; border-color: transparent; }
+  .kds-grid {
+    display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 0.75rem;
+  }
+  .ticket {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: #fff;
+    padding: 0.85rem 0.95rem;
+    box-shadow: 0 4px 14px -10px rgba(15,23,42,0.25);
+    display: flex; flex-direction: column; gap: 0.5rem;
+  }
+  .ticket.pending { border-color: #fcd34d; background: #fffbeb; }
+  .ticket.in_progress { border-color: #93c5fd; background: #eff6ff; }
+  .ticket.ready { border-color: #86efac; background: #f0fdf4; }
+  .ticket.served { opacity: 0.7; }
+  .ticket-head {
+    display:flex; align-items:center; justify-content:space-between;
+    font-weight: 700;
+  }
+  .ticket-head .badge {
+    font-size: 0.72rem;
+    padding: 0.18rem 0.55rem;
+    border-radius: 999px;
+    background: rgba(0,0,0,0.06);
+  }
+  .ticket-meta { color: var(--muted); font-size: 0.82rem; display:flex; justify-content: space-between;}
+  .ticket-table { font-weight: 700; color: #1d4ed8; }
+  .ticket-lines { list-style: none; margin: 0; padding: 0; }
+  .ticket-lines li {
+    padding: 0.35rem 0;
+    border-bottom: 1px dashed #e2e8f0;
+    display:flex; justify-content: space-between;
+  }
+  .ticket-lines li:last-child { border-bottom: none; }
+  .ticket-actions { display:flex; gap:0.4rem; flex-wrap:wrap; }
+  .ticket-actions .btn { padding: 0.35rem 0.7rem; font-size: 0.85rem; }
+  .age-old { color: #b91c1c; font-weight: 700; }
+</style>
+<meta http-equiv="refresh" content="20">
+{% endblock %}
+{% block body %}
+<div style="display:flex; align-items:center; justify-content:space-between; gap:0.6rem; flex-wrap:wrap;">
+  <h1 style="margin:0">شاشة المطبخ (KDS)</h1>
+  <div style="display:flex; gap:0.4rem;">
+    <a class="btn" href="/admin/tables">إدارة الطاولات</a>
+    <a class="btn" href="/catalog/categories">إعدادات التوجيه</a>
+  </div>
+</div>
+<p class="muted">
+  تظهر هنا طلبات الأقسام التي ضبطت لها توجيهاً «شاشة KDS» أو «طباعة». الصفحة تتحدّث تلقائياً كل ٢٠ ثانية.
+</p>
+
+{% if not sections %}
+<div class="card" style="border-color:#fecaca; background:#fef2f2">
+  <p style="margin:0">
+    لا توجد أقسام مفعّلة بتوجيه الشاشة بعد. اذهب إلى
+    <a href="/catalog/categories">إدارة الفئات</a> واختر «شاشة المطبخ KDS» للأقسام الجذرية (مثل «المطعم»).
+  </p>
+</div>
+{% else %}
+<div class="kds-tabs">
+  {% for s in sections %}
+  <a class="kds-tab {% if selected and selected.id == s.id %}active{% endif %}"
+     href="/admin/kds?section={{ s.id }}">{{ s.name_ar }}
+    <small style="opacity:0.7">({{ s.routing_mode.value }})</small>
+  </a>
+  {% endfor %}
+  <a class="kds-tab {% if not only_open %}active{% endif %}"
+     href="/admin/kds?section={{ selected.id if selected else '' }}&show={% if only_open %}all{% else %}open{% endif %}">
+    {% if only_open %}عرض المنفّذة أيضاً{% else %}إخفاء المنفّذة{% endif %}
+  </a>
+</div>
+{% endif %}
+
+{% if tickets %}
+<div class="kds-grid">
+  {% for tv in tickets %}
+  {% set t = tv.ticket %}
+  <div class="ticket {{ t.status.value|lower }}">
+    <div class="ticket-head">
+      <span>#{{ t.sale_id }} <small style="color:var(--muted)">— {{ tv.lines|length }} بند</small></span>
+      <span class="badge">{{ {'PENDING':'جديدة','IN_PROGRESS':'تجهيز','READY':'جاهزة','SERVED':'مُسلَّمة'}.get(t.status.value, t.status.value) }}</span>
+    </div>
+    <div class="ticket-meta">
+      <span>{{ t.created_at.strftime('%H:%M') }}</span>
+      {% if tv.table_label %}<span class="ticket-table">طاولة: {{ tv.table_label }}</span>{% endif %}
+      <span class="{% if tv.age_minutes >= 10 %}age-old{% endif %}">منذ {{ tv.age_minutes }} د</span>
+    </div>
+    <ul class="ticket-lines">
+      {% for ln in tv.lines %}
+      <li><span>{{ ln.name_ar }}</span><strong>× {{ ln.qty }}</strong></li>
+      {% endfor %}
+    </ul>
+    <div class="ticket-actions">
+      {% if t.status.value != 'SERVED' %}
+      <form method="post" action="/admin/kds/{{ t.id }}/advance?section={{ selected.id if selected else '' }}" style="display:inline">
+        <button class="btn btn-primary" type="submit">
+          {% if t.status.value == 'PENDING' %}بدء التجهيز{% elif t.status.value == 'IN_PROGRESS' %}جاهزة{% else %}تسليم{% endif %}
+        </button>
+      </form>
+      {% endif %}
+      <form method="post" action="/admin/kds/{{ t.id }}/reset?section={{ selected.id if selected else '' }}" style="display:inline">
+        <button class="btn" type="submit">إعادة</button>
+      </form>
+      <a class="btn" href="/pos/receipt/{{ t.sale_id }}">عرض الفاتورة</a>
+      {% if t.routing_mode == 'PRINT' %}
+      <a class="btn" href="/admin/kds/print/{{ t.id }}?autoprint=1" target="_blank">طباعة تذكرة المطبخ</a>
+      {% endif %}
+    </div>
+    {% if t.routing_mode != 'SCREEN' and t.delivery_info %}
+    <div class="muted" style="font-size:0.78rem;">{{ t.routing_mode }}: {{ t.delivery_info }}</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card"><p class="muted" style="margin:0; text-align:center">لا توجد طلبات حالياً لهذا القسم.</p></div>
+{% endif %}
+{% endblock %}

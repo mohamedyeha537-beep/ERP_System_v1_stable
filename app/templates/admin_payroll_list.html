@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}دفعات الرواتب{% endblock %}
+{% block head_extra %}
+<style>
+  .hr-nav { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 1rem;
+            border-bottom: 1px solid var(--border); padding-bottom: 0.6rem; }
+  .hr-nav a { padding: 0.45rem 0.85rem; border-radius: 8px; border: 1px solid var(--border);
+              background: #fff; color: inherit; text-decoration: none; font-weight: 600; }
+  .hr-nav a.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .hr-nav a:hover { background: #eef2ff; }
+  .pill { display: inline-block; padding: 0.18rem 0.6rem; border-radius: 999px; font-size: 0.78rem; font-weight: 700; }
+  .pill.draft { background: #f1f5f9; color: #475569; }
+  .pill.posted { background: #fef3c7; color: #92400e; }
+  .pill.paid { background: #dcfce7; color: #166534; }
+  .help { background: #fef3c7; border-right: 4px solid #f59e0b; padding: 0.7rem 1rem;
+          border-radius: 8px; color: #78350f; margin-bottom: 1rem; line-height: 1.7; }
+</style>
+{% endblock %}
+{% block body %}
+<div class="row" style="justify-content: space-between; align-items: center">
+  <h1 style="margin: 0">دفعات الرواتب الشهرية</h1>
+</div>
+
+<nav class="hr-nav">
+  <a href="/admin/employees">الموظفون</a>
+  <a href="/admin/attendance">الحضور والانصراف</a>
+  <a href="/admin/payroll" class="active">الرواتب الشهرية</a>
+  <a href="/admin/advances">السلف</a>
+</nav>
+
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+{% if saved %}<div class="alert" style="background:#ecfdf5; border-color:#10b981; color:#065f46">تم الحفظ ✓</div>{% endif %}
+
+<div class="help">
+  <strong>كيف تعمل دفعات الرواتب؟</strong>
+  <ol style="margin: 0.4rem 0">
+    <li><strong>إنشاء:</strong> اختر شهراً → ينشئ النظام مسودة دفعة بكل الموظفين النشطين تلقائياً (مع حساب ساعات الحضور والإضافي).</li>
+    <li><strong>تعديل:</strong> يمكنك ضبط أي بند في الدفعة (مكافآت، استقطاعات، سُلف...).</li>
+    <li><strong>اعتماد:</strong> إقفال الدفعة حتى لا تتغير.</li>
+    <li><strong>دفع:</strong> يولّد قيد مصروف موحَّد بإجمالي الرواتب يُخصم من المحفظة المختارة، ويظهر تلقائياً في تقارير المصروفات والأرباح.</li>
+  </ol>
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">إنشاء دفعة جديدة</h2>
+  <form method="post" action="/admin/payroll/new" class="row" style="gap: 0.5rem; align-items: end">
+    <div>
+      <label for="py">السنة</label>
+      <input id="py" name="period_year" type="number" min="2020" max="2100" required value="{{ now_year }}" style="max-width: 7rem" />
+    </div>
+    <div>
+      <label for="pm">الشهر</label>
+      <select id="pm" name="period_month" required>
+        {% for m in range(1, 13) %}
+        <option value="{{ m }}" {% if m == now_month %}selected{% endif %}>{{ m }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button class="btn btn-primary" type="submit">+ إنشاء دفعة</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">آخر الدفعات</h2>
+  {% if runs %}
+  <table>
+    <thead>
+      <tr>
+        <th>الشهر</th>
+        <th>عدد الموظفين</th>
+        <th>إجمالي قبل الاستقطاعات</th>
+        <th>صافي الراتب</th>
+        <th>الحالة</th>
+        <th>التواريخ</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in runs %}
+      <tr>
+        <td><strong>{{ r.label }}</strong></td>
+        <td>{{ r.entries|length }}</td>
+        <td>{{ r.total_gross }}</td>
+        <td style="font-weight:800">{{ r.total_net }} د.ل</td>
+        <td>
+          <span class="pill {{ r.status.value|lower }}">{{ status_labels[r.status.value] }}</span>
+        </td>
+        <td class="muted" style="font-size: 0.82rem">
+          أُنشئت: {{ r.created_at.strftime('%Y-%m-%d') }}
+          {% if r.posted_at %}<br>اعتُمدت: {{ r.posted_at.strftime('%Y-%m-%d') }}{% endif %}
+          {% if r.paid_at %}<br>دُفعت: {{ r.paid_at.strftime('%Y-%m-%d') }}{% endif %}
+        </td>
+        <td class="row" style="gap:0.3rem; margin:0">
+          <a class="btn" href="/admin/payroll/{{ r.id }}" style="padding:0.2rem 0.55rem; font-size:0.85rem">عرض/تعديل</a>
+          {% if r.status.value != 'PAID' %}
+          <form method="post" action="/admin/payroll/{{ r.id }}/delete" style="display:inline" onsubmit="return confirm('حذف الدفعة؟')">
+            <button class="btn" type="submit" style="padding:0.2rem 0.55rem; font-size:0.85rem; color:#b91c1c; border-color:#fecaca">حذف</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted" style="text-align: center; padding: 1.5rem">
+    لم تُنشَأ أي دفعة رواتب بعد. ابدأ بإنشاء دفعة الشهر الحالي أعلاه.
+  </p>
+  {% endif %}
+</div>
+{% endblock %}

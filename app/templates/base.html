@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    {% set brand = pos_brand(request) %}
+    <title>{% block title %}{{ brand.pos_label }}{% endblock %} · {{ pos_display_name(request) }}</title>
+    {# الخطوط المحلية فقط — لا اتصال بالإنترنت أثناء التشغيل #}
+    <style>
+      :root {
+        --pos-font-arabic: "Segoe UI", "Tahoma", "Arial", "Microsoft Sans Serif",
+          "Geeza Pro", "Helvetica Neue", system-ui, sans-serif;
+        --header-h: 76px;
+        /* ===== متغيرات الهويّة البصرية (يضبطها الأدمن من /admin/branding) ===== */
+        --brand-header-from: {{ brand.header_bg_from }};
+        --brand-header-to: {{ brand.header_bg_to }};
+        --brand-header-fg: {{ brand.header_fg }};
+        --brand-footer-bg: {{ brand.footer_bg }};
+        --brand-footer-fg: {{ brand.footer_fg }};
+        --brand-primary: {{ brand.primary_color }};
+        --brand-accent: {{ brand.accent_color }};
+      }
+      html, body { font-family: var(--pos-font-arabic); }
+
+      /* اربط متغيّر app.css العام بلون الهويّة الأساسي */
+      :root { --primary: var(--brand-primary); }
+
+      /* =================== Layout =================== */
+      body {
+        margin: 0;
+        background: #f1f5f9;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      .app-main {
+        flex: 1;
+        padding: 1rem 0 2rem;
+      }
+      .app-main > .container {
+        max-width: 1280px;
+        margin: 0 auto;
+        padding: 0 1rem;
+      }
+
+      /* =================== Header =================== */
+      .app-header {
+        background: linear-gradient(135deg, var(--brand-header-from) 0%, var(--brand-header-to) 100%);
+        color: var(--brand-header-fg);
+        height: var(--header-h);
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        box-shadow: 0 2px 12px rgba(15, 23, 42, 0.18);
+      }
+      .header-inner {
+        max-width: 1280px;
+        margin: 0 auto;
+        height: 100%;
+        padding: 0 1rem;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.85rem;
+        font-weight: 700;
+        font-size: 1.05rem;
+        color: var(--brand-header-fg);
+        text-decoration: none;
+        white-space: nowrap;
+      }
+      .brand:hover { opacity: 0.85; }
+      .brand .logo {
+        width: 64px; height: 64px;
+        display: grid; place-items: center;
+        overflow: hidden;
+        flex: 0 0 auto;
+      }
+      .brand .logo svg {
+        width: 38px;
+        height: 38px;
+      }
+      .brand .logo img {
+        width: 100%; height: 100%; object-fit: contain;
+      }
+      .brand .logo.is-fallback {
+        width: 42px;
+        height: 42px;
+        color: var(--brand-header-fg);
+      }
+      .brand .brand-text { line-height: 1.1; }
+      .brand .brand-text strong {
+        display: block;
+        font-size: 1.15rem;
+      }
+      .brand .brand-text small {
+        display: block; font-size: 0.75rem; opacity: 0.76; font-weight: 500;
+        margin-top: 0.12rem;
+      }
+
+      /* Header navigation */
+      .header-nav {
+        display: flex;
+        gap: 0.15rem;
+        align-items: center;
+        margin-inline-start: 1rem;
+        flex: 1;
+        overflow-x: auto;
+      }
+      .header-nav a {
+        color: var(--brand-header-fg);
+        opacity: 0.78;
+        text-decoration: none;
+        padding: 0.45rem 0.75rem;
+        border-radius: 8px;
+        font-size: 0.88rem;
+        font-weight: 500;
+        white-space: nowrap;
+        transition: all 0.15s;
+      }
+      .header-nav a:hover { background: rgba(255,255,255,0.1); opacity: 1; }
+      .header-nav a.active { background: rgba(255,255,255,0.18); opacity: 1; }
+
+      /* User menu */
+      .user-menu {
+        display: flex;
+        align-items: center;
+        gap: 0.7rem;
+        margin-inline-start: auto;
+      }
+      .user-info {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        line-height: 1.2;
+        font-size: 0.85rem;
+      }
+      .user-info .username { font-weight: 600; }
+      .user-info .role-pill {
+        font-size: 0.7rem;
+        padding: 0.1rem 0.45rem;
+        background: rgba(59,130,246,0.3);
+        border-radius: 999px;
+        color: #bfdbfe;
+        margin-top: 0.1rem;
+      }
+      .avatar {
+        width: 36px; height: 36px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #ef4444, #f59e0b);
+        display: grid; place-items: center;
+        font-weight: 700; color: #fff;
+        font-size: 0.95rem;
+      }
+      .header-action {
+        color: var(--brand-header-fg);
+        opacity: 0.85;
+        text-decoration: none;
+        padding: 0.4rem 0.6rem;
+        border-radius: 8px;
+        font-size: 0.85rem;
+        background: rgba(255,255,255,0.08);
+        display: inline-flex; align-items: center; gap: 0.3rem;
+      }
+      .header-action:hover { background: rgba(239,68,68,0.25); opacity: 1; }
+
+      /* Mobile burger toggle */
+      .nav-toggle {
+        display: none;
+        background: transparent; border: 0; color: var(--brand-header-fg);
+        font-size: 1.5rem; cursor: pointer;
+      }
+      @media (max-width: 900px) {
+        :root { --header-h: 68px; }
+        .nav-toggle { display: block; }
+        .header-nav {
+          position: absolute;
+          top: var(--header-h);
+          inset-inline: 0;
+          background: #0f172a;
+          flex-direction: column;
+          padding: 0.5rem;
+          border-bottom: 1px solid rgba(255,255,255,0.1);
+          max-height: calc(100vh - var(--header-h));
+          overflow-y: auto;
+        }
+        .header-nav:not(.open) { display: none; }
+        .header-nav a { width: 100%; }
+        .user-info { display: none; }
+        .brand .logo { width: 50px; height: 50px; }
+        .brand .logo.is-fallback { width: 34px; height: 34px; }
+        .brand .logo svg { width: 30px; height: 30px; }
+        .brand .brand-text strong { font-size: 1rem; }
+      }
+
+      /* =================== Footer =================== */
+      .app-footer {
+        background: var(--brand-footer-bg);
+        color: var(--brand-footer-fg);
+        padding: 1.5rem 0 1rem;
+        font-size: 0.85rem;
+        margin-top: auto;
+      }
+      .footer-inner {
+        max-width: 1280px;
+        margin: 0 auto;
+        padding: 0 1rem;
+        display: grid;
+        grid-template-columns: 2fr 1fr 1fr;
+        gap: 1.5rem;
+      }
+      @media (max-width: 720px) {
+        .footer-inner { grid-template-columns: 1fr; gap: 1rem; }
+      }
+      .footer-col h4 {
+        color: var(--brand-footer-fg);
+        opacity: 0.95;
+        margin: 0 0 0.5rem;
+        font-size: 0.92rem;
+      }
+      .footer-col a {
+        color: var(--brand-footer-fg);
+        opacity: 0.85;
+        text-decoration: none;
+        display: block;
+        padding: 0.18rem 0;
+        font-size: 0.85rem;
+      }
+      .footer-col a:hover { color: var(--brand-primary); opacity: 1; }
+      .footer-bottom {
+        max-width: 1280px;
+        margin: 1rem auto 0;
+        padding: 1rem;
+        border-top: 1px solid rgba(255,255,255,0.08);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        font-size: 0.78rem;
+      }
+      .offline-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        padding: 0.18rem 0.5rem;
+        background: rgba(34, 197, 94, 0.15);
+        color: #86efac;
+        border-radius: 999px;
+        font-size: 0.72rem;
+        border: 1px solid rgba(34, 197, 94, 0.3);
+      }
+      .offline-pill .dot {
+        width: 6px; height: 6px; border-radius: 50%;
+        background: #22c55e;
+        animation: pulse 2s infinite;
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.4; }
+      }
+
+      /* لا تعرض الهيدر/الفوتر في صفحة تسجيل الدخول */
+      .auth-page { padding-top: 0 !important; }
+    </style>
+    <link rel="stylesheet" href="/static/app.css" />
+    <script src="/static/vendor/htmx.min.js"></script>
+    {% block head_extra %}{% endblock %}
+  </head>
+  <body>
+    {# ===================== HEADER ===================== #}
+    {% set u = pos_user(request) %}
+    {% set p = pos_perm(request) %}
+    {% if u %}
+    <header class="app-header">
+      <div class="header-inner">
+        <a class="brand" href="/" title="الرئيسية">
+          {% if brand.show_logo_in_header %}
+          <span class="logo {% if not brand.logo_url %}is-fallback{% endif %}">
+            {% if brand.logo_url %}
+            <img src="{{ brand.logo_url }}" alt="logo" />
+            {% else %}
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="2" y="6" width="20" height="12" rx="2"></rect>
+              <path d="M2 10h20"></path>
+              <circle cx="7" cy="14" r="1.4"></circle>
+            </svg>
+            {% endif %}
+          </span>
+          {% endif %}
+          {% if brand.show_name_in_header %}
+          <span class="brand-text">
+            <strong>{{ pos_display_name(request) }}</strong>
+            <small>{{ brand.header_tagline }}</small>
+          </span>
+          {% endif %}
+        </a>
+
+        <button class="nav-toggle" type="button" onclick="document.querySelector('.header-nav').classList.toggle('open')" aria-label="القائمة">☰</button>
+
+        <nav class="header-nav" id="mainNav">
+          <a href="/">الرئيسية</a>
+          {% if p('sales:create') %}<a href="/pos">{{ brand.pos_label }}</a>{% endif %}
+          {% if p('sales:refund') %}<a href="/refunds">المرتجعات</a>{% endif %}
+          {% if p('reports:view') %}<a href="/reports">التقارير</a>{% endif %}
+          {% if p('reports:view') %}<a href="/reports/delivery">التوصيل</a>{% endif %}
+          {% if p('inventory:view') %}<a href="/inventory">المخزون</a>{% endif %}
+          {% if p('catalog:write') %}<a href="/catalog/products">الأصناف</a>{% endif %}
+          {% if p('hr:view') %}<a href="/admin/employees">الموظفون</a>{% endif %}
+          {% if p('purchases:manage') %}<a href="/admin/purchases">المشتريات</a>{% endif %}
+          {% if p('admin:settings') %}<a href="/admin/settings">الإعدادات</a>{% endif %}
+        </nav>
+
+        <div class="user-menu">
+          <div class="user-info">
+            <span class="username">{{ u.username }}</span>
+            {% if u.roles %}
+            <span class="role-pill">{{ u.roles[0].name_ar }}</span>
+            {% endif %}
+          </div>
+          <div class="avatar" title="{{ u.username }}">
+            {{ u.username[0]|upper }}
+          </div>
+          <a class="header-action" href="/auth/logout" title="تسجيل الخروج">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+            خروج
+          </a>
+        </div>
+      </div>
+    </header>
+    {% endif %}
+
+    {# ===================== MAIN ===================== #}
+    <main class="app-main">
+      <div class="container">
+        {% block body %}{% endblock %}
+      </div>
+    </main>
+
+    {# ===================== FOOTER ===================== #}
+    {% if u %}
+    <footer class="app-footer">
+      <div class="footer-inner">
+        <div class="footer-col">
+          <h4>{{ pos_display_name(request) }}</h4>
+          <p style="margin: 0; line-height: 1.6">
+            {{ brand.footer_tagline }}
+          </p>
+        </div>
+        <div class="footer-col">
+          <h4>روابط مهمة</h4>
+          {% if p('sales:refund') %}<a href="/refunds">↩ مرتجعات المبيعات</a>{% endif %}
+          {% if p('reports:view') %}<a href="/reports">📊 مركز التقارير</a>{% endif %}
+          {% if p('delivery:manage') %}<a href="/admin/delivery-zones">🚚 مناطق التوصيل</a>{% endif %}
+          {% if p('admin:settings') %}<a href="/admin/settings">⚙ الإعدادات</a>{% endif %}
+          {% if p('backup:manage') %}<a href="/admin/backup">💾 نسخ احتياطي</a>{% endif %}
+        </div>
+        <div class="footer-col">
+          <h4>الحالة</h4>
+          <div style="display:flex; flex-direction:column; gap:0.4rem">
+            <span class="offline-pill">
+              <span class="dot"></span>
+              يعمل أوفلاين
+            </span>
+            <span style="font-size:0.78rem; opacity:0.7">
+              الإصدار: {{ pos_app_version(request) }}
+            </span>
+          </div>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>© {{ pos_display_name(request) }} — {{ now_year if now_year is defined else '2026' }} · جميع الحقوق محفوظة</span>
+        <span>صُنع بـ ❤ FastAPI + SQLite + HTMX</span>
+      </div>
+    </footer>
+    {% endif %}
+  </body>
+</html>

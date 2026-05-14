@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}{% if product %}تعديل صنف{% else %}صنف جديد{% endif %}{% endblock %}
+{% block body %}
+<h1>{% if product %}تعديل صنف{% else %}صنف جديد{% endif %}</h1>
+{% if error %}
+<div class="alert">{{ error }}</div>
+{% endif %}
+<div class="card">
+  <form
+    method="post"
+    enctype="multipart/form-data"
+    action="{% if product %}/catalog/products/{{ product.id }}/edit{% else %}/catalog/products/new{% endif %}"
+  >
+    <label for="name_ar">الاسم بالعربية</label>
+    <input id="name_ar" name="name_ar" required value="{{ product.name_ar if product else '' }}" />
+    <label for="category_id">الفئة (رئيسية أو فرعية)</label>
+    <select id="category_id" name="category_id">
+      <option value="">— بدون فئة —</option>
+      {% for cid, label in category_rows %}
+      <option value="{{ cid }}" {% if product and product.category_id == cid %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <label for="barcode">الباركود (للمسح في نقطة البيع)</label>
+    <input id="barcode" name="barcode" value="{{ product.barcode if product and product.barcode else '' }}" placeholder="EAN / داخلي" />
+    <label for="image">صورة المنتج (jpg / png / webp)</label>
+    <input id="image" name="image" type="file" accept=".jpg,.jpeg,.png,.webp" />
+    {% if product and product.image_filename %}
+    <p class="muted">الصورة الحالية:</p>
+    <img src="/static/{{ product.image_filename }}" alt="" style="max-width: 200px; border-radius: 8px; border: 1px solid var(--border)" />
+    {% endif %}
+    <label for="sku">رمز SKU (اختياري)</label>
+    <input id="sku" name="sku" value="{{ product.sku if product and product.sku else '' }}" />
+    <label for="unit">الوحدة</label>
+    <select id="unit" name="unit" required>
+      {% set selected_unit = product.unit if product else 'قطعة' %}
+      {% for u in unit_rows %}
+      <option value="{{ u.name_ar }}" {% if selected_unit == u.name_ar %}selected{% endif %}>{{ u.name_ar }}</option>
+      {% endfor %}
+      {% if selected_unit and not unit_rows|selectattr('name_ar', 'equalto', selected_unit)|list %}
+      <option value="{{ selected_unit }}" selected>{{ selected_unit }} (قديمة)</option>
+      {% endif %}
+    </select>
+    <p class="muted" style="margin-top: -0.4rem">إدارة الوحدات من صفحة <a href="/catalog/units">وحدات القياس</a>.</p>
+    <label for="kind">نوع الصنف</label>
+    <select id="kind" name="kind">
+      <option value="FINAL_SELLABLE" {% if product and product.kind.value == 'FINAL_SELLABLE' %}selected{% endif %}>منتج نهائي (يُباع)</option>
+      <option value="STOCK_ONLY" {% if product and product.kind.value == 'STOCK_ONLY' %}selected{% endif %}>مخزني فقط (مكوّن)</option>
+    </select>
+    <label for="sell_price">سعر البيع (د.ل) — للمنتج النهائي</label>
+    <input id="sell_price" name="sell_price" value="{{ product.sell_price if product and product.sell_price is not none else '' }}" />
+    <label for="reorder_level">حد التنبيه للمخزون</label>
+    <input id="reorder_level" name="reorder_level" value="{{ product.reorder_level if product else '0' }}" />
+    <label for="notes">ملاحظات</label>
+    <textarea id="notes" name="notes" rows="3">{{ product.notes if product and product.notes else '' }}</textarea>
+    {% if product %}
+    <label><input type="checkbox" name="is_active" value="on" {% if product.is_active %}checked{% endif %} /> نشط</label>
+    {% endif %}
+    <div class="row" style="margin-top: 1rem">
+      <button class="btn btn-primary" type="submit">حفظ</button>
+      <a class="btn" href="/catalog/products">رجوع</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}مناطق التوصيل{% endblock %}
+{% block body %}
+<div style="display:flex;align-items:center;justify-content:space-between;gap:0.6rem;flex-wrap:wrap">
+  <h1 style="margin:0">مناطق التوصيل</h1>
+  <a class="btn" href="/admin/settings">رجوع للإعدادات</a>
+</div>
+
+{% if ok %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4">
+  <p style="margin:0">تم حفظ بيانات التوصيل.</p>
+</div>
+{% endif %}
+{% if error %}
+<div class="alert">{{ error }}</div>
+{% endif %}
+
+<div class="grid cols-2">
+  <div class="card">
+    <h2 style="margin-top:0">{% if edit_zone %}تعديل منطقة{% else %}إضافة منطقة جديدة{% endif %}</h2>
+    <form method="post" action="{% if edit_zone %}/admin/delivery-zones/{{ edit_zone.id }}/update{% else %}/admin/delivery-zones{% endif %}">
+      <label for="name_ar">اسم المنطقة</label>
+      <input id="name_ar" name="name_ar" value="{{ edit_zone.name_ar if edit_zone else '' }}" maxlength="120" required />
+
+      <label for="fee" style="margin-top:0.75rem">أجرة التوصيل</label>
+      <input id="fee" name="fee" type="number" inputmode="decimal" step="0.001" min="0" value="{{ edit_zone.fee if edit_zone else '0.000' }}" required />
+
+      <label for="sort_order" style="margin-top:0.75rem">الترتيب</label>
+      <input id="sort_order" name="sort_order" type="number" value="{{ edit_zone.sort_order if edit_zone else 0 }}" />
+
+      <label for="notes" style="margin-top:0.75rem">ملاحظات</label>
+      <textarea id="notes" name="notes" rows="3">{{ edit_zone.notes if edit_zone else '' }}</textarea>
+
+      {% if edit_zone %}
+      <label style="display:flex;align-items:center;gap:0.5rem;margin-top:0.85rem">
+        <input type="hidden" name="is_active" value="0" />
+        <input type="checkbox" name="is_active" value="1" {% if edit_zone.is_active %}checked{% endif %} />
+        <span>المنطقة مفعّلة</span>
+      </label>
+      {% endif %}
+
+      <div class="row" style="margin-top:1rem">
+        <button class="btn btn-primary" type="submit">{% if edit_zone %}حفظ التعديل{% else %}إضافة المنطقة{% endif %}</button>
+        {% if edit_zone %}<a class="btn" href="/admin/delivery-zones">إلغاء التعديل</a>{% endif %}
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">طريقة المعالجة</h2>
+    <div class="muted" style="line-height:1.9">
+      <div>1. عند اختيار <strong>توصيل</strong> في الطلب الخارجي تظهر هذه المناطق للكاشير.</div>
+      <div>2. أجرة التوصيل <strong>لا تُحتسب مبيعاً للمطعم</strong>.</div>
+      <div>3. تُخصم الأجرة تلقائياً من محفظة الكاش لأنها عهدة للسائق/المندوب.</div>
+      <div>4. في المرتجع يُرد ثمن الأصناف فقط، ولا تُرد أجرة التوصيل بعد التنفيذ.</div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">المناطق الحالية</h2>
+  {% if zones %}
+  <table>
+    <thead>
+      <tr>
+        <th>المنطقة</th>
+        <th>الأجرة</th>
+        <th>الترتيب</th>
+        <th>الحالة</th>
+        <th>الإجراءات</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for z in zones %}
+      <tr>
+        <td>
+          <strong>{{ z.name_ar }}</strong>
+          {% if z.notes %}<div class="muted" style="font-size:0.82rem">{{ z.notes }}</div>{% endif %}
+        </td>
+        <td>{{ pos_money(z.fee) }} <span class="money-currency">د.ل</span></td>
+        <td>{{ z.sort_order }}</td>
+        <td>{% if z.is_active %}<span style="color:#15803d;font-weight:700">مفعّلة</span>{% else %}<span style="color:#b91c1c;font-weight:700">معطّلة</span>{% endif %}</td>
+        <td>
+          <div class="row" style="gap:0.4rem">
+            <a class="btn" href="/admin/delivery-zones?edit={{ z.id }}">تعديل</a>
+            <form method="post" action="/admin/delivery-zones/{{ z.id }}/delete" onsubmit="return confirm('حذف المنطقة {{ z.name_ar }}؟');" style="margin:0">
+              <button class="btn" type="submit" style="color:#b91c1c">حذف</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">لا توجد مناطق توصيل بعد.</p>
+  {% endif %}
+</div>
+{% endblock %}

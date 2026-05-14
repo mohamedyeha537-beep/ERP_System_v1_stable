@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% from "_reports_macros.html" import reports_nav, period_filter %}
+{% block title %}تقرير التوصيل{% endblock %}
+{% block body %}
+<h1>تقرير طلبات التوصيل</h1>
+{{ reports_nav('delivery') }}
+{{ period_filter('/reports/delivery', period, period_labels, start, end, start_str, end_str) }}
+
+<div class="grid cols-3">
+  <div class="card">
+    <div class="muted">عدد طلبات التوصيل</div>
+    <div style="font-size:1.8rem;font-weight:800">{{ orders_count }}</div>
+  </div>
+  <div class="card">
+    <div class="muted">قيمة الطلبات للمطعم</div>
+    <div style="font-size:1.8rem;font-weight:800">{{ pos_money(order_total) }} <span class="money-currency">د.ل</span></div>
+  </div>
+  <div class="card">
+    <div class="muted">إجمالي أجرة التوصيل</div>
+    <div style="font-size:1.8rem;font-weight:800;color:#b45309">{{ pos_money(delivery_total) }} <span class="money-currency">د.ل</span></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">تفاصيل الطلبات</h2>
+  {% if rows %}
+  <table>
+    <thead>
+      <tr>
+        <th>الفاتورة</th>
+        <th>التاريخ</th>
+        <th>العميل</th>
+        <th>المنطقة</th>
+        <th>قيمة الطلب</th>
+        <th>أجرة التوصيل</th>
+        <th>إجمالي الزبون</th>
+        <th>دفع الطلب</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td><strong>#{{ row.sale_id }}</strong></td>
+        <td>{{ row.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td>
+          {% if row.customer_name %}{{ row.customer_name }}{% else %}<span class="muted">بدون اسم</span>{% endif %}
+          {% if row.customer_phone %}<div class="muted" style="font-size:0.82rem">{{ row.customer_phone }}</div>{% endif %}
+        </td>
+        <td>{{ row.zone_name or '—' }}</td>
+        <td>{{ pos_money(row.order_total) }} <span class="money-currency">د.ل</span></td>
+        <td style="color:#b45309">{{ pos_money(row.delivery_fee) }} <span class="money-currency">د.ل</span></td>
+        <td>{{ pos_money(row.customer_total) }} <span class="money-currency">د.ل</span></td>
+        <td>{{ row.payment_method_name or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">لا توجد طلبات توصيل في هذه الفترة.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">ملاحظة محاسبية</h2>
+  <p class="muted" style="margin:0;line-height:1.9">
+    قيمة الطلب تُحتسب إيراداً للمطعم حسب وسيلة الدفع المختارة، أما أجرة التوصيل فتُسجل كخصم كاش مستقل للسائق ولا تدخل ضمن إيراد المطعم أو صافي الربح.
+  </p>
+</div>
+{% endblock %}

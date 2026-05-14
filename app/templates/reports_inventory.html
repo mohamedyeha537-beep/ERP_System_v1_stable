@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button %}
+{% block title %}تقرير المخزون{% endblock %}
+{% block body %}
+<h1>تقرير المخزون</h1>
+{{ reports_nav('inventory') }}
+{{ period_filter('/reports/inventory', period, period_labels, start, end, start_str, end_str) }}
+<div class="export-bar">
+  <span class="label">📤 تصدير:</span>
+  {{ export_button('/reports/export/inventory.csv', 'المخزون الحالي (CSV)') }}
+  {{ export_button('/reports/export/inventory.csv?only_low=1', 'المخزون المنخفض فقط (CSV)') }}
+</div>
+
+
+<div class="card">
+  <h2 style="margin-top: 0">قيمة المخزون والتنبيهات</h2>
+  <div class="stat-grid">
+    <div class="stat-card"><div class="label">قيمة المخزون الحالية</div><div class="value">{{ inv_value }} د.ل</div><div class="muted" style="font-size: 0.78rem">الكمية × متوسط التكلفة</div></div>
+    <div class="stat-card {% if low_count > 0 %}warn{% endif %}"><div class="label">أصناف قاربت على النفاد</div><div class="value">{{ low_count }}</div></div>
+  </div>
+  <div class="row" style="margin-top: 0.7rem; gap: 0.4rem">
+    <a class="btn btn-primary" href="/admin/alerts">إعدادات تنبيهات نفاد المخزون</a>
+  </div>
+</div>
+
+<div class="card">
+  <div class="row" style="justify-content: space-between; align-items: center; flex-wrap: wrap">
+    <h2 style="margin: 0">الأرصدة الحالية</h2>
+    <form method="get" action="/reports/inventory" class="row" style="gap: 0.4rem; align-items: flex-end; margin: 0">
+      <input type="hidden" name="period" value="{{ period }}" />
+      <div>
+        <label for="q" class="muted" style="font-size: 0.8rem">بحث باسم الصنف</label>
+        <input id="q" name="q" type="search" value="{{ q or '' }}" placeholder="بحث..." style="max-width: 14rem" />
+      </div>
+      <label style="display: inline-flex; align-items: center; gap: 0.3rem; margin-bottom: 0.4rem">
+        <input type="checkbox" name="only_low" value="1" {% if only_low %}checked{% endif %} style="width: auto" />
+        المنخفضة فقط
+      </label>
+      <button class="btn" type="submit">تطبيق</button>
+    </form>
+  </div>
+  {% if rows %}
+  <table>
+    <thead>
+      <tr>
+        <th>الصنف</th>
+        <th>الوحدة</th>
+        <th>الكمية</th>
+        <th>الحد الأدنى</th>
+        <th>متوسط التكلفة</th>
+        <th>سعر البيع</th>
+        <th>الحالة</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr {% if r.is_low %}style="background: #fef2f2"{% endif %}>
+        <td><strong>{{ r.name_ar }}</strong></td>
+        <td>{{ r.unit }}</td>
+        <td style="font-weight: 700">{{ r.quantity }}</td>
+        <td>{{ r.reorder_level }}</td>
+        <td>{{ r.avg_cost }}</td>
+        <td>{% if r.sell_price is not none %}{{ r.sell_price }} د.ل{% else %}—{% endif %}</td>
+        <td>
+          {% if r.is_low %}
+          <span style="color: #b91c1c; font-weight: 700">⚠ منخفض</span>
+          {% else %}
+          <span style="color: #16a34a">جيّد</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">لا أصناف مطابقة.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">صافي حركة المخزون في الفترة</h2>
+  {% if movements %}
+  <table>
+    <thead><tr><th>الصنف</th><th>صافي الحركة</th></tr></thead>
+    <tbody>
+      {% for name, delta in movements %}
+      <tr>
+        <td>{{ name }}</td>
+        <td style="font-weight: 700; color: {% if delta >= 0 %}#16a34a{% else %}#b91c1c{% endif %}">{% if delta >= 0 %}+{% endif %}{{ delta }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">لا حركات.</p>{% endif %}
+</div>
+{% endblock %}

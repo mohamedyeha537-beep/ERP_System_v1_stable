@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    {% set brand = pos_brand(request) %}
+    <title>{{ brand.receipt_title }} #{{ sale.id }}</title>
+    {# خطوط محلية فقط — يعمل أوفلاين #}
+    <style>
+      html, body { font-family: "Segoe UI", "Tahoma", "Arial",
+        "Microsoft Sans Serif", "Geeza Pro", system-ui, sans-serif; }
+    </style>
+    <link rel="stylesheet" href="/static/app.css" />
+    <link rel="stylesheet" href="/static/receipt_print.css" />
+    <style>
+      @page {
+        size: {{ paper_css.size }};
+        margin: {{ paper_css.margin }};
+      }
+      .receipt-page { max-width: {{ paper_css.max_width }}; }
+    </style>
+    {% if autoprint %}
+    <script>
+      window.addEventListener("load", function () {
+        setTimeout(function () {
+          window.print();
+        }, 350);
+      });
+    </script>
+    {% endif %}
+  </head>
+  <body class="paper-{{ paper }}">
+    <div class="receipt-page paper-{{ paper }}">
+      <div class="receipt-actions no-print">
+        <button type="button" class="btn btn-primary" onclick="window.print()">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="6 9 6 2 18 2 18 9"></polyline>
+            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+            <rect x="6" y="14" width="12" height="8"></rect>
+          </svg>
+          طباعة
+        </button>
+        <a class="btn" href="/pos">رجوع إلى {{ brand.pos_label }}</a>
+
+        {% if can_choose_paper %}
+        <form method="get" action="/pos/receipt/{{ sale.id }}" style="display: inline-flex; gap: 0.35rem; align-items: center; margin-inline-start: auto">
+          <label for="paper" class="muted" style="margin: 0">المقاس:</label>
+          <select id="paper" name="paper" onchange="this.form.submit()">
+            {% for code, label in paper_choices %}
+            <option value="{{ code }}" {% if paper == code %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </form>
+        {% else %}
+        <span class="muted no-print" style="margin-inline-start: auto">المقاس: {{ paper }}</span>
+        {% endif %}
+      </div>
+
+      <header class="receipt-header">
+        {% set receipt_logo = brand.print_logo_url or brand.logo_url %}
+        {% if receipt_logo %}
+        <div class="receipt-logo-wrap">
+          <img class="receipt-logo" src="{{ receipt_logo }}" alt="logo" />
+        </div>
+        {% endif %}
+        <h1 style="margin: 0; font-size: 1.15rem">{{ pos_display_name(request) }}</h1>
+        <p style="margin: 0.25rem 0 0; font-size: 0.95rem; font-weight: 600">{{ brand.receipt_title }}</p>
+        <p style="margin: 0.15rem 0 0; font-size: 0.85rem">رقم: {{ sale.id }} — {{ sale.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+        {% if sale.table %}
+        <p style="margin: 0.15rem 0 0; font-size: 0.95rem; font-weight: 700; color: #1d4ed8">الطاولة: {{ sale.table.name_ar }}</p>
+        {% endif %}
+        {% if sale.source.value == 'ONLINE' %}
+        <p style="margin: 0.15rem 0 0; font-size: 0.8rem">مصدر: أونلاين{% if sale.external_order_id %} — {{ sale.external_order_id }}{% endif %}</p>
+        {% endif %}
+        {% if sale.context_type.value == 'EXTERNAL' and sale.external_order_type.value == 'DELIVERY' %}
+        <p style="margin: 0.15rem 0 0; font-size: 0.88rem; font-weight: 700; color: #9a3412">
+          🚚 توصيل — {{ sale.delivery_zone_name or 'منطقة توصيل' }}
+        </p>
+        {% endif %}
+      </header>
+
+      {% for sec in sections %}
+      <section class="receipt-section">
+        {% if loop.first and cashier_name %}
+        <div class="receipt-section-headline">
+          <h2 class="receipt-section-title" style="margin:0">{{ sec.root_title }}</h2>
+          <div class="receipt-cashier">الكاشير: <strong>{{ cashier_name }}</strong></div>
+        </div>
+        {% else %}
+        <h2 class="receipt-section-title">{{ sec.root_title }}</h2>
+        {% endif %}
+        {% for sg in sec.subgroups %}
+        {% if sg.title %}
+        <h3 class="receipt-subtitle">{{ sg.title }}</h3>
+        {% endif %}
+        <table class="receipt-table">
+          <thead>
+            <tr>
+              <th>الصنف</th>
+              <th class="num">الكمية</th>
+              <th class="num">السعر</th>
+              <th class="num">الإجمالي</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for line in sg.lines %}
+            <tr>
+              <td>{{ line.product.name_ar }}</td>
+              <td class="num">{{ pos_qty(line.quantity) }}</td>
+              <td class="num">{{ pos_money(line.unit_price) }}</td>
+              <td class="num">{{ pos_money(line.line_total) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endfor %}
+      </section>
+      {% endfor %}
+
+      <hr class="receipt-divider" />
+      <div class="receipt-grand">
+        <span>{% if sale.context_type.value == 'EXTERNAL' and sale.external_order_type.value == 'DELIVERY' %}قيمة الطلب{% else %}الإجمالي الكلي{% endif %}</span>
+        <span>{{ pos_money(sale.total) }} <span class="money-currency">د.ل</span></span>
+      </div>
+      {% if sale.context_type.value == 'EXTERNAL' and sale.external_order_type.value == 'DELIVERY' %}
+      <div class="receipt-payment">
+        <span>أجرة التوصيل:</span>
+        <span><strong>{{ pos_money(sale.delivery_fee) }} <span class="money-currency">د.ل</span></strong> <small>نقداً للسائق</small></span>
+      </div>
+      <div class="receipt-payment">
+        <span>الإجمالي على الزبون:</span>
+        <span><strong>{{ pos_money(sale.total + sale.delivery_fee) }} <span class="money-currency">د.ل</span></strong></span>
+      </div>
+      {% endif %}
+      {% if payment_method_name %}
+      <div class="receipt-payment">
+        <span>{% if sale.context_type.value == 'EXTERNAL' and sale.external_order_type.value == 'DELIVERY' %}طريقة دفع الطلب:{% else %}طريقة الدفع:{% endif %}</span>
+        <span><strong>{{ payment_method_name }}</strong></span>
+      </div>
+      {% endif %}
+      <p class="receipt-thanks">{{ brand.receipt_footer_text }}</p>
+    </div>
+  </body>
+</html>

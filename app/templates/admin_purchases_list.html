@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}فواتير الشراء{% endblock %}
+{% block body %}
+<div class="row" style="justify-content: space-between; align-items: center">
+  <h1 style="margin: 0">فواتير الشراء (تضاف للمخزون)</h1>
+  <div class="row" style="gap: 0.5rem">
+    <a class="btn btn-primary" href="/admin/purchases/new">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align: -3px; margin-inline-end: 0.3rem">
+        <path d="M12 5v14M5 12h14"></path>
+      </svg>
+      فاتورة شراء جديدة
+    </a>
+    <a class="btn" href="/admin/assets/new">+ فاتورة أصول/أدوات</a>
+    <a class="btn" href="/admin/assets">قائمة الأصول</a>
+    <a class="btn" href="/admin/expenses">المصروفات</a>
+  </div>
+</div>
+
+<p class="muted">
+  فاتورة الشراء تخصم المبلغ من إحدى المحافظ، وتُضيف الكميات تلقائياً إلى رصيد المخزون لكل صنف.
+</p>
+
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+{% if saved %}
+<div class="card" style="border-color: #86efac; background: #f0fdf4">
+  <p style="margin: 0">تم تسجيل الفاتورة وإضافة بنودها للمخزون.</p>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="row" style="justify-content: space-between; align-items: center; flex-wrap: wrap">
+    <h2 style="margin: 0">السجل</h2>
+    <form method="get" action="/admin/purchases" class="row" style="gap: 0.4rem; align-items: flex-end; margin: 0">
+      <div>
+        <label for="start" class="muted" style="font-size: 0.8rem">من</label>
+        <input id="start" name="start" type="date" value="{{ start.strftime('%Y-%m-%d') }}" style="max-width: 10rem" />
+      </div>
+      <div>
+        <label for="end" class="muted" style="font-size: 0.8rem">إلى</label>
+        <input id="end" name="end" type="date" value="{{ end.strftime('%Y-%m-%d') }}" style="max-width: 10rem" />
+      </div>
+      <button class="btn" type="submit">تصفية</button>
+    </form>
+  </div>
+
+  <p class="muted" style="margin-top: 0.4rem">
+    الفترة: {{ start.strftime('%Y-%m-%d') }} → {{ end.strftime('%Y-%m-%d') }} —
+    إجمالي: <strong>{{ total }} د.ل</strong> ({{ items|length }} فاتورة)
+  </p>
+
+  {% if items %}
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>التاريخ</th>
+        <th>المورّد</th>
+        <th>عدد البنود</th>
+        <th>الإجمالي</th>
+        <th>المحفظة</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in items %}
+      <tr>
+        <td>{{ p.id }}</td>
+        <td>{{ p.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td>{{ p.supplier or '—' }}</td>
+        <td>{{ p.lines|length }}</td>
+        <td>{{ p.amount }} د.ل</td>
+        <td>{% if p.method %}{{ p.method.name_ar }}{% else %}—{% endif %}</td>
+        <td>
+          <div class="row" style="gap: 0.3rem; margin: 0">
+            <a class="btn" href="/admin/purchases/{{ p.id }}" style="padding: 0.2rem 0.5rem; font-size: 0.85rem">عرض</a>
+            <form method="post" action="/admin/purchases/{{ p.id }}/delete" onsubmit="return confirm('حذف هذه الفاتورة؟ سيتم خصم الكميات من المخزون.');" style="margin: 0">
+              <button type="submit" class="btn btn-danger" style="padding: 0.2rem 0.5rem; font-size: 0.85rem">حذف</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">لا توجد فواتير شراء في هذه الفترة.</p>
+  {% endif %}
+</div>
+{% endblock %}

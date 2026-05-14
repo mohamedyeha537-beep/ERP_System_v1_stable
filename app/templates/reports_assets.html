@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button %}
+{% block title %}تقرير الأصول/الأدوات{% endblock %}
+{% block body %}
+<h1>تقرير أصول وأدوات الشركة</h1>
+{{ reports_nav('assets') }}
+{{ period_filter('/reports/assets', period, period_labels, start, end, start_str, end_str) }}
+<div class="export-bar">
+  <span class="label">📤 تصدير:</span>
+  {{ export_button('/reports/export/assets.csv?period=' ~ period, 'الأصول (CSV)') }}
+</div>
+
+
+<div class="card">
+  <h2 style="margin-top: 0">ملخص الفترة</h2>
+  <div class="stat-grid">
+    <div class="stat-card"><div class="label">عدد الفواتير</div><div class="value">{{ summary.count }}</div></div>
+    <div class="stat-card bad"><div class="label">إجمالي ما صُرف نقداً</div><div class="value">{{ summary.total }} د.ل</div><div class="muted" style="font-size: 0.78rem">يُطرح من المحفظة كاملاً</div></div>
+    <div class="stat-card bad"><div class="label">مستلزمات استهلاكية</div><div class="value">{{ consumables_total }} د.ل</div><div class="muted" style="font-size: 0.78rem">مصروف فوري في صافي الربح</div></div>
+    <div class="stat-card bad"><div class="label">إهلاك أصول ثابتة</div><div class="value">{{ depreciation_total }} د.ل</div><div class="muted" style="font-size: 0.78rem">حصة الفترة من القسط الثابت</div></div>
+  </div>
+  <div class="muted" style="margin-top: 0.5rem; font-size: 0.85rem; line-height: 1.7">
+    <strong>الفرق المحاسبي المهم:</strong>
+    <ul style="margin: 0.3rem 0; padding-inline-start: 1.2rem">
+      <li><strong>«إجمالي ما صُرف نقداً»</strong> = ما خرج من المحفظة في الفترة (يؤثّر على التدفق النقدي).</li>
+      <li><strong>«مستلزمات استهلاكية»</strong> (أكياس، ورق، تنظيف): تُخصم بالكامل في شهر شرائها.</li>
+      <li><strong>«إهلاك أصول ثابتة»</strong>: حصة هذه الفترة فقط من قسط الإهلاك للأصول التي عمرها &gt; 0 (فرن، أثاث، طابعة...). لا يُخصم الأصل ضربةً واحدة بل يُوزَّع على عمره الإنتاجي وفق المعيار الدولي IAS 16.</li>
+      <li><strong>صافي الربح</strong> يُخصم منه: المستلزمات + الإهلاك (وليس إجمالي الصرف).</li>
+    </ul>
+    لتفاصيل سجل الأصول الثابتة: <a href="/reports/fixed-assets">سجل الأصول الثابتة وحسابات الإهلاك</a>.
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">حسب المحفظة</h2>
+  {% if by_pm %}
+  <table>
+    <thead><tr><th>المحفظة</th><th>عدد الفواتير</th><th>الإجمالي</th></tr></thead>
+    <tbody>
+      {% for name, cnt, total in by_pm %}
+      <tr><td><strong>{{ name }}</strong></td><td>{{ cnt }}</td><td>{{ total }} د.ل</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">لا بيانات.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">قائمة فواتير الأصول</h2>
+  {% if items %}
+  <table>
+    <thead><tr><th>#</th><th>التاريخ</th><th>المورّد</th><th>عدد البنود</th><th>الإجمالي</th><th>المحفظة</th><th></th></tr></thead>
+    <tbody>
+      {% for p in items %}
+      <tr>
+        <td>{{ p.id }}</td>
+        <td>{{ p.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td>{{ p.supplier or '—' }}</td>
+        <td>{{ p.lines|length }}</td>
+        <td>{{ p.amount }} د.ل</td>
+        <td>{% if p.method %}{{ p.method.name_ar }}{% endif %}</td>
+        <td><a class="btn" href="/admin/assets/{{ p.id }}" style="padding: 0.2rem 0.5rem; font-size: 0.85rem">عرض</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">لا توجد فواتير في هذه الفترة.</p>{% endif %}
+</div>
+{% endblock %}

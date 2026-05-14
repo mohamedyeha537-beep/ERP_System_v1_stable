@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block title %}مرتجع فاتورة #{{ summary.sale.id }}{% endblock %}
+{% block body %}
+<div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap">
+  <div>
+    <h1 style="margin:0">مرتجع فاتورة #{{ summary.sale.id }}</h1>
+    <p class="muted" style="margin:0.35rem 0 0">اختر الكميات المراد ترجيعها. النظام يعيد المخزون ويعكس الأثر المالي تلقائياً.</p>
+  </div>
+  <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+    <a class="btn" href="/refunds">كل الفواتير</a>
+    <a class="btn" href="/pos/receipt/{{ summary.sale.id }}" target="_blank">عرض الفاتورة الأصلية</a>
+  </div>
+</div>
+
+{% if saved_return_id %}
+<div class="card" style="margin-top:1rem;border-color:#86efac;background:#f0fdf4">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap">
+    <div>
+      <strong style="color:#166534">تم تسجيل المرتجع بنجاح.</strong>
+      <div class="muted" style="margin-top:0.2rem">يمكنك طباعة سند المرتجع أو تنفيذ مرتجع آخر على نفس الفاتورة إن بقي رصيد قابل للترجيع.</div>
+    </div>
+    <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+      <a class="btn btn-primary" href="/refunds/receipt/{{ saved_return_id }}?autoprint=1" target="_blank">طباعة سند المرتجع</a>
+      <a class="btn" href="/refunds/receipt/{{ saved_return_id }}" target="_blank">معاينة السند</a>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if error %}
+<div class="card" style="margin-top:1rem;border-color:#fecaca;background:#fef2f2;color:#b91c1c">{{ error }}</div>
+{% endif %}
+
+<div class="card" style="margin-top:1rem">
+  <div class="stat-grid">
+    <div class="stat-card"><div class="label">إجمالي الفاتورة</div><div class="value">{{ pos_money(summary.sale.total) }} <span class="money-currency">د.ل</span></div></div>
+    <div class="stat-card warn"><div class="label">إجمالي المرتجعات السابقة</div><div class="value">{{ pos_money(summary.returned_total) }} <span class="money-currency">د.ل</span></div></div>
+    <div class="stat-card good"><div class="label">الصافي المتبقي</div><div class="value">{{ pos_money(summary.net_total) }} <span class="money-currency">د.ل</span></div></div>
+    <div class="stat-card"><div class="label">المبلغ المحصل</div><div class="value">{{ pos_money(summary.paid_total) }} <span class="money-currency">د.ل</span></div></div>
+  </div>
+  <div class="muted" style="margin-top:0.75rem">
+    {% if summary.room_charge %}
+      الفاتورة على حساب غرفة مفتوح. أي مرتجع جديد سيُخفض الرصيد المستحق مباشرةً دون إخراج مال.
+    {% elif summary.payments %}
+      الدفع الأصلي:
+      {% for p in summary.payments %}
+        <strong>{{ p.method.name_ar if p.method else '—' }}</strong>{% if not loop.last %} + {% endif %}
+      {% endfor %}
+    {% else %}
+      لا يوجد قبض مسجل على هذه الفاتورة. سيقتصر الأثر المالي على تخفيض صافي الإيراد دون حركة رد نقدي.
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">تنفيذ مرتجع جديد</h2>
+  {% if summary.net_total <= 0 %}
+  <p class="muted">تم ترجيع كامل قيمة الفاتورة مسبقاً.</p>
+  {% else %}
+  <form method="post" action="/refunds/sale/{{ summary.sale.id }}">
+    <table>
+      <thead>
+        <tr>
+          <th>الصنف</th>
+          <th>الكمية الأصلية</th>
+          <th>المرتجع السابق</th>
+          <th>المتاح للترجيع</th>
+          <th>سعر الوحدة</th>
+          <th>كمية هذا المرتجع</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in summary.lines %}
+        <tr>
+          <td><strong>{{ row.sale_line.product.name_ar }}</strong></td>
+          <td>{{ pos_qty(row.sale_line.quantity) }}</td>
+          <td>{{ pos_qty(row.returned_qty) }}</td>
+          <td>{{ pos_qty(row.remaining_qty) }}</td>
+          <td>{{ pos_money(row.sale_line.unit_price) }} <span class="money-currency">د.ل</span></td>
+          <td>
+            {% if row.remaining_qty > 0 %}
+            <input class="input" type="number" step="0.0001" min="0" max="{{ row.remaining_qty }}" name="qty_{{ row.sale_line.id }}" value="0" style="max-width:8rem" />
+            {% else %}
+            <span class="muted">مكتمل</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div class="row" style="gap:0.75rem;align-items:flex-start;flex-wrap:wrap;margin-top:1rem">
+      <div style="flex:1;min-width:240px">
+        <label class="muted" style="font-size:0.82rem;display:block;margin-bottom:0.2rem">سبب المرتجع</label>
+        <input class="input" type="text" name="reason" placeholder="مثلاً: خطأ في الطلب، إلغاء العميل..." />
+      </div>
+      <div style="flex:1;min-width:240px">
+        <label class="muted" style="font-size:0.82rem;display:block;margin-bottom:0.2rem">ملاحظة إضافية</label>
+        <input class="input" type="text" name="note" placeholder="تفاصيل داخلية أو ملاحظة للمحاسبة" />
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:1rem;background:#f8fafc">
+      <h3 style="margin-top:0">المعالجة المالية</h3>
+      {% if summary.room_charge %}
+      <p class="muted" style="margin:0">هذه الفاتورة غير مسددة وتخص غرفة. سيتم تخفيض رصيد الغرفة فقط.</p>
+      {% elif summary.payments %}
+      {% set original_method = summary.payments[0].method if summary.payments and summary.payments[0].method else None %}
+      {% if can_override %}
+      <label class="muted" style="font-size:0.82rem;display:block;margin-bottom:0.2rem">وسيلة رد المبلغ</label>
+      <select class="input" name="refund_payment_method_id" style="max-width:280px">
+        {% for m in methods %}
+        <option value="{{ m.id }}" {% if original_method and original_method.id == m.id %}selected{% endif %}>{{ m.name_ar }}</option>
+        {% endfor %}
+      </select>
+      <p class="muted" style="margin:0.5rem 0 0">إذا اخترت وسيلة مختلفة عن الأصل، سيسجل النظام قيد تسوية بين الوسيلتين.</p>
+      {% else %}
+      <p class="muted" style="margin:0">
+        سيُرد المبلغ بنفس الوسيلة الأصلية:
+        <strong>{{ original_method.name_ar if original_method else '—' }}</strong>.
+      </p>
+      {% if original_method %}
+      <input type="hidden" name="refund_payment_method_id" value="{{ original_method.id }}" />
+      {% endif %}
+      {% endif %}
+      {% else %}
+      <p class="muted" style="margin:0">لا يوجد قبض مسجل على الفاتورة، لذا لن يسجل النظام رد مبلغ.</p>
+      {% endif %}
+    </div>
+
+    <div style="margin-top:1rem;display:flex;gap:0.5rem;flex-wrap:wrap">
+      <button class="btn btn-primary" type="submit">تسجيل المرتجع</button>
+      <a class="btn" href="/refunds">إلغاء</a>
+    </div>
+  </form>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">سجل المرتجعات على هذه الفاتورة</h2>
+  {% if summary.returns %}
+  <table>
+    <thead>
+      <tr>
+        <th>#السند</th>
+        <th>التاريخ</th>
+        <th>النوع</th>
+        <th>الوضع المالي</th>
+        <th>الإجمالي</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ret in summary.returns %}
+      <tr>
+        <td>#{{ ret.id }}</td>
+        <td>{{ ret.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td>{{ 'كامل' if ret.return_type.value == 'FULL' else 'جزئي' }}</td>
+        <td>
+          {% if ret.mode.value == 'REDUCE_RECEIVABLE' %}تخفيض مستحق
+          {% elif ret.mode.value == 'OVERRIDE_TRANSFER' %}رد مع تسوية
+          {% elif ret.mode.value == 'SAME_METHOD' %}رد بنفس الوسيلة
+          {% else %}بدون رد مالي{% endif %}
+        </td>
+        <td>{{ pos_money(ret.total) }} <span class="money-currency">د.ل</span></td>
+        <td><a class="btn" href="/refunds/receipt/{{ ret.id }}" target="_blank">السند</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">لا توجد مرتجعات مسجلة بعد على هذه الفاتورة.</p>
+  {% endif %}
+</div>
+{% endblock %}

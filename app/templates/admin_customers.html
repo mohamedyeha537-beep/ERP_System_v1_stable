@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}العملاء ونقاط الولاء{% endblock %}
+{% block body %}
+<div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; margin-bottom:0.4rem">
+  <h1 style="margin:0">👥 العملاء ونقاط الولاء</h1>
+  <div style="display:flex; gap:0.4rem">
+    <a class="btn" href="/admin/loyalty">⚙️ إعدادات الولاء</a>
+    <a class="btn" href="/dashboard">↩ الرئيسية</a>
+  </div>
+</div>
+<p class="muted" style="margin-top:0.2rem">
+  العميل يُعرَّف برقم هاتفه (مفتاح فريد). الاسم اختياري. النقاط تُجمع تلقائياً
+  عند الدفع للفواتير الخارجية. الإعدادات الحالية: كل دينار = {{ '%.3f' % loyalty.earn_per_dinar }} نقطة،
+  والنقطة الواحدة = {{ '%.3f' % loyalty.redeem_value_per_point }} د.ل.
+</p>
+
+{% if saved %}
+<div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0">تم الحفظ.</p></div>
+{% endif %}
+{% if error %}
+<div class="card" style="border-color:#fecaca; background:#fef2f2"><p style="margin:0; color:#b91c1c">{{ error }}</p></div>
+{% endif %}
+
+<!-- إحصاءات سريعة -->
+<div class="row" style="gap:0.5rem; margin:0.75rem 0">
+  <div class="card" style="flex:1; min-width:160px;text-align:center">
+    <div style="color:var(--muted);font-size:0.85rem">عدد العملاء</div>
+    <div style="font-size:1.5rem;font-weight:700">{{ customers|length }}</div>
+  </div>
+  <div class="card" style="flex:1; min-width:160px;text-align:center">
+    <div style="color:var(--muted);font-size:0.85rem">إجمالي النقاط الموزَّعة</div>
+    <div style="font-size:1.5rem;font-weight:700;color:#f59e0b">⭐ {{ '%.0f' % grand_points }}</div>
+  </div>
+  <div class="card" style="flex:1; min-width:160px;text-align:center">
+    <div style="color:var(--muted);font-size:0.85rem">قيمة النقاط بالدينار</div>
+    <div style="font-size:1.5rem;font-weight:700;color:#16a34a">{{ '%.3f' % (grand_points * loyalty.redeem_value_per_point) }} د.ل</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">إضافة عميل جديد</h2>
+  <form method="post" action="/admin/customers/add">
+    <div class="row" style="gap:0.6rem; align-items:flex-end; flex-wrap:wrap">
+      <div style="flex:1; min-width:160px">
+        <label>رقم الهاتف <span style="color:#dc2626">*</span></label>
+        <input name="phone" required placeholder="مثلاً: 0912345678" />
+      </div>
+      <div style="flex:1; min-width:160px">
+        <label>الاسم</label>
+        <input name="name" placeholder="اختياري" />
+      </div>
+      <div style="flex:1; min-width:160px">
+        <label>البريد الإلكتروني</label>
+        <input name="email" type="email" placeholder="اختياري" />
+      </div>
+      <div style="flex:2; min-width:200px">
+        <label>ملاحظات</label>
+        <input name="notes" placeholder="اختياري" />
+      </div>
+      <button class="btn btn-primary" type="submit">إضافة</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <form method="get" action="/admin/customers" class="row" style="gap:0.4rem; margin-bottom:0.6rem">
+    <input name="q" value="{{ search }}" placeholder="بحث بالاسم أو الهاتف..." style="flex:1" />
+    <button class="btn" type="submit">بحث</button>
+    {% if search %}<a class="btn" href="/admin/customers">إلغاء</a>{% endif %}
+  </form>
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>الهاتف</th>
+        <th>الاسم</th>
+        <th>زيارات</th>
+        <th>إجمالي مدفوع</th>
+        <th>نقاط الولاء</th>
+        <th>قيمة النقاط</th>
+        <th>الحالة</th>
+        <th>آخر زيارة</th>
+        <th>إجراءات</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in customers %}
+      <tr>
+        <td>{{ c.id }}</td>
+        <td><strong>{{ c.phone }}</strong></td>
+        <td>{{ c.name or '—' }}</td>
+        <td>{{ c.visits_count }}</td>
+        <td>{{ '%.3f' % c.total_spent }} د.ل</td>
+        <td><span style="color:#f59e0b;font-weight:600">⭐ {{ '%.0f' % c.points_balance }}</span></td>
+        <td style="color:#16a34a">{{ '%.3f' % (c.points_balance * loyalty.redeem_value_per_point) }} د.ل</td>
+        <td>{% if c.is_active %}<span style="color:#16a34a">نشط</span>{% else %}<span class="muted">معطَّل</span>{% endif %}</td>
+        <td class="muted" style="font-size:0.85rem">{{ c.last_visit_at.strftime('%Y-%m-%d') if c.last_visit_at else '—' }}</td>
+        <td>
+          <a class="btn" href="/admin/customers/{{ c.id }}" style="padding:0.2rem 0.5rem">📋 تفاصيل</a>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="10" class="muted" style="text-align:center;padding:1rem">لا يوجد عملاء بعد.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

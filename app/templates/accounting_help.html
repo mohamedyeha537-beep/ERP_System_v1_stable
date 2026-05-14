@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+{% block title %}المعالجة المحاسبية: الأصول والمصروفات والإهلاك{% endblock %}
+{% block head_extra %}
+<style>
+  .help-toc {
+    position: sticky; top: 1rem; background: #f8fafc; padding: 0.85rem 1rem;
+    border-radius: 10px; border: 1px solid var(--border);
+  }
+  .help-toc a { display: block; padding: 0.25rem 0; text-decoration: none; color: #1e3a8a }
+  .help-toc a:hover { color: #2563eb; }
+  .help-section { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 1.1rem 1.25rem; margin-bottom: 1rem; }
+  .help-section h2 { margin-top: 0; color: #0f172a; }
+  .formula {
+    direction: ltr; text-align: center; font-family: monospace;
+    background: #f1f5f9; padding: 0.65rem 1rem; border-radius: 8px;
+    margin: 0.5rem 0; font-size: 1.05rem;
+  }
+  .ref-box {
+    background: #ecfeff; border: 1px dashed #06b6d4; border-radius: 10px;
+    padding: 0.7rem 1rem; margin-top: 0.6rem; color: #155e75;
+  }
+  .example {
+    background: #fef3c7; border-right: 4px solid #f59e0b;
+    padding: 0.65rem 0.95rem; border-radius: 8px; margin: 0.5rem 0; color: #78350f;
+  }
+  .help-section table { width: 100%; border-collapse: collapse; }
+  .help-section th, .help-section td { padding: 0.45rem 0.65rem; text-align: start; border-bottom: 1px solid #e2e8f0; }
+  .help-section th { background: #f1f5f9; }
+  .layout {
+    display: grid; grid-template-columns: 220px 1fr; gap: 1.5rem;
+  }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .help-toc { position: static; } }
+</style>
+{% endblock %}
+{% block body %}
+<h1>دليل المعالجة المحاسبية للنظام</h1>
+<p class="muted">
+  هذا الدليل يشرح كيف يحتسب النظام «صافي الربح» و«التدفق النقدي»، وكيف نتعامل مع الأصول الثابتة والإهلاك،
+  مع الإشارة إلى <strong>المعايير الدولية للمحاسبة (IFRS / IAS)</strong> التي يستند إليها كل قرار.
+</p>
+
+<div class="layout">
+  <aside class="help-toc">
+    <strong style="display:block; margin-bottom: 0.4rem">الفهرس</strong>
+    <a href="#overview">١. نظرة عامة</a>
+    <a href="#cogs">٢. تكلفة المباع</a>
+    <a href="#expenses">٣. المصروفات التشغيلية</a>
+    <a href="#consumables">٤. المستلزمات الاستهلاكية</a>
+    <a href="#fixed-assets">٥. الأصول الثابتة والإهلاك</a>
+    <a href="#net-profit">٦. صافي الربح</a>
+    <a href="#cashflow">٧. التدفق النقدي</a>
+    <a href="#cvp">٨. تحليل التعادل (CVP)</a>
+    <a href="#references">٩. المراجع</a>
+  </aside>
+
+  <main>
+    <section id="overview" class="help-section">
+      <h2>١. نظرة عامة على بيان الدخل</h2>
+      <div class="formula">Revenue − COGS = Gross Profit</div>
+      <div class="formula">Gross Profit − Expenses − Consumables − Depreciation = Net Profit</div>
+      <p>
+        الربح المحاسبي يختلف عن «النقد المتاح في الصندوق». فقد تكون رابحاً محاسبياً وقد انخفض رصيدك (لأنك اشتريت أصلاً ثابتاً)، والعكس.
+        لذلك نعرض الرقمين معاً (<strong>صافي الربح</strong> و<strong>صافي التدفق النقدي</strong>).
+      </p>
+    </section>
+
+    <section id="cogs" class="help-section">
+      <h2>٢. تكلفة المباع (COGS)</h2>
+      <p>
+        لكل بيع: <em>الكمية المباعة × تكلفة الوحدة</em>. تكلفة الوحدة للمنتج المركّب (مثل البرجر) =
+        Σ(كمية كل مكوّن في وصفة التركيب × متوسط سعر شرائه). وللمنتج البسيط = متوسط سعر شرائه.
+      </p>
+      <div class="formula">COGS = Σ (Sold Qty × Unit Cost from BOM)</div>
+      <div class="ref-box">
+        المرجع: <strong>IAS 2 — Inventories</strong> (المخزون). يُحدّد قياس الكلفة بطريقة المتوسط المرجَّح أو الوارد أولاً صادر أولاً (FIFO).
+        النظام يستخدم <em>المتوسط المرجَّح</em> لاتساقه مع تذبذب الأسعار.
+      </div>
+    </section>
+
+    <section id="expenses" class="help-section">
+      <h2>٣. المصروفات التشغيلية (Operating Expenses)</h2>
+      <p>
+        نفقات الفترة التي لا تنتج أصلاً (إيجار، رواتب، فاتورة كهرباء، انترنت، صيانة بسيطة، إلخ).
+        تُخصم بالكامل في الفترة التي وقعت فيها (<em>مبدأ الاستحقاق</em>).
+      </p>
+      <div class="ref-box">
+        المرجع: <strong>IAS 1 — Presentation of Financial Statements</strong> + <em>The Conceptual Framework for Financial Reporting</em> (الاستحقاق Accrual Basis، الفقرة 1.17).
+      </div>
+    </section>
+
+    <section id="consumables" class="help-section">
+      <h2>٤. المستلزمات الاستهلاكية</h2>
+      <p>
+        أكياس تغليف، ورق طابعة، مواد تنظيف، حبر... هذه أصول قصيرة العمر تُستهلك خلال أشهر قليلة. تُعامَل محاسبياً كـ
+        <strong>مصروف</strong> يُخصم بالكامل في فترة الشراء (<em>مبدأ الأهمية النسبية — Materiality</em>: تكلفتها صغيرة ولا يستحق إهلاكها).
+      </p>
+      <p>
+        في النظام: عند إدخال فاتورة أصول، اضبط <strong>«العمر = 0 شهر»</strong> ليُعامل البند مستلزماً استهلاكياً.
+      </p>
+      <div class="ref-box">
+        المرجع: <strong>IAS 16, paragraphs 7–9</strong> + <em>IFRS Conceptual Framework, 2.11 (Materiality)</em>.
+      </div>
+    </section>
+
+    <section id="fixed-assets" class="help-section">
+      <h2>٥. الأصول الثابتة والإهلاك (Fixed Assets &amp; Depreciation)</h2>
+      <p>
+        الأصول الطويلة الأجل (الفرن، الثلاجة، الطابعة، الأثاث، السيارة، الديكور...) لا تُخصم كاملةً في شهر شرائها،
+        بل تُوزَّع كلفتها على عمرها الإنتاجي المتوقع. هذا التوزيع يُسمَّى <strong>الإهلاك (Depreciation)</strong>.
+      </p>
+      <p>طريقة القسط الثابت (الأكثر شيوعاً للأعمال الصغيرة):</p>
+      <div class="formula">Monthly Depreciation = (Cost − Salvage Value) ÷ Useful Life (months)</div>
+
+      <div class="example">
+        <strong>مثال عملي:</strong> اشتريت فرناً بـ 6,000 د.ل وقدّرت أن قيمته بعد 5 سنوات ستكون 600 د.ل (خردة).
+        <br>
+        الكلفة القابلة للإهلاك = 6000 − 600 = <strong>5400 د.ل</strong>.
+        <br>
+        العمر الإنتاجي = 5 سنوات × 12 = <strong>60 شهراً</strong>.
+        <br>
+        قسط الإهلاك الشهري = 5400 ÷ 60 = <strong>90 د.ل/شهر</strong>.
+        <br>
+        لذا في كل شهر، يُخصم <strong>90 د.ل</strong> فقط من ربحك (لا 6000 د.ل دفعة واحدة!) لمدة 60 شهراً.
+        وفي الشهر الـ60 يصبح الإهلاك المتراكم 5400، والقيمة الدفترية للأصل = 6000 − 5400 = 600 د.ل (= قيمة الخردة).
+      </div>
+
+      <h3 style="margin: 0.85rem 0 0.4rem">أعمار إنتاجية إرشادية للقطاع الخدمي/المطاعم:</h3>
+      <table>
+        <thead>
+          <tr><th>نوع الأصل</th><th>العمر الشائع</th><th>أمثلة</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>أجهزة كبيرة وثلاجات</td><td>5–10 سنوات (60–120 ش)</td><td>فرن، شواية، فريزر، مكيف</td></tr>
+          <tr><td>كمبيوتر/طابعة/تابلت</td><td>3–5 سنوات (36–60 ش)</td><td>كاشير، طابعة حرارية، شاشة KDS</td></tr>
+          <tr><td>أثاث وديكور</td><td>7–10 سنوات (84–120 ش)</td><td>طاولات، كراسي، دواليب، إنارة</td></tr>
+          <tr><td>سيارات/مركبات</td><td>5–7 سنوات (60–84 ش)</td><td>سيارة توصيل</td></tr>
+          <tr><td>أدوات صغيرة</td><td>1–3 سنوات (12–36 ش)</td><td>سكاكين احترافية، أواني</td></tr>
+        </tbody>
+      </table>
+
+      <div class="ref-box">
+        <strong>المرجع الأساسي:</strong>
+        <ul style="margin: 0.3rem 0; padding-inline-start: 1.2rem">
+          <li><strong>IAS 16 — Property, Plant and Equipment</strong> (المعيار الدولي للمحاسبة 16: الممتلكات والمصانع والمعدات).
+            <br>
+            <a href="https://www.ifrs.org/issued-standards/list-of-standards/ias-16-property-plant-and-equipment/" target="_blank">https://www.ifrs.org/issued-standards/list-of-standards/ias-16-property-plant-and-equipment/</a>
+          </li>
+          <li>الفقرة 50: «المبلغ القابل للإهلاك يُوزَّع على نحو منهجي طوال العمر الإنتاجي للأصل».</li>
+          <li>الفقرة 60–62: طرق الإهلاك (القسط الثابت، الرصيد المتناقص، وحدات الإنتاج).</li>
+          <li>الفقرة 51: «العمر الإنتاجي يُراجع سنوياً، ويعدَّل إن تغيّر التقدير».</li>
+        </ul>
+        <strong>مرجع عربي مفيد:</strong>
+        مؤسسة المحاسبين القانونيين العرب — تعليقات على IAS 16، أو كتاب «المحاسبة المالية المتوسطة» (Kieso et al., الفصل 11).
+      </div>
+    </section>
+
+    <section id="net-profit" class="help-section">
+      <h2>٦. صافي الربح (Net Profit)</h2>
+      <div class="formula">Net Profit = Revenue − COGS − Operating Expenses − Consumables − Depreciation</div>
+      <p>
+        لاحظ أن <strong>كامل كلفة الأصول الثابتة لا تظهر هنا</strong> — فقط حصة الفترة من الإهلاك.
+        هذا ما يجعل الربح يعكس <em>الأداء التشغيلي الحقيقي</em> دون تشويه.
+      </p>
+    </section>
+
+    <section id="cashflow" class="help-section">
+      <h2>٧. صافي التدفق النقدي (Net Cash Flow)</h2>
+      <div class="formula">Net Cash Flow = Cash Inflows − Cash Outflows</div>
+      <p>
+        على عكس صافي الربح، التدفق النقدي يطرح <strong>كامل ما خرج من المحفظة فعلياً</strong>:
+        فاتورة شراء المخزون كلها (وليس COGS فقط)، فاتورة الأصول كاملةً (وليس الإهلاك فقط)، المصروفات.
+      </p>
+      <div class="ref-box">
+        المرجع: <strong>IAS 7 — Statement of Cash Flows</strong>.
+      </div>
+    </section>
+
+    <section id="cvp" class="help-section" style="border: 2px solid #f59e0b; background: #fffbeb">
+      <h2>٨. تحليل التعادل (Break-Even / Cost-Volume-Profit Analysis)</h2>
+      <p>
+        هل سألتَ نفسك يوماً: <em>«كم يجب أن أبيع يومياً حتى لا أخسر؟»</em> الإجابة الدقيقة تأتي من
+        <strong>تحليل الكلفة-الحجم-الربح (CVP)</strong> الذي يفصل التكاليف إلى نوعَين ويحسب نقطة التعادل (Break-Even Point).
+      </p>
+
+      <h3>أ) تصنيف التكاليف</h3>
+      <table>
+        <thead><tr><th>النوع</th><th>السلوك</th><th>أمثلة</th></tr></thead>
+        <tbody>
+          <tr><td><strong>تكاليف ثابتة (Fixed Costs)</strong></td><td>لا تتغيّر بحجم المبيعات</td><td>إيجار، رواتب، تأمين، إنترنت، إهلاك</td></tr>
+          <tr><td><strong>تكاليف متغيّرة (Variable Costs)</strong></td><td>تتناسب مباشرة مع كل وحدة مباعة</td><td>تكلفة المباع COGS (مكوّنات الوصفة)</td></tr>
+        </tbody>
+      </table>
+
+      <h3>ب) المعادلات الأساسية</h3>
+      <div class="formula">Contribution Margin = Revenue − Variable Costs</div>
+      <div class="formula">Contribution Margin Ratio = (Revenue − COGS) ÷ Revenue</div>
+      <div class="formula">Break-Even Revenue = Fixed Costs ÷ Contribution Margin Ratio</div>
+
+      <p>
+        <strong>الترجمة بالعربية:</strong> «هامش المساهمة» هو ما يتبقّى من كل دينار مبيعات بعد خصم تكلفته المباشرة، ليساهم في تغطية التكاليف الثابتة.
+        إذا غطّى الإيرادُ التكاليفَ الثابتة بالكامل وصلنا «نقطة التعادل»، وأي مبيعات إضافية تذهب صافية للربح.
+      </p>
+
+      <div class="example">
+        <strong>مثالك العملي:</strong>
+        <ul style="margin: 0.4rem 0; padding-inline-start: 1.3rem">
+          <li>3 موظفين × 1000 د.ل = <strong>3000/شهر</strong> رواتب → 100 د.ل/يوم.</li>
+          <li>إيجار 1500/شهر → 50 د.ل/يوم.</li>
+          <li>كهرباء/ماء/إنترنت 600/شهر → 20 د.ل/يوم.</li>
+          <li>إهلاك أصول (فرن + ثلاجة + أثاث) = 6000/شهر → 200 د.ل/يوم.</li>
+          <li><strong>إجمالي التكاليف الثابتة اليومية = 370 د.ل/يوم</strong>.</li>
+        </ul>
+        <strong>لو كان متوسط هامش المساهمة من مبيعاتك = 50٪</strong>
+        (أي كل 1 د.ل تبيعه يكلّفك 0.50 ويبقى لك 0.50 لتغطية الثابت):
+        <div class="formula" style="margin-top: 0.4rem">Break-Even Daily Revenue = 370 ÷ 0.50 = <strong>740 د.ل</strong></div>
+        أي: <em>يجب أن تبيع 740 د.ل يومياً</em> لتُحقّق التعادل (لا ربح ولا خسارة).
+        كل دينار تبيعه فوق 740 يُولّد 0.50 د.ل ربحاً صافياً، وكل دينار تحت 740 = 0.50 د.ل خسارة.
+      </div>
+
+      <h3>ج) كيف يطبّق النظام هذا؟</h3>
+      <ol style="line-height: 1.8">
+        <li>أدخِل التزاماتك الشهرية الثابتة في
+          <a href="/admin/recurring-costs"><strong>إدارة التكاليف الشهرية</strong></a>: راتب كل موظف، الإيجار، فاتورة الكهرباء/الإنترنت...</li>
+        <li>النظام يحسب <strong>قسط الإهلاك الشهري</strong> تلقائياً من الأصول الثابتة المسجَّلة.</li>
+        <li>يحسب <strong>هامش المساهمة</strong> من مبيعاتك الفعلية في آخر 30 يوماً.</li>
+        <li>يعرض <strong>عتبة التعادل اليومية</strong> على
+          <a href="/">الصفحة الرئيسية</a> و
+          <a href="/reports/break-even">تقرير التعادل</a> مع شريط بصري لتغطية اليوم.</li>
+      </ol>
+
+      <div class="ref-box">
+        <strong>المراجع الأكاديمية المعتمدة:</strong>
+        <ul style="margin: 0.3rem 0; padding-inline-start: 1.2rem">
+          <li><strong>Horngren, Datar, Rajan</strong> — <em>Cost Accounting: A Managerial Emphasis</em>, Pearson — الفصل 3 «CVP Analysis».</li>
+          <li><strong>Robert Kaplan & Anthony Atkinson</strong> — <em>Advanced Management Accounting</em>, Prentice Hall.</li>
+          <li><strong>Garrison, Noreen, Brewer</strong> — <em>Managerial Accounting</em>, McGraw-Hill — الفصل 5.</li>
+          <li>على الإنترنت: <a href="https://www.investopedia.com/terms/b/breakevenanalysis.asp" target="_blank">Investopedia — Break-Even Analysis</a> (شرح ميسَّر).</li>
+        </ul>
+        <strong>ملاحظة هامة:</strong> تحليل التعادل أداة <em>إدارية</em> (Management Accounting) لاتخاذ القرار، وليس جزءاً من القوائم المالية الرسمية المُعدّة وفق IFRS — لكنه أداة عالمية معتمدة في التخطيط والتسعير ودراسات الجدوى لكل المشاريع الصغيرة والمتوسطة.
+      </div>
+    </section>
+
+    <section id="references" class="help-section">
+      <h2>٩. المراجع المعتمدة</h2>
+      <ol>
+        <li>
+          <strong>IFRS Foundation</strong> — Issued IFRS Standards:
+          <a href="https://www.ifrs.org/issued-standards/list-of-standards/" target="_blank">قائمة المعايير الدولية</a>
+        </li>
+        <li>
+          <strong>IAS 16</strong> — Property, Plant and Equipment (الإهلاك والقياس):
+          <a href="https://www.ifrs.org/issued-standards/list-of-standards/ias-16-property-plant-and-equipment/" target="_blank">رابط المعيار</a>
+        </li>
+        <li><strong>IAS 1</strong> — Presentation of Financial Statements (عرض القوائم المالية).</li>
+        <li><strong>IAS 2</strong> — Inventories (المخزون).</li>
+        <li><strong>IAS 7</strong> — Statement of Cash Flows (قائمة التدفقات النقدية).</li>
+        <li>
+          الهيئة العربية للمحاسبين القانونيين (ASCA) — منشورات تطبيق IFRS في البيئة العربية.
+        </li>
+        <li>كتاب: <em>Intermediate Accounting</em>, Kieso, Weygandt &amp; Warfield — الفصل 10–11 عن الأصول الثابتة والإهلاك.</li>
+        <li>كتاب: <em>Cost Accounting: A Managerial Emphasis</em>, Horngren, Datar &amp; Rajan — الفصل 3 لتحليل التعادل (CVP).</li>
+        <li>كتاب: <em>Managerial Accounting</em>, Garrison, Noreen &amp; Brewer — أداة التخطيط للأعمال الصغيرة.</li>
+      </ol>
+      <p class="muted" style="margin-top: 0.6rem">
+        <strong>توصية:</strong> راجع محاسباً قانونياً معتمداً عند إعداد البيانات المالية الرسمية أو الإقرار الضريبي،
+        فالمعايير المحلية الليبية (المُستوحاة من IFRS) قد تتضمن أحكاماً ضريبية محدّدة لمعدلات الإهلاك المسموح بها للأغراض الضريبية.
+      </p>
+    </section>
+  </main>
+</div>
+{% endblock %}

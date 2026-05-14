@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>سند مرتجع #{{ sale_return.id }}</title>
+  <style>
+    body { font-family: "Segoe UI", Tahoma, Arial, sans-serif; margin: 0; background: #f8fafc; color: #0f172a; }
+    .sheet { max-width: 860px; margin: 1.5rem auto; background: #fff; border: 1px solid #cbd5e1; border-radius: 14px; padding: 1.4rem; }
+    .head { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; margin-bottom:1rem; }
+    .muted { color:#64748b; }
+    .badge { display:inline-block; padding:0.18rem 0.55rem; border-radius:999px; font-size:0.78rem; font-weight:700; background:#fee2e2; color:#991b1b; }
+    table { width:100%; border-collapse:collapse; margin-top:0.8rem; }
+    th, td { border-bottom:1px solid #e2e8f0; padding:0.55rem; text-align:right; vertical-align:top; }
+    th { background:#f8fafc; }
+    .summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:0.75rem; margin-top:1rem; }
+    .card { border:1px solid #e2e8f0; border-radius:12px; padding:0.8rem; background:#f8fafc; }
+    .card .label { font-size:0.82rem; color:#64748b; }
+    .card .value { font-size:1.2rem; font-weight:700; margin-top:0.2rem; }
+    .actions { display:flex; gap:0.5rem; justify-content:center; margin-top:1rem; }
+    .btn { border:1px solid #cbd5e1; border-radius:8px; padding:0.55rem 0.9rem; text-decoration:none; color:inherit; background:#fff; cursor:pointer; }
+    .btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
+    @media print {
+      body { background:#fff; }
+      .sheet { margin:0; border:0; border-radius:0; max-width:none; }
+      .actions { display:none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="head">
+      <div>
+        <div style="font-size:1.55rem;font-weight:800">{{ pos_display_name(request) }}</div>
+        <div class="muted">سند مرتجع مبيعات</div>
+      </div>
+      <div style="text-align:left">
+        <div class="badge">مرتجع #{{ sale_return.id }}</div>
+        <div class="muted" style="margin-top:0.4rem">فاتورة أصلية #{{ sale_return.original_sale_id }}</div>
+        <div class="muted">{{ sale_return.created_at.strftime('%Y-%m-%d %H:%M') }}</div>
+      </div>
+    </div>
+
+    <div class="summary">
+      <div class="card">
+        <div class="label">الإجمالي</div>
+        <div class="value">{{ pos_money(sale_return.total) }} <span class="money-currency">د.ل</span></div>
+      </div>
+      <div class="card">
+        <div class="label">نوع المرتجع</div>
+        <div class="value" style="font-size:1rem">{{ 'كامل' if sale_return.return_type.value == 'FULL' else 'جزئي' }}</div>
+      </div>
+      <div class="card">
+        <div class="label">الوضع المالي</div>
+        <div class="value" style="font-size:1rem">
+          {% if sale_return.mode.value == 'REDUCE_RECEIVABLE' %}تخفيض مستحق
+          {% elif sale_return.mode.value == 'OVERRIDE_TRANSFER' %}رد مع تسوية
+          {% elif sale_return.mode.value == 'SAME_METHOD' %}رد بنفس الوسيلة
+          {% else %}بدون رد مالي{% endif %}
+        </div>
+      </div>
+      <div class="card">
+        <div class="label">وسيلة الرد</div>
+        <div class="value" style="font-size:1rem">{{ sale_return.refund_payment_method.name_ar if sale_return.refund_payment_method else '—' }}</div>
+      </div>
+    </div>
+
+    {% if sale_return.reason or sale_return.note %}
+    <div class="card" style="margin-top:1rem">
+      {% if sale_return.reason %}<div><strong>السبب:</strong> {{ sale_return.reason }}</div>{% endif %}
+      {% if sale_return.note %}<div style="margin-top:0.35rem"><strong>ملاحظة:</strong> {{ sale_return.note }}</div>{% endif %}
+    </div>
+    {% endif %}
+
+    <table>
+      <thead>
+        <tr>
+          <th>الصنف</th>
+          <th>الكمية المرتجعة</th>
+          <th>سعر الوحدة</th>
+          <th>الإجمالي</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for line in sale_return.lines %}
+        <tr>
+          <td>{{ line.product.name_ar if line.product else ('#' ~ line.product_id) }}</td>
+          <td>{{ pos_qty(line.quantity) }}</td>
+          <td>{{ pos_money(line.unit_price) }} <span class="money-currency">د.ل</span></td>
+          <td>{{ pos_money(line.line_total) }} <span class="money-currency">د.ل</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div class="actions">
+      <button class="btn btn-primary" type="button" onclick="window.print()">طباعة</button>
+      <a class="btn" href="/refunds/sale/{{ sale_return.original_sale_id }}">الرجوع للفاتورة</a>
+    </div>
+  </div>
+
+  {% if autoprint %}
+  <script>window.addEventListener("load", function () { window.print(); });</script>
+  {% endif %}
+</body>
+</html>

@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% block title %}دفعة رواتب {{ run.label }}{% endblock %}
+{% block head_extra %}
+<style>
+  .pill { display: inline-block; padding: 0.18rem 0.6rem; border-radius: 999px; font-size: 0.78rem; font-weight: 700; }
+  .pill.draft { background: #f1f5f9; color: #475569; }
+  .pill.posted { background: #fef3c7; color: #92400e; }
+  .pill.paid { background: #dcfce7; color: #166534; }
+  .totals-bar {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 0.6rem; margin-bottom: 1rem;
+  }
+  .tot { background: linear-gradient(180deg, #fff, #f1f5f9); border: 1px solid var(--border);
+         border-radius: 10px; padding: 0.7rem 0.85rem; }
+  .tot .label { color: #64748b; font-size: 0.82rem; }
+  .tot .value { font-size: 1.3rem; font-weight: 800; margin-top: 0.2rem; color: #1e293b; }
+  .tot.net .value { color: #16a34a; font-size: 1.5rem; }
+  .entry-row { display: grid;
+               grid-template-columns: 1.6fr repeat(6, 1fr) auto;
+               gap: 0.4rem; align-items: center; padding: 0.4rem 0;
+               border-bottom: 1px dashed var(--border); }
+  .entry-row input { width: 100%; padding: 0.3rem; }
+  @media (max-width: 1100px) { .entry-row { grid-template-columns: 1fr 1fr; } }
+  .help { background: #eff6ff; border-right: 4px solid #2563eb; padding: 0.7rem 1rem;
+          border-radius: 8px; color: #1e3a8a; margin-bottom: 1rem; line-height: 1.7; }
+</style>
+{% endblock %}
+{% block body %}
+<div class="row" style="justify-content: space-between; align-items: center">
+  <h1 style="margin: 0">دفعة الرواتب — {{ run.label }}
+    <span class="pill {{ run.status.value|lower }}" style="font-size: 0.85rem">{{ status_labels[run.status.value] }}</span>
+  </h1>
+  <div class="row" style="gap: 0.4rem">
+    <a class="btn" href="/admin/payroll/{{ run.id }}/export.csv"
+       style="background:#ecfdf5; color:#065f46; border:1px solid #10b981; font-weight:700">📤 تصدير CSV</a>
+    <a class="btn" href="/admin/payroll">← قائمة الدفعات</a>
+  </div>
+</div>
+
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+{% if saved %}<div class="alert" style="background:#ecfdf5; border-color:#10b981; color:#065f46">تم الحفظ ✓</div>{% endif %}
+
+<div class="totals-bar">
+  <div class="tot">
+    <div class="label">عدد الموظفين</div>
+    <div class="value">{{ run.entries|length }}</div>
+  </div>
+  <div class="tot">
+    <div class="label">إجمالي قبل الاستقطاعات</div>
+    <div class="value">{{ run.total_gross }} د.ل</div>
+  </div>
+  <div class="tot net">
+    <div class="label">صافي الواجب الدفع</div>
+    <div class="value">{{ run.total_net }} د.ل</div>
+  </div>
+  <div class="tot">
+    <div class="label">حالة الدفعة</div>
+    <div class="value" style="font-size:1rem">{{ status_labels[run.status.value] }}</div>
+  </div>
+</div>
+
+{% set adv_total = namespace(v=0) %}
+{% for e in run.entries %}{% set adv_total.v = adv_total.v + (e.advances|float if e.advances else 0) %}{% endfor %}
+{% if adv_total.v > 0 %}
+<div class="alert" style="background:#fef3c7; border-color:#f59e0b; color:#78350f">
+  🟡 <strong>سلف الموظفين المخصومة من هذه الدفعة:</strong> {{ '%.3f'|format(adv_total.v) }} د.ل
+  — <a href="/admin/advances?only_outstanding=1" style="color:#7c2d12; font-weight:700">عرض كل السلف القائمة</a>
+  {% if is_paid %} (تم تسجيل الاستردادات تلقائياً){% else %} (سيتم تسجيل الاستردادات عند الدفع){% endif %}
+</div>
+{% endif %}
+
+{% if is_paid %}
+<div class="alert" style="background:#dcfce7; border-color:#16a34a; color:#166534">
+  ✓ هذه الدفعة مدفوعة — تم تسجيلها كقيد مصروف موحَّد بقيمة {{ run.total_net }} د.ل.
+  ستظهر في تقارير المصروفات والأرباح تلقائياً.
+</div>
+{% elif is_posted %}
+<div class="alert" style="background:#fef3c7; border-color:#f59e0b; color:#78350f">
+  ⏸ الدفعة معتمدة (مغلقة للتعديل) لكنها لم تُدفع بعد. اختر أسلوب دفع لتسجيلها كمصروف.
+</div>
+{% else %}
+<div class="help">
+  <strong>الدفعة في وضع المسودة</strong> — يمكنك تعديل أي بند. عند الانتهاء اضغط <strong>اعتماد</strong> لإقفالها، ثم <strong>دفع</strong> لتسجيلها كمصروف.
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top: 0">بنود الدفعة</h2>
+  {% if run.entries %}
+  {% for e in run.entries %}
+  <form method="post" action="/admin/payroll/{{ run.id }}/entry/{{ e.id }}/save" id="entry-{{ e.id }}">
+    <div class="entry-row">
+      <div>
+        <strong>{{ e.employee.full_name_ar }}</strong>
+        <div class="muted" style="font-size: 0.78rem">
+          {{ e.employee.job_title or '' }}
+          · ساعات: {{ e.hours_worked }}
+          {% if e.overtime_hours and e.overtime_hours > 0 %}· إضافي: {{ e.overtime_hours }} س{% endif %}
+        </div>
+        {% set rem = advances_by_emp.get(e.employee_id, 0) %}
+        {% if rem and rem > 0 %}
+        <div style="margin-top: 0.25rem">
+          <a href="/admin/advances?employee_id={{ e.employee_id }}" style="background:#fef3c7; color:#92400e; padding:0.15rem 0.5rem; border-radius:6px; font-size:0.78rem; font-weight:700; text-decoration:none">
+            🟡 سلف قائمة: {{ rem }} د.ل
+          </a>
+        </div>
+        {% endif %}
+      </div>
+      <div>
+        <label class="muted" style="font-size: 0.75rem">أساسي</label>
+        <input name="base_salary" type="number" step="0.001" min="0" value="{{ e.base_salary }}" {% if not is_draft %}readonly{% endif %} />
+      </div>
+      <div>
+        <label class="muted" style="font-size: 0.75rem">إضافي</label>
+        <input name="overtime_pay" type="number" step="0.001" min="0" value="{{ e.overtime_pay }}" {% if not is_draft %}readonly{% endif %} />
+      </div>
+      <div>
+        <label class="muted" style="font-size: 0.75rem">+ مكافآت</label>
+        <input name="bonuses" type="number" step="0.001" min="0" value="{{ e.bonuses }}" {% if not is_draft %}readonly{% endif %} />
+      </div>
+      <div>
+        <label class="muted" style="font-size: 0.75rem">− استقطاعات</label>
+        <input name="deductions" type="number" step="0.001" min="0" value="{{ e.deductions }}" {% if not is_draft %}readonly{% endif %} />
+      </div>
+      <div>
+        <label class="muted" style="font-size: 0.75rem">− سُلف</label>
+        <input name="advances" type="number" step="0.001" min="0" value="{{ e.advances }}" {% if not is_draft %}readonly{% endif %} />
+      </div>
+      <div>
+        <label class="muted" style="font-size: 0.75rem">صافي</label>
+        <input value="{{ e.net_pay }}" readonly style="background:#ecfdf5; font-weight:700; color:#065f46" />
+      </div>
+      <div>
+        {% if is_draft %}
+        <button class="btn btn-primary" type="submit" style="padding:0.4rem 0.7rem; font-size: 0.85rem">حفظ</button>
+        {% endif %}
+      </div>
+    </div>
+    {% if is_draft %}
+    <div style="padding-bottom: 0.4rem">
+      <input name="notes" placeholder="ملاحظة على هذا البند (اختياري)" value="{{ e.notes or '' }}" style="width: 100%" />
+    </div>
+    {% endif %}
+  </form>
+  {% endfor %}
+  {% else %}
+  <p class="muted" style="text-align:center">لا توجد بنود.</p>
+  {% endif %}
+</div>
+
+{% if not is_paid %}
+<div class="card">
+  <h2 style="margin-top: 0">إجراءات</h2>
+  <div class="row" style="gap: 0.6rem; flex-wrap: wrap">
+    {% if is_draft %}
+    <form method="post" action="/admin/payroll/{{ run.id }}/post" style="margin:0" onsubmit="return confirm('اعتماد الدفعة؟ لن تستطيع تعديلها بعد ذلك.')">
+      <button class="btn" type="submit" style="background:#f59e0b; color:#fff; border-color:#d97706">⊕ اعتماد الدفعة</button>
+    </form>
+    {% endif %}
+
+    <form method="post" action="/admin/payroll/{{ run.id }}/pay" style="margin:0; display:flex; gap:0.4rem; align-items:end" onsubmit="return confirm('دفع الدفعة كاملةً؟ سيُسجَّل قيد مصروف بقيمة {{ run.total_net }} د.ل.')">
+      <div>
+        <label for="pmid">المحفظة/أسلوب الدفع</label>
+        <select id="pmid" name="payment_method_id" required>
+          <option value="">— اختر —</option>
+          {% for m in methods %}
+          <option value="{{ m.id }}">{{ m.name_ar }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button class="btn" type="submit" style="background:#10b981; color:#fff; border-color:#059669">⊕ دفع وتسجيل كمصروف</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

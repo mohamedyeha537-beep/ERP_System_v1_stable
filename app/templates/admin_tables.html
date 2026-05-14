@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}الطاولات{% endblock %}
+{% block body %}
+<div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; margin-bottom: 0.4rem;">
+  <h1 style="margin:0">طاولات المطعم/المقهى</h1>
+  <div style="display:flex; gap:0.4rem;">
+    <a class="btn" href="/admin/kds">شاشة المطبخ</a>
+    <a class="btn" href="/catalog/categories">إدارة الأقسام/الفئات</a>
+  </div>
+</div>
+<p class="muted">
+  أضف طاولات وثبّت لها رقماً/اسماً (مثلاً «طاولة ١» أو «خارج البوابة ٢»). عند إنشاء فاتورة في نقطة البيع
+  سيظهر اختيار الطاولة، وستُطبع على الفاتورة وتُرسَل ضمن طلبية المطبخ.
+</p>
+
+{% if saved %}
+<div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0">تم الحفظ.</p></div>
+{% endif %}
+{% if error %}
+<div class="card" style="border-color:#fecaca; background:#fef2f2"><p style="margin:0; color:#b91c1c">{{ error }}</p></div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0">إضافة طاولة جديدة</h2>
+  <form method="post" action="/admin/tables/add">
+    <div class="row" style="gap: 0.6rem; align-items:flex-end;">
+      <div style="flex:2">
+        <label>الاسم/الرقم</label>
+        <input name="name_ar" required placeholder="مثلاً: طاولة 1" />
+      </div>
+      <div style="flex:1.5">
+        <label>القسم (اختياري)</label>
+        <select name="section_category_id">
+          <option value="">— غير محدّد —</option>
+          {% for s in sections %}
+          <option value="{{ s.id }}">{{ s.name_ar }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div style="flex:0.8">
+        <label>السعة</label>
+        <input name="capacity" value="4" />
+      </div>
+      <div style="flex:0.8">
+        <label>الترتيب</label>
+        <input name="sort_order" value="0" />
+      </div>
+      <div style="flex:2">
+        <label>ملاحظة</label>
+        <input name="notes" />
+      </div>
+      <div>
+        <button class="btn btn-primary" type="submit">إضافة</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">القائمة الحالية</h2>
+  {% if tables %}
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>الاسم</th>
+        <th>القسم</th>
+        <th>السعة</th>
+        <th>الترتيب</th>
+        <th>الحالة</th>
+        <th>ملاحظة</th>
+        <th>إجراءات</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in tables %}
+      <tr>
+        <form method="post" action="/admin/tables/{{ t.id }}/update">
+        <td>{{ t.id }}</td>
+        <td><input name="name_ar" value="{{ t.name_ar }}" required style="min-width:8rem" /></td>
+        <td>
+          <select name="section_category_id">
+            <option value="">—</option>
+            {% for s in sections %}
+            <option value="{{ s.id }}" {% if t.section_category_id == s.id %}selected{% endif %}>{{ s.name_ar }}</option>
+            {% endfor %}
+          </select>
+        </td>
+        <td><input name="capacity" value="{{ t.capacity }}" style="width:4rem" /></td>
+        <td><input name="sort_order" value="{{ t.sort_order }}" style="width:4rem" /></td>
+        <td>
+          <label class="muted" style="font-size:0.8rem">
+            <input type="checkbox" name="is_active" {% if t.is_active %}checked{% endif %} /> نشطة
+          </label>
+        </td>
+        <td><input name="notes" value="{{ t.notes or '' }}" style="min-width:8rem" /></td>
+        <td style="white-space:nowrap; display:flex; gap:0.3rem;">
+          <button class="btn" type="submit">حفظ</button>
+        </form>
+          <form method="post" action="/admin/tables/{{ t.id }}/delete" onsubmit="return confirm('حذف الطاولة «{{ t.name_ar }}»؟')" style="display:inline">
+            <button class="btn btn-danger" type="submit">حذف</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">لا توجد طاولات بعد. أضف أوّل طاولة من النموذج أعلاه.</p>
+  {% endif %}
+</div>
+
+{% endblock %}

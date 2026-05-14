@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}عميل #{{ customer.id }}{% endblock %}
+{% block body %}
+<div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; margin-bottom:0.4rem">
+  <h1 style="margin:0">📋 العميل #{{ customer.id }}</h1>
+  <div style="display:flex; gap:0.4rem">
+    <a class="btn" href="/admin/customers">↩ القائمة</a>
+  </div>
+</div>
+
+{% if saved %}
+<div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0">تم الحفظ.</p></div>
+{% endif %}
+{% if error %}
+<div class="card" style="border-color:#fecaca; background:#fef2f2"><p style="margin:0; color:#b91c1c">{{ error }}</p></div>
+{% endif %}
+
+<div class="row" style="gap:0.6rem; flex-wrap:wrap; margin-bottom:0.75rem">
+  <div class="card" style="flex:1; min-width:160px;text-align:center;background:linear-gradient(135deg,#fffbeb,#fef3c7)">
+    <div style="color:#92400e;font-size:0.85rem">رصيد النقاط</div>
+    <div style="font-size:2rem;font-weight:700;color:#f59e0b">⭐ {{ '%.0f' % customer.points_balance }}</div>
+    <div class="muted" style="font-size:0.78rem">≈ {{ '%.3f' % (customer.points_balance * loyalty.redeem_value_per_point) }} د.ل</div>
+  </div>
+  <div class="card" style="flex:1; min-width:160px;text-align:center">
+    <div class="muted" style="font-size:0.85rem">عدد الزيارات</div>
+    <div style="font-size:2rem;font-weight:700">{{ customer.visits_count }}</div>
+  </div>
+  <div class="card" style="flex:1; min-width:160px;text-align:center">
+    <div class="muted" style="font-size:0.85rem">إجمالي مدفوع</div>
+    <div style="font-size:1.5rem;font-weight:700;color:#16a34a">{{ '%.3f' % customer.total_spent }} د.ل</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">بيانات العميل</h2>
+  <form method="post" action="/admin/customers/{{ customer.id }}/edit">
+    <div class="row" style="gap:0.6rem; align-items:flex-end; flex-wrap:wrap">
+      <div style="flex:1; min-width:160px">
+        <label>الهاتف <span style="color:#dc2626">*</span></label>
+        <input name="phone" value="{{ customer.phone }}" required />
+      </div>
+      <div style="flex:1; min-width:160px">
+        <label>الاسم</label>
+        <input name="name" value="{{ customer.name or '' }}" />
+      </div>
+      <div style="flex:1; min-width:160px">
+        <label>البريد الإلكتروني</label>
+        <input name="email" type="email" value="{{ customer.email or '' }}" />
+      </div>
+      <div style="flex:2; min-width:200px">
+        <label>ملاحظات</label>
+        <input name="notes" value="{{ customer.notes or '' }}" />
+      </div>
+      <label style="display:flex;align-items:center;gap:0.3rem">
+        <input type="checkbox" name="is_active" {% if customer.is_active %}checked{% endif %} />
+        نشط
+      </label>
+      <button class="btn btn-primary" type="submit">💾 حفظ</button>
+    </div>
+  </form>
+  <form method="post" action="/admin/customers/{{ customer.id }}/delete" style="margin-top:0.5rem"
+        onsubmit="return confirm('سيتم حذف العميل (إن لم يكن له سجلات نقاط).');">
+    <button type="submit" class="btn" style="color:#b91c1c">🗑 حذف</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">⚙️ تعديل يدوي للنقاط</h2>
+  <p class="muted" style="font-size:0.85rem; margin-top:0">
+    أَدخل قيمة موجبة للإضافة، أو سالبة للخصم. يُسجَّل ذلك في سجل العميل.
+  </p>
+  <form method="post" action="/admin/customers/{{ customer.id }}/adjust-points">
+    <div class="row" style="gap:0.5rem; align-items:flex-end; flex-wrap:wrap">
+      <div style="min-width:140px">
+        <label>عدد النقاط (+/-)</label>
+        <input name="delta" type="number" step="0.001" placeholder="مثلاً 50 أو -10" required />
+      </div>
+      <div style="flex:1; min-width:200px">
+        <label>السبب/الملاحظة</label>
+        <input name="note" placeholder="مثلاً: مكافأة، تصحيح، استخدام يدوي..." />
+      </div>
+      <button class="btn btn-primary" type="submit">تطبيق</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">📜 سجل النقاط</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>التاريخ</th>
+        <th>النوع</th>
+        <th>النقاط</th>
+        <th>فاتورة</th>
+        <th>ملاحظة</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in transactions %}
+      <tr>
+        <td class="muted">{{ t.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td>
+          {% if t.kind.value == 'EARN' %}<span style="color:#16a34a">+ كسب</span>
+          {% elif t.kind.value == 'REDEEM' %}<span style="color:#dc2626">- استخدام</span>
+          {% else %}<span style="color:#3b82f6">⚙ تعديل</span>{% endif %}
+        </td>
+        <td><strong>{{ '%+.3f' % t.points }}</strong></td>
+        <td>{% if t.sale_id %}#{{ t.sale_id }}{% else %}—{% endif %}</td>
+        <td class="muted">{{ t.note or '—' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="muted" style="text-align:center;padding:1rem">لا توجد حركات بعد.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

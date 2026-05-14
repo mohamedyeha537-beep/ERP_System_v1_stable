@@ -1,0 +1,257 @@
+<h2 style="margin-top: 0">الفاتورة</h2>
+<p class="muted" style="margin-top: 0">مسودة #{{ sale.id }}</p>
+
+{% if feedback %}
+<div style="background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;padding:0.5rem 0.7rem;border-radius:8px;margin-bottom:0.5rem;font-size:0.85rem;font-weight:500">
+  {{ feedback }}
+</div>
+{% endif %}
+
+{% set ctx = (sale.context_type.value if sale.context_type else 'TABLE') %}
+
+<div class="ctx-tabs" role="tablist">
+  <button type="button" class="ctx-tab {% if ctx == 'TABLE' %}active{% endif %}" data-ctx="TABLE">
+    🪑 طاولة
+  </button>
+  {% if pos_perm(request)('hotel:charge') and rooms %}
+  <button type="button" class="ctx-tab {% if ctx == 'ROOM' %}active{% endif %}" data-ctx="ROOM">
+    🏨 شقة
+  </button>
+  {% endif %}
+  <button type="button" class="ctx-tab {% if ctx == 'EXTERNAL' %}active{% endif %}" data-ctx="EXTERNAL">
+    📞 خارجي
+  </button>
+</div>
+
+<!-- لوحة TABLE -->
+<div class="ctx-panel {% if ctx == 'TABLE' %}active{% endif %}" data-ctx-panel="TABLE">
+  {% if tables %}
+  <form method="post" action="/pos/set-context" style="margin: 0 0 0.5rem">
+    <input type="hidden" name="context_type" value="TABLE" />
+    <label class="muted" style="font-size: 0.78rem; display:block; margin-bottom: 0.18rem">اختر الطاولة</label>
+    <div class="row" style="gap:0.3rem; align-items:center">
+      <select name="table_id" onchange="this.form.submit()" style="flex:1">
+        <option value="">— اختر الطاولة —</option>
+        {% for t in tables %}
+        <option value="{{ t.id }}" {% if sale.table_id == t.id %}selected{% endif %}>
+          {{ t.name_ar }}{% if t.section %} ({{ t.section.name_ar }}){% endif %}
+        </option>
+        {% endfor %}
+      </select>
+      {% if sale.table_id %}
+      <button type="submit" class="btn" name="table_id" value="" title="إزالة الطاولة" style="padding: 0.25rem 0.5rem">×</button>
+      {% endif %}
+    </div>
+  </form>
+  {% if sale.table_id %}
+  <div style="background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;padding:0.5rem;margin-top:0.4rem;font-size:0.85rem">
+    <div style="color:#1d4ed8">🪑 الطلب مربوط بالطاولة المختارة حالياً.</div>
+  </div>
+  {% else %}
+  <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:0.55rem;margin-top:0.4rem;font-size:0.85rem">
+    <div style="color:#b91c1c;font-weight:600">⚠️ يجب اختيار طاولة أولاً</div>
+    <div style="color:#7f1d1d;margin-top:0.2rem;font-size:0.8rem">
+      إذا لم يكن الطلب على طاولة، بدّل السياق إلى «خارجي» قبل إتمام البيع.
+    </div>
+  </div>
+  {% endif %}
+  {% else %}
+  <p class="muted" style="font-size:0.82rem; margin:0.4rem 0">لا توجد طاولات. أضف طاولات من <a href="/admin/tables">إدارة الطاولات</a>.</p>
+  {% endif %}
+</div>
+
+<!-- لوحة ROOM -->
+{% if pos_perm(request)('hotel:charge') and rooms %}
+<div class="ctx-panel {% if ctx == 'ROOM' %}active{% endif %}" data-ctx-panel="ROOM">
+  <form method="post" action="/pos/set-context" style="margin: 0 0 0.5rem" id="room-select-form">
+    <input type="hidden" name="context_type" value="ROOM" />
+    <label class="muted" style="font-size: 0.78rem; display:block; margin-bottom: 0.18rem">اختر الشقة/الغرفة</label>
+    {# الافتراضي دائماً «— اختر شقة —» (selected) إلا إذا كان قد اختار الكاشير شقة فعلاً. #}
+    <select name="room_id" onchange="this.form.submit()" style="width:100%"
+            id="room-id-select" required>
+      <option value="" {% if not session_room_id %}selected{% endif %}>— اختر شقة —</option>
+      {% for r in rooms %}
+      <option value="{{ r.id }}" {% if session_room_id == r.id %}selected{% endif %}>
+        شقة #{{ r.number }}
+      </option>
+      {% endfor %}
+    </select>
+  </form>
+  {% if session_room_id %}
+  <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:0.5rem;margin-top:0.4rem;font-size:0.85rem">
+    <div style="color:#92400e">🏨 على حساب الشقة المختارة — <strong>لن يتم تحصيل من هذا الكاشير</strong>.</div>
+    <div style="color:#92400e;margin-top:0.2rem">يسوّي الحساب لاحقاً موظف الاستقبال من «تسوية حسابات الغرف».</div>
+  </div>
+  {% else %}
+  <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:0.55rem;margin-top:0.4rem;font-size:0.85rem">
+    <div style="color:#b91c1c;font-weight:600">⚠️ لم تُختَر شقة بعد</div>
+    <div style="color:#7f1d1d;margin-top:0.2rem;font-size:0.8rem">
+      اختر الشقة من القائمة أعلاه قبل إضافة أيّ صنف. لن يُسمح بإضافة منتجات حتى تُحدَّد الشقة.
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- لوحة EXTERNAL -->
+<div class="ctx-panel {% if ctx == 'EXTERNAL' %}active{% endif %}" data-ctx-panel="EXTERNAL">
+  <form method="post" action="/pos/set-context" style="margin: 0 0 0.5rem">
+    <input type="hidden" name="context_type" value="EXTERNAL" />
+    <label class="muted" style="font-size: 0.78rem; display:block; margin-bottom: 0.18rem">نوع الطلب الخارجي</label>
+    {% set ext_type = sale.external_order_type.value if sale and sale.external_order_type else 'PICKUP' %}
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0.4rem;margin-bottom:0.45rem">
+      <label style="display:flex;align-items:center;gap:0.35rem;border:1px solid {% if ext_type == 'PICKUP' %}#3b82f6{% else %}#cbd5e1{% endif %};background:{% if ext_type == 'PICKUP' %}#eff6ff{% else %}#fff{% endif %};border-radius:8px;padding:0.55rem 0.65rem;cursor:pointer">
+        <input type="radio" name="external_order_type" value="PICKUP" {% if ext_type != 'DELIVERY' %}checked{% endif %} />
+        <span>استلام من المطعم</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:0.35rem;border:1px solid {% if ext_type == 'DELIVERY' %}#f59e0b{% else %}#cbd5e1{% endif %};background:{% if ext_type == 'DELIVERY' %}#fff7ed{% else %}#fff{% endif %};border-radius:8px;padding:0.55rem 0.65rem;cursor:pointer">
+        <input type="radio" name="external_order_type" value="DELIVERY" {% if ext_type == 'DELIVERY' %}checked{% endif %} />
+        <span>توصيل</span>
+      </label>
+    </div>
+    <div id="delivery-zone-wrap" style="{% if ext_type != 'DELIVERY' %}display:none;{% endif %} margin-bottom:0.45rem">
+      <label class="muted" style="font-size: 0.78rem; display:block; margin-bottom: 0.18rem">منطقة التوصيل</label>
+      <select class="input" name="delivery_zone_id">
+        <option value="">اختر المنطقة</option>
+        {% for z in delivery_zones %}
+        <option value="{{ z.id }}" {% if sale.delivery_zone_id == z.id %}selected{% endif %}>{{ z.name_ar }} — {{ pos_money(z.fee) }} د.ل</option>
+        {% endfor %}
+      </select>
+      <div style="font-size:0.78rem;color:#9a3412;margin-top:0.22rem">أجرة التوصيل تخصم من صافي الكاش ولا تُحتسب مبيعاً للمطعم.</div>
+    </div>
+    <label class="muted" style="font-size: 0.78rem; display:block; margin-bottom: 0.18rem">رقم هاتف العميل (اختياري)</label>
+    <input class="input" type="tel" name="customer_phone" value="{{ customer.phone if customer else '' }}" placeholder="مثلاً: 0912345678" />
+    <label class="muted" style="font-size: 0.78rem; display:block; margin: 0.3rem 0 0.18rem">اسم العميل (اختياري)</label>
+    <input class="input" type="text" name="customer_name" value="{{ customer.name or '' if customer else '' }}" placeholder="اسم العميل" />
+    <button type="submit" class="btn btn-primary" style="margin-top:0.4rem; width:100%">حفظ بيانات العميل</button>
+  </form>
+  {% if customer %}
+  <div style="background:#dcfce7;border:1px solid #16a34a;border-radius:8px;padding:0.5rem;margin-top:0.4rem;font-size:0.85rem">
+    <div style="color:#15803d;font-weight:600">📞 {{ customer.phone }}{% if customer.name %} — {{ customer.name }}{% endif %}</div>
+    {% if customer.points_balance and customer.points_balance > 0 %}
+    <div style="color:#16a34a;margin-top:0.2rem">⭐ نقاط الولاء: {{ '%.0f' % customer.points_balance }}</div>
+    {% endif %}
+    <div style="color:#15803d;margin-top:0.2rem;font-size:0.78rem">
+      {% if ext_type == 'DELIVERY' and sale.delivery_zone_name %}
+      🚚 {{ sale.delivery_zone_name }} — أجرة التوصيل {{ pos_money(sale.delivery_fee) }} د.ل
+      {% else %}
+      سيكسب نقاط ولاء إضافية بعد الدفع.
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+(function () {
+  var tabs = document.querySelectorAll(".ctx-tab");
+  var panels = document.querySelectorAll(".ctx-panel");
+  // السياق الحقيقي المُخزَّن في السيرفر (لمعرفة إن كنا نتغيّر فعلاً)
+  var currentCtx = "{{ ctx }}";
+
+  tabs.forEach(function (tab) {
+    tab.addEventListener("click", function () {
+      var ctx = tab.getAttribute("data-ctx");
+      // لو المستخدم نقر نفس التبويب الحالي → فقط تبديل بصري بدون reload
+      if (ctx === currentCtx) {
+        tabs.forEach(function (t) { t.classList.toggle("active", t === tab); });
+        panels.forEach(function (p) {
+          p.classList.toggle("active", p.getAttribute("data-ctx-panel") === ctx);
+        });
+        return;
+      }
+
+      // لو التبويب مختلف، نُرسل POST لتحديث السياق في السيرفر مع تنظيف
+      // الاختيارات السابقة (الافتراضي: لا شقة، لا طاولة، لا عميل خارجي).
+      var f = document.createElement("form");
+      f.method = "POST";
+      f.action = "/pos/set-context";
+      f.style.display = "none";
+      var fld = document.createElement("input");
+      fld.type = "hidden";
+      fld.name = "context_type";
+      fld.value = ctx;
+      f.appendChild(fld);
+      // لا نُمرّر room_id/table_id/customer_phone → السيرفر يُفرغ التحديد
+      document.body.appendChild(f);
+      f.submit();
+    });
+  });
+
+  var extRadios = document.querySelectorAll('input[name="external_order_type"]');
+  var zoneWrap = document.getElementById("delivery-zone-wrap");
+  function syncExternalMode() {
+    var checked = document.querySelector('input[name="external_order_type"]:checked');
+    var isDelivery = checked && checked.value === "DELIVERY";
+    if (zoneWrap) zoneWrap.style.display = isDelivery ? "block" : "none";
+  }
+  extRadios.forEach(function (radio) {
+    radio.addEventListener("change", syncExternalMode);
+  });
+  syncExternalMode();
+})();
+</script>
+
+{% include "pos_cart_wrap.html" %}
+<div class="pos-total-row">
+  <span>الإجمالي</span>
+  <span>{{ pos_money(sale.total) }} <span class="money-currency">د.ل</span></span>
+</div>
+
+{% if not sale.lines %}
+<button class="btn pos-pay" type="button" disabled style="opacity: 0.5; cursor: not-allowed">
+  أضف صنفاً للسلة أولاً
+</button>
+{% elif ctx == 'ROOM' and session_room_id %}
+{# ===== سياق شقة: لا دفع — قيد على حساب الشقة فقط ===== #}
+<form method="post" action="/pos/charge-room" id="charge-room-form" style="margin-top:0.5rem">
+  <label style="display:block;font-size:0.82rem;color:#92400e;margin-bottom:0.2rem;font-weight:600">
+    اسم النزيل <span style="color:#dc2626">*</span>
+  </label>
+  <input class="input" type="text" name="guest_name" id="room_guest_input" required
+         placeholder="مثلاً: السيد أحمد محمد"
+         style="width:100%;padding:0.4rem 0.5rem;border:1px solid var(--border);border-radius:6px;font-size:0.92rem" />
+  <label style="display:block;font-size:0.78rem;color:var(--muted);margin:0.4rem 0 0.2rem">ملاحظة (اختياري)</label>
+  <input class="input" type="text" name="note"
+         placeholder="مثلاً: عشاء، إفطار..."
+         style="width:100%;padding:0.4rem 0.5rem;border:1px solid var(--border);border-radius:6px;font-size:0.92rem" />
+  <button class="btn btn-primary pos-pay" type="submit" style="margin-top:0.6rem;background:#b45309;border-color:#b45309">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align: -3px; margin-inline-end: 0.3rem">
+      <path d="M3 21h18"></path><path d="M5 21V7l8-4 8 4v14"></path>
+      <path d="M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01"></path>
+    </svg>
+    🏨 قيد على حساب الشقة وطباعة
+  </button>
+  <p class="muted" style="font-size:0.75rem;margin:0.4rem 0 0;text-align:center">
+    التحصيل لاحقاً عبر موظف الاستقبال من «تسوية حسابات الغرف».
+  </p>
+</form>
+{% elif ctx == 'ROOM' %}
+{# ===== سياق شقة بدون اختيار شقة بعد ===== #}
+<button class="btn pos-pay" type="button" disabled style="opacity: 0.6; cursor: not-allowed; background:#fef3c7; color:#92400e; border-color:#fcd34d">
+  ⚠️ اختر الشقة أولاً من تبويب «شقة»
+</button>
+{% elif ctx == 'TABLE' and not sale.table_id %}
+{# ===== سياق طاولة بدون اختيار طاولة ===== #}
+<button class="btn pos-pay" type="button" disabled style="opacity: 0.65; cursor: not-allowed; background:#fef2f2; color:#991b1b; border-color:#fca5a5">
+  ⚠️ اختر الطاولة أولاً أو حوّل الطلب إلى «خارجي»
+</button>
+{% else %}
+{# ===== سياق طاولة أو خارجي: دفع فوري ===== #}
+<a class="btn btn-primary pos-pay" href="/pos/checkout" style="text-align: center; text-decoration: none">
+  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align: -3px; margin-inline-end: 0.3rem">
+    <rect x="2" y="6" width="20" height="12" rx="2"></rect>
+    <circle cx="12" cy="12" r="3"></circle>
+  </svg>
+  إتمام البيع واختيار الدفع
+</a>
+{% endif %}
+<form method="post" action="/pos/cancel-draft" style="margin-top: 0.5rem">
+  <button class="btn" type="submit" style="width: 100%">
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align: -3px; margin-inline-end: 0.3rem">
+      <polyline points="3 6 5 6 21 6"></polyline>
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+    </svg>
+    مسح السلة
+  </button>
+</form>

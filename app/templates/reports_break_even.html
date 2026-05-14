@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button %}
+{% block title %}تحليل التعادل (Break-Even / CVP){% endblock %}
+{% block head_extra %}
+<style>
+  .be-banner {
+    background: linear-gradient(135deg, #1e3a8a, #2563eb);
+    color: #fff; padding: 1.2rem 1.5rem; border-radius: 12px; margin-bottom: 1rem;
+  }
+  .be-banner h2 { color: #fff; margin-top: 0; }
+  .be-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.7rem; }
+  .be-stat { background: rgba(255,255,255,0.13); border: 1px solid rgba(255,255,255,0.25); border-radius: 10px; padding: 0.7rem 0.9rem; }
+  .be-stat .label { font-size: 0.82rem; opacity: 0.9; }
+  .be-stat .value { font-size: 1.45rem; font-weight: 700; margin-top: 0.2rem; }
+  .be-stat .sub { font-size: 0.78rem; opacity: 0.85; margin-top: 0.15rem; }
+  .be-stat.target .value { font-size: 1.8rem; color: #fde68a; }
+  .day-row.profit { background: #f0fdf4; }
+  .day-row.loss { background: #fef2f2; }
+  .day-row.empty { color: #94a3b8; }
+  .formula-box { background: #f1f5f9; padding: 0.6rem 0.95rem; border-radius: 8px; direction: ltr; text-align: center; font-family: monospace; }
+</style>
+{% endblock %}
+{% block body %}
+<h1>تحليل التعادل اليومي (Break-Even / CVP)</h1>
+{{ reports_nav('break-even') }}
+{{ period_filter('/reports/break-even', period, period_labels, start, end, start_str, end_str, '&days=' ~ operating_days) }}
+<div class="export-bar">
+  <span class="label">📤 تصدير:</span>
+  {{ export_button('/reports/export/comprehensive.csv?period=' ~ period, 'تقرير شامل (CSV)') }}
+</div>
+
+
+<div class="card" style="background:#eff6ff; border-color:#93c5fd">
+  <h2 style="margin-top: 0; color:#1e3a8a">ما هو تحليل التعادل؟</h2>
+  <p style="line-height: 1.8; margin: 0; color:#1e3a8a">
+    تحليل التعادل (Break-Even Analysis) يحسب الحدّ الأدنى من الإيراد الذي يجب أن تحقّقه يومياً لتغطية كل تكاليفك (الثابتة والمتغيّرة)
+    دون ربح أو خسارة. هو أداة من <em>محاسبة الإدارة (Management Accounting)</em> تستند إلى تحليل
+    <strong>الكلفة–الحجم–الربح (CVP)</strong>.
+  </p>
+  <div class="formula-box" style="margin: 0.7rem 0">
+    Break-Even Daily Revenue = Daily Fixed Cost ÷ Contribution Margin Ratio
+  </div>
+  <ul style="margin: 0.4rem 0; padding-inline-start: 1.2rem; color:#1e3a8a; line-height: 1.8">
+    <li><strong>التكاليف الثابتة (Fixed Cost):</strong> رواتب، إيجار، تأمين، إنترنت، إهلاك أصول... لا تتغيّر بزيادة المبيعات.</li>
+    <li><strong>التكاليف المتغيّرة (Variable Cost):</strong> تكلفة المباع COGS — تزيد كلما بِعتَ أكثر.</li>
+    <li><strong>هامش المساهمة (Contribution Margin Ratio):</strong> النسبة التي تتبقّى من كل دينار تبيعه بعد طرح كلفته المباشرة:
+      <code style="background:#fff; padding:0 0.3rem; border-radius:4px; direction:ltr">CM Ratio = (Revenue − COGS) / Revenue</code></li>
+  </ul>
+</div>
+
+<!-- لوحة العتبة -->
+<div class="be-banner">
+  <h2>اللوحة الحيّة (مبني على آخر {{ burden.cm_lookback_days }} يوماً)</h2>
+  <div class="be-grid">
+    <div class="be-stat">
+      <div class="label">التكاليف الثابتة (شهرياً)</div>
+      <div class="value">{{ burden.fixed_monthly_total }} د.ل</div>
+      <div class="sub">من <a href="/admin/recurring-costs" style="color:#bbf7d0">إدارة التكاليف</a></div>
+    </div>
+    <div class="be-stat">
+      <div class="label">+ إهلاك الأصول (شهرياً)</div>
+      <div class="value">{{ burden.depreciation_monthly }} د.ل</div>
+      <div class="sub">من <a href="/reports/fixed-assets" style="color:#bbf7d0">سجل الأصول</a></div>
+    </div>
+    <div class="be-stat">
+      <div class="label">إجمالي العبء الشهري</div>
+      <div class="value">{{ burden.grand_monthly }} د.ل</div>
+    </div>
+    <div class="be-stat">
+      <div class="label">العبء اليومي (÷ {{ operating_days }} يوماً)</div>
+      <div class="value">{{ burden.grand_daily }} د.ل</div>
+      <div class="sub">ما يجب تغطيته يومياً من هامش المساهمة</div>
+    </div>
+    <div class="be-stat">
+      <div class="label">نسبة هامش المساهمة</div>
+      <div class="value">{{ (burden.cm_ratio * 100)|round(1) }}٪</div>
+      <div class="sub">من إيرادات وتكاليف آخر {{ burden.cm_lookback_days }} يوم</div>
+    </div>
+    <div class="be-stat target">
+      <div class="label">عتبة التعادل اليومية للإيراد</div>
+      <div class="value">{{ burden.break_even_daily_revenue }} د.ل</div>
+      <div class="sub">يجب بيع هذا أو أكثر يومياً لتغطية كل تكاليفك</div>
+    </div>
+  </div>
+
+  <div style="margin-top: 0.8rem; padding: 0.7rem 0.95rem; background: rgba(255,255,255,0.13); border-radius: 10px; border:1px solid rgba(255,255,255,0.25)">
+    <strong>اليوم:</strong> إيراد {{ burden.today_revenue }} د.ل /
+    <strong>تكلفة المباع:</strong> {{ burden.today_cogs }} د.ل /
+    <strong>هامش المساهمة:</strong> {{ burden.today_gross_profit }} د.ل /
+    <strong>العبء اليومي:</strong> {{ burden.grand_daily }} د.ل
+    <br>
+    <strong style="font-size: 1.05rem; color: {% if burden.is_above_break_even %}#bbf7d0{% else %}#fecaca{% endif %}">
+      {% if burden.is_above_break_even %}
+        ✓ ربح صافٍ يومي = +{{ burden.today_net_position }} د.ل
+      {% else %}
+        ⚠ خسارة يومية حتى الآن = {{ burden.today_net_position }} د.ل (تحتاج {{ -burden.today_net_position }} د.ل إضافية)
+      {% endif %}
+    </strong>
+  </div>
+</div>
+
+<!-- ملخص الفترة -->
+<div class="card">
+  <h2 style="margin-top: 0">ملخّص الأيام في الفترة</h2>
+  <div class="stat-grid">
+    <div class="stat-card good">
+      <div class="label">أيام رابحة (فوق العتبة)</div>
+      <div class="value">{{ profit_days }}</div>
+      <div class="muted" style="font-size: 0.78rem">إجمالي الفائض: {{ total_above }} د.ل</div>
+    </div>
+    <div class="stat-card bad">
+      <div class="label">أيام خاسرة (تحت العتبة)</div>
+      <div class="value">{{ loss_days }}</div>
+      <div class="muted" style="font-size: 0.78rem">إجمالي العجز: {{ total_below }} د.ل</div>
+    </div>
+    <div class="stat-card {% if total_above >= total_below %}good{% else %}bad{% endif %}">
+      <div class="label">الموقف الكلي للفترة</div>
+      <div class="value">{{ total_above - total_below }} د.ل</div>
+      <div class="muted" style="font-size: 0.78rem">صافي ربح/خسارة بعد التعادل اليومي</div>
+    </div>
+  </div>
+</div>
+
+<!-- جدول يومي -->
+<div class="card">
+  <h2 style="margin-top: 0">تفصيل يومي</h2>
+  <p class="muted" style="margin-top: 0; font-size: 0.85rem">
+    لكل يوم: الإيراد، تكلفة المباع، هامش المساهمة (إجمالي الربح)، الموقف بعد طرح العبء اليومي ({{ burden.grand_daily }} د.ل).
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th>اليوم</th>
+        <th>الإيراد</th>
+        <th>تكلفة المباع</th>
+        <th>هامش المساهمة</th>
+        <th>− العبء اليومي</th>
+        <th>الموقف الصافي</th>
+        <th>الحالة</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for d in daily_rows %}
+      <tr class="day-row {% if d.no_sales %}empty{% elif d.is_profit %}profit{% else %}loss{% endif %}">
+        <td><strong>{{ d.date }}</strong></td>
+        <td>{{ d.revenue }} د.ل</td>
+        <td>{{ d.cogs }} د.ل</td>
+        <td>{{ d.gross }} د.ل</td>
+        <td>−{{ burden.grand_daily }}</td>
+        <td style="font-weight: 700; color: {% if d.no_sales %}#94a3b8{% elif d.is_profit %}#16a34a{% else %}#b91c1c{% endif %}">
+          {{ d.net }} د.ل
+        </td>
+        <td>
+          {% if d.no_sales %}<span class="muted">لا مبيعات</span>
+          {% elif d.is_profit %}<span style="color:#16a34a">✓ فوق العتبة</span>
+          {% else %}<span style="color:#b91c1c">⚠ تحت العتبة</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card" style="background:#fefce8; border-color:#facc15">
+  <h2 style="margin-top:0">كيف ترفع موقفك المالي؟</h2>
+  <ul style="line-height: 1.8; padding-inline-start: 1.3rem; margin: 0">
+    <li><strong>زيادة الإيراد:</strong> العتبة هي الحدّ الأدنى — أي بيع فوقها يساهم بنسبة {{ (burden.cm_ratio * 100)|round(0) }}٪ في الربح الصافي.</li>
+    <li><strong>تحسين هامش المساهمة:</strong> راجع <a href="/reports/profit">تقرير الأرباح</a> وحدّد الأصناف ذات الهامش الضعيف. ارفع أسعارها أو خفّض كلفتها.</li>
+    <li><strong>تخفيض التكاليف الثابتة:</strong> راجع <a href="/admin/recurring-costs">إدارة التكاليف الشهرية</a>. كل 100 د.ل تخفّضها شهرياً تنزل العتبة بحوالي {{ (100 / burden.operating_days_per_month / (burden.cm_ratio if burden.cm_ratio > 0 else 1))|round(2) }} د.ل/يوم.</li>
+    <li><strong>مراجعة الإهلاك:</strong> الأصول قديمة الإهلاك (أقساطها انتهت) لا تخصم من الربح بعد الآن. اطّلع على <a href="/reports/fixed-assets">سجل الأصول</a>.</li>
+  </ul>
+</div>
+{% endblock %}

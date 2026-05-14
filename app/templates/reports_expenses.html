@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button %}
+{% block title %}تقرير المصروفات{% endblock %}
+{% block body %}
+<h1>تقرير المصروفات</h1>
+{{ reports_nav('expenses') }}
+{{ period_filter('/reports/expenses', period, period_labels, start, end, start_str, end_str) }}
+<div class="export-bar">
+  <span class="label">📤 تصدير:</span>
+  {{ export_button('/reports/export/expenses.csv?period=' ~ period, 'المصروفات (CSV)') }}
+</div>
+
+
+<div class="card">
+  <h2 style="margin-top: 0">ملخص الفترة</h2>
+  <div class="stat-grid">
+    <div class="stat-card"><div class="label">عدد العمليات</div><div class="value">{{ summary.count }}</div></div>
+    <div class="stat-card bad"><div class="label">إجمالي المصروفات</div><div class="value">{{ summary.total }} د.ل</div></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">حسب التصنيف</h2>
+  {% if by_cat %}
+  <table>
+    <thead><tr><th>التصنيف</th><th>عدد</th><th>الإجمالي</th></tr></thead>
+    <tbody>
+      {% for name, cnt, total in by_cat %}
+      <tr><td><strong>{{ name }}</strong></td><td>{{ cnt }}</td><td>{{ total }} د.ل</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">لا بيانات.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">حسب المحفظة</h2>
+  {% if by_pm %}
+  <table>
+    <thead><tr><th>المحفظة</th><th>عدد</th><th>الإجمالي</th></tr></thead>
+    <tbody>
+      {% for name, cnt, total in by_pm %}
+      <tr><td><strong>{{ name }}</strong></td><td>{{ cnt }}</td><td>{{ total }} د.ل</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">لا بيانات.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">قائمة المصروفات</h2>
+  {% if items %}
+  <table>
+    <thead><tr><th>#</th><th>التاريخ</th><th>المبلغ</th><th>التصنيف</th><th>الجهة</th><th>المحفظة</th><th>ملاحظة</th></tr></thead>
+    <tbody>
+      {% for p in items %}
+      <tr>
+        <td>{{ p.id }}</td>
+        <td>{{ p.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td>{{ p.amount }} د.ل</td>
+        <td>{{ p.expense_category or '—' }}</td>
+        <td>{{ p.supplier or '—' }}</td>
+        <td>{% if p.method %}{{ p.method.name_ar }}{% endif %}</td>
+        <td>{{ p.note or '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">لا مصروفات في هذه الفترة.</p>{% endif %}
+</div>
+{% endblock %}

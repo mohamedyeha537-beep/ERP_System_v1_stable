@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}تسوية حسابات الغرف{% endblock %}
+{% block body %}
+<div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; margin-bottom:0.4rem">
+  <h1 style="margin:0">🏨 تسوية حسابات غرف الفندق</h1>
+  <div style="display:flex; gap:0.4rem">
+    {% if pos_perm(request)('hotel:rooms:manage') %}
+    <a class="btn" href="/admin/hotel/rooms">إدارة الغرف</a>
+    {% endif %}
+  </div>
+</div>
+<p class="muted">
+  هنا تظهر كل الغرف التي عليها فواتير مفتوحة (طلبات نزلاء على حساب الغرفة).
+  افتح الغرفة لتسوية الحساب بالكامل أو بشكل جزئي بأسلوب الدفع الذي يختاره العميل.
+</p>
+
+{% if error %}
+<div class="card" style="border-color:#fecaca; background:#fef2f2"><p style="margin:0; color:#b91c1c">{{ error }}</p></div>
+{% endif %}
+
+<div class="card" style="background:linear-gradient(135deg,#fef3c7,#fde68a); border-color:#f59e0b">
+  <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem">
+    <div>
+      <div style="font-size:0.9rem; color:#92400e">إجمالي الأرصدة المعلّقة على الغرف</div>
+      <div style="font-size:2rem; font-weight:800; color:#78350f">{{ '%.3f' % grand_total }} د.ل</div>
+    </div>
+    <div style="text-align:end">
+      <div style="font-size:0.9rem; color:#92400e">عدد الغرف ذات الرصيد المفتوح</div>
+      <div style="font-size:2rem; font-weight:800; color:#78350f">{{ open_rooms|length }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">الغرف ذات الحساب المفتوح</h2>
+  {% if not open_rooms %}
+  <p class="muted">لا توجد فواتير مفتوحة على أي غرفة حالياً. ✅</p>
+  {% else %}
+  <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:0.75rem">
+    {% for room, total, count in open_rooms %}
+    {% set guests = guests_by_room.get(room.id, []) %}
+    <a href="/hotel/settle/room/{{ room.id }}"
+       style="display:block; text-decoration:none; color:inherit; border:2px solid #f59e0b; border-radius:12px; padding:1rem; background:#fffbeb; transition:all 0.15s"
+       onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(0,0,0,0.08)'"
+       onmouseout="this.style.transform='none'; this.style.boxShadow='none'">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start">
+        <div>
+          <div style="font-size:1.6rem; font-weight:800; color:#b45309">#{{ room.number }}</div>
+          <div style="font-size:0.88rem; color:#78350f; margin-top:0.25rem; line-height:1.4">
+            {% if guests %}
+              {% if guests|length == 1 %}
+                👤 {{ guests[0] }}
+              {% else %}
+                👥 {{ guests|length }} نزلاء:
+                <span style="display:block; color:#92400e; font-size:0.82rem">
+                  {{ guests|join(' · ') }}
+                </span>
+              {% endif %}
+            {% else %}
+              <span class="muted">— بدون اسم —</span>
+            {% endif %}
+          </div>
+        </div>
+        <span style="background:#f59e0b; color:#fff; padding:0.15rem 0.5rem; border-radius:8px; font-size:0.78rem; font-weight:700; flex-shrink:0">
+          {{ count }} فاتورة
+        </span>
+      </div>
+      <div style="margin-top:0.75rem; font-size:1.4rem; font-weight:800; color:#7c2d12">
+        {{ '%.3f' % total }} د.ل
+      </div>
+      <div style="margin-top:0.5rem; font-size:0.85rem; color:#92400e">اضغط للتسوية ←</div>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

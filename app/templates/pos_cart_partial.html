@@ -1,0 +1,43 @@
+<table class="pos-cart-table">
+  <thead>
+    <tr>
+      <th>الصنف</th>
+      <th>الكمية</th>
+      <th>السعر</th>
+      <th>الإجمالي</th>
+      <th aria-label="إجراء"></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for line in cart_lines %}
+    <tr>
+      <td>{{ line.product.name_ar }}</td>
+      <td>{{ pos_qty(line.quantity) }}</td>
+      <td>{{ pos_money(line.unit_price) }}</td>
+      <td>{{ pos_money(line.line_total) }}</td>
+      <td class="pos-cart-actions">
+        <form
+          hx-post="/pos/remove-line/{{ line.id }}"
+          hx-target="#pos-sidebar-live"
+          hx-swap="innerHTML"
+          style="display: inline; margin: 0"
+        >
+          <button class="btn btn-danger pos-line-del" type="submit" title="حذف من السلة" aria-label="حذف من السلة">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+              <path d="M10 11v6"></path>
+              <path d="M14 11v6"></path>
+              <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path>
+            </svg>
+          </button>
+        </form>
+      </td>
+    </tr>
+    {% else %}
+    <tr>
+      <td colspan="5" class="muted">السلة فارغة.</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>

@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}وحدات القياس{% endblock %}
+{% block body %}
+<div class="row" style="justify-content: space-between; align-items: center">
+  <h1 style="margin: 0">وحدات القياس</h1>
+  <a class="btn" href="/catalog/products">الأصناف</a>
+</div>
+
+{% if error_message %}
+<div class="card" style="border-color: var(--danger, #b91c1c); background: rgba(185, 28, 28, 0.08)">
+  <p style="margin: 0">{{ error_message }}</p>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top: 0">إضافة وحدة</h2>
+  <form method="post" action="/catalog/units/add" class="row" style="gap: 0.5rem; align-items: flex-end; flex-wrap: wrap">
+    <div>
+      <label for="name_ar">اسم الوحدة</label>
+      <input id="name_ar" name="name_ar" required placeholder="مثال: كرتون" />
+    </div>
+    <div>
+      <label for="sort_order">الترتيب</label>
+      <input id="sort_order" name="sort_order" type="number" value="0" />
+    </div>
+    <button class="btn btn-primary" type="submit">إضافة</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">الوحدات الحالية</h2>
+  {% if units %}
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>الوحدة</th>
+        <th>الترتيب</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in units %}
+      <tr>
+        <td>{{ u.id }}</td>
+        <td>{{ u.name_ar }}</td>
+        <td>{{ u.sort_order }}</td>
+        <td>
+          <form method="post" action="/catalog/units/{{ u.id }}/delete" onsubmit="return confirm('حذف الوحدة {{ u.name_ar }}؟');">
+            <button class="btn btn-danger" type="submit">حذف</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">لا توجد وحدات.</p>
+  {% endif %}
+</div>
+{% endblock %}

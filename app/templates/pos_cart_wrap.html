@@ -1,0 +1,10 @@
+<div id="pos-cart-wrap">
+  {% if feedback %}
+  <div class="pos-feedback alert">{{ feedback }}</div>
+  {% else %}
+  <div class="pos-feedback" style="min-height: 0.25rem"></div>
+  {% endif %}
+  <div id="cart">
+    {% include "pos_cart_partial.html" %}
+  </div>
+</div>

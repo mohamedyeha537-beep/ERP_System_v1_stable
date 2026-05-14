@@ -1,0 +1,93 @@
+<div id="pos-panel">
+  <div class="pos-toolbar">
+    <input type="search" id="product-search" placeholder="بحث بالاسم…" autocomplete="off" />
+    <form
+      hx-post="/pos/scan"
+      hx-target="#pos-sidebar-live"
+      hx-swap="innerHTML"
+      hx-on::after-request="if (event.detail.successful) this.reset()"
+      class="row"
+      style="gap: 0.35rem; align-items: center; margin: 0"
+    >
+      <input
+        type="text"
+        name="barcode"
+        placeholder="مسح الباركود (Enter)"
+        autocomplete="off"
+        style="max-width: 200px"
+      />
+      <button class="btn btn-primary" type="submit">إضافة</button>
+    </form>
+  </div>
+
+  {% if roots or show_uncat_tile %}
+  <div class="pos-cat-strip">
+    {% if show_uncat_tile %}
+    <a
+      href="/pos?root=0"
+      class="pos-cat-tile{% if root_sel == 0 %} active{% endif %}"
+      style="background: #64748b"
+      hx-get="/pos/panel?root=0"
+      hx-target="#pos-panel"
+      hx-swap="outerHTML"
+      hx-push-url="/pos?root=0"
+      >بدون فئة<br /><span style="font-size: 0.75rem; opacity: 0.9">{{ uncat }}</span></a
+    >
+    {% endif %}
+    {% for r in roots %}
+    <a
+      href="/pos?root={{ r.id }}"
+      class="pos-cat-tile{% if root_sel == r.id %} active{% endif %}"
+      style="background: {{ r.color_hex }}"
+      hx-get="/pos/panel?root={{ r.id }}"
+      hx-target="#pos-panel"
+      hx-swap="outerHTML"
+      hx-push-url="/pos?root={{ r.id }}"
+      >{{ r.name_ar }}<br /><span style="font-size: 0.75rem; opacity: 0.9" title="عدد الأصناف الجاهزة في هذا القسم (يشمل الفروع)">{{ root_product_counts.get(r.id, 0) }}</span
+      ></a
+    >
+    {% endfor %}
+  </div>
+
+  {% if children %}
+  <div class="pos-substrip">
+    {% for c in children %}
+    <a
+      href="/pos?root={{ root_sel }}&sub={{ c.id }}"
+      class="pos-subchip{% if sub_sel == c.id %} active{% endif %}"
+      hx-get="/pos/panel?root={{ root_sel }}&sub={{ c.id }}"
+      hx-target="#pos-panel"
+      hx-swap="outerHTML"
+      hx-push-url="/pos?root={{ root_sel }}&sub={{ c.id }}"
+      >{{ c.name_ar }}</a
+    >
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% endif %}
+
+  <div class="pos-grid" id="pos-product-grid">
+    {% for p in products %}
+    <div class="pos-card" data-name="{{ p.name_ar|lower }}{% if p.barcode %} {{ p.barcode|lower }}{% endif %}">
+      <form hx-post="/pos/add-line" hx-target="#pos-sidebar-live" hx-swap="innerHTML">
+        <input type="hidden" name="product_id" value="{{ p.id }}" />
+        <input type="hidden" name="quantity" value="1" />
+        <div class="pos-card-img-wrap">
+          {% if p.image_filename %}
+          <img src="/static/{{ p.image_filename }}" alt="" loading="lazy" />
+          {% else %}
+          <img src="/static/product-placeholder.svg" alt="" loading="lazy" />
+          {% endif %}
+        </div>
+        <div class="pos-card-body">
+          <div class="pos-card-name">{{ p.name_ar }}</div>
+          <div class="pos-card-price">{{ pos_money(p.sell_price) }} <span class="money-currency">د.ل</span></div>
+        </div>
+        <button type="submit" class="pos-card-btn" aria-label="إضافة {{ p.name_ar }}"></button>
+      </form>
+    </div>
+    {% else %}
+    <p class="muted" style="grid-column: 1 / -1">لا توجد منتجات في هذه الفئة.</p>
+    {% endfor %}
+  </div>
+</div>

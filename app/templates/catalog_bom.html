@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}تركيبة {{ parent.name_ar }}{% endblock %}
+{% block body %}
+<h1>تركيبة: {{ parent.name_ar }}</h1>
+<p class="muted">كميات المكوّنات لكل وحدة واحدة من المنتج النهائي.</p>
+{% if error %}
+<div class="alert">{{ error }}</div>
+{% endif %}
+<div class="card">
+  <h2 style="margin-top: 0">إضافة مكوّن</h2>
+  <form method="post" action="/catalog/products/{{ parent.id }}/bom/add">
+    <label for="component_product_id">المكوّن (مخزني فقط)</label>
+    <select id="component_product_id" name="component_product_id" required>
+      {% for c in components %}
+      <option value="{{ c.id }}">{{ c.name_ar }} ({{ c.unit }})</option>
+      {% endfor %}
+    </select>
+    <label for="qty_per_parent">الكمية لكل وحدة منتج نهائي</label>
+    <input id="qty_per_parent" name="qty_per_parent" required value="1" />
+    <div class="row" style="margin-top: 1rem">
+      <button class="btn btn-primary" type="submit">إضافة</button>
+    </div>
+  </form>
+</div>
+<div class="card">
+  <h2 style="margin-top: 0">المكوّنات الحالية</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>المكوّن</th>
+        <th>الكمية / وحدة أب</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for line in lines %}
+      <tr>
+        <td>{{ line.component_product.name_ar }}</td>
+        <td>{{ line.qty_per_parent }}</td>
+        <td>
+          <form method="post" action="/catalog/products/{{ parent.id }}/bom/{{ line.id }}/delete" style="display: inline">
+            <button class="btn btn-danger" type="submit">حذف</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="3" class="muted">لا توجد أسطر تركيبة.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<a class="btn" href="/catalog/products">رجوع للأصناف</a>
+{% endblock %}

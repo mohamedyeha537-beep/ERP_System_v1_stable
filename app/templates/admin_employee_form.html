@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}{% if emp %}تعديل موظف{% else %}موظف جديد{% endif %}{% endblock %}
+{% block head_extra %}
+<style>
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.85rem; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.85rem; }
+  @media (max-width: 760px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+  .field { display: flex; flex-direction: column; gap: 0.3rem; }
+  .field label { color: #475569; font-size: 0.85rem; font-weight: 600; }
+  .help { background: #fef3c7; border-right: 4px solid #f59e0b; padding: 0.7rem 1rem;
+          border-radius: 8px; color: #78350f; margin-bottom: 1rem; line-height: 1.7; }
+</style>
+{% endblock %}
+{% block body %}
+<div class="row" style="justify-content: space-between; align-items: center">
+  <h1 style="margin: 0">{% if emp %}تعديل: {{ emp.full_name_ar }}{% else %}موظف جديد{% endif %}</h1>
+  <a class="btn" href="/admin/employees">← القائمة</a>
+</div>
+
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+
+<div class="help">
+  <strong>كيف يحسب النظام الراتب؟</strong>
+  <ul style="margin: 0.4rem 0">
+    <li><strong>راتب شهري ثابت:</strong> يأخذ الموظف نفس الراتب بغض النظر عن الساعات.</li>
+    <li><strong>أجر بالساعة:</strong> يُحسب من ساعات الحضور المسجَّلة × الأجر/الساعة.</li>
+    <li><strong>أجر باليوم:</strong> الساعات ÷ ساعات اليوم المعيارية × الأجر اليومي.</li>
+    <li><strong>شهري + إضافي:</strong> راتب أساسي + ساعات إضافية فوق المعيار × الأجر/الساعة × مضاعف.</li>
+  </ul>
+</div>
+
+<div class="card">
+  <form method="post" action="/admin/employees/save" style="display: flex; flex-direction: column; gap: 1rem">
+    {% if emp %}<input type="hidden" name="id" value="{{ emp.id }}" />{% endif %}
+
+    <h2 style="margin: 0 0 0.4rem">المعلومات الأساسية</h2>
+    <div class="grid-2">
+      <div class="field">
+        <label for="name">الاسم الكامل *</label>
+        <input id="name" name="full_name_ar" required value="{{ emp.full_name_ar if emp else '' }}" placeholder="مثال: أحمد محمد" />
+      </div>
+      <div class="field">
+        <label for="job">الوظيفة</label>
+        <input id="job" name="job_title" value="{{ emp.job_title if emp else '' }}" placeholder="مثال: كاشير، طباخ، نادل" />
+      </div>
+      <div class="field">
+        <label for="nid">الرقم الوطني</label>
+        <input id="nid" name="national_id" value="{{ emp.national_id if emp else '' }}" />
+      </div>
+      <div class="field">
+        <label for="phone">الهاتف</label>
+        <input id="phone" name="phone" value="{{ emp.phone if emp else '' }}" />
+      </div>
+    </div>
+
+    <h2 style="margin: 0.4rem 0">الأجر</h2>
+    <div class="grid-3">
+      <div class="field">
+        <label for="ptype">نوع الأجر *</label>
+        <select id="ptype" name="pay_type">
+          {% for code, label in pay_types %}
+          <option value="{{ code }}" {% if emp and emp.pay_type.value == code %}selected{% elif not emp and code == 'MONTHLY' %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="base">الراتب الشهري (د.ل)</label>
+        <input id="base" name="base_monthly_salary" type="number" step="0.001" min="0"
+               value="{{ emp.base_monthly_salary if emp else '0' }}" />
+      </div>
+      <div class="field">
+        <label for="hourly">الأجر بالساعة (د.ل)</label>
+        <input id="hourly" name="hourly_rate" type="number" step="0.001" min="0"
+               value="{{ emp.hourly_rate if emp else '0' }}" />
+      </div>
+      <div class="field">
+        <label for="sph">ساعات اليوم المعيارية</label>
+        <input id="sph" name="standard_hours_per_day" type="number" step="0.25" min="0" max="24"
+               value="{{ emp.standard_hours_per_day if emp else '8' }}" />
+      </div>
+      <div class="field">
+        <label for="otmul">مضاعف الإضافي</label>
+        <input id="otmul" name="overtime_multiplier" type="number" step="0.05" min="1"
+               value="{{ emp.overtime_multiplier if emp else '1.5' }}" />
+      </div>
+      <div class="field">
+        <label for="hired">تاريخ التعيين</label>
+        <input id="hired" name="hired_at" type="date"
+               value="{{ emp.hired_at.strftime('%Y-%m-%d') if emp and emp.hired_at else today }}" />
+      </div>
+    </div>
+
+    <h2 style="margin: 0.4rem 0">الحالة والحساب</h2>
+    <div class="grid-2">
+      <div class="field">
+        <label for="status">الحالة</label>
+        <select id="status" name="status">
+          {% for code, label in statuses %}
+          <option value="{{ code }}" {% if emp and emp.status.value == code %}selected{% elif not emp and code == 'ACTIVE' %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="user">حساب نظام مرتبط (اختياري)</label>
+        <select id="user" name="user_id">
+          <option value="">— لا يوجد —</option>
+          {% for u in users %}
+          <option value="{{ u.id }}" {% if emp and emp.user_id == u.id %}selected{% endif %}>{{ u.username }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="notes">ملاحظات</label>
+      <textarea id="notes" name="notes" rows="2">{{ emp.notes if emp else '' }}</textarea>
+    </div>
+
+    <div class="row" style="gap: 0.5rem; justify-content: flex-end">
+      <a class="btn" href="/admin/employees">إلغاء</a>
+      <button class="btn btn-primary" type="submit">{% if emp %}حفظ التعديلات{% else %}حفظ الموظف{% endif %}</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

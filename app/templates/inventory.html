@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}المخزون{% endblock %}
+{% block body %}
+<h1>المخزون</h1>
+
+<p class="muted" style="margin-top: -0.4rem">
+  تظهر هنا فقط <strong>مكوّنات المخزون</strong> التي تُشترى من المورّد (STOCK_ONLY).
+  المنتجات النهائية المعروضة للبيع (مثل البرجر/الشيش/القهوة) <strong>لا تظهر في المخزون</strong>
+  لأنها تُصنَّع من المكوّنات؛ وعند البيع تُخصم تلك المكوّنات تلقائياً حسب وصفة التركيب.
+</p>
+
+{% set err = request.query_params.get('err') %}
+{% if err == 'composite' %}
+<div class="alert">
+  المنتجات المركّبة (لها وصفة تركيب) لا يمكن تعديل رصيدها يدوياً — تُخصم مكوّناتها تلقائياً عند البيع.
+</div>
+{% elif err == 'sale_via_pos' %}
+<div class="alert">حركات البيع تُسجَّل تلقائياً من نقطة البيع.</div>
+{% elif err == 'stock' %}
+<div class="alert">تعذّر تسجيل الحركة (تحقّق من توفّر الرصيد).</div>
+{% elif err == 'type' %}
+<div class="alert">نوع حركة غير صالح.</div>
+{% endif %}
+
+{% if low_stock %}
+<div class="alert">
+  <strong>تنبيه نفاد:</strong>
+  {% for p, q in low_stock %}
+  <span>{{ p.name_ar }} ({{ q }}){% if not loop.last %} — {% endif %}</span>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top: 0">تسجيل حركة</h2>
+  {% if products %}
+  <form method="post" action="/inventory/movement">
+    <label for="product_id">الصنف</label>
+    <select id="product_id" name="product_id" required>
+      {% for p in products %}
+      <option value="{{ p.id }}">{{ p.name_ar }} — الرصيد: {{ balances[p.id] }} {{ p.unit }}</option>
+      {% endfor %}
+    </select>
+    <label for="movement_type">نوع الحركة</label>
+    <select id="movement_type" name="movement_type" required>
+      <option value="PURCHASE">شراء / إدخال (+)</option>
+      <option value="ADJUSTMENT">تسوية (يمكن سالباً أو موجباً)</option>
+      <option value="ONLINE_SYNC">مزامنة أونلاين</option>
+    </select>
+    <label for="quantity">الكمية (موجبة للشراء؛ للتسوية استخدم الإشارة المناسبة)</label>
+    <input id="quantity" name="quantity" required value="0" />
+    <label for="note">ملاحظة</label>
+    <input id="note" name="note" />
+    <div class="row" style="margin-top: 1rem">
+      <button class="btn btn-primary" type="submit">تسجيل</button>
+    </div>
+  </form>
+  <p class="muted" style="margin-top: 0.75rem">
+    لإدخال بضاعة دفعة واحدة بأسعارها، استخدم
+    <a href="/admin/purchases/new">فاتورة شراء جديدة</a>
+    — تُضيف الكميات للمخزون وتخصم المبلغ من المحفظة معاً.
+  </p>
+  {% else %}
+  <p class="muted">لا توجد أصناف قابلة للحفظ في المخزون. أضف منتجات (مكوّنات) من <a href="/catalog/products">صفحة الأصناف</a>.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">الأرصدة</h2>
+  {% if products %}
+  <table>
+    <thead>
+      <tr>
+        <th>الصنف</th>
+        <th>الوحدة</th>
+        <th>الرصيد</th>
+        <th>الحد الأدنى</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in products %}
+      {% set bal = balances[p.id] %}
+      {% set is_low = p.reorder_level and p.reorder_level > 0 and bal <= p.reorder_level %}
+      <tr {% if is_low %}style="background: #fef2f2"{% endif %}>
+        <td><strong>{{ p.name_ar }}</strong></td>
+        <td>{{ p.unit }}</td>
+        <td style="font-weight: 700; color: {% if is_low %}#b91c1c{% endif %}">{{ bal }}</td>
+        <td>{{ p.reorder_level or 0 }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">لا أرصدة بعد.</p>
+  {% endif %}
+</div>
+{% endblock %}

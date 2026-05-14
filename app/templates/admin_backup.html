@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% block title %}النسخ الاحتياطي والاستعادة{% endblock %}
+{% block head_extra %}
+<style>
+  .danger-zone {
+    border: 2px solid #ef4444; background: #fef2f2; border-radius: 14px;
+    padding: 1.1rem 1.4rem; margin-top: 1rem;
+  }
+  .danger-zone h2 { color: #b91c1c; margin-top: 0; }
+  .danger-action {
+    background: #fff; border: 1px solid #fecaca; border-radius: 10px;
+    padding: 0.85rem 1rem; margin-bottom: 0.7rem;
+  }
+  .danger-action h3 { margin: 0 0 0.4rem; color: #991b1b; font-size: 1rem; }
+  .danger-action p { margin: 0.2rem 0; color: #7f1d1d; font-size: 0.88rem; line-height: 1.6; }
+  .danger-action form { margin-top: 0.55rem; display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+  .danger-action input[type=text] {
+    border: 1px solid #fca5a5; padding: 0.4rem 0.6rem; border-radius: 8px;
+    flex: 1; min-width: 180px;
+  }
+  .danger-action button {
+    background: #dc2626; color: #fff; border: none; padding: 0.5rem 1rem;
+    border-radius: 8px; cursor: pointer; font-weight: 700;
+  }
+  .danger-action button:hover { background: #b91c1c; }
+  .info-card {
+    background: #eff6ff; border: 1px solid #93c5fd; border-radius: 10px;
+    padding: 0.85rem 1rem; margin-bottom: 0.85rem;
+  }
+  .info-card code {
+    background: #fff; padding: 0.05rem 0.35rem; border-radius: 4px; direction: ltr; display: inline-block;
+  }
+  .backup-table th, .backup-table td { font-size: 0.92rem; }
+  .upload-area {
+    border: 2px dashed #93c5fd; padding: 1rem; border-radius: 10px;
+    background: #f8fafc; text-align: center; margin-top: 0.5rem;
+  }
+</style>
+{% endblock %}
+{% block body %}
+<div class="row" style="justify-content: space-between; align-items: center">
+  <h1 style="margin: 0">النسخ الاحتياطي والاستعادة وتصفير القاعدة</h1>
+  <a class="btn" href="/">عودة للوحة</a>
+</div>
+
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+{% if notice %}<div class="alert" style="background:#ecfdf5; border-color:#10b981; color:#065f46">{{ notice }}</div>{% endif %}
+
+<div class="info-card">
+  <strong>📦 ملف القاعدة الحالي:</strong> <code>{{ db_path }}</code>
+  &nbsp;—&nbsp; الحجم: <strong>{{ db_size }}</strong>
+  {% if not is_sqlite %}
+  <p style="margin: 0.4rem 0 0; color:#b91c1c">⚠ هذه الصفحة تعمل مع قواعد SQLite فقط. قاعدتك ليست SQLite، استخدم أدوات قاعدة البيانات الخاصة بها.</p>
+  {% else %}
+  <p style="margin: 0.4rem 0 0">
+    التشغيل البسيط: <strong>SQLite</strong> = ملف واحد على القرص. النسخ الاحتياطي = نسخة من هذا الملف،
+    والاستعادة = استبدال الملف بنسخة سابقة. لنقل البيانات بين الأجهزة: نزّل الملف من جهاز، ارفعه على آخر.
+  </p>
+  {% endif %}
+</div>
+
+{% if is_sqlite %}
+<div class="card">
+  <h2 style="margin-top: 0">إنشاء نسخة احتياطية</h2>
+  <p class="muted" style="margin-top: 0">
+    ينشئ نسخة آمنة من قاعدة البيانات (تتعامل مع الكتابات المتزامنة عبر <em>SQLite Online Backup API</em>) ويحفظها في مجلد <code>backups/</code>.
+  </p>
+  <div class="row" style="gap: 0.5rem">
+    <form method="post" action="/admin/backup/create">
+      <button class="btn btn-primary" type="submit">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -3px; margin-inline-end: 0.3rem">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="17 8 12 3 7 8"></polyline>
+          <line x1="12" y1="3" x2="12" y2="15"></line>
+        </svg>
+        إنشاء نسخة الآن (تُحفظ على القرص)
+      </button>
+    </form>
+    <a class="btn" href="/admin/backup/download/current">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -3px; margin-inline-end: 0.3rem">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+        <polyline points="7 10 12 15 17 10"></polyline>
+        <line x1="12" y1="15" x2="12" y2="3"></line>
+      </svg>
+      تنزيل القاعدة الحالية للجهاز
+    </a>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">رفع واستعادة من ملف</h2>
+  <p class="muted" style="margin-top: 0">
+    اختر ملف <code>.db</code> سابقاً أنشأه النظام. سيتحقّق النظام من سلامة الملف،
+    ويأخذ <em>نسخة أمان</em> لقاعدتك الحالية قبل الاستبدال.
+  </p>
+  <form method="post" action="/admin/backup/restore-uploaded" enctype="multipart/form-data">
+    <div class="upload-area">
+      <input type="file" name="file" accept=".db,application/octet-stream,application/x-sqlite3" required />
+      <p class="muted" style="margin: 0.4rem 0 0; font-size: 0.85rem">
+        ⚠ سيُستبدل ما هو موجود حالياً. تأكّد أن الملف من نفس النظام.
+      </p>
+    </div>
+    <div style="margin-top: 0.6rem">
+      <button class="btn btn-primary" type="submit">استعادة من الملف المرفوع</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">النسخ المحفوظة على القرص</h2>
+  {% if backups %}
+  <table class="backup-table">
+    <thead>
+      <tr><th>اسم الملف</th><th>الحجم</th><th>تاريخ الإنشاء (UTC)</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for name, size, mtime in backups %}
+      <tr>
+        <td><strong>{{ name }}</strong></td>
+        <td>{{ (size / 1024)|round(1) }} KB</td>
+        <td>{{ mtime.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td class="row" style="gap:0.3rem; margin:0">
+          <a class="btn" href="/admin/backup/download/{{ name }}" style="padding:0.25rem 0.6rem; font-size:0.85rem">تنزيل</a>
+          <form method="post" action="/admin/backup/restore-existing/{{ name }}" onsubmit="return confirm('استعادة هذه النسخة؟ سيتم استبدال البيانات الحالية.')" style="display:inline">
+            <button type="submit" class="btn" style="padding:0.25rem 0.6rem; font-size:0.85rem; background:#3b82f6; color:#fff; border-color:#3b82f6">استعادة</button>
+          </form>
+          <form method="post" action="/admin/backup/delete/{{ name }}" onsubmit="return confirm('حذف هذه النسخة؟')" style="display:inline">
+            <button type="submit" class="btn" style="padding:0.25rem 0.6rem; font-size:0.85rem; color:#b91c1c; border-color:#fecaca">حذف</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">لا توجد نسخ محفوظة بعد. اضغط «إنشاء نسخة الآن».</p>
+  {% endif %}
+</div>
+
+<div class="card" style="background:#fef9c3; border-color:#facc15">
+  <h2 style="margin-top:0">📲 كيف أنقل البيانات بين الأجهزة؟</h2>
+  <ol style="line-height: 1.8; margin: 0.4rem 0; padding-inline-start: 1.3rem">
+    <li>على الجهاز <strong>القديم</strong>: اضغط <em>«تنزيل القاعدة الحالية»</em> ← يحفظ ملف <code>pos-backup-...db</code> في تنزيلاتك.</li>
+    <li>انقل الملف إلى الجهاز <strong>الجديد</strong> (USB، Cloud، WhatsApp، إلخ).</li>
+    <li>على الجهاز الجديد: ثبّت النظام واشتغل عليه أول مرة (سيُنشئ قاعدة جديدة فارغة).</li>
+    <li>افتح هذه الصفحة، اضغط <em>«اختيار ملف»</em> في قسم الاستعادة، اختر الملف، واضغط <em>«استعادة»</em>.</li>
+    <li>أعد تحميل المتصفح. كل بياناتك ستكون موجودة على الجهاز الجديد.</li>
+  </ol>
+</div>
+
+<!-- Danger Zone -->
+<div class="danger-zone">
+  <h2>⚠ منطقة الخطر — تصفير قاعدة البيانات</h2>
+  <p style="color:#7f1d1d; margin-top:0">
+    العمليات التالية <strong>لا يمكن التراجع عنها</strong>. النظام يأخذ نسخة أمان قبل التنفيذ في مجلد <code>backups/</code>.
+    اكتب عبارة التأكيد بالحرف لتنفيذ كل عملية.
+  </p>
+
+  <div class="danger-action">
+    <h3>١. محو الحركات فقط (المستوى الأدنى) — يبقي الكتالوج والإعدادات والمستخدمين</h3>
+    <p>
+      يحذف: المبيعات، فواتير شراء البضائع، المصروفات، حركات المخزون، تذاكر المطبخ.
+      <br>
+      يُبقي: الأصناف، الأسعار، المستخدمون، الأدوار، أساليب الدفع، التكاليف الشهرية، الأصول الثابتة المسجَّلة، الإعدادات، الطاولات.
+      <br>
+      <strong>الاستخدام المثالي:</strong> بعد تجربة بيانات الاختبار وتريد البدء بنظام نظيف للعمل الفعلي.
+    </p>
+    <form method="post" action="/admin/backup/reset/transactions" onsubmit="return confirm('متأكد؟ سيُحذف كل تاريخ المبيعات والمصروفات.')">
+      <input type="text" name="confirm" placeholder="اكتب: محو الحركات" required />
+      <button type="submit">تنفيذ مستوى ١</button>
+    </form>
+  </div>
+
+  <div class="danger-action">
+    <h3>٢. محو كل البيانات عدا المستخدمين</h3>
+    <p>
+      يحذف: كل ما في المستوى ١ + الكتالوج (الأصناف والوصفات)، الفئات، الطاولات، التكاليف الشهرية، أساليب الدفع، إعدادات النظام، تنبيهات النفاد.
+      <br>
+      يُبقي فقط: المستخدمون، الأدوار، الصلاحيات.
+      <br>
+      <strong>الاستخدام:</strong> إعادة بناء النظام من البداية مع الاحتفاظ بالدخول.
+    </p>
+    <form method="post" action="/admin/backup/reset/all-except-users" onsubmit="return confirm('متأكد؟ سيُمحى الكتالوج والإعدادات.')">
+      <input type="text" name="confirm" placeholder="اكتب: محو كل البيانات" required />
+      <button type="submit">تنفيذ مستوى ٢</button>
+    </form>
+  </div>
+
+  <div class="danger-action">
+    <h3>٣. التصفير الكامل (مصنع) — يحذف القاعدة بالكامل</h3>
+    <p>
+      يحذف ملف القاعدة من القرص نهائياً (بعد أرشفته كنسخة احتياطية). سينشئ النظام قاعدة جديدة فارغة عند إعادة التشغيل.
+      <br>
+      <strong>الاستخدام:</strong> إعادة بدء كاملة كأنك ركّبت النظام للتو.
+      <br>
+      <strong>⚠ هام:</strong> بعد التنفيذ <em>أعِد تشغيل الخادم</em> ليعيد بذر البيانات الافتراضية (مستخدم admin، أساليب دفع، إلخ).
+    </p>
+    <form method="post" action="/admin/backup/reset/factory" onsubmit="return confirm('هذا تصفير كامل! متأكد؟')">
+      <input type="text" name="confirm" placeholder="اكتب: تصفير المصنع الكامل" required />
+      <button type="submit">تنفيذ مستوى ٣ (الأخطر)</button>
+    </form>
+  </div>
+</div>
+
+{% endif %}
+{% endblock %}

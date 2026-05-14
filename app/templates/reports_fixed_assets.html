@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button %}
+{% block title %}سجل الأصول الثابتة{% endblock %}
+{% block head_extra %}
+<style>
+  .badge { display: inline-block; padding: 0.18rem 0.55rem; border-radius: 999px; font-size: 0.78rem; background: #e0e7ff; color: #1e40af; font-weight: 600; }
+  .badge.good { background: #d1fae5; color: #065f46; }
+  .badge.bad { background: #fee2e2; color: #991b1b; }
+</style>
+{% endblock %}
+{% block body %}
+<h1>سجل الأصول الثابتة وحسابات الإهلاك</h1>
+{{ reports_nav('fixed-assets') }}
+{{ period_filter('/reports/fixed-assets', period, period_labels, start, end, start_str, end_str) }}
+<div class="export-bar">
+  <span class="label">📤 تصدير:</span>
+  {{ export_button('/reports/export/comprehensive.csv?period=' ~ period, 'تقرير شامل (CSV)') }}
+</div>
+
+
+<div class="card" style="border-color: #93c5fd; background: #eff6ff">
+  <h2 style="margin-top: 0; color: #1e3a8a">المعالجة المحاسبية الموحَّدة</h2>
+  <div class="muted" style="line-height: 1.8; color: #1e3a8a">
+    وفق المعيار الدولي للمحاسبة <strong>IAS 16</strong> — الممتلكات والمصانع والمعدات (Property, Plant and Equipment)،
+    لا تُخصم تكلفة الأصل الثابت كاملةً في شهر الشراء، بل تُوزَّع على <strong>العمر الإنتاجي المتوقع</strong> بطريقة <strong>القسط الثابت</strong> (Straight-Line Depreciation):
+    <div style="background: #fff; padding: 0.6rem 0.9rem; border-radius: 8px; margin: 0.5rem 0; font-family: monospace; direction: ltr; text-align: center; color: #0f172a">
+      Monthly Depreciation = (Cost − Salvage Value) ÷ Useful Life (months)
+    </div>
+    <ul style="padding-inline-start: 1.2rem; margin: 0.4rem 0">
+      <li><strong>الكلفة:</strong> سعر الشراء (إجمالي بند الفاتورة).</li>
+      <li><strong>قيمة الخردة (Salvage):</strong> القيمة المتوقَّعة عند نهاية العمر الإنتاجي (افتراضياً 0).</li>
+      <li><strong>العمر الإنتاجي:</strong> بالأشهر، يحدّده المالك حسب نوع الأصل وخبرة المشغّلين.</li>
+      <li><strong>الإهلاك المتراكم:</strong> مجموع أقساط الإهلاك المسجَّلة منذ شراء الأصل حتى الآن.</li>
+      <li><strong>القيمة الدفترية (Book Value):</strong> الكلفة − الإهلاك المتراكم. تظهر في الميزانية كقيمة الأصل المتبقّية.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">ملخّص الأصول الثابتة (حتى نهاية الفترة)</h2>
+  <div class="stat-grid">
+    <div class="stat-card"><div class="label">عدد الأصول النشطة</div><div class="value">{{ summary.asset_count }}</div></div>
+    <div class="stat-card"><div class="label">إجمالي الكلفة الأصلية</div><div class="value">{{ summary.total_cost }} د.ل</div></div>
+    <div class="stat-card bad"><div class="label">الإهلاك المتراكم</div><div class="value">{{ summary.total_accumulated }} د.ل</div></div>
+    <div class="stat-card good"><div class="label">القيمة الدفترية الحالية</div><div class="value">{{ summary.total_book_value }} د.ل</div></div>
+    <div class="stat-card"><div class="label">قسط الإهلاك الشهري</div><div class="value">{{ summary.total_monthly_depreciation }} د.ل</div></div>
+    <div class="stat-card bad"><div class="label">إهلاك الفترة</div><div class="value">{{ period_depr_total }} د.ل</div><div class="muted" style="font-size: 0.78rem">يُطرح من صافي الربح</div></div>
+  </div>
+  <p class="muted" style="margin-top: 0.6rem; font-size: 0.85rem">
+    <strong>إهلاك الفترة ({{ period_depr_total }} د.ل)</strong> + <strong>المستلزمات الاستهلاكية ({{ consumables_total }} د.ل)</strong> = إجمالي ما يخصم من صافي الربح بسبب الأصول والمستلزمات في هذه الفترة.
+  </p>
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">تفاصيل كل أصل</h2>
+  {% if snapshots %}
+  <table>
+    <thead>
+      <tr>
+        <th>الأصل</th>
+        <th>تاريخ الشراء</th>
+        <th>الكلفة</th>
+        <th>الخردة</th>
+        <th>العمر</th>
+        <th>إهلاك/شهر</th>
+        <th>أشهر بالخدمة</th>
+        <th>إهلاك متراكم</th>
+        <th>القيمة الدفترية</th>
+        <th>إهلاك الفترة</th>
+        <th>الحالة</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in snapshots %}
+      {% set s = item.snap %}
+      <tr {% if s.is_fully_depreciated %}style="background: #f1f5f9; opacity: 0.7"{% endif %}>
+        <td><strong>{{ s.line.item_name or '—' }}</strong>{% if s.line.unit %} <span class="muted">({{ s.line.quantity }} {{ s.line.unit }}){% endif %}</span></td>
+        <td>{{ s.purchase.created_at.strftime('%Y-%m-%d') }}</td>
+        <td>{{ s.cost }} د.ل</td>
+        <td>{{ s.salvage_value }}</td>
+        <td>{{ s.useful_life_months }} ش</td>
+        <td>{{ s.monthly_depreciation }}</td>
+        <td>{{ s.months_in_service_to_date }} / {{ s.useful_life_months }}</td>
+        <td style="color: #b91c1c">{{ s.accumulated_depreciation }}</td>
+        <td style="color: {% if s.book_value > 0 %}#16a34a{% else %}#64748b{% endif %}; font-weight: 700">{{ s.book_value }} د.ل</td>
+        <td style="color: #b45309">{{ item.period_depr }}</td>
+        <td>
+          {% if s.is_disposed %}<span class="badge bad">تم التخلّص</span>
+          {% elif s.is_fully_depreciated %}<span class="badge">مُهلَك بالكامل</span>
+          {% else %}<span class="badge good">نشط</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="text-align: center; padding: 2rem">
+    <p class="muted">لا توجد أصول ثابتة مسجَّلة بعد.</p>
+    <p class="muted" style="font-size: 0.9rem">
+      أضف أصلاً ثابتاً من <a href="/admin/assets/new">صفحة فاتورة الأصول</a> واضبط له «العمر بالأشهر» أكبر من 0.
+    </p>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}

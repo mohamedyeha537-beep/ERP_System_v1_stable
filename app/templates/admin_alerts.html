@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}تنبيهات نفاد المخزون{% endblock %}
+{% block body %}
+<h1>تنبيهات نفاد المخزون</h1>
+<p class="muted">
+  يرسل النظام رسالة تلقائية عند وجود أصناف وصلت أو نزلت تحت «الحد الأدنى» الذي تضبطه لكل صنف
+  من <a href="/catalog/products">صفحة الأصناف</a>.
+</p>
+
+{% if saved %}
+<div class="card" style="border-color: #86efac; background: #f0fdf4">
+  <p style="margin: 0">تم حفظ الإعدادات.</p>
+</div>
+{% endif %}
+{% if test %}
+<div class="card" style="border-color: #fcd34d; background: #fffbeb">
+  <p style="margin: 0"><strong>نتيجة اختبار الإرسال:</strong> {{ test }}</p>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top: 0">الحالة الحالية</h2>
+  <p>
+    عدد الأصناف المنخفضة الآن:
+    <strong style="color: {% if low_count > 0 %}#b91c1c{% else %}#16a34a{% endif %}">{{ low_count }}</strong>
+  </p>
+  {% if low_rows %}
+  <table>
+    <thead><tr><th>الصنف</th><th>المتاح</th><th>الحد الأدنى</th></tr></thead>
+    <tbody>
+      {% for p, qty in low_rows %}
+      <tr><td>{{ p.name_ar }}</td><td style="color: #b91c1c; font-weight: 700">{{ qty }} {{ p.unit }}</td><td>{{ p.reorder_level }} {{ p.unit }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  <form method="post" action="/admin/alerts/test" style="margin-top: 0.6rem">
+    <button class="btn btn-primary" type="submit">إرسال تنبيه الآن (اختبار)</button>
+  </form>
+</div>
+
+<form method="post" action="/admin/alerts/save">
+  <div class="card">
+    <h2 style="margin-top: 0">تفعيل التنبيهات</h2>
+    <label style="display: inline-flex; align-items: center; gap: 0.4rem">
+      <input type="checkbox" name="alerts_enabled" {% if s.alerts_enabled == '1' %}checked{% endif %} style="width: auto" />
+      تفعيل إرسال التنبيهات تلقائياً عند انخفاض رصيد صنف
+    </label>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top: 0">إشعار بالبريد الإلكتروني (SMTP)</h2>
+    <p class="muted" style="margin-top: 0">
+      مثال: لـ Gmail استخدم <code>smtp.gmail.com</code> منفذ <code>587</code> مع TLS وكلمة مرور تطبيق App Password.
+    </p>
+    <div class="row" style="gap: 0.6rem; flex-wrap: wrap">
+      <div style="flex: 1; min-width: 16rem">
+        <label for="alerts_email_to">البريد الذي يستقبل التنبيه</label>
+        <input id="alerts_email_to" name="alerts_email_to" type="email" value="{{ s.alerts_email_to }}" placeholder="owner@example.com" />
+      </div>
+      <div>
+        <label for="smtp_host">SMTP Host</label>
+        <input id="smtp_host" name="smtp_host" value="{{ s.smtp_host }}" placeholder="smtp.gmail.com" />
+      </div>
+      <div>
+        <label for="smtp_port">المنفذ</label>
+        <input id="smtp_port" name="smtp_port" type="number" value="{{ s.smtp_port or '587' }}" style="max-width: 7rem" />
+      </div>
+      <div>
+        <label for="smtp_user">SMTP User</label>
+        <input id="smtp_user" name="smtp_user" value="{{ s.smtp_user }}" />
+      </div>
+      <div>
+        <label for="smtp_password">SMTP Password</label>
+        <input id="smtp_password" name="smtp_password" type="password" placeholder="{% if s.smtp_password %}******** (محفوظة){% else %}اتركها فارغة لعدم التغيير{% endif %}" />
+      </div>
+      <div>
+        <label for="smtp_from">From (اختياري)</label>
+        <input id="smtp_from" name="smtp_from" value="{{ s.smtp_from }}" placeholder="me@example.com" />
+      </div>
+      <label style="display: inline-flex; align-items: center; gap: 0.3rem; margin-bottom: 0.4rem">
+        <input type="checkbox" name="smtp_use_tls" {% if s.smtp_use_tls == '1' %}checked{% endif %} style="width: auto" />
+        STARTTLS
+      </label>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top: 0">إشعار WhatsApp عبر Webhook</h2>
+    <p class="muted" style="margin-top: 0">
+      الصق رابط Webhook لخدمة مثل
+      <a href="https://www.callmebot.com/blog/free-api-whatsapp-messages/" target="_blank" rel="noopener">CallMeBot</a>
+      أو خدمتك الخاصة. النص سيُرسل بـ GET في باراميتر، أو POST بـ JSON {"<param>": "..."}.
+    </p>
+    <div class="row" style="gap: 0.6rem; flex-wrap: wrap; align-items: flex-end">
+      <div style="flex: 2; min-width: 18rem">
+        <label for="whatsapp_webhook_url">رابط Webhook</label>
+        <input id="whatsapp_webhook_url" name="whatsapp_webhook_url" value="{{ s.whatsapp_webhook_url }}" placeholder="https://api.callmebot.com/whatsapp.php?phone=...&apikey=..." />
+      </div>
+      <div>
+        <label for="whatsapp_webhook_method">الطريقة</label>
+        <select id="whatsapp_webhook_method" name="whatsapp_webhook_method" style="max-width: 7rem">
+          <option value="GET" {% if (s.whatsapp_webhook_method or 'GET') == 'GET' %}selected{% endif %}>GET</option>
+          <option value="POST" {% if s.whatsapp_webhook_method == 'POST' %}selected{% endif %}>POST</option>
+        </select>
+      </div>
+      <div>
+        <label for="whatsapp_webhook_param">اسم باراميتر النص</label>
+        <input id="whatsapp_webhook_param" name="whatsapp_webhook_param" value="{{ s.whatsapp_webhook_param or 'text' }}" style="max-width: 9rem" />
+      </div>
+    </div>
+  </div>
+
+  <div class="row" style="gap: 0.5rem">
+    <button class="btn btn-primary" type="submit">حفظ الإعدادات</button>
+    <a class="btn" href="/reports/inventory">العودة لتقرير المخزون</a>
+  </div>
+</form>
+{% endblock %}

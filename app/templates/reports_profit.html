@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button %}
+{% block title %}تقرير الأرباح{% endblock %}
+{% block body %}
+<h1>تقرير الأرباح</h1>
+{{ reports_nav('profit') }}
+{{ period_filter('/reports/profit', period, period_labels, start, end, start_str, end_str) }}
+
+<div class="export-bar">
+  <span class="label">📤 تصدير:</span>
+  {{ export_button('/reports/export/profit-by-product.csv?period=' ~ period, 'الربح بكل صنف (CSV)') }}
+  {{ export_button('/reports/export/comprehensive.csv?period=' ~ period, 'تقرير شامل (CSV)') }}
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">صورة الفترة</h2>
+  <div class="stat-grid">
+    <div class="stat-card good"><div class="label">إجمالي المبيعات</div><div class="value">{{ sales_sum.gross_revenue }} د.ل</div></div>
+    <div class="stat-card bad"><div class="label">المرتجعات</div><div class="value">{{ sales_sum.returns_total }} د.ل</div><div class="muted" style="font-size: 0.78rem">{{ sales_sum.return_count }} سند</div></div>
+    <div class="stat-card good"><div class="label">صافي المبيعات</div><div class="value">{{ sales_sum.net_revenue }} د.ل</div></div>
+    <div class="stat-card bad"><div class="label">تكلفة المباع</div><div class="value">{{ cogs }} د.ل</div><div class="muted" style="font-size: 0.78rem">يطابق مجموع جدول الأرباح أدناه</div></div>
+    <div class="stat-card bad"><div class="label">المصاريف اليومية</div><div class="value">{{ expenses.total }} د.ل</div><div class="muted" style="font-size: 0.78rem">كهرباء/ماء/غاز/صيانة...</div></div>
+    <div class="stat-card bad"><div class="label">رواتب وإيجار وثابتة</div><div class="value">{{ rec_period_share }} د.ل</div><div class="muted" style="font-size: 0.78rem">حصة الفترة من {{ rec_monthly_total }} د.ل/شهر</div></div>
+    <div class="stat-card bad"><div class="label">مستلزمات استهلاكية</div><div class="value">{{ consumables_period }} د.ل</div><div class="muted" style="font-size: 0.78rem">مصروف فوري</div></div>
+    <div class="stat-card bad"><div class="label">إهلاك أصول ثابتة</div><div class="value">{{ depreciation_period }} د.ل</div><div class="muted" style="font-size: 0.78rem">حصة الفترة وفق IAS 16</div></div>
+    <div class="stat-card bad"><div class="label">فواتير الشراء (مخزون)</div><div class="value">{{ inv_purch.total }} د.ل</div></div>
+    <div class="stat-card bad"><div class="label">أجرة التوصيل الخارجة</div><div class="value">{{ delivery_cash_out }} د.ل</div><div class="muted" style="font-size: 0.78rem">خصم كاش للسائق وليس إيراداً</div></div>
+    <div class="stat-card {% if gross_profit >= 0 %}good{% else %}bad{% endif %}"><div class="label">حسبة (١) إجمالي الربح</div><div class="value">{{ gross_profit }} د.ل</div><div class="muted" style="font-size: 0.78rem">إيراد − تكلفة المباع فقط</div></div>
+    <div class="stat-card {% if net_profit >= 0 %}good{% else %}bad{% endif %}"><div class="label">حسبة (٢) صافي الربح</div><div class="value">{{ net_profit }} د.ل</div><div class="muted" style="font-size: 0.78rem">إجمالي − مصاريف − رواتب − مستلزمات − إهلاك</div></div>
+    <div class="stat-card {% if cashflow >= 0 %}good{% else %}bad{% endif %}"><div class="label">صافي التدفق النقدي</div><div class="value">{{ cashflow }} د.ل</div><div class="muted" style="font-size: 0.78rem">تحصيل − رد مبالغ − أجرة توصيل − شراء − مصروف − أصول كاملة</div></div>
+  </div>
+  <div class="muted" style="margin-top: 0.6rem; font-size: 0.85rem; line-height: 1.7; background: #f8fafc; padding: 0.6rem 0.85rem; border-radius: 8px; border: 1px dashed var(--border)">
+    <strong>المعالجة المحاسبية وفق المعايير الدولية:</strong>
+    <ul style="margin: 0.3rem 0; padding-inline-start: 1.2rem">
+      <li><strong>تكلفة المباع</strong> = Σ(الكمية × تكلفة الوحدة من <a href="/catalog/products">وصفة التركيب</a>).</li>
+      <li><strong>المصروفات</strong> (إيجار/راتب/فاتورة): تُخصم بالكامل في فترة دفعها (المعيار IAS 1).</li>
+      <li><strong>مستلزمات استهلاكية</strong> (أكياس، ورق، مواد تنظيف): تُخصم بالكامل في شهر شرائها (لأنها قصيرة العمر).</li>
+      <li><strong>الأصول الثابتة</strong> (فرن، أثاث، طابعة...): <em>لا تُخصم كاملةً</em>! تُوزَّع على عمرها الإنتاجي بالقسط الثابت — هذا ما يسمّى <strong>الإهلاك (Depreciation)</strong> وفق <a href="https://www.ifrs.org/issued-standards/list-of-standards/ias-16-property-plant-and-equipment/" target="_blank">المعيار الدولي IAS 16</a>.</li>
+    </ul>
+    <strong>الحسبتان:</strong>
+    <br>
+    <strong>(١) إجمالي الربح = إيرادات − تكلفة المباع.</strong>
+    <br>
+    <strong>(٢) صافي الربح = إجمالي الربح − مصاريف يومية − رواتب وإيجار (حصة الفترة) − مستلزمات − إهلاك.</strong>
+    <br>
+    <strong>صافي التدفق النقدي ≠ صافي الربح:</strong> التدفق يطرح ما خرج فعلياً من المحفظة (شراء المخزون كاملاً، الأصول الثابتة كاملةً)، أما صافي الربح فيوزّع كلفة الأصول على عمرها — لذا قد تكون رابحاً محاسبياً لكن نقدك انخفض (أو العكس).
+    <br>
+    <a href="/reports/fixed-assets">تفاصيل الأصول الثابتة وحسابات الإهلاك »</a>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">الربح حسب الصنف</h2>
+  {% if by_product %}
+  <table>
+    <thead><tr><th>#</th><th>الصنف</th><th>الكمية</th><th>الإيراد</th><th>متوسط التكلفة</th><th>تكلفة المباع</th><th>الربح</th></tr></thead>
+    <tbody>
+      {% for r in by_product %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td>{{ r.name_ar }}</td>
+        <td>{{ r.qty_sold }}</td>
+        <td>{{ r.revenue }} د.ل</td>
+        <td>{{ r.avg_cost }}</td>
+        <td>{{ r.cogs }}</td>
+        <td style="font-weight: 700; color: {% if r.gross_profit >= 0 %}#16a34a{% else %}#b91c1c{% endif %}">{{ r.gross_profit }} د.ل</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">لا مبيعات في هذه الفترة.</p>{% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,496 @@
+{% extends "base.html" %}
+{% block title %}الهويّة البصرية{% endblock %}
+{% block head_extra %}
+<style>
+  .brand-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+  }
+  @media (max-width: 900px) {
+    .brand-grid { grid-template-columns: 1fr; }
+  }
+  .color-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 0.6rem;
+  }
+  .color-row input[type="color"] {
+    width: 48px;
+    height: 36px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 2px;
+    cursor: pointer;
+  }
+  .color-row input[type="text"] {
+    flex: 1;
+    font-family: monospace;
+    text-transform: lowercase;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .color-row label {
+    flex: 0 0 130px;
+    font-size: 0.88rem;
+    color: var(--muted);
+  }
+
+  /* ===== Live preview frame ===== */
+  .preview-frame {
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    background: #f1f5f9;
+    margin-bottom: 1rem;
+  }
+  .pv-header {
+    min-height: 72px;
+    display: flex;
+    align-items: center;
+    padding: 0 1rem;
+    color: var(--pv-fg);
+    background: linear-gradient(135deg, var(--pv-bg-from) 0%, var(--pv-bg-to) 100%);
+    gap: 0.6rem;
+  }
+  .pv-logo {
+    width: 54px;
+    height: 54px;
+    display: grid;
+    place-items: center;
+    font-weight: bold;
+    overflow: hidden;
+    flex: 0 0 auto;
+  }
+  .pv-logo img { width: 100%; height: 100%; object-fit: contain; }
+  .pv-logo.pv-fallback {
+    width: 40px;
+    height: 40px;
+  }
+  .pv-logo svg { width: 30px; height: 30px; }
+  .pv-name { font-weight: 700; font-size: 1rem; }
+  .pv-name small {
+    display: block;
+    font-size: 0.72rem;
+    opacity: 0.82;
+    margin-top: 0.14rem;
+    font-weight: 500;
+  }
+  .pv-nav {
+    display: flex;
+    gap: 0.4rem;
+    margin-inline-start: auto;
+    font-size: 0.8rem;
+    opacity: 0.85;
+  }
+  .pv-body {
+    padding: 1rem;
+    background: #fff;
+    min-height: 110px;
+  }
+  .pv-btn {
+    display: inline-block;
+    background: var(--pv-primary);
+    color: #fff;
+    padding: 0.45rem 0.9rem;
+    border-radius: 7px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    margin-inline-end: 0.4rem;
+  }
+  .pv-link { color: var(--pv-primary); text-decoration: underline; font-size: 0.88rem; }
+  .pv-accent-pill {
+    display: inline-block;
+    background: var(--pv-accent);
+    color: #fff;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.78rem;
+  }
+  .pv-footer {
+    padding: 0.8rem 1rem;
+    background: var(--pv-footer-bg);
+    color: var(--pv-footer-fg);
+    font-size: 0.78rem;
+  }
+  .text-stack {
+    display: grid;
+    gap: 0.7rem;
+  }
+  .text-field label {
+    display: block;
+    font-size: 0.86rem;
+    color: var(--muted);
+    margin-bottom: 0.25rem;
+  }
+  .text-field input,
+  .text-field textarea {
+    width: 100%;
+  }
+
+  .preset-row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+  .preset {
+    cursor: pointer;
+    border: 2px solid transparent;
+    border-radius: 8px;
+    padding: 0.3rem 0.5rem;
+    font-size: 0.78rem;
+    color: #fff;
+    font-weight: 600;
+    transition: transform 0.1s;
+  }
+  .preset:hover { transform: scale(1.05); }
+  .preset:active { transform: scale(0.96); }
+</style>
+{% endblock %}
+{% block body %}
+<div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; margin-bottom:0.4rem">
+  <h1 style="margin:0">🎨 الهويّة البصرية</h1>
+  <div style="display:flex; gap:0.4rem">
+    <a class="btn" href="/admin/settings">↩ الإعدادات</a>
+    <form method="post" action="/admin/branding/reset" style="display:inline"
+          onsubmit="return confirm('سيُعاد كل شيء إلى القيم الافتراضية وسيُحذف الشعار. متابعة؟');">
+      <button type="submit" class="btn" style="color:#b91c1c">↻ إعادة للافتراضي</button>
+    </form>
+  </div>
+</div>
+<p class="muted" style="margin-top:0.2rem">
+  خصّص شكل النظام: ارفع شعارك وغيّر ألوان الهيدر والفوتر والأزرار.
+  التغييرات تُطبَّق فوراً لكل المستخدمين بعد الحفظ.
+  <strong>التغييرات التجريبية أدناه فورية بدون حفظ.</strong>
+</p>
+
+{% if saved %}
+<div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0">✓ تم الحفظ.</p></div>
+{% endif %}
+{% if error %}
+<div class="card" style="border-color:#fecaca; background:#fef2f2"><p style="margin:0; color:#b91c1c">⚠ {{ error }}</p></div>
+{% endif %}
+
+<!-- ============== المعاينة المباشرة ============== -->
+<div class="card">
+  <h2 style="margin-top:0">👁️ معاينة مباشرة</h2>
+  <div class="preview-frame" id="preview-frame"
+       style="--pv-bg-from: {{ brand.header_bg_from }};
+              --pv-bg-to: {{ brand.header_bg_to }};
+              --pv-fg: {{ brand.header_fg }};
+              --pv-primary: {{ brand.primary_color }};
+              --pv-accent: {{ brand.accent_color }};
+              --pv-footer-bg: {{ brand.footer_bg }};
+              --pv-footer-fg: {{ brand.footer_fg }};">
+    <div class="pv-header">
+      <div class="pv-logo {% if not brand.logo_url %}pv-fallback{% endif %}" id="pv-logo">
+        {% if brand.logo_url %}
+        <img src="{{ brand.logo_url }}" alt="logo" id="pv-logo-img" />
+        {% else %}
+        <span id="pv-logo-fallback">🛒</span>
+        {% endif %}
+      </div>
+      <div class="pv-name" id="pv-name">
+        <span id="pv-name-main">{{ brand.pos_label }}</span>
+        <small id="pv-tagline">{{ brand.header_tagline }}</small>
+      </div>
+      <div class="pv-nav"><span>الرئيسية</span><span id="pv-pos-label">{{ brand.pos_label }}</span><span>التقارير</span></div>
+    </div>
+    <div class="pv-body">
+      <p style="margin:0 0 0.5rem;color:#475569;font-size:0.92rem">هذا مثال على شكل المحتوى:</p>
+      <span class="pv-btn">زر أساسي</span>
+      <span class="pv-accent-pill">شارة تمييز</span>
+      <span style="color:#475569;font-size:0.88rem">ورابط: <a class="pv-link">اضغط هنا</a></span>
+    </div>
+    <div class="pv-footer">
+      <span id="pv-footer-text">{{ brand.footer_tagline }}</span>
+    </div>
+  </div>
+</div>
+
+<!-- ============== رفع الشعار ============== -->
+<div class="card">
+  <h2 style="margin-top:0">🖼️ شعار المتجر</h2>
+  {% if brand.logo_url %}
+  <div style="display:flex;align-items:center;gap:1rem;margin-bottom:0.6rem">
+    <img src="{{ brand.logo_url }}" alt="logo" style="max-height:82px;max-width:220px;object-fit:contain" />
+    <div>
+      <p class="muted" style="margin:0;font-size:0.85rem">الشعار الحالي: <code>{{ brand.logo_filename }}</code></p>
+      <form method="post" action="/admin/branding/delete-logo" style="margin:0.3rem 0 0"
+            onsubmit="return confirm('حذف الشعار الحالي؟');">
+        <button type="submit" class="btn" style="color:#b91c1c">🗑 حذف الشعار</button>
+      </form>
+    </div>
+  </div>
+  {% else %}
+  <p class="muted" style="margin:0 0 0.5rem">لا يوجد شعار. ارفع شعارك ليظهر في الهيدر بدلاً من الأيقونة الافتراضية.</p>
+  {% endif %}
+  <form method="post" action="/admin/branding/upload-logo" enctype="multipart/form-data">
+    <div class="row" style="gap:0.5rem; align-items:flex-end; flex-wrap:wrap">
+      <div style="flex:1;min-width:240px">
+        <label>اختر ملف الشعار</label>
+        <input type="file" name="logo" required accept=".png,.jpg,.jpeg,.webp,.svg,.gif" />
+        <small class="muted" style="font-size:0.78rem;display:block;margin-top:0.2rem">
+          المدعوم: PNG, JPG, WebP, SVG, GIF — الحد الأقصى: 1 ميجابايت.
+          يُفضَّل خلفية شفّافة (PNG/SVG).
+        </small>
+      </div>
+      <button class="btn btn-primary" type="submit">⬆ رفع</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">🖨️ شعار الطباعة</h2>
+  <p class="muted" style="margin:0 0 0.5rem;font-size:0.84rem">
+    هذا الشعار يُستخدم داخل الفاتورة المطبوعة. إذا تركته فارغاً فسيُستخدم شعار الواجهة
+    نفسه مع تحويله تلقائياً إلى أسود للطباعة.
+  </p>
+  {% if brand.print_logo_url %}
+  <div style="display:flex;align-items:center;gap:1rem;margin-bottom:0.6rem">
+    <img src="{{ brand.print_logo_url }}" alt="print-logo" style="max-height:82px;max-width:220px;object-fit:contain" />
+    <div>
+      <p class="muted" style="margin:0;font-size:0.85rem">شعار الطباعة الحالي: <code>{{ brand.print_logo_filename }}</code></p>
+      <form method="post" action="/admin/branding/delete-print-logo" style="margin:0.3rem 0 0"
+            onsubmit="return confirm('حذف شعار الطباعة الحالي؟');">
+        <button type="submit" class="btn" style="color:#b91c1c">🗑 حذف شعار الطباعة</button>
+      </form>
+    </div>
+  </div>
+  {% else %}
+  <p class="muted" style="margin:0 0 0.5rem">لا يوجد شعار طباعة مستقل.</p>
+  {% endif %}
+  <form method="post" action="/admin/branding/upload-print-logo" enctype="multipart/form-data">
+    <div class="row" style="gap:0.5rem; align-items:flex-end; flex-wrap:wrap">
+      <div style="flex:1;min-width:240px">
+        <label>اختر ملف شعار الطباعة</label>
+        <input type="file" name="logo" required accept=".png,.jpg,.jpeg,.webp,.svg,.gif" />
+        <small class="muted" style="font-size:0.78rem;display:block;margin-top:0.2rem">
+          يُفضّل رفع نسخة سوداء أو داكنة ومناسبة للإيصالات الحرارية.
+        </small>
+      </div>
+      <button class="btn btn-primary" type="submit">⬆ رفع شعار الطباعة</button>
+    </div>
+  </form>
+</div>
+
+<!-- ============== الألوان ============== -->
+<div class="card">
+  <h2 style="margin-top:0">🎨 الألوان</h2>
+
+  <h3 style="margin-bottom:0.3rem;color:#475569;font-size:0.95rem">قوالب جاهزة (اضغط لتطبيقها فوراً)</h3>
+  <div class="preset-row">
+    <button type="button" class="preset"
+            data-preset='{"header_bg_from":"#0f172a","header_bg_to":"#1e293b","header_fg":"#ffffff","footer_bg":"#0f172a","footer_fg":"#94a3b8","primary_color":"#3b82f6","accent_color":"#8b5cf6"}'
+            style="background:linear-gradient(135deg,#0f172a,#1e293b)">داكن كلاسيكي</button>
+    <button type="button" class="preset"
+            data-preset='{"header_bg_from":"#1e3a8a","header_bg_to":"#2563eb","header_fg":"#ffffff","footer_bg":"#1e3a8a","footer_fg":"#bfdbfe","primary_color":"#2563eb","accent_color":"#0ea5e9"}'
+            style="background:linear-gradient(135deg,#1e3a8a,#2563eb)">أزرق</button>
+    <button type="button" class="preset"
+            data-preset='{"header_bg_from":"#14532d","header_bg_to":"#16a34a","header_fg":"#ffffff","footer_bg":"#14532d","footer_fg":"#bbf7d0","primary_color":"#16a34a","accent_color":"#84cc16"}'
+            style="background:linear-gradient(135deg,#14532d,#16a34a)">أخضر</button>
+    <button type="button" class="preset"
+            data-preset='{"header_bg_from":"#7c2d12","header_bg_to":"#dc2626","header_fg":"#ffffff","footer_bg":"#7c2d12","footer_fg":"#fecaca","primary_color":"#dc2626","accent_color":"#f97316"}'
+            style="background:linear-gradient(135deg,#7c2d12,#dc2626)">أحمر دافئ</button>
+    <button type="button" class="preset"
+            data-preset='{"header_bg_from":"#581c87","header_bg_to":"#9333ea","header_fg":"#ffffff","footer_bg":"#581c87","footer_fg":"#e9d5ff","primary_color":"#9333ea","accent_color":"#ec4899"}'
+            style="background:linear-gradient(135deg,#581c87,#9333ea)">بنفسجي</button>
+    <button type="button" class="preset"
+            data-preset='{"header_bg_from":"#92400e","header_bg_to":"#b45309","header_fg":"#ffffff","footer_bg":"#451a03","footer_fg":"#fde68a","primary_color":"#b45309","accent_color":"#d97706"}'
+            style="background:linear-gradient(135deg,#92400e,#b45309)">ذهبي/فندقي</button>
+    <button type="button" class="preset"
+            data-preset='{"header_bg_from":"#0c4a6e","header_bg_to":"#0891b2","header_fg":"#ffffff","footer_bg":"#0c4a6e","footer_fg":"#a5f3fc","primary_color":"#0891b2","accent_color":"#06b6d4"}'
+            style="background:linear-gradient(135deg,#0c4a6e,#0891b2)">سماوي</button>
+  </div>
+
+  <form method="post" action="/admin/branding/save" id="branding-form">
+    <div class="brand-grid">
+      <!-- العمود الأول -->
+      <div>
+        <h3 style="margin-bottom:0.4rem;color:#475569">شريط الترويسة (Header)</h3>
+        <div class="color-row">
+          <label>خلفية (يسار)</label>
+          <input type="color" data-pair="header_bg_from" value="{{ brand.header_bg_from }}" />
+          <input type="text" name="header_bg_from" data-pair-text="header_bg_from" value="{{ brand.header_bg_from }}" />
+        </div>
+        <div class="color-row">
+          <label>خلفية (يمين)</label>
+          <input type="color" data-pair="header_bg_to" value="{{ brand.header_bg_to }}" />
+          <input type="text" name="header_bg_to" data-pair-text="header_bg_to" value="{{ brand.header_bg_to }}" />
+        </div>
+        <div class="color-row">
+          <label>لون النص</label>
+          <input type="color" data-pair="header_fg" value="{{ brand.header_fg }}" />
+          <input type="text" name="header_fg" data-pair-text="header_fg" value="{{ brand.header_fg }}" />
+        </div>
+
+        <h3 style="margin:1rem 0 0.4rem;color:#475569">الأزرار والروابط</h3>
+        <div class="color-row">
+          <label>اللون الأساسي</label>
+          <input type="color" data-pair="primary_color" value="{{ brand.primary_color }}" />
+          <input type="text" name="primary_color" data-pair-text="primary_color" value="{{ brand.primary_color }}" />
+        </div>
+        <div class="color-row">
+          <label>لون التمييز</label>
+          <input type="color" data-pair="accent_color" value="{{ brand.accent_color }}" />
+          <input type="text" name="accent_color" data-pair-text="accent_color" value="{{ brand.accent_color }}" />
+        </div>
+      </div>
+
+      <!-- العمود الثاني -->
+      <div>
+        <h3 style="margin-bottom:0.4rem;color:#475569">الفوتر (Footer)</h3>
+        <div class="color-row">
+          <label>الخلفية</label>
+          <input type="color" data-pair="footer_bg" value="{{ brand.footer_bg }}" />
+          <input type="text" name="footer_bg" data-pair-text="footer_bg" value="{{ brand.footer_bg }}" />
+        </div>
+        <div class="color-row">
+          <label>لون النص</label>
+          <input type="color" data-pair="footer_fg" value="{{ brand.footer_fg }}" />
+          <input type="text" name="footer_fg" data-pair-text="footer_fg" value="{{ brand.footer_fg }}" />
+        </div>
+
+        <h3 style="margin:1rem 0 0.4rem;color:#475569">خيارات العرض</h3>
+        <label style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.3rem">
+          <input type="checkbox" name="show_logo_in_header"
+                 {% if brand.show_logo_in_header %}checked{% endif %}
+                 id="show_logo_chk" />
+          عرض الشعار في الهيدر (إن وُجد)
+        </label>
+        <label style="display:flex;align-items:center;gap:0.4rem">
+          <input type="checkbox" name="show_name_in_header"
+                 {% if brand.show_name_in_header %}checked{% endif %}
+                 id="show_name_chk" />
+          عرض اسم المتجر بجانب الشعار
+        </label>
+      </div>
+    </div>
+
+    <div style="margin-top:1rem;border-top:1px solid var(--border);padding-top:1rem">
+      <h3 style="margin:0 0 0.6rem;color:#475569">النصوص والعناوين</h3>
+      <p class="muted" style="margin:0 0 0.8rem;font-size:0.85rem">
+        من هنا تستطيع تغيير النص الظاهر أعلى الهيدر، واسم زر/صفحة نقطة البيع،
+        وكذلك عبارات الهيدر والفوتر والطباعة. أما اسم المتجر المحاسبي العام فيبقى من الإعدادات العامة.
+      </p>
+      <div class="text-stack">
+        <div class="text-field">
+          <label for="pos_label">اسم صفحة/زر نقطة البيع</label>
+          <input id="pos_label" class="input" type="text" name="pos_label" value="{{ brand.pos_label }}" maxlength="80" placeholder="مثلاً: مطعم القصر" />
+        </div>
+        <div class="text-field">
+          <label for="header_tagline">النص الصغير تحت اسم المطعم في الهيدر</label>
+          <input id="header_tagline" class="input" type="text" name="header_tagline" value="{{ brand.header_tagline }}" maxlength="120" placeholder="مثلاً: مطعم ومقهى القصر" />
+        </div>
+        <div class="text-field">
+          <label for="footer_tagline">وصف الفوتر</label>
+          <textarea id="footer_tagline" class="input" name="footer_tagline" rows="3" maxlength="400" placeholder="نص وصفي يظهر أسفل الموقع">{{ brand.footer_tagline }}</textarea>
+        </div>
+        <div class="text-field">
+          <label for="receipt_title">عنوان الفاتورة المطبوعة</label>
+          <input id="receipt_title" class="input" type="text" name="receipt_title" value="{{ brand.receipt_title }}" maxlength="120" placeholder="مثلاً: فاتورة مطعم" />
+        </div>
+        <div class="text-field">
+          <label for="receipt_footer_text">عبارة أسفل الفاتورة المطبوعة</label>
+          <input id="receipt_footer_text" class="input" type="text" name="receipt_footer_text" value="{{ brand.receipt_footer_text }}" maxlength="240" placeholder="مثلاً: نتشرّف بزيارتكم مرة أخرى" />
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:1rem;display:flex;gap:0.4rem">
+      <button class="btn btn-primary" type="submit">💾 حفظ الهويّة</button>
+      <a class="btn" href="/admin/branding">إلغاء</a>
+    </div>
+  </form>
+</div>
+
+<script>
+(function () {
+  const frame = document.getElementById("preview-frame");
+
+  function setVar(name, val) {
+    frame.style.setProperty(name, val);
+  }
+
+  function syncPair(key) {
+    const colorEl = document.querySelector('[data-pair="' + key + '"]');
+    const textEl = document.querySelector('[data-pair-text="' + key + '"]');
+    if (!colorEl || !textEl) return;
+
+    const apply = (val) => {
+      // معاينة فورية
+      const map = {
+        header_bg_from: "--pv-bg-from",
+        header_bg_to: "--pv-bg-to",
+        header_fg: "--pv-fg",
+        footer_bg: "--pv-footer-bg",
+        footer_fg: "--pv-footer-fg",
+        primary_color: "--pv-primary",
+        accent_color: "--pv-accent",
+      };
+      if (map[key]) setVar(map[key], val);
+    };
+
+    colorEl.addEventListener("input", function () {
+      textEl.value = colorEl.value;
+      apply(colorEl.value);
+    });
+    textEl.addEventListener("input", function () {
+      const v = textEl.value.trim();
+      if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(v)) {
+        colorEl.value = v;
+        apply(v);
+      }
+    });
+  }
+
+  ["header_bg_from", "header_bg_to", "header_fg",
+   "footer_bg", "footer_fg",
+   "primary_color", "accent_color"].forEach(syncPair);
+
+  // قوالب جاهزة
+  document.querySelectorAll(".preset").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      try {
+        const data = JSON.parse(btn.getAttribute("data-preset"));
+        for (const [k, v] of Object.entries(data)) {
+          const c = document.querySelector('[data-pair="' + k + '"]');
+          const t = document.querySelector('[data-pair-text="' + k + '"]');
+          if (c) c.value = v;
+          if (t) t.value = v;
+          // dispatch input لتشغيل المعاينة
+          if (c) c.dispatchEvent(new Event("input"));
+        }
+      } catch (e) {}
+    });
+  });
+
+  // checkbox للشعار: يخفي/يظهر في المعاينة
+  const showLogo = document.getElementById("show_logo_chk");
+  const showName = document.getElementById("show_name_chk");
+  function syncShow() {
+    const logo = document.getElementById("pv-logo");
+    const name = document.getElementById("pv-name");
+    if (logo) logo.style.display = showLogo && showLogo.checked ? "" : "none";
+    if (name) name.style.display = showName && showName.checked ? "" : "none";
+  }
+  if (showLogo) showLogo.addEventListener("change", syncShow);
+  if (showName) showName.addEventListener("change", syncShow);
+  syncShow();
+
+  function syncText(inputId, targetId) {
+    const input = document.getElementById(inputId);
+    const target = document.getElementById(targetId);
+    if (!input || !target) return;
+    const apply = function () {
+      target.textContent = input.value.trim() || input.placeholder || "";
+    };
+    input.addEventListener("input", apply);
+    apply();
+  }
+
+  syncText("pos_label", "pv-name-main");
+  syncText("header_tagline", "pv-tagline");
+  syncText("footer_tagline", "pv-footer-text");
+  syncText("pos_label", "pv-pos-label");
+})();
+</script>
+{% endblock %}

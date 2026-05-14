@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}إعدادات الولاء{% endblock %}
+{% block body %}
+<div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; margin-bottom:0.4rem">
+  <h1 style="margin:0">⚙️ إعدادات نظام الولاء</h1>
+  <div style="display:flex; gap:0.4rem">
+    <a class="btn" href="/admin/customers">↩ العملاء</a>
+  </div>
+</div>
+<p class="muted" style="margin-top:0.2rem">
+  هذه الإعدادات تتحكّم بكيفية احتساب نقاط الولاء وقيمتها.
+  النقاط تُمنح آلياً عند إتمام الدفع لفاتورة عميل (طلب خارجي مرتبط برقم هاتف).
+</p>
+
+{% if saved %}
+<div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0">تم الحفظ.</p></div>
+{% endif %}
+{% if error %}
+<div class="card" style="border-color:#fecaca; background:#fef2f2"><p style="margin:0; color:#b91c1c">{{ error }}</p></div>
+{% endif %}
+
+<div class="card">
+  <form method="post" action="/admin/loyalty/save">
+    <div class="row" style="gap:1rem; flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:0.4rem;font-weight:600;flex:1;min-width:200px">
+        <input type="checkbox" name="enabled" {% if loyalty.enabled %}checked{% endif %} />
+        🟢 تفعيل نظام الولاء
+      </label>
+    </div>
+
+    <hr style="margin:1rem 0">
+
+    <div class="row" style="gap:0.6rem; align-items:flex-end; flex-wrap:wrap">
+      <div style="flex:1; min-width:220px">
+        <label>عدد النقاط لكل دينار مدفوع</label>
+        <input name="earn_per_dinar" type="number" step="0.001" min="0" value="{{ '%.3f' % loyalty.earn_per_dinar }}" />
+        <small class="muted" style="font-size:0.78rem">مثلاً: 1 نقطة لكل دينار → فاتورة 50 د.ل تمنح 50 نقطة.</small>
+      </div>
+      <div style="flex:1; min-width:220px">
+        <label>قيمة النقطة الواحدة بالدينار (للاسترداد)</label>
+        <input name="redeem_value_per_point" type="number" step="0.001" min="0" value="{{ '%.3f' % loyalty.redeem_value_per_point }}" />
+        <small class="muted" style="font-size:0.78rem">مثلاً: 0.1 د.ل لكل نقطة → 100 نقطة = 10 د.ل خصم.</small>
+      </div>
+      <div style="flex:1; min-width:220px">
+        <label>الحد الأدنى من النقاط لاستخدامها</label>
+        <input name="min_points_to_redeem" type="number" step="1" min="0" value="{{ '%.0f' % loyalty.min_points_to_redeem }}" />
+        <small class="muted" style="font-size:0.78rem">العميل لا يستطيع استخدام نقاطه إلا بعد بلوغها هذا الحد.</small>
+      </div>
+    </div>
+
+    <button class="btn btn-primary" type="submit" style="margin-top:1rem">💾 حفظ الإعدادات</button>
+  </form>
+</div>
+
+<div class="card" style="background:#eff6ff; border-color:#bfdbfe">
+  <h3 style="margin-top:0;color:#1e3a8a">💡 كيف يعمل النظام</h3>
+  <ol style="margin-bottom:0; padding-inline-start:1.4rem">
+    <li>الكاشير يختار «📞 خارجي» في POS ويُدخل رقم هاتف العميل (الاسم اختياري).</li>
+    <li>إن لم يكن العميل مسجَّلاً، يُنشأ تلقائياً.</li>
+    <li>عند الدفع تُحتسب النقاط: <strong>النقاط = المبلغ × معدّل الكسب</strong>.</li>
+    <li>يستطيع العميل لاحقاً استخدام نقاطه كخصم على فواتير جديدة.</li>
+    <li>الأدمن يستطيع تعديل النقاط يدوياً (إضافة/خصم/تصحيح) من صفحة العميل.</li>
+  </ol>
+</div>
+{% endblock %}

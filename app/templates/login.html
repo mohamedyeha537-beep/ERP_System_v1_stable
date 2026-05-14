@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}تسجيل الدخول{% endblock %}
+{% block body %}
+<div class="card" style="max-width: 420px; margin: 3rem auto">
+  <h1 style="margin-top: 0">تسجيل الدخول</h1>
+  {% if error %}
+  <div class="alert">{{ error }}</div>
+  {% endif %}
+  <form method="post" action="/auth/login">
+    <label for="username">اسم المستخدم</label>
+    <input id="username" name="username" required autocomplete="username" />
+    <label for="password">كلمة المرور</label>
+    <input id="password" name="password" type="password" required autocomplete="current-password" />
+    <div class="row" style="margin-top: 1rem">
+      <button class="btn btn-primary" type="submit">دخول</button>
+    </div>
+  </form>
+  <p class="muted" style="margin-top: 1rem">الحساب الافتراضي: admin / admin123 — غيّرها فور التشغيل الفعلي.</p>
+</div>
+{% endblock %}

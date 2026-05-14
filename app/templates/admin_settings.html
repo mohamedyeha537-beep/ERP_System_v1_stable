@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}إعدادات النظام{% endblock %}
+{% block body %}
+<div style="display:flex;align-items:center;justify-content:space-between;gap:0.6rem;flex-wrap:wrap">
+  <h1 style="margin:0">إعدادات النظام</h1>
+  <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+    {% if pos_perm(request)('delivery:manage') %}
+    <a class="btn" href="/admin/delivery-zones" style="background:linear-gradient(135deg,#f59e0b,#ea580c);color:#fff;border:0">
+      🚚 مناطق التوصيل
+    </a>
+    {% endif %}
+    {% if pos_perm(request)('branding:manage') %}
+    <a class="btn" href="/admin/branding" style="background:linear-gradient(135deg,#ec4899,#8b5cf6);color:#fff;border:0">
+      🎨 الهويّة البصرية (الشعار والألوان)
+    </a>
+    {% endif %}
+  </div>
+</div>
+
+{% if saved %}
+<div class="card" style="border-color: #86efac; background: #f0fdf4">
+  <p style="margin: 0">تم حفظ الإعدادات.</p>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top: 0">إعدادات الطباعة</h2>
+  <p class="muted" style="margin-top: 0">
+    اختر مقاس الورق الافتراضي للفاتورة. سيُطبع الكاشير دائماً على هذا المقاس،
+    إلا إذا منحته صلاحية «اختيار مقاس الطباعة وقت إصدار الفاتورة» من شاشة الأدوار.
+  </p>
+
+  <form method="post" action="/admin/settings">
+    <label for="store_name">اسم المتجر (يظهر في رأس الفاتورة)</label>
+    <input id="store_name" name="store_name" value="{{ store_name }}" maxlength="120" />
+
+    <label for="print_paper_size" style="margin-top: 0.75rem">مقاس الورق الافتراضي</label>
+    <select id="print_paper_size" name="print_paper_size">
+      {% for code, label in paper_sizes %}
+      <option value="{{ code }}" {% if current_paper == code %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+
+    <p class="muted" style="margin-top: 0.5rem; font-size: 0.85rem">
+      ملاحظات حول الهوامش (تُطبَّق تلقائياً):
+      <br>• A4: هوامش 12 مم — مناسب للطابعات المنزلية والمكتبية.
+      <br>• A5: هوامش 10 مم — مناسب لطابعات A5 المخصصة.
+      <br>• 80 ملم: هوامش 4×3 مم — لطابعات الإيصالات الحرارية القياسية.
+      <br>• 58 ملم: هوامش 3×2 مم — للطابعات الحرارية الصغيرة.
+    </p>
+
+    <div class="row" style="margin-top: 1rem">
+      <button class="btn btn-primary" type="submit">حفظ</button>
+      <a class="btn" href="/">رجوع</a>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">صلاحية اختيار المقاس للكاشير</h2>
+  <p class="muted" style="margin-top: 0">
+    إذا أردت السماح للكاشير بتغيير المقاس عند الطباعة، افتح
+    <a href="/admin/roles">إدارة الأدوار</a> ثم فعّل الصلاحية
+    <strong>«اختيار مقاس الطباعة وقت إصدار الفاتورة»</strong> للدور المطلوب.
+  </p>
+</div>
+{% endblock %}

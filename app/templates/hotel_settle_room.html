@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+{% block title %}تسوية الغرفة #{{ room.number }}{% endblock %}
+{% block body %}
+<div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; margin-bottom:0.4rem">
+  <h1 style="margin:0">🏨 تسوية الغرفة #{{ room.number }}</h1>
+  <a class="btn" href="/hotel/settle">رجوع للقائمة</a>
+</div>
+
+{% if error %}
+<div class="card" style="border-color:#fecaca; background:#fef2f2"><p style="margin:0; color:#b91c1c">{{ error }}</p></div>
+{% endif %}
+
+{% set ns = namespace(guests=[]) %}
+{% for c in open_charges %}
+  {% if c.guest_name_snapshot and c.guest_name_snapshot not in ns.guests %}
+    {% set ns.guests = ns.guests + [c.guest_name_snapshot] %}
+  {% endif %}
+{% endfor %}
+
+<div class="card" style="background:linear-gradient(135deg,#fef3c7,#fde68a); border-color:#f59e0b">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem">
+    <div>
+      <div style="color:#92400e; font-size:0.9rem">
+        {% if ns.guests|length > 1 %}النزلاء على هذه الغرفة{% else %}النزيل{% endif %}
+      </div>
+      <div style="font-size:1.3rem; font-weight:700; color:#78350f; line-height:1.5">
+        {% if ns.guests %}
+          {% for g in ns.guests %}
+            <span style="display:inline-block; background:#fff; padding:0.15rem 0.6rem; border-radius:8px; margin:0.15rem 0; border:1px solid #f59e0b">
+              👤 {{ g }}
+            </span>
+          {% endfor %}
+        {% else %}
+          <span class="muted">— بدون اسم —</span>
+        {% endif %}
+      </div>
+    </div>
+    <div style="text-align:end">
+      <div style="color:#92400e; font-size:0.9rem">إجمالي الرصيد المفتوح</div>
+      <div style="font-size:2rem; font-weight:800; color:#7c2d12">{{ '%.3f' % open_total }} د.ل</div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">الفواتير المفتوحة</h2>
+  {% if not open_charges %}
+  <p class="muted">لا توجد فواتير مفتوحة على هذه الغرفة. ✅</p>
+  {% if methods %}
+  <p class="muted">يمكنك عرض السجل بالأسفل.</p>
+  {% endif %}
+  {% else %}
+  <form method="post" action="/hotel/settle/room/{{ room.id }}/pay" id="settle-form">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:40px">
+            <input type="checkbox" id="check-all" checked />
+          </th>
+          <th>#الفاتورة</th>
+          <th>التاريخ</th>
+          <th>اسم العميل (وقت الطلب)</th>
+          <th>الأصناف</th>
+          <th>ملاحظة</th>
+          <th>الإجمالي</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in open_charges %}
+        <tr>
+          <td><input type="checkbox" name="charge_ids" value="{{ c.id }}" class="charge-check" checked /></td>
+          <td>#{{ c.sale_id }}</td>
+          <td style="font-size:0.88rem">{{ c.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td>{{ c.guest_name_snapshot or '—' }}</td>
+          <td style="max-width:280px; font-size:0.9rem">
+            {% for line in c.sale.lines %}
+            <span style="display:inline-block; background:#f3f4f6; padding:0.1rem 0.4rem; border-radius:5px; margin:0.1rem">
+              {{ line.product.name_ar }} × {{ line.quantity }}
+            </span>
+            {% endfor %}
+          </td>
+          <td style="max-width:160px; font-size:0.85rem">{{ c.note or '' }}</td>
+          <td style="font-weight:700; color:#7c2d12">{{ '%.3f' % charge_totals.get(c.id, c.sale.total) }} د.ل</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="6" style="text-align:end; font-weight:700">المجموع المختار:</td>
+          <td style="font-weight:800; color:#7c2d12; font-size:1.1rem" id="selected-total">
+            {{ '%.3f' % open_total }} د.ل
+          </td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <div style="margin-top:1rem">
+      <h3 style="margin-bottom:0.5rem">طريقة استلام المبلغ</h3>
+      {% if methods %}
+      <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(160px, 1fr)); gap:0.5rem">
+        {% for m in methods %}
+        <label style="border:2px solid var(--border); border-radius:10px; padding:0.75rem; cursor:pointer; text-align:center; background:#fff">
+          <input type="radio" name="payment_method_id" value="{{ m.id }}" {% if loop.first %}checked{% endif %} required style="margin-inline-end:0.4rem" />
+          <strong>{{ m.name_ar }}</strong>
+          <div style="font-size:0.8rem; color:var(--muted)">
+            {{ {'CASH': 'كاش', 'BANK': 'مصرف', 'OTHER': 'أخرى'}.get(m.kind.value, '') }}
+          </div>
+        </label>
+        {% endfor %}
+      </div>
+      <div style="margin-top:1rem; display:flex; gap:0.5rem">
+        <button class="btn btn-primary" type="submit">
+          ✅ تسجيل الدفع وتسوية الفواتير المختارة
+        </button>
+        <a class="btn" href="/hotel/settle">رجوع</a>
+      </div>
+      {% else %}
+      <div class="alert">
+        لا توجد أساليب دفع مفعّلة. على الأدمن إضافة أسلوب واحد على الأقل من
+        <a href="/admin/payment-methods">إدارة أساليب الدفع</a>.
+      </div>
+      {% endif %}
+    </div>
+  </form>
+
+  <script>
+    (function () {
+      var totals = {};
+      document.querySelectorAll(".charge-check").forEach(function (cb) {
+        var row = cb.closest("tr");
+        var cell = row && row.cells[row.cells.length - 1];
+        if (cell) {
+          totals[cb.value] = parseFloat(cell.textContent.replace(/[^\d.]/g, "")) || 0;
+        }
+      });
+
+      function recalc() {
+        var sum = 0;
+        document.querySelectorAll(".charge-check:checked").forEach(function (cb) {
+          sum += totals[cb.value] || 0;
+        });
+        var el = document.getElementById("selected-total");
+        if (el) el.textContent = sum.toFixed(3) + " د.ل";
+      }
+
+      var all = document.getElementById("check-all");
+      if (all) {
+        all.addEventListener("change", function () {
+          document.querySelectorAll(".charge-check").forEach(function (cb) {
+            cb.checked = all.checked;
+          });
+          recalc();
+        });
+      }
+      document.querySelectorAll(".charge-check").forEach(function (cb) {
+        cb.addEventListener("change", recalc);
+      });
+    })();
+  </script>
+  {% endif %}
+</div>
+
+{% if history %}
+<div class="card">
+  <h2 style="margin-top:0">سجل آخر التسويات على هذه الغرفة</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>#الفاتورة</th>
+        <th>تاريخ الطلب</th>
+        <th>تاريخ التسوية</th>
+        <th>الإجمالي</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in history %}
+      <tr>
+        <td>#{{ c.sale_id }}</td>
+        <td style="font-size:0.88rem">{{ c.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td style="font-size:0.88rem">{{ c.settled_at.strftime('%Y-%m-%d %H:%M') if c.settled_at else '—' }}</td>
+        <td style="font-weight:700">{{ '%.3f' % c.sale.total }} د.ل</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

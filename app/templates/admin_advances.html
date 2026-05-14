@@ -1,0 +1,254 @@
+{% extends "base.html" %}
+{% block title %}إدارة سلف الموظفين{% endblock %}
+{% block head_extra %}
+<style>
+  .hr-nav { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 1rem;
+            border-bottom: 1px solid var(--border); padding-bottom: 0.6rem; }
+  .hr-nav a { padding: 0.45rem 0.85rem; border-radius: 8px; border: 1px solid var(--border);
+              background: #fff; color: inherit; text-decoration: none; font-weight: 600; }
+  .hr-nav a.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .hr-nav a:hover { background: #eef2ff; }
+
+  .summary-bar {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.7rem; margin-bottom: 1rem;
+  }
+  .sum-card {
+    background: linear-gradient(180deg, #fff, #f8fafc);
+    border: 1px solid var(--border); border-radius: 12px;
+    padding: 0.85rem 1rem;
+  }
+  .sum-card.warn { border-color: #f59e0b; background: linear-gradient(180deg, #fffbeb, #fef3c7); }
+  .sum-card .label { color: #64748b; font-size: 0.82rem; }
+  .sum-card .value { font-size: 1.4rem; font-weight: 800; margin-top: 0.25rem; color: #1e293b; }
+  .sum-card.warn .value { color: #b45309; }
+
+  .pill { display: inline-block; padding: 0.18rem 0.6rem; border-radius: 999px;
+          font-size: 0.78rem; font-weight: 700; }
+  .pill.outstanding { background: #fef3c7; color: #92400e; }
+  .pill.partially_repaid { background: #dbeafe; color: #1e40af; }
+  .pill.fully_repaid { background: #dcfce7; color: #166534; }
+  .pill.cancelled { background: #fee2e2; color: #b91c1c; }
+
+  .grant-row { display: grid;
+               grid-template-columns: 2fr 1fr 1.5fr 1fr 1fr auto;
+               gap: 0.5rem; align-items: end; }
+  @media (max-width: 900px) { .grant-row { grid-template-columns: 1fr; } }
+
+  .help { background: #eff6ff; border-right: 4px solid #2563eb; padding: 0.7rem 1rem;
+          border-radius: 8px; color: #1e3a8a; margin-bottom: 1rem; line-height: 1.7; }
+  .repay-form { display: inline-flex; gap: 0.3rem; align-items: center; }
+  .repay-form input { width: 5rem; padding: 0.18rem 0.35rem; font-size: 0.85rem; }
+
+  .emp-summary-row {
+    display: grid; grid-template-columns: 2fr 1fr 1fr auto;
+    gap: 0.5rem; align-items: center; padding: 0.6rem 0.8rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .emp-summary-row:hover { background: #f8fafc; }
+</style>
+{% endblock %}
+{% block body %}
+<div class="row" style="justify-content: space-between; align-items: center">
+  <h1 style="margin: 0">إدارة سلف الموظفين</h1>
+  <div class="row" style="gap: 0.4rem">
+    <a class="btn" href="/admin/advances/export.csv?only_outstanding=1"
+       style="background:#ecfdf5; color:#065f46; border:1px solid #10b981; font-weight:700">📤 تصدير القائمة</a>
+    <a class="btn" href="/admin/advances/export.csv">📤 تصدير الكل</a>
+  </div>
+</div>
+
+<nav class="hr-nav">
+  <a href="/admin/employees">الموظفون</a>
+  <a href="/admin/attendance">الحضور والانصراف</a>
+  <a href="/admin/payroll">الرواتب الشهرية</a>
+  <a href="/admin/advances" class="active">السلف</a>
+</nav>
+
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+{% if saved %}<div class="alert" style="background:#ecfdf5; border-color:#10b981; color:#065f46">تم الحفظ ✓</div>{% endif %}
+
+<div class="help">
+  <strong>كيف تعمل السلف؟</strong>
+  <ol style="margin: 0.4rem 0">
+    <li><strong>صرف سلفة:</strong> اختر موظفاً والمبلغ ⇒ يُسجَّل قيد مصروف بفئة «سلف موظفين» ويُخصم من المحفظة المختارة (يمكن إيقاف ذلك).</li>
+    <li><strong>الخصم التلقائي:</strong> عند إنشاء دفعة رواتب، يُملأ حقل «سُلف» لكل موظف بمجموع سلفه القائمة (يمكنك تعديل القيمة قبل الاعتماد).</li>
+    <li><strong>عند دفع الراتب:</strong> يُسجَّل الاسترداد تلقائياً على السلف بالأقدم أولاً (FIFO)، ويتحدّث الرصيد المتبقي.</li>
+    <li><strong>الاسترداد اليدوي:</strong> لو دفع الموظف نقداً خارج الراتب، استخدم زر «استرداد» بجانب السلفة.</li>
+  </ol>
+</div>
+
+{% if summary %}
+<div class="card">
+  <h2 style="margin-top: 0">📋 تقرير الأدمن: السلف القائمة لكل موظف</h2>
+  <p class="muted" style="margin: 0 0 0.6rem">يجب مراجعة هذه القائمة قبل اعتماد دفعة الرواتب القادمة. سيتم خصمها تلقائياً من راتب كل موظف.</p>
+  {% for emp, rem, count in summary %}
+  <div class="emp-summary-row">
+    <div>
+      <strong>{{ emp.full_name_ar }}</strong>
+      <span class="muted">— {{ emp.job_title or '' }}</span>
+    </div>
+    <div>
+      <span class="pill outstanding">{{ count }} سلفة قائمة</span>
+    </div>
+    <div style="font-size: 1.1rem; font-weight: 800; color: #b45309">
+      {{ rem }} د.ل
+    </div>
+    <div>
+      <a class="btn" href="/admin/advances?employee_id={{ emp.id }}" style="padding: 0.25rem 0.6rem; font-size: 0.85rem">عرض التفاصيل</a>
+    </div>
+  </div>
+  {% endfor %}
+  <div style="display: flex; justify-content: flex-end; padding: 0.7rem 0.8rem; background: #fffbeb; border-top: 2px solid #f59e0b; font-weight: 800; font-size: 1.15rem; color: #78350f">
+    الإجمالي: {{ grand_total }} د.ل
+  </div>
+</div>
+{% else %}
+<div class="alert" style="background:#dcfce7; border-color:#10b981; color:#065f46">
+  ✓ لا توجد سلف قائمة على أي موظف حالياً.
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top: 0">صرف سلفة جديدة</h2>
+  <form method="post" action="/admin/advances/grant">
+    <div class="grant-row">
+      <div>
+        <label for="emp">الموظف *</label>
+        <select id="emp" name="employee_id" required>
+          <option value="">— اختر —</option>
+          {% for e in employees %}{% if e.is_active %}
+          <option value="{{ e.id }}" {% if selected_id == e.id %}selected{% endif %}>{{ e.full_name_ar }} ({{ e.job_title or 'موظف' }})</option>
+          {% endif %}{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="amt">المبلغ (د.ل) *</label>
+        <input id="amt" name="amount" type="number" step="0.001" min="0.001" required />
+      </div>
+      <div>
+        <label for="pm">أسلوب الدفع *</label>
+        <select id="pm" name="payment_method_id" required>
+          <option value="">— اختر —</option>
+          {% for m in methods %}
+          <option value="{{ m.id }}">{{ m.name_ar }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="rxp">تسجيل كصرف نقدي؟</label>
+        <select id="rxp" name="record_as_expense">
+          <option value="1" selected>نعم (يُخصم من المحفظة)</option>
+          <option value="0">لا (ذمم فقط)</option>
+        </select>
+      </div>
+      <div>
+        <label for="ad-when">التاريخ</label>
+        <input id="ad-when" name="when" type="datetime-local" value="{{ today_dt }}" />
+      </div>
+      <div>
+        <button class="btn btn-primary" type="submit">+ صرف</button>
+      </div>
+    </div>
+    <div style="margin-top: 0.5rem">
+      <label for="adv-notes">ملاحظة</label>
+      <input id="adv-notes" name="notes" placeholder="اختياري — سبب السلفة، طريقة الاسترداد..." />
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">سجلات السلف</h2>
+  <form method="get" action="/admin/advances" class="row" style="gap: 0.4rem; align-items: end; margin-bottom: 0.7rem">
+    <div>
+      <label for="fe">الموظف</label>
+      <select id="fe" name="employee_id">
+        <option value="">— الكل —</option>
+        {% for e in employees %}
+        <option value="{{ e.id }}" {% if selected_id == e.id %}selected{% endif %}>{{ e.full_name_ar }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="fo">عرض</label>
+      <select id="fo" name="only_outstanding">
+        <option value="0" {% if not only_outstanding %}selected{% endif %}>الكل</option>
+        <option value="1" {% if only_outstanding %}selected{% endif %}>القائمة فقط</option>
+      </select>
+    </div>
+    <button class="btn btn-primary" type="submit">عرض</button>
+  </form>
+
+  {% if items %}
+  <table>
+    <thead>
+      <tr>
+        <th>التاريخ</th>
+        <th>الموظف</th>
+        <th>المبلغ</th>
+        <th>المسترد</th>
+        <th>المتبقي</th>
+        <th>الحالة</th>
+        <th>ملاحظة</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in items %}
+      <tr>
+        <td class="muted" style="font-size:0.85rem">{{ a.given_at.strftime('%Y-%m-%d') }}</td>
+        <td>
+          <strong>{{ a.employee.full_name_ar if a.employee else '?' }}</strong>
+          <div class="muted" style="font-size: 0.75rem">{{ (a.employee.job_title if a.employee else '') or '' }}</div>
+        </td>
+        <td style="font-weight:700">{{ a.amount }}</td>
+        <td>{{ a.repaid_amount }}</td>
+        <td style="font-weight:800; {% if a.remaining_amount > 0 %}color:#b45309{% else %}color:#16a34a{% endif %}">
+          {{ a.remaining_amount }}
+        </td>
+        <td>
+          <span class="pill {{ a.status.value|lower }}">
+            {{ status_labels.get(a.status.value, a.status.value) }}
+          </span>
+        </td>
+        <td class="muted" style="font-size: 0.82rem">{{ a.notes or '—' }}</td>
+        <td class="row" style="gap:0.3rem; margin:0; flex-wrap:nowrap">
+          {% if a.remaining_amount > 0 and a.status.value not in ('CANCELLED','FULLY_REPAID') %}
+          <form method="post" action="/admin/advances/{{ a.id }}/repay" class="repay-form" onsubmit="return confirm('تسجيل استرداد يدوي؟')">
+            <input name="amount" type="number" step="0.001" min="0.001" max="{{ a.remaining_amount }}" placeholder="مبلغ" required />
+            <button class="btn" type="submit" style="padding:0.18rem 0.45rem; font-size:0.8rem; background:#dcfce7; color:#166534; border-color:#86efac">⊕ استرداد</button>
+          </form>
+          <form method="post" action="/admin/advances/{{ a.id }}/cancel" style="display:inline" onsubmit="return confirm('إلغاء السلفة (تنازل المدير عنها)؟')">
+            <button class="btn" type="submit" style="padding:0.18rem 0.45rem; font-size:0.8rem">إلغاء</button>
+          </form>
+          {% endif %}
+          {% if a.repaid_amount == 0 %}
+          <form method="post" action="/admin/advances/{{ a.id }}/delete" style="display:inline" onsubmit="return confirm('حذف نهائي؟')">
+            <button class="btn" type="submit" style="padding:0.18rem 0.45rem; font-size:0.8rem; color:#b91c1c; border-color:#fecaca">حذف</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% if a.repayments %}
+      <tr style="background: #f8fafc">
+        <td colspan="8">
+          <div style="padding: 0.3rem 0.5rem; font-size: 0.8rem">
+            <strong style="color:#475569">سجل الاستردادات:</strong>
+            {% for r in a.repayments %}
+              <span style="background:#fff; padding:0.1rem 0.4rem; border-radius:6px; margin-inline-start:0.3rem; border:1px solid #e2e8f0">
+                {{ r.repaid_at.strftime('%Y-%m-%d') }}: {{ r.amount }} د.ل
+                {% if r.payroll_entry_id %}<span class="muted">(من راتب)</span>{% endif %}
+              </span>
+            {% endfor %}
+          </div>
+        </td>
+      </tr>
+      {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted" style="text-align: center; padding: 1.5rem">لا توجد سلف بهذه الفلاتر.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,217 @@
+/* معاينة الشاشة */
+.receipt-page {
+  margin: 0 auto;
+  padding: 1rem;
+  font-family: "Noto Sans Arabic", system-ui, sans-serif;
+  color: #111;
+  background: #fff;
+}
+
+.receipt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.receipt-actions .btn svg {
+  vertical-align: -3px;
+  margin-inline-end: 0.25rem;
+}
+
+@media print {
+  html,
+  body {
+    background: #fff !important;
+  }
+  .receipt-actions,
+  .no-print {
+    display: none !important;
+  }
+  .receipt-page {
+    padding: 0;
+    margin: 0;
+    max-width: none !important;
+  }
+  .receipt-logo {
+    filter: brightness(0);
+    -webkit-filter: brightness(0);
+  }
+}
+
+/* المقاسات: ضبط عرض المعاينة وحجم الخط */
+.receipt-page.paper-A4 {
+  max-width: 210mm;
+}
+.receipt-page.paper-A5 {
+  max-width: 148mm;
+}
+.receipt-page.paper-80mm {
+  max-width: 80mm;
+  padding: 4mm 3mm;
+  font-size: 12px;
+}
+.receipt-page.paper-58mm {
+  max-width: 58mm;
+  padding: 3mm 2mm;
+  font-size: 10.5px;
+}
+
+.receipt-page.paper-80mm .receipt-section-title,
+.receipt-page.paper-58mm .receipt-section-title {
+  font-size: 1rem;
+}
+
+.receipt-page.paper-58mm .receipt-table {
+  font-size: 0.8rem;
+}
+
+.receipt-header {
+  text-align: center;
+  border-bottom: 2px dashed #333;
+  padding-bottom: 0.6rem;
+  margin-bottom: 0.85rem;
+}
+
+.receipt-logo-wrap {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 0.45rem;
+}
+
+.receipt-logo {
+  max-width: 110px;
+  max-height: 80px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
+.num-frac {
+  font-size: 0.58em;
+  opacity: 0.88;
+}
+
+.money-currency {
+  font-size: 0.72em;
+  margin-inline-start: 0.12rem;
+}
+
+.receipt-section {
+  margin-bottom: 1rem;
+  page-break-inside: avoid;
+}
+
+.receipt-section-headline {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.receipt-section-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin: 0 0 0.4rem;
+  padding: 0.3rem 0;
+  border-bottom: 2px solid #333;
+}
+
+.receipt-cashier {
+  font-size: 0.9rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.receipt-subtitle {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #333;
+  margin: 0.55rem 0 0.3rem;
+}
+
+.receipt-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.receipt-table th,
+.receipt-table td {
+  text-align: right;
+  padding: 0.22rem 0.15rem;
+  border-bottom: 1px dotted #ccc;
+  word-break: break-word;
+}
+
+.receipt-table .num {
+  text-align: left;
+  white-space: nowrap;
+}
+
+/* في الورق الحراري: نمنح اسم الصنف مساحة أكبر */
+.receipt-page.paper-80mm .receipt-table th:first-child,
+.receipt-page.paper-80mm .receipt-table td:first-child,
+.receipt-page.paper-58mm .receipt-table th:first-child,
+.receipt-page.paper-58mm .receipt-table td:first-child {
+  width: 50%;
+}
+
+.receipt-section-total {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 600;
+  margin-top: 0.3rem;
+  padding-top: 0.3rem;
+  border-top: 1px solid #999;
+}
+
+.receipt-grand {
+  display: flex;
+  justify-content: space-between;
+  font-size: 1.15rem;
+  font-weight: 800;
+  margin-top: 0.85rem;
+  padding-top: 0.6rem;
+  border-top: 3px double #000;
+}
+
+.receipt-page.paper-58mm .receipt-grand {
+  font-size: 1rem;
+}
+
+.receipt-divider {
+  border: none;
+  border-top: 1px dashed #999;
+  margin: 0.85rem 0;
+}
+
+.receipt-payment {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+  padding: 0.4rem 0.5rem;
+  background: #f3f4f6;
+  border-radius: 6px;
+  font-size: 0.95rem;
+}
+
+.receipt-page.paper-58mm .receipt-payment,
+.receipt-page.paper-80mm .receipt-payment {
+  background: transparent;
+  padding: 0.3rem 0;
+  border-top: 1px dashed #999;
+  border-radius: 0;
+  gap: 0.28rem;
+}
+
+.receipt-thanks {
+  text-align: center;
+  margin: 0.85rem 0 0;
+  font-size: 0.95rem;
+  color: #333;
+}

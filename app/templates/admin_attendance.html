@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+{% block title %}الحضور والانصراف{% endblock %}
+{% block head_extra %}
+<style>
+  .hr-nav { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 1rem;
+            border-bottom: 1px solid var(--border); padding-bottom: 0.6rem; }
+  .hr-nav a { padding: 0.45rem 0.85rem; border-radius: 8px; border: 1px solid var(--border);
+              background: #fff; color: inherit; text-decoration: none; font-weight: 600; }
+  .hr-nav a.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .hr-nav a:hover { background: #eef2ff; }
+
+  .open-card {
+    background: linear-gradient(180deg, #ecfdf5, #d1fae5);
+    border: 2px solid #10b981;
+    border-radius: 12px;
+    padding: 0.85rem 1rem;
+    display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+    margin-bottom: 0.6rem;
+  }
+  .open-card .name { font-weight: 800; font-size: 1.05rem; color: #065f46; }
+  .open-card .since { color: #047857; font-size: 0.88rem; }
+  .check-row { display: grid; grid-template-columns: 2fr 1.2fr 1.5fr auto; gap: 0.5rem; align-items: end; }
+  @media (max-width: 760px) { .check-row { grid-template-columns: 1fr; } }
+  .live-clock { font-size: 1.4rem; font-weight: 800; color: #1e40af; font-variant-numeric: tabular-nums; }
+  .help { background: #eff6ff; border-right: 4px solid #2563eb; padding: 0.7rem 1rem;
+          border-radius: 8px; color: #1e3a8a; margin-bottom: 1rem; line-height: 1.7; }
+</style>
+{% endblock %}
+{% block body %}
+<div class="row" style="justify-content: space-between; align-items: center">
+  <h1 style="margin: 0">الحضور والانصراف</h1>
+  <div class="row" style="gap: 0.5rem; align-items: center">
+    <a class="btn" href="/admin/attendance/export.csv?days=30{% if selected_id %}&employee_id={{ selected_id }}{% endif %}"
+       style="background:#ecfdf5; color:#065f46; border:1px solid #10b981; font-weight:700">📤 تصدير CSV (30 يوم)</a>
+    <div class="live-clock" id="clock">--:--:--</div>
+  </div>
+</div>
+
+<nav class="hr-nav">
+  <a href="/admin/employees">الموظفون</a>
+  <a href="/admin/attendance" class="active">الحضور والانصراف</a>
+  <a href="/admin/payroll">الرواتب الشهرية</a>
+  <a href="/admin/advances">السلف</a>
+</nav>
+
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+{% if saved %}<div class="alert" style="background:#ecfdf5; border-color:#10b981; color:#065f46">تم الحفظ ✓</div>{% endif %}
+
+{% if open_sessions %}
+<div class="card">
+  <h2 style="margin-top: 0">جلسات حضور مفتوحة الآن ({{ open_sessions|length }})</h2>
+  {% for emp, rec in open_sessions %}
+  <div class="open-card">
+    <div>
+      <div class="name">{{ emp.full_name_ar }} <span class="muted" style="font-weight:400">— {{ emp.job_title or '' }}</span></div>
+      <div class="since">دخل عند {{ rec.check_in.strftime('%Y-%m-%d %H:%M') }} (بدون انصراف)</div>
+    </div>
+    {% if can_record %}
+    <form method="post" action="/admin/attendance/check-out" style="margin:0">
+      <input type="hidden" name="employee_id" value="{{ emp.id }}" />
+      <button class="btn" type="submit" style="background:#dc2626; color:#fff; border-color:#b91c1c">⊗ تسجيل انصراف</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if can_record %}
+<div class="card">
+  <h2 style="margin-top: 0">تسجيل سريع</h2>
+  <div class="help">
+    اختر الموظف ثم اضغط <strong>دخول</strong> أو <strong>خروج</strong>. الوقت الافتراضي هو الآن — يمكنك تغييره لتسجيل وقت ماضٍ.
+  </div>
+  <form method="post" id="attForm" style="display: flex; flex-direction: column; gap: 0.6rem">
+    <div class="check-row">
+      <div>
+        <label for="aemp">الموظف</label>
+        <select id="aemp" name="employee_id" required>
+          <option value="">— اختر —</option>
+          {% for e in employees %}{% if e.is_active %}
+          <option value="{{ e.id }}">{{ e.full_name_ar }} ({{ e.job_title or 'موظف' }})</option>
+          {% endif %}{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="awhen">الوقت</label>
+        <input id="awhen" name="when" type="datetime-local" />
+      </div>
+      <div>
+        <label for="anotes">ملاحظة</label>
+        <input id="anotes" name="notes" placeholder="اختياري" />
+      </div>
+      <div class="row" style="gap: 0.4rem; margin: 0">
+        <button class="btn" type="submit" formaction="/admin/attendance/check-in"
+                style="background:#10b981; color:#fff; border-color:#059669">⊕ دخول</button>
+        <button class="btn" type="submit" formaction="/admin/attendance/check-out"
+                style="background:#dc2626; color:#fff; border-color:#b91c1c">⊗ خروج</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<details>
+  <summary style="cursor:pointer; padding:0.6rem 1rem; background:#f8fafc; border:1px solid var(--border); border-radius:8px; font-weight:600">
+    إضافة جلسة كاملة يدوياً (دخول وخروج معاً)
+  </summary>
+  <div class="card" style="margin-top: 0.5rem">
+    <form method="post" action="/admin/attendance/manual-add">
+      <div class="check-row">
+        <div>
+          <label for="memp">الموظف</label>
+          <select id="memp" name="employee_id" required>
+            <option value="">— اختر —</option>
+            {% for e in employees %}
+            <option value="{{ e.id }}">{{ e.full_name_ar }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="mci">الدخول</label>
+          <input id="mci" name="check_in" type="datetime-local" required />
+        </div>
+        <div>
+          <label for="mco">الخروج</label>
+          <input id="mco" name="check_out" type="datetime-local" />
+        </div>
+        <div>
+          <button class="btn btn-primary" type="submit">حفظ الجلسة</button>
+        </div>
+      </div>
+      <div style="margin-top: 0.4rem">
+        <label for="mnotes">ملاحظة</label>
+        <input id="mnotes" name="notes" placeholder="اختياري" />
+      </div>
+    </form>
+  </div>
+</details>
+{% endif %}
+
+<div class="card" style="margin-top: 1rem">
+  <h2 style="margin-top: 0">سجلات اليوم</h2>
+  {% if today_recs %}
+  <table>
+    <thead>
+      <tr>
+        <th>الموظف</th>
+        <th>دخول</th>
+        <th>خروج</th>
+        <th>ساعات</th>
+        <th>ملاحظة</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in today_recs %}
+      <tr>
+        <td>
+          {% set emp = employees|selectattr('id','equalto',r.employee_id)|first %}
+          <strong>{{ emp.full_name_ar if emp else '?' }}</strong>
+        </td>
+        <td>{{ r.check_in.strftime('%H:%M') }}</td>
+        <td>
+          {% if r.check_out %}{{ r.check_out.strftime('%H:%M') }}{% else %}<span style="color:#16a34a; font-weight:700">جلسة مفتوحة</span>{% endif %}
+        </td>
+        <td>
+          {% if r.check_out %}{{ r.hours_worked }} س{% else %}—{% endif %}
+        </td>
+        <td class="muted">{{ r.notes or '—' }}</td>
+        <td>
+          {% if can_record %}
+          <form method="post" action="/admin/attendance/{{ r.id }}/delete" style="display:inline" onsubmit="return confirm('حذف السجل؟')">
+            <button class="btn" type="submit" style="padding:0.15rem 0.5rem; font-size:0.8rem; color:#b91c1c">حذف</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">لا سجلات حضور اليوم.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">عرض سجل موظف محدد</h2>
+  <form method="get" action="/admin/attendance" class="row" style="gap: 0.4rem; align-items: end">
+    <div>
+      <label for="se">الموظف</label>
+      <select id="se" name="employee_id" required>
+        <option value="">— اختر —</option>
+        {% for e in employees %}
+        <option value="{{ e.id }}" {% if selected_id == e.id %}selected{% endif %}>{{ e.full_name_ar }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button class="btn btn-primary" type="submit">عرض آخر 30 يوم</button>
+  </form>
+
+  {% if selected_emp %}
+  <h3 style="margin-top: 1rem">سجل {{ selected_emp.full_name_ar }} — آخر 30 يوم</h3>
+  {% if history %}
+  {% set total_hours = namespace(v=0.0) %}
+  {% for r in history %}{% if r.check_out %}{% set total_hours.v = total_hours.v + r.hours_worked|float %}{% endif %}{% endfor %}
+  <table>
+    <thead>
+      <tr>
+        <th>التاريخ</th>
+        <th>دخول</th>
+        <th>خروج</th>
+        <th>ساعات</th>
+        <th>ملاحظة</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in history %}
+      <tr>
+        <td>{{ r.check_in.strftime('%Y-%m-%d') }}</td>
+        <td>{{ r.check_in.strftime('%H:%M') }}</td>
+        <td>{% if r.check_out %}{{ r.check_out.strftime('%H:%M') }}{% else %}<span style="color:#16a34a">مفتوحة</span>{% endif %}</td>
+        <td><strong>{% if r.check_out %}{{ r.hours_worked }} س{% else %}—{% endif %}</strong></td>
+        <td class="muted">{{ r.notes or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr style="background:#eff6ff; font-weight:700">
+        <td colspan="3">الإجمالي</td>
+        <td>{{ '%.2f'|format(total_hours.v) }} ساعة</td>
+        <td></td>
+      </tr>
+    </tfoot>
+  </table>
+  {% else %}
+  <p class="muted">لا سجلات لهذا الموظف خلال 30 يوماً.</p>
+  {% endif %}
+  {% endif %}
+</div>
+
+<script>
+  function pad(n) { return String(n).padStart(2, '0'); }
+  function tick() {
+    var d = new Date();
+    var s = pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+    var el = document.getElementById('clock');
+    if (el) el.textContent = s;
+  }
+  setInterval(tick, 1000); tick();
+</script>
+{% endblock %}

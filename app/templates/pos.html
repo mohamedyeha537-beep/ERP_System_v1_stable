@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% set brand = pos_brand(request) %}
+{% block title %}{{ brand.pos_label }}{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/pos.css" />
+{% endblock %}
+{% block body %}
+<div class="container pos-shell">
+  <h1 style="margin-top: 0">{{ brand.pos_label }}</h1>
+  {% if request.query_params.get('ctx_err') %}
+  <div class="alert" style="background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;padding:0.6rem 1rem;border-radius:8px;margin-bottom:0.75rem">
+    ⚠️ {{ request.query_params.get('ctx_err') }}
+  </div>
+  {% endif %}
+  {% if request.query_params.get('ok') %}
+  <div class="card" style="border-color: {% if request.query_params.get('room') %}#fcd34d{% else %}#86efac{% endif %}; background: {% if request.query_params.get('room') %}#fffbeb{% else %}#f0fdf4{% endif %}">
+    {% if request.query_params.get('room') %}
+    <p style="margin: 0 0 0.5rem; color:#92400e; font-weight:600">
+      🏨 تم قيد الفاتورة على حساب الشقة بنجاح — لم يتم التحصيل (ينتظر تسوية الاستقبال).
+    </p>
+    {% else %}
+    <p style="margin: 0 0 0.5rem">تم إتمام البيع بنجاح.</p>
+    {% endif %}
+    {% if request.query_params.get('receipt') %}
+    <div class="pos-success-actions">
+      <a class="btn btn-primary" href="/pos/receipt/{{ request.query_params.get('receipt') }}?autoprint=1" target="_blank">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="6 9 6 2 18 2 18 9"></polyline>
+          <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+          <rect x="6" y="14" width="12" height="8"></rect>
+        </svg>
+        طباعة الفاتورة
+      </a>
+      <a class="btn" href="/pos/receipt/{{ request.query_params.get('receipt') }}" target="_blank">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"></path>
+          <circle cx="12" cy="12" r="3"></circle>
+        </svg>
+        معاينة بدون طباعة
+      </a>
+    </div>
+    <p class="muted" style="margin: 0.5rem 0 0; font-size: 0.88rem">
+      تُرتَّب البنود حسب الفئة الرئيسية ثم الفرعية ثم اسم الصنف. مقاس الطباعة الافتراضي يتحكم به الأدمن من «إعدادات النظام».
+    </p>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% if error %}
+  <div class="alert" style="background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;padding:0.75rem 1rem;border-radius:8px;margin-bottom:0.75rem;font-weight:500;display:flex;align-items:center;gap:0.5rem">
+    <span style="font-size:1.2rem">⚠️</span>
+    <span>{{ error }}</span>
+  </div>
+  {% endif %}
+
+  <div class="pos-layout">
+    <aside class="pos-sidebar card" id="pos-sidebar-live">
+      {% include "pos_sidebar.html" %}
+    </aside>
+
+    <main class="pos-main card">
+      {% include "pos_panel.html" %}
+    </main>
+  </div>
+</div>
+<script>
+  document.body.addEventListener("input", function (e) {
+    if (e.target.id !== "product-search") return;
+    var panel = e.target.closest("#pos-panel");
+    if (!panel) return;
+    var grid = panel.querySelector("#pos-product-grid");
+    if (!grid) return;
+    var q = (e.target.value || "").trim().toLowerCase();
+    grid.querySelectorAll(".pos-card").forEach(function (c) {
+      var n = c.getAttribute("data-name") || "";
+      c.style.display = !q || n.indexOf(q) !== -1 ? "" : "none";
+    });
+  });
+</script>
+{% endblock %}

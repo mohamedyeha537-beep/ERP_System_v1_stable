@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}المستخدمون{% endblock %}
+{% block body %}
+<h1>المستخدمون</h1>
+{% if error %}
+<div class="alert">{{ error }}</div>
+{% endif %}
+<div class="card">
+  <h2 style="margin-top: 0">مستخدم جديد</h2>
+  <form method="post" action="/admin/users">
+    <label for="username">اسم المستخدم</label>
+    <input id="username" name="username" required autocomplete="off" />
+    <label for="password">كلمة المرور</label>
+    <input id="password" name="password" type="password" required autocomplete="new-password" />
+    <h3 style="margin-bottom: 0.25rem">الأدوار</h3>
+    {% for r in roles %}
+    <label style="display: flex; gap: 0.5rem; align-items: center; max-width: none">
+      <input type="checkbox" name="role_ids" value="{{ r.id }}" />
+      <span>{{ r.name_ar }}</span>
+    </label>
+    {% endfor %}
+    <div class="row" style="margin-top: 1rem">
+      <button class="btn btn-primary" type="submit">إنشاء</button>
+    </div>
+  </form>
+</div>
+<div class="card">
+  <h2 style="margin-top: 0">القائمة</h2>
+  {% for u in users %}
+  <div style="border-bottom: 1px solid var(--border); padding: 0.75rem 0">
+    <strong>{{ u.username }}</strong>
+    <span class="muted">{% if u.is_active %}نشط{% else %}معطّل{% endif %}</span>
+    <form method="post" action="/admin/users/{{ u.id }}/roles" style="margin-top: 0.5rem">
+      {% for r in roles %}
+      <label style="display: inline-flex; gap: 0.35rem; margin-inline-end: 0.75rem">
+        <input
+          type="checkbox"
+          name="role_ids"
+          value="{{ r.id }}"
+          {% for ur in u.roles %}{% if ur.id == r.id %}checked{% endif %}{% endfor %}
+        />
+        {{ r.name_ar }}
+      </label>
+      {% endfor %}
+      <button class="btn btn-primary" type="submit" style="margin-top: 0.5rem">تحديث أدوار {{ u.username }}</button>
+    </form>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}فاتورة شراء #{{ purchase.id }}{% endblock %}
+{% block body %}
+<div class="row" style="justify-content: space-between; align-items: center">
+  <h1 style="margin: 0">فاتورة شراء #{{ purchase.id }}</h1>
+  <a class="btn" href="/admin/purchases">رجوع للقائمة</a>
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">بيانات الفاتورة</h2>
+  <p><strong>التاريخ:</strong> {{ purchase.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+  <p><strong>المورّد:</strong> {{ purchase.supplier or '—' }}</p>
+  <p><strong>المحفظة:</strong> {% if purchase.method %}{{ purchase.method.name_ar }}{% else %}—{% endif %}</p>
+  {% if purchase.note %}<p><strong>ملاحظة:</strong> {{ purchase.note }}</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">البنود</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>الصنف</th>
+        <th>الكمية</th>
+        <th>سعر الوحدة</th>
+        <th>الإجمالي</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ln in purchase.lines %}
+      {% set p = products_by_id.get(ln.product_id) %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td>{% if p %}{{ p.name_ar }}{% if p.unit %} ({{ p.unit }}){% endif %}{% else %}#{{ ln.product_id }}{% endif %}</td>
+        <td>{{ ln.quantity }}</td>
+        <td>{{ ln.unit_cost }}</td>
+        <td>{{ ln.line_total }} د.ل</td>
+      </tr>
+      {% endfor %}
+      <tr style="background: #f8fafc; font-weight: 700">
+        <td colspan="4" style="text-align: end">الإجمالي</td>
+        <td>{{ purchase.amount }} د.ل</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<form method="post" action="/admin/purchases/{{ purchase.id }}/delete" onsubmit="return confirm('حذف هذه الفاتورة؟ سيُخصم البنود من المخزون.');" style="margin-top: 1rem">
+  <button class="btn btn-danger" type="submit">حذف الفاتورة</button>
+</form>
+{% endblock %}

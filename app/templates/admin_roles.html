@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}الأدوار{% endblock %}
+{% block body %}
+<h1>الأدوار</h1>
+<div class="card">
+  <h2 style="margin-top: 0">دور جديد</h2>
+  <form method="post" action="/admin/roles">
+    <label for="name_ar">اسم الدور بالعربية</label>
+    <input id="name_ar" name="name_ar" required />
+    <div class="row" style="margin-top: 1rem">
+      <button class="btn btn-primary" type="submit">إنشاء</button>
+    </div>
+  </form>
+</div>
+<div class="card">
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>الاسم</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in roles %}
+      <tr>
+        <td>{{ r.id }}</td>
+        <td>{{ r.name_ar }}</td>
+        <td><a href="/admin/roles/{{ r.id }}">تعديل الصلاحيات</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
