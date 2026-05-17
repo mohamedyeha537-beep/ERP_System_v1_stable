@@ -55,6 +55,8 @@
         <th>#</th>
         <th>التاريخ</th>
         <th>المورّد</th>
+        <th>المخزن</th>
+        <th>مرجع المورّد</th>
         <th>عدد البنود</th>
         <th>الإجمالي</th>
         <th>المحفظة</th>
@@ -67,6 +69,16 @@
         <td>{{ p.id }}</td>
         <td>{{ p.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
         <td>{{ p.supplier or '—' }}</td>
+        <td>{% if p.warehouse %}{{ p.warehouse.name_ar }}{% else %}—{% endif %}</td>
+        <td>
+          {% if p.supplier_invoice_ref %}<span title="{{ p.supplier_invoice_ref }}">{{ p.supplier_invoice_ref[:24] }}{% if p.supplier_invoice_ref|length > 24 %}…{% endif %}</span>{% else %}—{% endif %}
+          {% if p.invoice_image_filename %}
+          <a class="btn" href="/static/{{ p.invoice_image_filename }}" target="_blank" rel="noopener" style="padding: 0.15rem 0.45rem; font-size: 0.78rem; margin-inline-start: 0.35rem" title="فاتورة المورّد">فاتورة</a>
+          {% endif %}
+          {% if p.payment_proof_image_filename %}
+          <a class="btn" href="/static/{{ p.payment_proof_image_filename }}" target="_blank" rel="noopener" style="padding: 0.15rem 0.45rem; font-size: 0.78rem; margin-inline-start: 0.25rem" title="إيصال الدفع">إيصال</a>
+          {% endif %}
+        </td>
         <td>{{ p.lines|length }}</td>
         <td>{{ p.amount }} د.ل</td>
         <td>{% if p.method %}{{ p.method.name_ar }}{% else %}—{% endif %}</td>

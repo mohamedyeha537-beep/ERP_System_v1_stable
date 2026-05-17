@@ -4,7 +4,7 @@ import enum
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infra.db import Base
@@ -120,6 +120,8 @@ class SaleReturnLine(Base):
     quantity: Mapped[Decimal] = mapped_column(Numeric(14, 4))
     unit_price: Mapped[Decimal] = mapped_column(Numeric(14, 3))
     line_total: Mapped[Decimal] = mapped_column(Numeric(14, 3))
+    #: عند False: استرداد مالي/محاسبي دون إعادة مكوّنات الـ BOM إلى المخزن (وجبات مطهاة، هالك، إلخ).
+    restock: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     sale_return: Mapped[SaleReturn] = relationship(
         back_populates="lines",

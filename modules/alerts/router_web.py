@@ -8,7 +8,7 @@ from app.jinja_env import templates
 from modules.alerts.service import send_low_stock_alert
 from modules.authz.models import User
 from modules.authz.permissions import ADMIN_SETTINGS
-from modules.inventory.service import low_stock_products
+from modules.inventory.service import low_stock_by_warehouse
 from modules.settings.service import get_setting, set_setting
 
 router = APIRouter(prefix="/admin/alerts", tags=["alerts"])
@@ -30,12 +30,13 @@ def _ctx(request: Request, db, **extra):
         "whatsapp_webhook_param",
     ]
     s = {k: get_setting(db, k, "") for k in keys}
-    low = low_stock_products(db)
+    low_all = low_stock_by_warehouse(db)
+    low_count = sum(len(rows) for _wh, rows in low_all)
     base = {
         "request": request,
         "s": s,
-        "low_count": len(low),
-        "low_rows": low,
+        "low_count": low_count,
+        "low_by_warehouse": low_all,
     }
     base.update(extra)
     return base

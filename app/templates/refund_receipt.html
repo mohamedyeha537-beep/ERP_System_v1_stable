@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>سند مرتجع #{{ sale_return.id }}</title>
+  <title>سند استرداد #{{ sale_return.id }}</title>
   <style>
     body { font-family: "Segoe UI", Tahoma, Arial, sans-serif; margin: 0; background: #f8fafc; color: #0f172a; }
     .sheet { max-width: 860px; margin: 1.5rem auto; background: #fff; border: 1px solid #cbd5e1; border-radius: 14px; padding: 1.4rem; }
@@ -32,7 +32,7 @@
     <div class="head">
       <div>
         <div style="font-size:1.55rem;font-weight:800">{{ pos_display_name(request) }}</div>
-        <div class="muted">سند مرتجع مبيعات</div>
+        <div class="muted">سند استرداد مبيعات</div>
       </div>
       <div style="text-align:left">
         <div class="badge">مرتجع #{{ sale_return.id }}</div>
@@ -47,7 +47,7 @@
         <div class="value">{{ pos_money(sale_return.total) }} <span class="money-currency">د.ل</span></div>
       </div>
       <div class="card">
-        <div class="label">نوع المرتجع</div>
+        <div class="label">نوع الاسترداد</div>
         <div class="value" style="font-size:1rem">{{ 'كامل' if sale_return.return_type.value == 'FULL' else 'جزئي' }}</div>
       </div>
       <div class="card">
@@ -76,7 +76,8 @@
       <thead>
         <tr>
           <th>الصنف</th>
-          <th>الكمية المرتجعة</th>
+          <th>الكمية</th>
+          <th>عودة للمخزن</th>
           <th>سعر الوحدة</th>
           <th>الإجمالي</th>
         </tr>
@@ -86,6 +87,7 @@
         <tr>
           <td>{{ line.product.name_ar if line.product else ('#' ~ line.product_id) }}</td>
           <td>{{ pos_qty(line.quantity) }}</td>
+          <td>{% if line.restock %}نعم{% else %}لا{% endif %}</td>
           <td>{{ pos_money(line.unit_price) }} <span class="money-currency">د.ل</span></td>
           <td>{{ pos_money(line.line_total) }} <span class="money-currency">د.ل</span></td>
         </tr>

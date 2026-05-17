@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}صرف للمخزن الفرعي{% endblock %}
+{% block body %}
+<div class="row" style="justify-content:space-between;align-items:center">
+  <h1 style="margin:0">صرف من {{ main_warehouse.name_ar }}</h1>
+  <a class="btn" href="/admin/warehouses">رجوع</a>
+</div>
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+{% if saved %}<div class="card" style="background:#f0fdf4"><p style="margin:0">تم الصرف.</p></div>{% endif %}
+{% if not branches %}
+<div class="alert">أضف مخزناً فرعياً من <a href="/admin/warehouses">إدارة المخازن</a>.</div>
+{% else %}
+<form method="post" action="/admin/warehouses/transfer">
+  <div class="card">
+    <label for="to_warehouse_id">إلى المخزن الفرعي</label>
+    <select id="to_warehouse_id" name="to_warehouse_id" required>
+      {% for b in branches %}<option value="{{ b.id }}">{{ b.name_ar }}</option>{% endfor %}
+    </select>
+    <label for="note">ملاحظة</label>
+    <input id="note" name="note" />
+  </div>
+  <div class="card" id="lines">
+    <div class="tr-line row" style="gap:0.4rem;align-items:flex-end;margin-bottom:0.4rem">
+      <select name="product_id" required style="flex:2">
+        <option value="">— صنف —</option>
+        {% for p in products %}
+        <option value="{{ p.id }}">{{ p.name_ar }} (رصيد رئيسي: {{ balances[p.id] }})</option>
+        {% endfor %}
+      </select>
+      <input name="quantity" type="number" step="0.0001" min="0.0001" value="1" required style="max-width:6rem" />
+      <button type="button" class="btn" onclick="this.parentElement.remove()">×</button>
+    </div>
+  </div>
+  <button type="button" class="btn" id="add-line">+ بند</button>
+  <button class="btn btn-primary" type="submit" style="margin-top:0.5rem">تسجيل الصرف</button>
+</form>
+<script>
+document.getElementById("add-line")?.addEventListener("click", function () {
+  var lines = document.getElementById("lines");
+  var row = lines.querySelector(".tr-line");
+  if (row) lines.appendChild(row.cloneNode(true));
+});
+</script>
+{% endif %}
+{% endblock %}

@@ -359,6 +359,8 @@ def seed_inventory_purchases(db, pms) -> int:
                 lines.append((comp.id, Decimal(qty), Decimal(cost)))
             if not lines:
                 continue
+            from modules.inventory.service import get_main_warehouse
+
             record_inventory_purchase(
                 db,
                 payment_method_id=pms["مصرف الوحدة"].id,
@@ -366,6 +368,7 @@ def seed_inventory_purchases(db, pms) -> int:
                 note=f"شراء دوري #{repeat + 1}",
                 lines=lines,
                 user_id=None,
+                warehouse_id=get_main_warehouse(db).id,
                 created_at=when,
             )
             total = sum(q * c for (_, q, c) in lines)

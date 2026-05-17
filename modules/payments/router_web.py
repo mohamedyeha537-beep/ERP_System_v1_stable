@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+from starlette.datastructures import UploadFile
 
 from app.deps import DBSession, require_permission
 from app.jinja_env import templates
@@ -18,19 +21,39 @@ from modules.authz.permissions import (
 )
 from modules.catalog.models import Product
 from modules.catalog.service import list_stockable_products
+from modules.catalog.uploads import (
+    save_purchase_bank_payment_receipt,
+    save_purchase_invoice_image,
+)
 from modules.inventory.service import InsufficientStock
-from modules.payments.models import PaymentMethodKind, Purchase, PurchaseKind
+from modules.payments.models import (
+    OWNER_EQUITY_PM_NAME,
+    PaymentMethod,
+    PaymentMethodKind,
+    Purchase,
+    PurchaseKind,
+    PurchasePayment,
+)
 from modules.payments.service import (
     PaymentsError,
     create_payment_method,
     delete_payment_method,
+    payment_method_allow_delete,
     delete_purchase,
+    ensure_supplier_credit_payment_method,
+    is_supplier_credit_payment_method,
     list_payment_methods,
+    list_payment_methods_for_pay,
+    list_payment_methods_for_purchase_term,
+    list_payment_methods_for_receive,
     list_purchases,
+    purchase_outstanding,
     record_asset_purchase,
     record_expense,
     record_inventory_purchase,
+    record_purchase_payment,
     record_sale_payment,
+    sum_purchase_payments,
     update_payment_method,
 )
 from modules.sales.models import Sale
@@ -42,6 +65,7 @@ from modules.sales.service import (
     get_draft_sale,
     load_sale_with_lines,
 )
+from modules.pos_shifts.service import require_open_pos_shift
 
 # ============================================================
 # Admin: Payment methods
@@ -69,6 +93,8 @@ def admin_payment_methods(
             "request": request,
             "methods": methods,
             "kinds": [(k.value, lbl) for k, lbl in _KIND_LABELS.items()],
+            "payment_method_allow_delete": payment_method_allow_delete,
+            "owner_equity_name": OWNER_EQUITY_PM_NAME,
             "error_message": None,
         },
     )
@@ -89,6 +115,8 @@ def _render_pm_page(request: Request, db, error: str, status_code: int = 400):
             "request": request,
             "methods": methods,
             "kinds": [(k.value, lbl) for k, lbl in _KIND_LABELS.items()],
+            "payment_method_allow_delete": payment_method_allow_delete,
+            "owner_equity_name": OWNER_EQUITY_PM_NAME,
             "error_message": error,
         },
         status_code=status_code,
@@ -103,10 +131,26 @@ def admin_payment_methods_add(
     name_ar: str = Form(...),
     kind: str = Form("BANK"),
     sort_order: str = Form("0"),
+    can_receive: str = Form(""),
+    can_pay: str = Form(""),
+    can_fund: str = Form(""),
+    show_on_dashboard: str = Form(""),
 ):
     try:
+        pk = _parse_kind(kind)
         create_payment_method(
-            db, name_ar, _parse_kind(kind), int(sort_order.strip() or "0")
+            db,
+            name_ar,
+            pk,
+            int(sort_order.strip() or "0"),
+            can_receive=(can_receive == "on"),
+            can_pay=(can_pay == "on"),
+            can_fund=(can_fund == "on"),
+            show_on_dashboard=(
+                (show_on_dashboard == "on")
+                if pk in (PaymentMethodKind.CASH, PaymentMethodKind.BANK)
+                else False
+            ),
         )
         db.commit()
     except PaymentsError as e:
@@ -128,16 +172,29 @@ def admin_payment_methods_update(
     kind: str = Form("BANK"),
     sort_order: str = Form("0"),
     is_active: str = Form(""),
+    can_receive: str = Form(""),
+    can_pay: str = Form(""),
+    can_fund: str = Form(""),
+    show_on_dashboard: str = Form(""),
 ):
     try:
-        update_payment_method(
-            db,
-            pm_id,
+        existing = db.get(PaymentMethod, pm_id)
+        upd: dict = dict(
             name_ar=name_ar,
             kind=_parse_kind(kind),
             sort_order=int(sort_order.strip() or "0"),
             is_active=(is_active == "on"),
+            can_receive=(can_receive == "on"),
+            can_pay=(can_pay == "on"),
+            can_fund=(can_fund == "on"),
         )
+        if (
+            existing is not None
+            and existing.kind in (PaymentMethodKind.CASH, PaymentMethodKind.BANK)
+            and not existing.is_system
+        ):
+            upd["show_on_dashboard"] = show_on_dashboard == "on"
+        update_payment_method(db, pm_id, **upd)
         db.commit()
     except PaymentsError as e:
         db.rollback()
@@ -168,19 +225,40 @@ def admin_payment_methods_delete(
 # POS: checkout (payment selection at sale time)
 # ============================================================
 checkout_router = APIRouter(prefix="/pos", tags=["pos-checkout"])
+_PAYMENTS_WEB_STATIC = Path(__file__).resolve().parents[2] / "app" / "static"
+
+
+def _unlink_static_relative(static_root: Path, relative: str | None) -> None:
+    rel = (relative or "").strip()
+    if not rel:
+        return
+    fp = static_root.joinpath(*rel.split("/"))
+    if fp.is_file():
+        try:
+            fp.unlink()
+        except OSError:
+            pass
 _pos_perm = require_permission(SALES_CREATE)
 
 
-def _ensure_draft_for_user(request: Request, db, user: User) -> Sale:
+def _session_pos_shift_id_checkout(request: Request) -> int | None:
+    raw = request.session.get("pos_shift_id")
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _get_draft_for_checkout(request: Request, db, user: User) -> Sale | None:
     raw = request.session.get("draft_sale_id")
-    sale = None
-    if raw is not None:
-        sale = get_draft_sale(db, int(raw))
-    if sale is None:
-        sale = create_draft_sale(db, user.id)
-        request.session["draft_sale_id"] = sale.id
-        db.commit()
-    return sale
+    if raw is None:
+        return None
+    try:
+        return get_draft_sale(db, int(raw))
+    except (TypeError, ValueError):
+        return None
 
 
 @checkout_router.get("/checkout", response_class=HTMLResponse)
@@ -190,19 +268,37 @@ def pos_checkout_page(
     user: User = Depends(_pos_perm),
     error: str | None = Query(None),
 ):
-    sale = _ensure_draft_for_user(request, db, user)
+    gr = require_open_pos_shift(request, db, user)
+    if isinstance(gr, RedirectResponse):
+        return gr
+    sale = _get_draft_for_checkout(request, db, user)
+    if sale is None:
+        return RedirectResponse(
+            "/pos?ctx_err=" + quote("اختر طلباً من القائمة أو أنشئ طلباً جديداً."),
+            status_code=302,
+        )
     loaded = load_sale_with_lines(db, sale.id)
     if loaded:
         sale = loaded
     if not sale.lines:
-        return RedirectResponse("/pos", status_code=302)
+        return RedirectResponse(
+            "/pos?ctx_err=" + quote("الطلب الحالي فارغ. أضف أصنافاً أو اختر طلباً آخر."),
+            status_code=302,
+        )
     from modules.sales.models import SaleContext
+
+    if sale.context_type == SaleContext.EXTERNAL and not sale.customer_id:
+        return RedirectResponse(
+            "/pos?ctx_err="
+            + quote("رقم هاتف العميل مطلوب للطلب الخارجي قبل الدفع."),
+            status_code=302,
+        )
     if (sale.context_type == SaleContext.TABLE) and (not sale.table_id):
         return RedirectResponse(
             "/pos?ctx_err=اختر الطاولة أولاً قبل إتمام البيع، أو بدّل الطلب إلى «خارجي».",
             status_code=302,
         )
-    methods = list_payment_methods(db, only_active=True)
+    methods = list_payment_methods_for_receive(db, only_active=True)
     sorted_lines = sort_sale_lines_for_display(db, list(sale.lines))
 
     # خيارات حساب الغرف للفنادق (للسماح بالاختيار من checkout أيضاً)
@@ -255,15 +351,10 @@ def pos_checkout_page(
 
 
 @checkout_router.post("/checkout", response_class=HTMLResponse)
-def pos_checkout_submit(
+async def pos_checkout_submit(
     request: Request,
     db: DBSession,
     user: User = Depends(_pos_perm),
-    payment_method_id: str = Form(""),
-    pay_mode: str = Form("now"),
-    hotel_room_id: str = Form(""),
-    hotel_guest_name: str = Form(""),
-    hotel_note: str = Form(""),
 ):
     """منطق checkout موحَّد:
 
@@ -273,7 +364,38 @@ def pos_checkout_submit(
     from modules.delivery.service import DeliveryError, record_delivery_cash_settlement
     from modules.sales.models import ExternalOrderType, SaleContext
 
-    sale = _ensure_draft_for_user(request, db, user)
+    gr = require_open_pos_shift(request, db, user)
+    if isinstance(gr, RedirectResponse):
+        return gr
+    active_shift = gr
+
+    form = await request.form()
+    payment_method_id = str(form.get("payment_method_id") or "")
+    pay_mode = str(form.get("pay_mode") or "now")
+    hotel_room_id = str(form.get("hotel_room_id") or "")
+    hotel_guest_name = str(form.get("hotel_guest_name") or "")
+    hotel_note = str(form.get("hotel_note") or "")
+
+    sale = _get_draft_for_checkout(request, db, user)
+    if sale is None:
+        return RedirectResponse(
+            "/pos?ctx_err=" + quote("لا يوجد طلب نشط."),
+            status_code=302,
+        )
+    loaded_chk = load_sale_with_lines(db, sale.id)
+    if loaded_chk:
+        sale = loaded_chk
+    if not sale.lines:
+        return RedirectResponse(
+            "/pos?ctx_err=" + quote("الطلب فارغ."),
+            status_code=302,
+        )
+    if sale.context_type == SaleContext.EXTERNAL and not sale.customer_id:
+        return RedirectResponse(
+            "/pos?ctx_err="
+            + quote("رقم هاتف العميل مطلوب للطلب الخارجي قبل الدفع."),
+            status_code=302,
+        )
 
     # السياق الحالي للفاتورة
     ctx = sale.context_type.value if sale.context_type else "TABLE"
@@ -294,7 +416,7 @@ def pos_checkout_submit(
 
         if not user_has_permission(user, HOTEL_CHARGE):
             return RedirectResponse(
-                "/pos/checkout?error=" + "ليست لديك صلاحية القيد على غرفة.",
+                "/pos/checkout?error=" + quote("ليست لديك صلاحية القيد على غرفة."),
                 status_code=302,
             )
         # رقم الغرفة: يفضّل من النموذج، ثم من الـ session (إن اختير من شريط POS)
@@ -306,7 +428,8 @@ def pos_checkout_submit(
             room_id = int(room_id_raw)
         except (TypeError, ValueError):
             return RedirectResponse(
-                "/pos/checkout?error=" + "اختر الشقة أولاً.", status_code=302
+                "/pos/checkout?error=" + quote("اختر الشقة أولاً."),
+                status_code=302,
             )
 
         # اسم النزيل: يفضّل من النموذج، ثم من session
@@ -317,11 +440,12 @@ def pos_checkout_submit(
             ).strip()
         if not guest_name:
             return RedirectResponse(
-                "/pos/checkout?error=اسم النزيل مطلوب.", status_code=302
+                "/pos/checkout?error=" + quote("اسم النزيل مطلوب."),
+                status_code=302,
             )
 
         try:
-            complete_sale(db, sale.id, user.id)
+            complete_sale(db, sale.id, user.id, pos_shift_id=active_shift.id)
             sale.context_type = SaleContext.ROOM
             open_room_charge(
                 db,
@@ -335,12 +459,12 @@ def pos_checkout_submit(
         except InsufficientStock as e:
             db.rollback()
             return RedirectResponse(
-                f"/pos/checkout?error={e}", status_code=302
+                f"/pos/checkout?error={quote(str(e))}", status_code=302
             )
         except (SalesError, HotelError) as e:
             db.rollback()
             return RedirectResponse(
-                f"/pos/checkout?error={e}", status_code=302
+                f"/pos/checkout?error={quote(str(e))}", status_code=302
             )
 
         sale_id_for_bg = sale.id
@@ -373,7 +497,8 @@ def pos_checkout_submit(
         request.session.pop("draft_sale_id", None)
         request.session.pop("draft_room_id", None)
         request.session.pop("draft_room_guest", None)
-        new_sale = create_draft_sale(db, user.id)
+        psid = _session_pos_shift_id_checkout(request)
+        new_sale = create_draft_sale(db, user.id, pos_shift_id=psid)
         request.session["draft_sale_id"] = new_sale.id
         db.commit()
         return RedirectResponse(
@@ -385,12 +510,40 @@ def pos_checkout_submit(
         pm_id = int(payment_method_id)
     except (TypeError, ValueError):
         return RedirectResponse(
-            "/pos/checkout?error=" + "أسلوب الدفع غير صالح.", status_code=302
+            "/pos/checkout?error=" + quote("أسلوب الدفع غير صالح."),
+            status_code=302,
         )
 
+    pm = db.get(PaymentMethod, pm_id)
+    if pm is None or not pm.is_active:
+        return RedirectResponse(
+            "/pos/checkout?error=" + quote("أسلوب الدفع غير صالح."),
+            status_code=302,
+        )
+
+    proof_fn: str | None = None
+    proof_upload = form.get("bank_transfer_proof")
+    if pm.kind == PaymentMethodKind.BANK:
+        if isinstance(proof_upload, UploadFile) and proof_upload.filename:
+            try:
+                proof_fn = save_sale_payment_proof(
+                    proof_upload, _PAYMENTS_WEB_STATIC
+                )
+            except ValueError as exc:
+                return RedirectResponse(
+                    "/pos/checkout?error=" + quote(str(exc)),
+                    status_code=302,
+                )
+
     try:
-        complete_sale(db, sale.id, user.id)
-        record_sale_payment(db, sale.id, pm_id, sale.total)
+        complete_sale(db, sale.id, user.id, pos_shift_id=active_shift.id)
+        record_sale_payment(
+            db,
+            sale.id,
+            pm_id,
+            sale.total,
+            payment_proof_image_filename=proof_fn,
+        )
 
         if (
             sale.context_type == SaleContext.EXTERNAL
@@ -426,10 +579,16 @@ def pos_checkout_submit(
         db.commit()
     except InsufficientStock as e:
         db.rollback()
-        return RedirectResponse(f"/pos/checkout?error={e}", status_code=302)
+        _unlink_static_relative(_PAYMENTS_WEB_STATIC, proof_fn)
+        return RedirectResponse(
+            f"/pos/checkout?error={quote(str(e))}", status_code=302
+        )
     except (SalesError, PaymentsError, DeliveryError) as e:
         db.rollback()
-        return RedirectResponse(f"/pos/checkout?error={e}", status_code=302)
+        _unlink_static_relative(_PAYMENTS_WEB_STATIC, proof_fn)
+        return RedirectResponse(
+            f"/pos/checkout?error={quote(str(e))}", status_code=302
+        )
 
     # توجيه طلبات الأقسام (شاشة المطبخ / واتساب / طباعة) — خارج المعاملة المالية
     # حالة WhatsApp: تُحفظ التذكرة بحالة PENDING_SEND ثم تُرسل في خيط خلفية
@@ -478,7 +637,8 @@ def pos_checkout_submit(
 
     receipt_id = sale.id
     request.session.pop("draft_sale_id", None)
-    new_sale = create_draft_sale(db, user.id)
+    psid = _session_pos_shift_id_checkout(request)
+    new_sale = create_draft_sale(db, user.id, pos_shift_id=psid)
     request.session["draft_sale_id"] = new_sale.id
     db.commit()
     return RedirectResponse(f"/pos?ok=1&receipt={receipt_id}", status_code=302)
@@ -542,7 +702,23 @@ def purchases_list(
         s = s_user
     if e_user is not None:
         e = e_user
-    items = list_purchases(db, s, e, kind=PurchaseKind.INVENTORY)
+    items = list(
+        db.scalars(
+            select(Purchase)
+            .where(
+                Purchase.created_at >= s,
+                Purchase.created_at < e,
+                Purchase.kind == PurchaseKind.INVENTORY,
+            )
+            .options(
+                selectinload(Purchase.lines),
+                selectinload(Purchase.method),
+                selectinload(Purchase.warehouse),
+            )
+            .order_by(Purchase.created_at.desc(), Purchase.id.desc())
+            .limit(500)
+        ).all()
+    )
     total = sum((p.amount for p in items), Decimal("0"))
     return templates.TemplateResponse(
         "admin_purchases_list.html",
@@ -565,14 +741,21 @@ def purchases_new_page(
     _: User = Depends(_purchases_perm),
     error: str | None = Query(None),
 ):
-    methods = list_payment_methods(db, only_active=True)
+    from modules.inventory.service import get_main_warehouse, list_warehouses
+
+    methods = list_payment_methods_for_purchase_term(db, only_active=True)
+    pay_methods = list_payment_methods_for_pay(db, only_active=True)
     products = list_stockable_products(db)
+    warehouses = list_warehouses(db)
+    main_wh = get_main_warehouse(db)
     return templates.TemplateResponse(
         "admin_purchase_new.html",
         {
             "request": request,
             "methods": methods,
             "products": products,
+            "warehouses": warehouses,
+            "default_warehouse_id": main_wh.id,
             "error": error,
             "today": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M"),
         },
@@ -590,14 +773,60 @@ async def purchases_create(
     supplier = (form.get("supplier") or "").strip()
     note = (form.get("note") or "").strip()
     purchase_date_raw = (form.get("purchase_date") or "").strip()
+    supplier_invoice_ref = (form.get("supplier_invoice_ref") or "").strip()
 
     try:
         pm_id = int(pm_raw)
     except (TypeError, ValueError):
         return RedirectResponse(
-            "/admin/purchases/new?error=" + "أسلوب الدفع غير صالح.",
+            "/admin/purchases/new?error=" + quote("أسلوب الدفع غير صالح."),
             status_code=302,
         )
+
+    pm = db.get(PaymentMethod, pm_id)
+    if pm is None or not pm.is_active:
+        return RedirectResponse(
+            "/admin/purchases/new?error=" + quote("أسلوب الدفع غير صالح."),
+            status_code=302,
+        )
+
+    invoice_image_filename: str | None = None
+    inv_upload = form.get("invoice_image")
+    if isinstance(inv_upload, UploadFile) and inv_upload.filename:
+        try:
+            invoice_image_filename = save_purchase_invoice_image(
+                inv_upload, _PAYMENTS_WEB_STATIC
+            )
+        except ValueError as exc:
+            return RedirectResponse(
+                f"/admin/purchases/new?error={quote(str(exc))}",
+                status_code=302,
+            )
+
+    payment_proof_image_filename: str | None = None
+    proof_upload = form.get("payment_proof_image")
+    if isinstance(proof_upload, UploadFile) and proof_upload.filename:
+        if pm.kind != PaymentMethodKind.BANK:
+            if invoice_image_filename:
+                _unlink_static_relative(_PAYMENTS_WEB_STATIC, invoice_image_filename)
+            return RedirectResponse(
+                "/admin/purchases/new?error="
+                + quote(
+                    "إيصال إثبات الدفع يُرفق فقط عند اختيار محفظة من نوع مصرف."
+                ),
+                status_code=302,
+            )
+        try:
+            payment_proof_image_filename = save_purchase_bank_payment_receipt(
+                proof_upload, _PAYMENTS_WEB_STATIC
+            )
+        except ValueError as exc:
+            if invoice_image_filename:
+                _unlink_static_relative(_PAYMENTS_WEB_STATIC, invoice_image_filename)
+            return RedirectResponse(
+                f"/admin/purchases/new?error={quote(str(exc))}",
+                status_code=302,
+            )
 
     product_ids = form.getlist("product_id")
     qtys = form.getlist("quantity")
@@ -611,18 +840,60 @@ async def purchases_create(
             qty = Decimal((raw_qty or "0").strip() or "0")
             cost = Decimal((raw_cost or "0").strip() or "0")
         except (InvalidOperation, ValueError):
+            if invoice_image_filename:
+                _unlink_static_relative(_PAYMENTS_WEB_STATIC, invoice_image_filename)
+            if payment_proof_image_filename:
+                _unlink_static_relative(
+                    _PAYMENTS_WEB_STATIC, payment_proof_image_filename
+                )
             return RedirectResponse(
-                "/admin/purchases/new?error=" + "بيانات بند غير صالحة.",
+                "/admin/purchases/new?error=" + quote("بيانات بند غير صالحة."),
                 status_code=302,
             )
         if qty > 0:
             lines.append((pid, qty, cost))
 
     if not lines:
+        if invoice_image_filename:
+            _unlink_static_relative(_PAYMENTS_WEB_STATIC, invoice_image_filename)
+        if payment_proof_image_filename:
+            _unlink_static_relative(
+                _PAYMENTS_WEB_STATIC, payment_proof_image_filename
+            )
         return RedirectResponse(
-            "/admin/purchases/new?error=" + "أضف بنداً واحداً على الأقل.",
+            "/admin/purchases/new?error=" + quote("أضف بنداً واحداً على الأقل."),
             status_code=302,
         )
+
+    wh_raw = (form.get("warehouse_id") or "").strip()
+    try:
+        warehouse_id = int(wh_raw)
+    except (TypeError, ValueError):
+        if invoice_image_filename:
+            _unlink_static_relative(_PAYMENTS_WEB_STATIC, invoice_image_filename)
+        if payment_proof_image_filename:
+            _unlink_static_relative(
+                _PAYMENTS_WEB_STATIC, payment_proof_image_filename
+            )
+        return RedirectResponse(
+            "/admin/purchases/new?error=" + quote("اختر المخزن الذي تُضاف إليه البضاعة."),
+            status_code=302,
+        )
+
+    pay_now_amount: Decimal | None = None
+    pay_now_method_id: int | None = None
+    pay_now_raw = (form.get("pay_now_amount") or "").strip()
+    if pay_now_raw:
+        try:
+            pay_now_amount = Decimal(pay_now_raw)
+        except InvalidOperation:
+            pay_now_amount = None
+    pay_now_pm_raw = (form.get("pay_now_method_id") or "").strip()
+    if pay_now_pm_raw:
+        try:
+            pay_now_method_id = int(pay_now_pm_raw)
+        except ValueError:
+            pay_now_method_id = None
 
     created_at = _parse_datetime_local(purchase_date_raw)
     try:
@@ -633,13 +904,26 @@ async def purchases_create(
             note=note,
             lines=lines,
             user_id=user.id,
+            warehouse_id=warehouse_id,
             created_at=created_at,
+            supplier_invoice_ref=supplier_invoice_ref or None,
+            invoice_image_filename=invoice_image_filename,
+            payment_proof_image_filename=payment_proof_image_filename,
+            pay_now_amount=pay_now_amount,
+            pay_now_method_id=pay_now_method_id,
         )
         db.commit()
     except PaymentsError as e:
         db.rollback()
+        if invoice_image_filename:
+            _unlink_static_relative(_PAYMENTS_WEB_STATIC, invoice_image_filename)
+        if payment_proof_image_filename:
+            _unlink_static_relative(
+                _PAYMENTS_WEB_STATIC, payment_proof_image_filename
+            )
         return RedirectResponse(
-            f"/admin/purchases/new?error={e}", status_code=302
+            f"/admin/purchases/new?error={quote(str(e))}",
+            status_code=302,
         )
     return RedirectResponse("/admin/purchases?saved=1", status_code=302)
 
@@ -654,21 +938,84 @@ def purchases_detail(
     p = db.execute(
         select(Purchase)
         .where(Purchase.id == pid)
-        .options(selectinload(Purchase.lines))
+        .options(
+            selectinload(Purchase.lines),
+            selectinload(Purchase.method),
+            selectinload(Purchase.warehouse),
+            selectinload(Purchase.payments).selectinload(PurchasePayment.method),
+        )
     ).scalar_one_or_none()
     if p is None or p.kind != PurchaseKind.INVENTORY:
         return RedirectResponse("/admin/purchases", status_code=302)
     products_by_id = {
         prod.id: prod for prod in db.scalars(select(Product)).all()
     }
+    paid = sum_purchase_payments(db, p.id)
+    outstanding = purchase_outstanding(db, p)
+    pay_methods = list_payment_methods_for_pay(db, only_active=True)
+    saved = request.query_params.get("saved")
+    error = request.query_params.get("error")
     return templates.TemplateResponse(
         "admin_purchase_detail.html",
         {
             "request": request,
             "purchase": p,
             "products_by_id": products_by_id,
+            "paid_total": paid,
+            "outstanding": outstanding,
+            "pay_methods": pay_methods,
+            "saved_pay": saved,
+            "error": error,
         },
     )
+
+
+@purchases_router.post("/{pid}/pay", response_class=HTMLResponse)
+async def purchases_record_payment(
+    request: Request,
+    pid: int,
+    db: DBSession,
+    user: User = Depends(_purchases_perm),
+):
+    form = await request.form()
+    try:
+        pm_id = int((form.get("payment_method_id") or "").strip())
+        amount = Decimal((form.get("amount") or "0").strip())
+    except (ValueError, InvalidOperation):
+        return RedirectResponse(
+            f"/admin/purchases/{pid}?error=" + quote("بيانات الدفع غير صالحة."),
+            status_code=302,
+        )
+    proof_filename: str | None = None
+    proof_upload = form.get("payment_proof_image")
+    if isinstance(proof_upload, UploadFile) and proof_upload.filename:
+        try:
+            proof_filename = save_purchase_bank_payment_receipt(
+                proof_upload, _PAYMENTS_WEB_STATIC
+            )
+        except ValueError as exc:
+            return RedirectResponse(
+                f"/admin/purchases/{pid}?error={quote(str(exc))}",
+                status_code=302,
+            )
+    try:
+        record_purchase_payment(
+            db,
+            purchase_id=pid,
+            payment_method_id=pm_id,
+            amount=amount,
+            user_id=user.id,
+            note=(form.get("note") or "").strip() or None,
+            payment_proof_image_filename=proof_filename,
+        )
+        db.commit()
+    except PaymentsError as e:
+        db.rollback()
+        return RedirectResponse(
+            f"/admin/purchases/{pid}?error={quote(str(e))}",
+            status_code=302,
+        )
+    return RedirectResponse(f"/admin/purchases/{pid}?saved=1", status_code=302)
 
 
 @purchases_router.post("/{pid}/delete", response_class=HTMLResponse)
@@ -731,28 +1078,50 @@ def expenses_list(
 
 
 @expenses_router.post("/add", response_class=HTMLResponse)
-def expenses_add(
+async def expenses_add(
     request: Request,
     db: DBSession,
     user: User = Depends(_purchases_perm),
-    payment_method_id: str = Form(...),
-    amount: str = Form(...),
-    expense_category: str = Form(""),
-    supplier: str = Form(""),
-    note: str = Form(""),
-    purchase_date: str = Form(""),
 ):
+    form = await request.form()
+    payment_method_id = (form.get("payment_method_id") or "").strip()
+    amount = (form.get("amount") or "").strip()
+    expense_category = (form.get("expense_category") or "").strip()
+    supplier = (form.get("supplier") or "").strip()
+    note = (form.get("note") or "").strip()
+    purchase_date = (form.get("purchase_date") or "").strip()
+    supplier_invoice_ref = (form.get("supplier_invoice_ref") or "").strip()
+
+    invoice_image_filename: str | None = None
+    inv_upload = form.get("invoice_image")
+    if isinstance(inv_upload, UploadFile) and inv_upload.filename:
+        try:
+            invoice_image_filename = save_purchase_invoice_image(
+                inv_upload, _PAYMENTS_WEB_STATIC
+            )
+        except ValueError as exc:
+            return RedirectResponse(
+                "/admin/expenses?error=" + quote(str(exc)),
+                status_code=302,
+            )
+
     try:
-        amt = Decimal(amount.strip())
+        amt = Decimal(amount)
     except (InvalidOperation, AttributeError):
+        if invoice_image_filename:
+            _unlink_static_relative(_PAYMENTS_WEB_STATIC, invoice_image_filename)
         return RedirectResponse(
-            "/admin/expenses?error=" + "المبلغ غير صالح.", status_code=302
+            "/admin/expenses?error=" + quote("المبلغ غير صالح."),
+            status_code=302,
         )
     try:
         pm_id = int(payment_method_id)
     except (TypeError, ValueError):
+        if invoice_image_filename:
+            _unlink_static_relative(_PAYMENTS_WEB_STATIC, invoice_image_filename)
         return RedirectResponse(
-            "/admin/expenses?error=" + "أسلوب الدفع غير صالح.", status_code=302
+            "/admin/expenses?error=" + quote("أسلوب الدفع غير صالح."),
+            status_code=302,
         )
     created_at = _parse_datetime_local(purchase_date)
     try:
@@ -765,11 +1134,18 @@ def expenses_add(
             note=note,
             user_id=user.id,
             created_at=created_at,
+            supplier_invoice_ref=supplier_invoice_ref or None,
+            invoice_image_filename=invoice_image_filename,
         )
         db.commit()
     except PaymentsError as e:
         db.rollback()
-        return RedirectResponse(f"/admin/expenses?error={e}", status_code=302)
+        if invoice_image_filename:
+            _unlink_static_relative(_PAYMENTS_WEB_STATIC, invoice_image_filename)
+        return RedirectResponse(
+            "/admin/expenses?error=" + quote(str(e)),
+            status_code=302,
+        )
     return RedirectResponse("/admin/expenses?saved=1", status_code=302)
 
 
@@ -830,7 +1206,7 @@ def assets_new_page(
     _: User = Depends(_purchases_perm),
     error: str | None = Query(None),
 ):
-    methods = list_payment_methods(db, only_active=True)
+    methods = list_payment_methods_for_pay(db, only_active=True)
     return templates.TemplateResponse(
         "admin_asset_new.html",
         {
@@ -853,10 +1229,26 @@ async def assets_create(
     supplier = (form.get("supplier") or "").strip()
     note = (form.get("note") or "").strip()
     purchase_date_raw = (form.get("purchase_date") or "").strip()
+    supplier_invoice_ref = (form.get("supplier_invoice_ref") or "").strip()
+
+    invoice_image_filename: str | None = None
+    inv_upload = form.get("invoice_image")
+    if isinstance(inv_upload, UploadFile) and inv_upload.filename:
+        try:
+            invoice_image_filename = save_purchase_invoice_image(
+                inv_upload, _PAYMENTS_WEB_STATIC
+            )
+        except ValueError as exc:
+            return RedirectResponse(
+                "/admin/assets/new?error=" + quote(str(exc)),
+                status_code=302,
+            )
 
     try:
         pm_id = int(pm_raw)
     except (TypeError, ValueError):
+        if invoice_image_filename:
+            _unlink_static_relative(_PAYMENTS_WEB_STATIC, invoice_image_filename)
         return RedirectResponse(
             "/admin/assets/new?error=" + "أسلوب الدفع غير صالح.",
             status_code=302,
@@ -879,6 +1271,8 @@ async def assets_create(
             cost = Decimal((raw_cost or "0").strip() or "0")
             salvage = Decimal((raw_salvage or "0").strip() or "0")
         except (InvalidOperation, ValueError):
+            if invoice_image_filename:
+                _unlink_static_relative(_PAYMENTS_WEB_STATIC, invoice_image_filename)
             return RedirectResponse(
                 "/admin/assets/new?error=" + "بيانات بند غير صالحة.",
                 status_code=302,
@@ -895,6 +1289,8 @@ async def assets_create(
             )
 
     if not lines:
+        if invoice_image_filename:
+            _unlink_static_relative(_PAYMENTS_WEB_STATIC, invoice_image_filename)
         return RedirectResponse(
             "/admin/assets/new?error=" + "أضف بنداً واحداً على الأقل.",
             status_code=302,
@@ -910,11 +1306,18 @@ async def assets_create(
             lines=lines,
             user_id=user.id,
             created_at=created_at,
+            supplier_invoice_ref=supplier_invoice_ref or None,
+            invoice_image_filename=invoice_image_filename,
         )
         db.commit()
     except PaymentsError as e:
         db.rollback()
-        return RedirectResponse(f"/admin/assets/new?error={e}", status_code=302)
+        if invoice_image_filename:
+            _unlink_static_relative(_PAYMENTS_WEB_STATIC, invoice_image_filename)
+        return RedirectResponse(
+            "/admin/assets/new?error=" + quote(str(e)),
+            status_code=302,
+        )
     return RedirectResponse("/admin/assets?saved=1", status_code=302)
 
 

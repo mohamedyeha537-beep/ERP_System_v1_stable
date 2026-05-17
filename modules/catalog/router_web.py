@@ -13,6 +13,7 @@ from app.jinja_env import templates
 from modules.authz.models import User
 from modules.authz.permissions import ADMIN_ROLES, CATALOG_WRITE
 from modules.catalog.models import BillOfMaterialsLine, Product, ProductCategory, ProductKind, ProductUnit
+from modules.kds.models import KitchenDepartment
 from modules.catalog.service import (
     CatalogError,
     assert_barcode_available,
@@ -51,12 +52,23 @@ def _category_rows(db):
     return rows
 
 
+def _department_rows(db):
+    return list(
+        db.scalars(
+            select(KitchenDepartment)
+            .where(KitchenDepartment.is_active.is_(True))
+            .order_by(KitchenDepartment.venue, KitchenDepartment.sort_order, KitchenDepartment.id)
+        ).all()
+    )
+
+
 def _form_ctx(db, product=None, error=None):
     return {
         "request": None,
         "product": product,
         "error": error,
         "category_rows": _category_rows(db),
+        "department_rows": _department_rows(db),
         "unit_rows": _unit_rows(db),
     }
 
@@ -106,6 +118,7 @@ async def new_product_submit(
     reorder_level: str = Form("0"),
     notes: str = Form(""),
     category_id: str = Form(""),
+    kitchen_department_id: str = Form(""),
     image: UploadFile | None = File(None),
 ):
     try:
@@ -130,6 +143,7 @@ async def new_product_submit(
         ctx["request"] = request
         return templates.TemplateResponse("catalog_product_form.html", ctx, status_code=400)
     cat_id = int(category_id) if category_id.strip().isdigit() else None
+    dept_id = int(kitchen_department_id) if kitchen_department_id.strip().isdigit() else None
     bc = barcode.strip() or None
     try:
         assert_barcode_available(db, bc, None)
@@ -147,6 +161,7 @@ async def new_product_submit(
         reorder_level=Decimal(reorder_level.strip() or "0"),
         notes=notes.strip() or None,
         category_id=cat_id,
+        kitchen_department_id=dept_id,
     )
     db.add(p)
     db.flush()
@@ -194,6 +209,7 @@ async def edit_product_submit(
     reorder_level: str = Form("0"),
     notes: str = Form(""),
     category_id: str = Form(""),
+    kitchen_department_id: str = Form(""),
     is_active: str = Form(""),
     image: UploadFile | None = File(None),
 ):
@@ -222,6 +238,7 @@ async def edit_product_submit(
         ctx["request"] = request
         return templates.TemplateResponse("catalog_product_form.html", ctx, status_code=400)
     cat_id = int(category_id) if category_id.strip().isdigit() else None
+    dept_id = int(kitchen_department_id) if kitchen_department_id.strip().isdigit() else None
     bc = barcode.strip() or None
     try:
         assert_barcode_available(db, bc, p.id)
@@ -238,6 +255,7 @@ async def edit_product_submit(
     p.reorder_level = Decimal(reorder_level.strip() or "0")
     p.notes = notes.strip() or None
     p.category_id = cat_id
+    p.kitchen_department_id = dept_id
     p.is_active = is_active == "on"
     if image and image.filename:
         try:

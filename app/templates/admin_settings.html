@@ -49,6 +49,18 @@
       <br>• 58 ملم: هوامش 3×2 مم — للطابعات الحرارية الصغيرة.
     </p>
 
+    <label for="default_sales_warehouse_id" style="margin-top: 0.85rem">مخزن خصم مبيعات نقطة البيع</label>
+    <select id="default_sales_warehouse_id" name="default_sales_warehouse_id">
+      {% for wh in warehouses %}
+      <option value="{{ wh.id }}" {% if wh.id == sales_warehouse_id %}selected{% endif %}>
+        {{ wh.name_ar }}{% if wh.is_main %} (رئيسي){% endif %}
+      </option>
+      {% endfor %}
+    </select>
+    <p class="muted" style="font-size: 0.85rem; margin-top: 0.35rem">
+      عند إتمام البيع أو الإرسال للمطبخ يُخصم المخزون من هذا المخزن.
+    </p>
+
     <div class="row" style="margin-top: 1rem">
       <button class="btn btn-primary" type="submit">حفظ</button>
       <a class="btn" href="/">رجوع</a>

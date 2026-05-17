@@ -1,29 +1,45 @@
 {% extends "base.html" %}
-{% from "_reports_macros.html" import reports_nav, period_filter, export_button %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button %}
 {% block title %}تقرير المشتريات{% endblock %}
 {% block body %}
 <h1>تقرير المشتريات</h1>
 {{ reports_nav('purchases') }}
 {{ period_filter('/reports/purchases', period, period_labels, start, end, start_str, end_str) }}
+{{ report_export_format_help() }}
 <div class="export-bar">
-  <span class="label">📤 تصدير:</span>
-  {{ export_button('/reports/export/purchases.csv?period=' ~ period, 'فواتير الشراء (CSV)') }}
+  <span class="label">Excel (.csv):</span>
+  {{ export_button('/reports/export/purchases.csv?period=' ~ period, 'فواتير الشراء') }}
+  <span class="label no-print" style="margin-inline-start:0.75rem">PDF:</span>
+  {{ pdf_export_button() }}
 </div>
-
 
 <div class="card">
   <h2 style="margin-top: 0">ملخص الفترة</h2>
   <div class="stat-grid">
     <div class="stat-card"><div class="label">عدد الفواتير</div><div class="value">{{ summary.count }}</div></div>
     <div class="stat-card bad"><div class="label">إجمالي الشراء</div><div class="value">{{ summary.total }} د.ل</div></div>
+    <div class="stat-card bad"><div class="label">ديون الموردين (إجمالي مستحق)</div><div class="value">{{ ap_summary.total_outstanding }} د.ل</div></div>
+    <div class="stat-card"><div class="label">فواتير عليها رصيد للمورد</div><div class="value">{{ ap_summary.invoice_count_with_balance }}</div></div>
+  </div>
+  <p class="muted" style="margin:0.5rem 0 0"><a href="/reports/payables?balance_only=1">تقرير الذمم الدائنة التفصيلي ←</a></p>
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">تصفية حسب حالة السداد</h2>
+  <div class="filter-pills">
+    <a class="pill-btn {% if pay_filter == 'all' %}active{% endif %}" href="?period={{ period }}&start={{ start_str }}&end={{ end_str }}&pay=all&balance_only={{ 1 if balance_only else 0 }}">الكل</a>
+    <a class="pill-btn {% if pay_filter == 'unpaid' %}active{% endif %}" href="?period={{ period }}&start={{ start_str }}&end={{ end_str }}&pay=unpaid&balance_only={{ 1 if balance_only else 0 }}">غير مدفوعة</a>
+    <a class="pill-btn {% if pay_filter == 'partial' %}active{% endif %}" href="?period={{ period }}&start={{ start_str }}&end={{ end_str }}&pay=partial&balance_only={{ 1 if balance_only else 0 }}">مدفوعة جزئياً</a>
+    <a class="pill-btn {% if pay_filter == 'paid' %}active{% endif %}" href="?period={{ period }}&start={{ start_str }}&end={{ end_str }}&pay=paid&balance_only={{ 1 if balance_only else 0 }}">مدفوعة</a>
+    <a class="pill-btn {% if balance_only %}active{% endif %}" href="?period={{ period }}&start={{ start_str }}&end={{ end_str }}&pay={{ pay_filter }}&balance_only=1">رصيد فقط</a>
   </div>
 </div>
 
 <div class="card">
-  <h2 style="margin-top: 0">حسب المحفظة</h2>
+  <h2 style="margin-top: 0">حسب المحفظة (مدفوعات فعلية)</h2>
   {% if by_pm %}
   <table>
-    <thead><tr><th>المحفظة</th><th>عدد الفواتير</th><th>الإجمالي</th></tr></thead>
+    <thead><tr><th>المحفظة</th><th>عدد الدفعات</th><th>الإجمالي</th></tr></thead>
     <tbody>
       {% for name, cnt, total in by_pm %}
       <tr><td><strong>{{ name }}</strong></td><td>{{ cnt }}</td><td>{{ total }} د.ل</td></tr>
@@ -37,21 +53,50 @@
   <h2 style="margin-top: 0">قائمة فواتير الشراء</h2>
   {% if items %}
   <table>
-    <thead><tr><th>#</th><th>التاريخ</th><th>المورّد</th><th>عدد البنود</th><th>الإجمالي</th><th>المحفظة</th><th></th></tr></thead>
+    <thead>
+      <tr>
+        <th>#</th><th>التاريخ</th><th>المورّد</th><th>عدد البنود</th>
+        <th>إجمالي الفاتورة</th><th>المدفوع</th><th>المتبقي</th><th>الحالة</th><th>المحفظة</th><th></th>
+      </tr>
+    </thead>
     <tbody>
       {% for p in items %}
+      {% set pr = pay_by_id.get(p.id) %}
+      {% if pay_filter == 'all' and not balance_only or pr %}
       <tr>
         <td>{{ p.id }}</td>
         <td>{{ p.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
         <td>{{ p.supplier or '—' }}</td>
         <td>{{ p.lines|length }}</td>
-        <td>{{ p.amount }} د.ل</td>
-        <td>{% if p.method %}{{ p.method.name_ar }}{% endif %}</td>
+        <td>{{ pr.invoice_total if pr else p.amount }} د.ل</td>
+        <td style="color:#16a34a">{% if pr %}{{ pr.paid_total }}{% else %}—{% endif %} د.ل</td>
+        <td style="font-weight:700;{% if pr and pr.outstanding > 0 %}color:#b91c1c{% endif %}">
+          {% if pr %}{{ pr.outstanding }}{% else %}—{% endif %} د.ل
+        </td>
+        <td>
+          {% if pr %}
+            {% if pr.pay_status.value == 'unpaid' %}<span class="badge bad">غير مدفوعة</span>
+            {% elif pr.pay_status.value == 'partial' %}<span class="badge warn">جزئية</span>
+            {% else %}<span class="badge good">مدفوعة</span>{% endif %}
+          {% else %}<span class="badge good">مدفوعة</span>{% endif %}
+        </td>
+        <td>{% if pr %}{{ pr.wallet_label }}{% elif p.method %}{{ p.method.name_ar }}{% endif %}</td>
         <td><a class="btn" href="/admin/purchases/{{ p.id }}" style="padding: 0.2rem 0.5rem; font-size: 0.85rem">عرض</a></td>
       </tr>
+      {% endif %}
       {% endfor %}
     </tbody>
   </table>
   {% else %}<p class="muted">لا توجد فواتير في هذه الفترة.</p>{% endif %}
 </div>
+
+<style>
+  .filter-pills { display:flex; flex-wrap:wrap; gap:0.35rem; }
+  .pill-btn { padding:0.35rem 0.75rem; border-radius:999px; border:1px solid var(--border); text-decoration:none; color:inherit; font-size:0.88rem; }
+  .pill-btn.active { background:#0f172a; color:#fff; border-color:#0f172a; }
+  .badge { display:inline-block; padding:0.15rem 0.5rem; border-radius:6px; font-size:0.8rem; font-weight:600; }
+  .badge.bad { background:#fee2e2; color:#b91c1c; }
+  .badge.warn { background:#ffedd5; color:#c2410c; }
+  .badge.good { background:#dcfce7; color:#15803d; }
+</style>
 {% endblock %}

@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}{% if department %}تعديل قسم{% else %}قسم جديد{% endif %}{% endblock %}
+{% block body %}
+<h1>{% if department %}تعديل قسم{% else %}قسم جديد — {% if venue.value == 'KITCHEN' %}المطبخ{% else %}المقهى{% endif %}{% endif %}</h1>
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+<div class="card">
+  <form method="post" action="{% if department %}/admin/kitchen-departments/{{ department.id }}/edit{% else %}/admin/kitchen-departments/new{% endif %}">
+    {% if not department %}
+    <input type="hidden" name="venue" value="{{ venue.value }}" />
+    {% endif %}
+    <label for="name_ar">اسم القسم</label>
+    <input id="name_ar" name="name_ar" required value="{{ department.name_ar if department else '' }}" placeholder="مثال: شواء، معجنات، سلطات" />
+    <label for="sort_order">الترتيب</label>
+    <input id="sort_order" name="sort_order" type="number" value="{{ department.sort_order if department else 0 }}" />
+    <label for="routing_mode">طريقة التوجيه</label>
+    <select id="routing_mode" name="routing_mode">
+      {% set rm = department.routing_mode.value if department else 'SCREEN' %}
+      <option value="SCREEN" {% if rm == 'SCREEN' %}selected{% endif %}>شاشة المطبخ (KDS)</option>
+      <option value="PRINT" {% if rm == 'PRINT' %}selected{% endif %}>طباعة تذكرة منفصلة</option>
+      <option value="WHATSAPP" {% if rm == 'WHATSAPP' %}selected{% endif %}>واتساب / webhook</option>
+      <option value="NONE" {% if rm == 'NONE' %}selected{% endif %}>بدون توجيه</option>
+    </select>
+    <label for="routing_target">هدف التوجيه (اختياري)</label>
+    <input id="routing_target" name="routing_target" value="{{ department.routing_target if department and department.routing_target else '' }}" placeholder="رابط webhook أو ملاحظة طابعة" />
+    <label style="display:block;margin-top:0.75rem">
+      <input type="checkbox" name="is_active" value="on" {% if not department or department.is_active %}checked{% endif %} /> نشط
+    </label>
+    <div class="row" style="margin-top:1rem">
+      <button type="submit" class="btn btn-primary">حفظ</button>
+      <a class="btn" href="/admin/kitchen-departments?venue={{ department.venue.value if department else venue.value }}">رجوع</a>
+    </div>
+  </form>
+  {% if department %}
+  <form method="post" action="/admin/kitchen-departments/{{ department.id }}/delete" style="margin-top:1.5rem" onsubmit="return confirm('حذف هذا القسم؟');">
+    <button type="submit" class="btn" style="color:#b91c1c;border-color:#fecaca">حذف القسم</button>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

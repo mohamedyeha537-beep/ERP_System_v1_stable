@@ -104,21 +104,31 @@
       /* Header navigation */
       .header-nav {
         display: flex;
-        gap: 0.15rem;
+        gap: 0.1rem;
         align-items: center;
-        margin-inline-start: 1rem;
+        margin-inline-start: 0.75rem;
         flex: 1;
+        min-width: 0;
+        /* تمرير خفي عند ضيق العرض — بدون شريط أبيض ظاهر */
         overflow-x: auto;
+        overflow-y: hidden;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+      }
+      .header-nav::-webkit-scrollbar {
+        display: none;
+        height: 0;
       }
       .header-nav a {
         color: var(--brand-header-fg);
         opacity: 0.78;
         text-decoration: none;
-        padding: 0.45rem 0.75rem;
+        padding: 0.4rem 0.55rem;
         border-radius: 8px;
-        font-size: 0.88rem;
+        font-size: 0.84rem;
         font-weight: 500;
         white-space: nowrap;
+        flex-shrink: 0;
         transition: all 0.15s;
       }
       .header-nav a:hover { background: rgba(255,255,255,0.1); opacity: 1; }
@@ -182,9 +192,11 @@
           inset-inline: 0;
           background: #0f172a;
           flex-direction: column;
+          flex-wrap: nowrap;
           padding: 0.5rem;
           border-bottom: 1px solid rgba(255,255,255,0.1);
           max-height: calc(100vh - var(--header-h));
+          overflow-x: visible;
           overflow-y: auto;
         }
         .header-nav:not(.open) { display: none; }
@@ -304,10 +316,11 @@
         <nav class="header-nav" id="mainNav">
           <a href="/">الرئيسية</a>
           {% if p('sales:create') %}<a href="/pos">{{ brand.pos_label }}</a>{% endif %}
-          {% if p('sales:refund') %}<a href="/refunds">المرتجعات</a>{% endif %}
+          {% if p('sales:refund') %}<a href="/refunds">استرداد المبيعات</a>{% endif %}
           {% if p('reports:view') %}<a href="/reports">التقارير</a>{% endif %}
           {% if p('reports:view') %}<a href="/reports/delivery">التوصيل</a>{% endif %}
           {% if p('inventory:view') %}<a href="/inventory">المخزون</a>{% endif %}
+          {% if p('warehouses:manage') %}<a href="/admin/warehouses">المخازن</a>{% endif %}
           {% if p('catalog:write') %}<a href="/catalog/products">الأصناف</a>{% endif %}
           {% if p('hr:view') %}<a href="/admin/employees">الموظفون</a>{% endif %}
           {% if p('purchases:manage') %}<a href="/admin/purchases">المشتريات</a>{% endif %}
@@ -352,7 +365,7 @@
         </div>
         <div class="footer-col">
           <h4>روابط مهمة</h4>
-          {% if p('sales:refund') %}<a href="/refunds">↩ مرتجعات المبيعات</a>{% endif %}
+          {% if p('sales:refund') %}<a href="/refunds">↩ استرداد وترجيع المبيعات</a>{% endif %}
           {% if p('reports:view') %}<a href="/reports">📊 مركز التقارير</a>{% endif %}
           {% if p('delivery:manage') %}<a href="/admin/delivery-zones">🚚 مناطق التوصيل</a>{% endif %}
           {% if p('admin:settings') %}<a href="/admin/settings">⚙ الإعدادات</a>{% endif %}

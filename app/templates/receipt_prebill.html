@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    {% set brand = pos_brand(request) %}
+    <title>أمر تجهيز #{{ sale.id }}</title>
+    <style>
+      html, body { font-family: "Segoe UI", "Tahoma", "Arial",
+        "Microsoft Sans Serif", "Geeza Pro", system-ui, sans-serif; }
+    </style>
+    <link rel="stylesheet" href="/static/app.css" />
+    <link rel="stylesheet" href="/static/receipt_print.css" />
+    <style>
+      @page {
+        size: {{ paper_css.size }};
+        margin: {{ paper_css.margin }};
+      }
+      .receipt-page { max-width: {{ paper_css.max_width }}; }
+      .prebill-banner {
+        background: #fef3c7;
+        border: 2px dashed #f59e0b;
+        color: #92400e;
+        padding: 0.55rem 0.75rem;
+        border-radius: 8px;
+        margin-bottom: 0.75rem;
+        font-weight: 700;
+        text-align: center;
+      }
+    </style>
+    {% if autoprint %}
+    <script>
+      window.addEventListener("load", function () {
+        setTimeout(function () {
+          window.print();
+        }, 350);
+      });
+    </script>
+    {% endif %}
+  </head>
+  <body class="paper-{{ paper }}">
+    <div class="receipt-page paper-{{ paper }}">
+      <div class="receipt-actions no-print">
+        <button type="button" class="btn btn-primary" onclick="window.print()">طباعة</button>
+        <a class="btn" href="/pos">رجوع للكاشير</a>
+        <a class="btn" href="/pos/checkout">التحصيل عند المغادرة</a>
+        <a class="btn" href="/admin/kds/print-sale/{{ sale.id }}?autoprint=1" target="_blank">ورقة تجميع المطبخ</a>
+      </div>
+
+      <div class="prebill-banner no-print">لم يُحصَّل بعد — للمطبخ / العميل (عرض الأسعار)</div>
+
+      <header class="receipt-header">
+        {% set receipt_logo = brand.print_logo_url or brand.logo_url %}
+        {% if receipt_logo %}
+        <div class="receipt-logo-wrap">
+          <img class="receipt-logo" src="{{ receipt_logo }}" alt="logo" />
+        </div>
+        {% endif %}
+        <h1 style="margin: 0; font-size: 1.15rem">{{ store_name }}</h1>
+        <p style="margin: 0.25rem 0 0; font-size: 0.95rem; font-weight: 700; color: #b45309">أمر تجهيز — غير مدفوع</p>
+        <p style="margin: 0.15rem 0 0; font-size: 0.85rem">رقم الطلب: {{ sale.id }} — {{ sale.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+        {% if sale.table %}
+        <p style="margin: 0.15rem 0 0; font-size: 0.95rem; font-weight: 700; color: #1d4ed8">الطاولة: {{ sale.table.name_ar }}</p>
+        {% endif %}
+        {% if sale.context_type.value == 'ROOM' and room_hint %}
+        <p style="margin: 0.15rem 0 0; font-size: 0.95rem; font-weight: 700; color: #b45309">شقة: {{ room_hint }}</p>
+        {% endif %}
+        {% if sale.context_type.value == 'EXTERNAL' and sale.external_order_type.value == 'DELIVERY' %}
+        <p style="margin: 0.15rem 0 0; font-size: 0.88rem; font-weight: 700; color: #9a3412">
+          🚚 توصيل — {{ sale.delivery_zone_name or 'منطقة توصيل' }}
+        </p>
+        {% endif %}
+      </header>
+
+      {% for sec in sections %}
+      <section class="receipt-section">
+        <h2 class="receipt-section-title">{{ sec.root_title }}</h2>
+        {% for sg in sec.subgroups %}
+        {% if sg.title %}
+        <h3 class="receipt-subtitle">{{ sg.title }}</h3>
+        {% endif %}
+        <table class="receipt-table">
+          <thead>
+            <tr>
+              <th>الصنف</th>
+              <th class="num">الكمية</th>
+              <th class="num">السعر</th>
+              <th class="num">الإجمالي</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for line in sg.lines %}
+            <tr>
+              <td>{{ line.product.name_ar }}</td>
+              <td class="num">{{ pos_qty(line.quantity) }}</td>
+              <td class="num">{{ pos_money(line.unit_price) }}</td>
+              <td class="num">{{ pos_money(line.line_total) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endfor %}
+      </section>
+      {% endfor %}
+
+      <hr class="receipt-divider" />
+      <div class="receipt-grand">
+        <span>{% if sale.context_type.value == 'EXTERNAL' and sale.external_order_type.value == 'DELIVERY' %}قيمة الطلب{% else %}الإجمالي{% endif %}</span>
+        <span>{{ pos_money(sale.total) }} <span class="money-currency">د.ل</span></span>
+      </div>
+      {% if sale.context_type.value == 'EXTERNAL' and sale.external_order_type.value == 'DELIVERY' %}
+      <div class="receipt-payment">
+        <span>أجرة التوصيل (تُحصَّل عند الدفع):</span>
+        <span><strong>{{ pos_money(sale.delivery_fee) }} <span class="money-currency">د.ل</span></strong></span>
+      </div>
+      <div class="receipt-payment">
+        <span>الإجمالي المتوقع على الزبون:</span>
+        <span><strong>{{ pos_money(sale.total + sale.delivery_fee) }} <span class="money-currency">د.ل</span></strong></span>
+      </div>
+      {% endif %}
+      <p class="receipt-thanks" style="font-size:0.82rem;color:#64748b">هذا المستند ليس فاتورة ضريبية نهائية حتى يتم التحصيل من شاشة الدفع.</p>
+    </div>
+  </body>
+</html>

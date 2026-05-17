@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_reports_macros.html" import reports_nav, period_filter, export_button %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button %}
 {% block title %}تحليل التعادل (Break-Even / CVP){% endblock %}
 {% block head_extra %}
 <style>
@@ -24,9 +24,12 @@
 <h1>تحليل التعادل اليومي (Break-Even / CVP)</h1>
 {{ reports_nav('break-even') }}
 {{ period_filter('/reports/break-even', period, period_labels, start, end, start_str, end_str, '&days=' ~ operating_days) }}
+{{ report_export_format_help() }}
 <div class="export-bar">
-  <span class="label">📤 تصدير:</span>
-  {{ export_button('/reports/export/comprehensive.csv?period=' ~ period, 'تقرير شامل (CSV)') }}
+  <span class="label">Excel (.csv):</span>
+  {{ export_button('/reports/export/comprehensive.csv?period=' ~ period, 'تقرير شامل') }}
+  <span class="label no-print" style="margin-inline-start:0.75rem">PDF:</span>
+  {{ pdf_export_button() }}
 </div>
 
 

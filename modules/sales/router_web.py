@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -14,7 +15,8 @@ from modules.authz.permissions import POS_PRINT_CHOOSE_SIZE, SALES_CREATE
 from modules.authz.service import user_has_permission
 from modules.catalog.models import DiningTable, Product, ProductCategory, ProductKind
 from modules.inventory.service import InsufficientStock
-from modules.sales.models import Sale
+from modules.pos_shifts.service import require_open_pos_shift
+from modules.sales.models import Sale, SaleContext, SaleStatus
 from modules.payments.service import get_sale_payment
 from modules.sales.receipt_layout import build_receipt_sections, sort_sale_lines_for_display
 from modules.settings.service import (
@@ -30,12 +32,86 @@ from modules.sales.service import (
     complete_sale,
     create_draft_sale,
     get_draft_sale,
+    cancel_stale_empty_pos_drafts,
+    list_pos_open_drafts,
     load_completed_sale_for_print,
     load_sale_with_lines,
     remove_line,
+    send_draft_to_kitchen,
 )
 
 router = APIRouter(prefix="/pos", tags=["pos"])
+
+
+def _active_pos_shift_or_redirect(request: Request, db: DBSession, user: User):
+    g = require_open_pos_shift(request, db, user)
+    if isinstance(g, RedirectResponse):
+        return g
+    return g
+
+
+def _shift_template_kwargs(open_shift) -> dict:
+    return {"open_pos_shift": open_shift}
+
+
+def _external_needs_phone(sale: Sale) -> bool:
+    return (
+        sale.context_type == SaleContext.EXTERNAL and not sale.customer_id
+    )
+
+
+def _session_pos_shift_id(request: Request) -> int | None:
+    raw = request.session.get("pos_shift_id")
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _open_orders_panel_ctx(
+    db, user: User, request: Request, current_sale: Sale | None
+) -> dict:
+    """قائمة طلبات مفتوحة فعلياً فقط (بنود أو مُرسَلة للمطبخ)."""
+    shift_id = _session_pos_shift_id(request)
+    orders = list_pos_open_drafts(
+        db,
+        user_id=user.id,
+        pos_shift_id=shift_id,
+        exclude_sale_id=None,
+        limit=25,
+    )
+
+    def _lbl(s: Sale) -> str:
+        ctx = s.context_type.value if s.context_type else "TABLE"
+        if ctx == "TABLE" and s.table:
+            return f"طاولة {s.table.name_ar}"
+        if ctx == "ROOM":
+            return "شقة"
+        if ctx == "EXTERNAL":
+            return "خارجي"
+        return ctx
+
+    rows: list[dict] = []
+    for s in orders:
+        st = "مُرسَل للمطبخ" if s.sent_to_kitchen_at else "قيد الإدخال"
+        rows.append(
+            {
+                "id": s.id,
+                "label": _lbl(s),
+                "total": s.total,
+                "status": st,
+                "active": current_sale is not None and s.id == current_sale.id,
+            }
+        )
+    return {
+        "open_orders_nav": rows,
+        "sale_sent_kitchen": bool(
+            current_sale is not None and current_sale.sent_to_kitchen_at
+        ),
+        "has_active_sale": current_sale is not None,
+    }
 
 
 def _cart_lines_ctx(db, sale: Sale | None, request: Request | None = None) -> dict:
@@ -88,15 +164,39 @@ def _active_rooms(db) -> list:
     )
 
 
-def _ensure_draft(request: Request, db, user: User):
+def _get_current_draft(request: Request, db, user: User) -> Sale | None:
+    """المسودة النشطة في الجلسة فقط — بدون إنشاء تلقائي."""
     raw = request.session.get("draft_sale_id")
-    sale = None
-    if raw is not None:
-        sale = get_draft_sale(db, int(raw))
+    if raw is None:
+        return None
+    try:
+        sid = int(raw)
+    except (TypeError, ValueError):
+        request.session.pop("draft_sale_id", None)
+        return None
+    sale = get_draft_sale(db, sid)
     if sale is None:
-        sale = create_draft_sale(db, user.id)
-        request.session["draft_sale_id"] = sale.id
-        db.commit()
+        request.session.pop("draft_sale_id", None)
+        return None
+    sr = request.session.get("pos_shift_id")
+    if sr is not None and sale.pos_shift_id is None:
+        try:
+            sale.pos_shift_id = int(sr)
+            db.flush()
+        except (TypeError, ValueError):
+            pass
+    return sale
+
+
+def _ensure_draft_or_create(request: Request, db, user: User) -> Sale:
+    """يُستخدم عند إضافة بند أو إتمام عملية — يُنشئ مسودة إن لم تكن موجودة."""
+    sale = _get_current_draft(request, db, user)
+    if sale is not None:
+        return sale
+    psid = _session_pos_shift_id(request)
+    sale = create_draft_sale(db, user.id, pos_shift_id=psid)
+    request.session["draft_sale_id"] = sale.id
+    db.flush()
     return sale
 
 
@@ -278,7 +378,9 @@ def pos_panel_fragment(
     db: DBSession,
     user: User = Depends(require_permission(SALES_CREATE)),
 ):
-    _ensure_draft(request, db, user)
+    gr = _active_pos_shift_or_redirect(request, db, user)
+    if isinstance(gr, RedirectResponse):
+        return gr
     ctx = _build_pos_panel(db, request)
     ctx["request"] = request
     return templates.TemplateResponse("pos_panel.html", ctx)
@@ -290,14 +392,42 @@ def pos_screen(
     db: DBSession,
     user: User = Depends(require_permission(SALES_CREATE)),
 ):
-    sale = _ensure_draft(request, db, user)
-    loaded = load_sale_with_lines(db, sale.id)
-    if loaded:
-        sale = loaded
+    gr = _active_pos_shift_or_redirect(request, db, user)
+    if isinstance(gr, RedirectResponse):
+        return gr
+    open_shift = gr
+    shift_id = _session_pos_shift_id(request)
+    keep_id: int | None = None
+    raw_sid = request.session.get("draft_sale_id")
+    if raw_sid is not None:
+        try:
+            keep_id = int(raw_sid)
+        except (TypeError, ValueError):
+            keep_id = None
+    cancel_stale_empty_pos_drafts(
+        db, user_id=user.id, pos_shift_id=shift_id, keep_sale_id=keep_id
+    )
+    db.commit()
+
+    sale = _get_current_draft(request, db, user)
+    if sale is not None:
+        loaded = load_sale_with_lines(db, sale.id)
+        if loaded:
+            sale = loaded
+
     panel = _build_pos_panel(db, request)
     return templates.TemplateResponse(
         "pos.html",
-        {"request": request, "sale": sale, "error": None, "feedback": None, **panel, **_cart_lines_ctx(db, sale, request)},
+        {
+            "request": request,
+            "sale": sale,
+            "error": None,
+            "feedback": None,
+            **panel,
+            **_cart_lines_ctx(db, sale, request),
+            **_shift_template_kwargs(open_shift),
+            **_open_orders_panel_ctx(db, user, request, sale),
+        },
     )
 
 
@@ -309,9 +439,32 @@ def pos_add_line(
     product_id: int = Form(...),
     quantity: str = Form(...),
 ):
-    from modules.sales.models import SaleContext
+    gr = _active_pos_shift_or_redirect(request, db, user)
+    if isinstance(gr, RedirectResponse):
+        return gr
+    open_shift = gr
 
-    sale = _ensure_draft(request, db, user)
+    sale = _ensure_draft_or_create(request, db, user)
+
+    if _external_needs_phone(sale):
+        panel = _build_pos_panel(db, request)
+        loaded = load_sale_with_lines(db, sale.id)
+        if loaded:
+            sale = loaded
+        return templates.TemplateResponse(
+            "pos.html",
+            {
+                "request": request,
+                "sale": sale,
+                "error": "أدخل رقم هاتف العميل في تبويب «خارجي» ثم اضغط «حفظ بيانات العميل» قبل إضافة الأصناف.",
+                "feedback": None,
+                **panel,
+                **_cart_lines_ctx(db, sale, request),
+                **_shift_template_kwargs(open_shift),
+                **_open_orders_panel_ctx(db, user, request, sale),
+            },
+            status_code=400,
+        )
 
     # حماية: في سياق TABLE يجب اختيار طاولة قبل أي إضافة.
     if sale.context_type == SaleContext.TABLE and not sale.table_id:
@@ -331,6 +484,8 @@ def pos_add_line(
                 "feedback": None,
                 **panel,
                 **_cart_lines_ctx(db, sale, request),
+                **_shift_template_kwargs(open_shift),
+                **_open_orders_panel_ctx(db, user, request, sale),
             },
             status_code=400,
         )
@@ -356,6 +511,8 @@ def pos_add_line(
                 "feedback": None,
                 **panel,
                 **_cart_lines_ctx(db, sale, request),
+                **_shift_template_kwargs(open_shift),
+                **_open_orders_panel_ctx(db, user, request, sale),
             },
             status_code=400,
         )
@@ -367,13 +524,22 @@ def pos_add_line(
     except (SalesError, Exception) as e:
         db.rollback()
         panel = _build_pos_panel(db, request)
-        sale = _ensure_draft(request, db, user)
+        sale = _ensure_draft_or_create(request, db, user)
         loaded = load_sale_with_lines(db, sale.id)
         if loaded:
             sale = loaded
         return templates.TemplateResponse(
             "pos.html",
-            {"request": request, "sale": sale, "error": str(e), "feedback": None, **panel, **_cart_lines_ctx(db, sale, request)},
+            {
+                "request": request,
+                "sale": sale,
+                "error": str(e),
+                "feedback": None,
+                **panel,
+                **_cart_lines_ctx(db, sale, request),
+                **_shift_template_kwargs(open_shift),
+                **_open_orders_panel_ctx(db, user, request, sale),
+            },
             status_code=400,
         )
     if request.headers.get("hx-request"):
@@ -396,13 +562,29 @@ def pos_barcode_scan(
 ):
     from modules.sales.models import SaleContext
 
-    sale = _ensure_draft(request, db, user)
+    gr = _active_pos_shift_or_redirect(request, db, user)
+    if isinstance(gr, RedirectResponse):
+        return gr
+
+    sale = _ensure_draft_or_create(request, db, user)
     code = barcode.strip()
     if not code:
         sx = load_sale_with_lines(db, sale.id) or sale
         return templates.TemplateResponse(
             "pos_sidebar.html",
             {"request": request, "sale": sx, "feedback": "أدخل باركوداً.", **_cart_lines_ctx(db, sx, request)},
+        )
+
+    if _external_needs_phone(sale):
+        sx = load_sale_with_lines(db, sale.id) or sale
+        return templates.TemplateResponse(
+            "pos_sidebar.html",
+            {
+                "request": request,
+                "sale": sx,
+                "feedback": "⚠️ رقم الهاتف مطلوب — احفظ بيانات العميل في تبويب «خارجي» أولاً.",
+                **_cart_lines_ctx(db, sx, request),
+            },
         )
 
     # حماية: في سياق TABLE يجب اختيار طاولة قبل أي إضافة.
@@ -474,7 +656,10 @@ def pos_remove_line(
     db: DBSession,
     user: User = Depends(require_permission(SALES_CREATE)),
 ):
-    sale = _ensure_draft(request, db, user)
+    gr = _active_pos_shift_or_redirect(request, db, user)
+    if isinstance(gr, RedirectResponse):
+        return gr
+    sale = _ensure_draft_or_create(request, db, user)
     try:
         remove_line(db, sale.id, line_id)
         db.commit()
@@ -498,7 +683,174 @@ def pos_complete_redirect(
     user: User = Depends(require_permission(SALES_CREATE)),
 ):
     """نقطة قديمة — تحوّل إلى صفحة اختيار الدفع لضمان تسجيل أسلوب دفع لكل بيع."""
+    gr = _active_pos_shift_or_redirect(request, db, user)
+    if isinstance(gr, RedirectResponse):
+        return gr
     return RedirectResponse("/pos/checkout", status_code=302)
+
+
+@router.post("/new-order", response_class=HTMLResponse)
+def pos_new_order(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(require_permission(SALES_CREATE)),
+):
+    gr = _active_pos_shift_or_redirect(request, db, user)
+    if isinstance(gr, RedirectResponse):
+        return gr
+    psid = _session_pos_shift_id(request)
+    cur = _get_current_draft(request, db, user)
+    keep = cur.id if cur is not None else None
+    cancel_stale_empty_pos_drafts(
+        db, user_id=user.id, pos_shift_id=psid, keep_sale_id=keep
+    )
+    sale = create_draft_sale(db, user.id, pos_shift_id=psid)
+    db.flush()
+    request.session["draft_sale_id"] = sale.id
+    request.session.pop("draft_room_id", None)
+    request.session.pop("draft_room_guest", None)
+    db.commit()
+    return RedirectResponse("/pos", status_code=302)
+
+
+@router.post("/open-order/{sale_id}", response_class=HTMLResponse)
+def pos_open_order(
+    request: Request,
+    sale_id: int,
+    db: DBSession,
+    user: User = Depends(require_permission(SALES_CREATE)),
+):
+    gr = _active_pos_shift_or_redirect(request, db, user)
+    if isinstance(gr, RedirectResponse):
+        return gr
+    s = get_draft_sale(db, sale_id)
+    if s is None or s.created_by_id != user.id:
+        return RedirectResponse(
+            "/pos?ctx_err=" + quote("لا يمكن فتح هذا الطلب."),
+            status_code=302,
+        )
+    psid = _session_pos_shift_id(request)
+    if psid is not None and s.pos_shift_id not in (None, psid):
+        return RedirectResponse(
+            "/pos?ctx_err=" + quote("هذا الطلب مرتبط بجلسة كاشير أخرى."),
+            status_code=302,
+        )
+    request.session["draft_sale_id"] = sale_id
+    return RedirectResponse("/pos", status_code=302)
+
+
+@router.post("/send-kitchen", response_class=HTMLResponse)
+def pos_send_kitchen(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(require_permission(SALES_CREATE)),
+):
+    gr = _active_pos_shift_or_redirect(request, db, user)
+    if isinstance(gr, RedirectResponse):
+        return gr
+    sale = _ensure_draft_or_create(request, db, user)
+    loaded = load_sale_with_lines(db, sale.id)
+    if loaded:
+        sale = loaded
+    if _external_needs_phone(sale):
+        return RedirectResponse(
+            "/pos?ctx_err="
+            + quote("رقم هاتف العميل مطلوب قبل الإرسال للمطبخ."),
+            status_code=302,
+        )
+    if sale.context_type == SaleContext.ROOM:
+        room_ok = bool(request.session.get("draft_room_id"))
+    else:
+        room_ok = True
+    try:
+        send_draft_to_kitchen(
+            db,
+            sale.id,
+            user.id,
+            room_session_ok=room_ok,
+        )
+        from modules.kds.service import create_tickets_for_sale
+
+        tickets = create_tickets_for_sale(db, sale.id)
+        db.commit()
+        needs_wa_dispatch = any(
+            t.delivery_status == "PENDING_SEND" for t in tickets
+        )
+    except InsufficientStock as e:
+        db.rollback()
+        return RedirectResponse("/pos?ctx_err=" + quote(str(e)), status_code=302)
+    except SalesError as e:
+        db.rollback()
+        return RedirectResponse("/pos?ctx_err=" + quote(str(e)), status_code=302)
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        import logging
+
+        logging.getLogger("kds").warning("send-kitchen failed: %s", exc)
+        return RedirectResponse(
+            "/pos?ctx_err=" + quote("تعذّر إرسال الطلب للمطبخ."),
+            status_code=302,
+        )
+
+    if needs_wa_dispatch:
+        from infra.background import run_in_background
+        from modules.kds.service import dispatch_pending_whatsapp_tickets
+
+        run_in_background(
+            dispatch_pending_whatsapp_tickets,
+            sale.id,
+            name="kds-whatsapp",
+        )
+
+    return RedirectResponse(f"/pos/prebill/{sale.id}?autoprint=1", status_code=302)
+
+
+@router.get("/prebill/{sale_id}", response_class=HTMLResponse)
+def pos_prebill_print(
+    request: Request,
+    sale_id: int,
+    db: DBSession,
+    user: User = Depends(require_permission(SALES_CREATE)),
+    autoprint: int = Query(0, ge=0, le=1),
+):
+    sale = load_sale_with_lines(db, sale_id)
+    if (
+        sale is None
+        or sale.status != SaleStatus.DRAFT
+        or sale.created_by_id != user.id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="الفاتورة غير موجودة أو غير متاحة.",
+        )
+    sections = build_receipt_sections(db, sale)
+    admin_paper = normalize_paper(get_setting(db, "print_paper_size", "A5"), "A5")
+    paper_css = get_paper_css(admin_paper)
+    store_name = get_setting(db, "store_name", "نقطة البيع")
+    cart_lines = sort_sale_lines_for_display(db, list(sale.lines))
+    room_hint = None
+    if sale.context_type == SaleContext.ROOM:
+        rid = request.session.get("draft_room_id")
+        if rid:
+            from modules.hotel.models import HotelRoom
+
+            rm = db.get(HotelRoom, int(rid))
+            if rm is not None:
+                room_hint = str(rm.number)
+    return templates.TemplateResponse(
+        "receipt_prebill.html",
+        {
+            "request": request,
+            "sale": sale,
+            "sections": sections,
+            "cart_lines": cart_lines,
+            "autoprint": autoprint,
+            "paper": admin_paper,
+            "paper_css": paper_css,
+            "store_name": store_name,
+            "room_hint": room_hint,
+        },
+    )
 
 
 @router.get("/receipt/{sale_id}", response_class=HTMLResponse)
@@ -548,7 +900,10 @@ def pos_set_table(
     user: User = Depends(require_permission(SALES_CREATE)),
     table_id: str = Form(""),
 ):
-    sale = _ensure_draft(request, db, user)
+    gr = _active_pos_shift_or_redirect(request, db, user)
+    if isinstance(gr, RedirectResponse):
+        return gr
+    sale = _ensure_draft_or_create(request, db, user)
     raw = (table_id or "").strip()
     if not raw:
         sale.table_id = None
@@ -588,10 +943,13 @@ def pos_set_context(
     - ROOM: يربط بـ room_id (سيُحوَّل لحساب غرفة عند checkout)
     - EXTERNAL: يربط بعميل عبر رقم الهاتف (يُنشأ إن لم يوجد)
     """
+    gr = _active_pos_shift_or_redirect(request, db, user)
+    if isinstance(gr, RedirectResponse):
+        return gr
     from modules.delivery.service import get_zone
     from modules.sales.models import ExternalOrderType, SaleContext
 
-    sale = _ensure_draft(request, db, user)
+    sale = _ensure_draft_or_create(request, db, user)
     ctx = (context_type or "TABLE").strip().upper()
 
     if ctx == "ROOM":
@@ -678,19 +1036,19 @@ def pos_set_context(
             sale.delivery_zone_name = zone.name_ar
             sale.delivery_fee = Decimal(str(zone.fee or 0)).quantize(Decimal("0.001"))
         phone_norm = normalize_phone(customer_phone)
-        if phone_norm:
-            try:
-                c = get_or_create_by_phone(
-                    db, phone=phone_norm, name=customer_name
-                )
-                sale.customer_id = c.id
-            except CustomersError as e:
-                db.rollback()
-                return RedirectResponse(
-                    f"/pos?ctx_err={e}", status_code=302
-                )
-        else:
-            sale.customer_id = None
+        if not phone_norm:
+            db.rollback()
+            return RedirectResponse(
+                "/pos?ctx_err="
+                + quote("رقم هاتف العميل مطلوب للطلب الخارجي — لن يصل الطلب بدونه."),
+                status_code=302,
+            )
+        try:
+            c = get_or_create_by_phone(db, phone=phone_norm, name=customer_name)
+            sale.customer_id = c.id
+        except CustomersError as e:
+            db.rollback()
+            return RedirectResponse(f"/pos?ctx_err={quote(str(e))}", status_code=302)
         db.commit()
         return RedirectResponse("/pos", status_code=302)
 
@@ -747,7 +1105,12 @@ def pos_charge_room(
             status_code=302,
         )
 
-    sale = _ensure_draft(request, db, user)
+    gr = _active_pos_shift_or_redirect(request, db, user)
+    if isinstance(gr, RedirectResponse):
+        return gr
+    open_shift = gr
+
+    sale = _ensure_draft_or_create(request, db, user)
     loaded = load_sale_with_lines(db, sale.id)
     if loaded:
         sale = loaded
@@ -786,7 +1149,7 @@ def pos_charge_room(
         )
 
     try:
-        complete_sale(db, sale.id, user.id)
+        complete_sale(db, sale.id, user.id, pos_shift_id=open_shift.id)
         sale.context_type = SaleContext.ROOM
         open_room_charge(
             db,
@@ -835,7 +1198,8 @@ def pos_charge_room(
     request.session.pop("draft_sale_id", None)
     request.session.pop("draft_room_id", None)
     request.session.pop("draft_room_guest", None)
-    new_sale = create_draft_sale(db, user.id)
+    psid = _session_pos_shift_id(request)
+    new_sale = create_draft_sale(db, user.id, pos_shift_id=psid)
     request.session["draft_sale_id"] = new_sale.id
     db.commit()
     return RedirectResponse(
@@ -849,15 +1213,23 @@ def pos_cancel_draft(
     db: DBSession,
     user: User = Depends(require_permission(SALES_CREATE)),
 ):
+    gr = _active_pos_shift_or_redirect(request, db, user)
+    if isinstance(gr, RedirectResponse):
+        return gr
     raw = request.session.get("draft_sale_id")
     if raw:
         try:
             cancel_sale(db, int(raw))
             db.commit()
-        except SalesError:
+        except SalesError as e:
             db.rollback()
+            return RedirectResponse(
+                "/pos?ctx_err=" + quote(str(e)),
+                status_code=302,
+            )
     request.session.pop("draft_sale_id", None)
-    new_sale = create_draft_sale(db, user.id)
+    psid = _session_pos_shift_id(request)
+    new_sale = create_draft_sale(db, user.id, pos_shift_id=psid)
     request.session["draft_sale_id"] = new_sale.id
     db.commit()
     return RedirectResponse("/pos", status_code=302)

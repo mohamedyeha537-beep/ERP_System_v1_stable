@@ -97,9 +97,18 @@ class Product(Base):
     category_id: Mapped[int | None] = mapped_column(
         ForeignKey("product_categories.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    kitchen_department_id: Mapped[int | None] = mapped_column(
+        ForeignKey("kitchen_departments.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     image_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     category: Mapped[ProductCategory | None] = relationship(back_populates="products")
+    kitchen_department: Mapped["KitchenDepartment | None"] = relationship(  # noqa: F821
+        back_populates="products",
+        foreign_keys=[kitchen_department_id],
+    )
     bom_lines_as_parent: Mapped[list["BillOfMaterialsLine"]] = relationship(
         foreign_keys="BillOfMaterialsLine.parent_product_id",
         back_populates="parent_product",

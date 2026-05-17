@@ -8,7 +8,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
 from app.deps import DBSession, require_permission
@@ -172,10 +172,10 @@ def backup_restore_existing(name: str, _: User = Depends(_perm)):
 def reset_transactions(
     db: DBSession,
     _: User = Depends(_perm),
-    confirm: str = Query(""),
+    confirm: str = Form(""),
 ):
     """تصفير الحركات فقط — الاحتفاظ بالكتالوج والمستخدمين والإعدادات والأصول."""
-    if confirm != "محو الحركات":
+    if confirm.strip() != "محو الحركات":
         return RedirectResponse(
             "/admin/backup?error="
             + "يجب كتابة عبارة التأكيد بالضبط: محو الحركات",
@@ -197,10 +197,10 @@ def reset_transactions(
 def reset_all_except_users(
     db: DBSession,
     _: User = Depends(_perm),
-    confirm: str = Query(""),
+    confirm: str = Form(""),
 ):
     """تصفير كل البيانات عدا المستخدمين والصلاحيات."""
-    if confirm != "محو كل البيانات":
+    if confirm.strip() != "محو كل البيانات":
         return RedirectResponse(
             "/admin/backup?error="
             + "يجب كتابة عبارة التأكيد بالضبط: محو كل البيانات",
@@ -221,10 +221,10 @@ def reset_all_except_users(
 @router.post("/reset/factory", response_class=HTMLResponse)
 def reset_factory(
     _: User = Depends(_perm),
-    confirm: str = Query(""),
+    confirm: str = Form(""),
 ):
     """التصفير الكامل (مصنع) — يحذف ملف القاعدة. يحتاج إعادة تشغيل الخادم."""
-    if confirm != "تصفير المصنع الكامل":
+    if confirm.strip() != "تصفير المصنع الكامل":
         return RedirectResponse(
             "/admin/backup?error="
             + "يجب كتابة عبارة التأكيد بالضبط: تصفير المصنع الكامل",

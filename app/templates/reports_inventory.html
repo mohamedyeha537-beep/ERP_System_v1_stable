@@ -1,23 +1,45 @@
 {% extends "base.html" %}
-{% from "_reports_macros.html" import reports_nav, period_filter, export_button %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button %}
 {% block title %}تقرير المخزون{% endblock %}
 {% block body %}
 <h1>تقرير المخزون</h1>
 {{ reports_nav('inventory') }}
 {{ period_filter('/reports/inventory', period, period_labels, start, end, start_str, end_str) }}
+{{ report_export_format_help() }}
 <div class="export-bar">
-  <span class="label">📤 تصدير:</span>
-  {{ export_button('/reports/export/inventory.csv', 'المخزون الحالي (CSV)') }}
-  {{ export_button('/reports/export/inventory.csv?only_low=1', 'المخزون المنخفض فقط (CSV)') }}
+  <span class="label">Excel (.csv):</span>
+  {{ export_button('/reports/export/inventory.csv?w=' ~ warehouse_id, 'المخزون الحالي') }}
+  {{ export_button('/reports/export/inventory.csv?only_low=1&w=' ~ warehouse_id, 'المخزون المنخفض فقط') }}
+  <span class="label no-print" style="margin-inline-start:0.75rem">PDF:</span>
+  {{ pdf_export_button() }}
 </div>
 
 
 <div class="card">
-  <h2 style="margin-top: 0">قيمة المخزون والتنبيهات</h2>
+  <h2 style="margin-top: 0">قيمة المخزون والتنبيهات — {{ current_warehouse.name_ar }}</h2>
+  <div class="row" style="gap:0.5rem;align-items:center;margin-bottom:0.6rem;flex-wrap:wrap">
+    <label class="muted" style="margin:0">المخزن:</label>
+    <select onchange="var u=new URL(location.href);u.searchParams.set('w',this.value);location.href=u">
+      {% for wh in warehouses %}
+      <option value="{{ wh.id }}" {% if wh.id == warehouse_id %}selected{% endif %}>{{ wh.name_ar }}</option>
+      {% endfor %}
+    </select>
+    {% if low_count > 0 %}
+    <a class="btn" href="/inventory/low-stock/print?warehouse_id={{ warehouse_id }}" target="_blank">طباعة قائمة النواقص</a>
+    {% endif %}
+  </div>
   <div class="stat-grid">
-    <div class="stat-card"><div class="label">قيمة المخزون الحالية</div><div class="value">{{ inv_value }} د.ل</div><div class="muted" style="font-size: 0.78rem">الكمية × متوسط التكلفة</div></div>
+    <div class="stat-card"><div class="label">قيمة المخزون الحالية</div><div class="value">{{ inv_value }} د.ل</div><div class="muted" style="font-size: 0.78rem">الكمية × متوسط التكلفة — {{ current_warehouse.name_ar }}</div></div>
     <div class="stat-card {% if low_count > 0 %}warn{% endif %}"><div class="label">أصناف قاربت على النفاد</div><div class="value">{{ low_count }}</div></div>
   </div>
+  {% if inv_by_wh|length > 1 %}
+  <p class="muted" style="margin-top:0.55rem;font-size:0.88rem">
+    <strong>قيمة المخزون حسب المخزن:</strong>
+    {% for name, val in inv_by_wh %}
+    <span style="margin-inline-start:0.45rem">{{ name }}: {{ val }} د.ل</span>
+    {% endfor %}
+  </p>
+  {% endif %}
   <div class="row" style="margin-top: 0.7rem; gap: 0.4rem">
     <a class="btn btn-primary" href="/admin/alerts">إعدادات تنبيهات نفاد المخزون</a>
   </div>
@@ -28,6 +50,7 @@
     <h2 style="margin: 0">الأرصدة الحالية</h2>
     <form method="get" action="/reports/inventory" class="row" style="gap: 0.4rem; align-items: flex-end; margin: 0">
       <input type="hidden" name="period" value="{{ period }}" />
+      <input type="hidden" name="w" value="{{ warehouse_id }}" />
       <div>
         <label for="q" class="muted" style="font-size: 0.8rem">بحث باسم الصنف</label>
         <input id="q" name="q" type="search" value="{{ q or '' }}" placeholder="بحث..." style="max-width: 14rem" />

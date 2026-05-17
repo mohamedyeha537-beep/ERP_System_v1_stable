@@ -1,4 +1,40 @@
 <h2 style="margin-top: 0">الفاتورة</h2>
+
+{% set open_orders_nav = open_orders_nav if open_orders_nav is defined else [] %}
+{% set sale_sent_kitchen = sale_sent_kitchen if sale_sent_kitchen is defined else false %}
+
+{% if open_orders_nav|length > 0 %}
+<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:0.45rem 0.5rem;margin-bottom:0.55rem">
+  <div style="font-weight:700;font-size:0.82rem;margin-bottom:0.35rem;color:#334155">طلبات مفتوحة ({{ open_orders_nav|length }})</div>
+  <div style="display:flex;flex-direction:column;gap:0.28rem">
+    {% for row in open_orders_nav %}
+    <form method="post" action="/pos/open-order/{{ row.id }}" style="margin:0">
+      <button type="submit" class="btn" style="width:100%;text-align:start;font-size:0.82rem;padding:0.35rem 0.45rem;{% if row.active %}border-color:#2563eb;background:#eff6ff;font-weight:700{% endif %}">
+        <span style="opacity:0.75">#{{ row.id }}</span> · {{ row.label }} · {{ pos_money(row.total) }} د.ل
+        <span style="display:block;font-size:0.72rem;color:var(--muted)">{{ row.status }}{% if row.active %} — <strong>الحالي</strong>{% endif %}</span>
+      </button>
+    </form>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<form method="post" action="/pos/new-order" style="margin:0 0 0.45rem">
+  <button type="submit" class="btn btn-primary" style="width:100%;font-size:0.9rem;padding:0.45rem 0.55rem">
+    ＋ طلب جديد
+  </button>
+</form>
+
+{% if not sale %}
+<div style="background:#f1f5f9;border:1px solid #cbd5e1;border-radius:10px;padding:0.85rem;margin:0.5rem 0;font-size:0.88rem;color:#475569;text-align:center">
+  {% if open_orders_nav|length > 0 %}
+  اختر طلباً من «طلبات مفتوحة» أعلاه، أو أنشئ <strong>طلباً جديداً</strong>.
+  {% else %}
+  لا توجد طلبات مفتوحة. اضغط <strong>طلب جديد</strong> لبدء طلب برقم جديد.
+  {% endif %}
+</div>
+{% else %}
+
 <p class="muted" style="margin-top: 0">مسودة #{{ sale.id }}</p>
 
 {% if feedback %}
@@ -119,12 +155,21 @@
       </select>
       <div style="font-size:0.78rem;color:#9a3412;margin-top:0.22rem">أجرة التوصيل تخصم من صافي الكاش ولا تُحتسب مبيعاً للمطعم.</div>
     </div>
-    <label class="muted" style="font-size: 0.78rem; display:block; margin-bottom: 0.18rem">رقم هاتف العميل (اختياري)</label>
-    <input class="input" type="tel" name="customer_phone" value="{{ customer.phone if customer else '' }}" placeholder="مثلاً: 0912345678" />
+    <label class="muted" style="font-size: 0.78rem; display:block; margin-bottom: 0.18rem">
+      رقم هاتف العميل <span style="color:#dc2626;font-weight:700">*</span>
+    </label>
+    <input class="input" type="tel" name="customer_phone" required
+           value="{{ customer.phone if customer else '' }}" placeholder="مثلاً: 0912345678" />
     <label class="muted" style="font-size: 0.78rem; display:block; margin: 0.3rem 0 0.18rem">اسم العميل (اختياري)</label>
     <input class="input" type="text" name="customer_name" value="{{ customer.name or '' if customer else '' }}" placeholder="اسم العميل" />
     <button type="submit" class="btn btn-primary" style="margin-top:0.4rem; width:100%">حفظ بيانات العميل</button>
   </form>
+  {% if not customer %}
+  <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:0.55rem;margin-top:0.4rem;font-size:0.85rem">
+    <div style="color:#b91c1c;font-weight:600">⚠️ رقم الهاتف مطلوب</div>
+    <div style="color:#7f1d1d;margin-top:0.2rem;font-size:0.8rem">أدخل رقم الهاتف واضغط «حفظ بيانات العميل» قبل إضافة أصناف.</div>
+  </div>
+  {% endif %}
   {% if customer %}
   <div style="background:#dcfce7;border:1px solid #16a34a;border-radius:8px;padding:0.5rem;margin-top:0.4rem;font-size:0.85rem">
     <div style="color:#15803d;font-weight:600">📞 {{ customer.phone }}{% if customer.name %} — {{ customer.name }}{% endif %}</div>
@@ -198,6 +243,25 @@
   <span>{{ pos_money(sale.total) }} <span class="money-currency">د.ل</span></span>
 </div>
 
+{% if sale.lines %}
+  {% if sale_sent_kitchen %}
+  <div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px;padding:0.5rem;margin:0.45rem 0;font-size:0.82rem;color:#047857">
+    ✓ أُرسل للمطبخ. التحصيل عند المغادرة —
+    <a href="/pos/prebill/{{ sale.id }}" target="_blank">إعادة طباعة أمر التجهيز</a>
+  </div>
+  {% else %}
+    {% set can_send = (ctx == 'TABLE' and sale.table_id) or (ctx == 'ROOM' and session_room_id) or (ctx == 'EXTERNAL') %}
+    {% if can_send %}
+    <form method="post" action="/pos/send-kitchen" style="margin:0.45rem 0">
+      <button type="submit" class="btn" style="width:100%;background:#059669;border-color:#047857;color:#fff;font-weight:700">
+        🍳 إرسال للمطبخ وطباعة (بدون تحصيل)
+      </button>
+    </form>
+    <p class="muted" style="font-size:0.74rem;margin:0 0 0.35rem;text-align:center">يُخصم المخزون ويُرسل للمطبخ؛ أكمل الدفع لاحقاً عند طلب الزبون.</p>
+    {% endif %}
+  {% endif %}
+{% endif %}
+
 {% if not sale.lines %}
 <button class="btn pos-pay" type="button" disabled style="opacity: 0.5; cursor: not-allowed">
   أضف صنفاً للسلة أولاً
@@ -236,6 +300,10 @@
 <button class="btn pos-pay" type="button" disabled style="opacity: 0.65; cursor: not-allowed; background:#fef2f2; color:#991b1b; border-color:#fca5a5">
   ⚠️ اختر الطاولة أولاً أو حوّل الطلب إلى «خارجي»
 </button>
+{% elif ctx == 'EXTERNAL' and not customer %}
+<button class="btn pos-pay" type="button" disabled style="opacity: 0.65; cursor: not-allowed; background:#fef2f2; color:#991b1b; border-color:#fca5a5">
+  ⚠️ أدخل رقم الهاتف واحفظ بيانات العميل أولاً
+</button>
 {% else %}
 {# ===== سياق طاولة أو خارجي: دفع فوري ===== #}
 <a class="btn btn-primary pos-pay" href="/pos/checkout" style="text-align: center; text-decoration: none">
@@ -243,15 +311,20 @@
     <rect x="2" y="6" width="20" height="12" rx="2"></rect>
     <circle cx="12" cy="12" r="3"></circle>
   </svg>
-  إتمام البيع واختيار الدفع
+  {% if sale_sent_kitchen %}التحصيل وإتمام الفاتورة{% else %}إتمام البيع واختيار الدفع{% endif %}
 </a>
 {% endif %}
+{% if sale and not sale_sent_kitchen %}
 <form method="post" action="/pos/cancel-draft" style="margin-top: 0.5rem">
   <button class="btn" type="submit" style="width: 100%">
     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align: -3px; margin-inline-end: 0.3rem">
       <polyline points="3 6 5 6 21 6"></polyline>
       <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
     </svg>
-    مسح السلة
+    إلغاء هذا الطلب (فارغ)
   </button>
 </form>
+{% endif %}
+
+{% endif %}{# sale #}
+

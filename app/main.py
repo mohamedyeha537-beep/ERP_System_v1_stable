@@ -25,6 +25,7 @@ from modules.catalog.router_web import router as catalog_router
 from modules.catalog.service import ensure_default_units
 from modules.integration.router_api import router as integration_router
 from modules.inventory.router_web import router as inventory_router
+from modules.inventory.warehouses_router import router as warehouses_router
 from modules.alerts.router_web import router as alerts_router
 from modules.payments.router_web import (
     assets_router as payments_assets_router,
@@ -36,6 +37,9 @@ from modules.payments.router_web import (
 )
 from modules.payments.service import ensure_default_payment_methods
 from modules.reporting.router_web import router as reporting_router
+from modules.receivables.router_web import router as receivables_router
+from modules.payables.router_web import router as payables_router
+from modules.kds.departments_router import router as kitchen_departments_router
 from modules.kds.router_web import router as kds_router
 from modules.hr.router_web import (
     advances_router as hr_advances_router,
@@ -54,6 +58,7 @@ from modules.customers.router_web import (
 from modules.delivery.router_web import router as delivery_router
 from modules.branding.router_web import router as branding_router
 from modules.refunds.router_web import router as refunds_router
+from modules.pos_shifts.router_web import router as pos_shifts_router
 from modules.sales.router_web import router as pos_router
 from modules.settings.router_web import router as settings_router
 from modules.tables.router_web import router as tables_router
@@ -74,12 +79,17 @@ async def lifespan(app: FastAPI):
     import modules.customers.models  # noqa: F401
     import modules.delivery.models  # noqa: F401
     import modules.refunds.models  # noqa: F401
+    import modules.pos_shifts.models  # noqa: F401
 
     engine = get_engine()
     Base.metadata.create_all(bind=engine)
     patch_sqlite_schema(engine)
     upload_root = Path(__file__).resolve().parent / "static" / "uploads" / "products"
     upload_root.mkdir(parents=True, exist_ok=True)
+    purchase_inv_root = Path(__file__).resolve().parent / "static" / "uploads" / "purchases"
+    purchase_inv_root.mkdir(parents=True, exist_ok=True)
+    (purchase_inv_root / "supplier_invoices").mkdir(parents=True, exist_ok=True)
+    (purchase_inv_root / "payment_receipts").mkdir(parents=True, exist_ok=True)
     branding_root = Path(__file__).resolve().parent / "static" / "uploads" / "branding"
     branding_root.mkdir(parents=True, exist_ok=True)
     Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
@@ -91,6 +101,17 @@ async def lifespan(app: FastAPI):
         ensure_default_units(db)
         ensure_default_settings(db)
         ensure_default_payment_methods(db)
+        from modules.payments.service import (
+            ensure_owner_equity_payment_method,
+            ensure_supplier_credit_payment_method,
+        )
+
+        ensure_supplier_credit_payment_method(db)
+        ensure_owner_equity_payment_method(db)
+        from modules.inventory.service import ensure_main_warehouse
+
+        ensure_main_warehouse(db)
+        db.commit()
     finally:
         db.close()
     yield
@@ -171,8 +192,12 @@ def create_app() -> FastAPI:
     app.include_router(catalog_router)
     app.include_router(categories_router, prefix="/catalog")
     app.include_router(inventory_router)
+    app.include_router(warehouses_router)
     app.include_router(pos_router)
+    app.include_router(pos_shifts_router)
     app.include_router(reporting_router)
+    app.include_router(receivables_router)
+    app.include_router(payables_router)
     app.include_router(delivery_router)
     app.include_router(integration_router)
     app.include_router(settings_router)
@@ -185,6 +210,7 @@ def create_app() -> FastAPI:
     app.include_router(alerts_router)
     app.include_router(tables_router)
     app.include_router(kds_router)
+    app.include_router(kitchen_departments_router)
     app.include_router(backup_router)
     app.include_router(hr_employees_router)
     app.include_router(hr_attendance_router)
@@ -213,7 +239,12 @@ def create_app() -> FastAPI:
 
         try:
             stats = collect_dashboard_stats(db)
-        except Exception:
+        except Exception as exc:
+            import logging
+
+            logging.getLogger("pos.dashboard").exception(
+                "فشل تحميل إحصائيات اللوحة: %s", exc
+            )
             stats = None
 
         return templates.TemplateResponse(

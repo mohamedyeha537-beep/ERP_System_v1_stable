@@ -28,6 +28,8 @@ DEFAULTS: dict[str, str] = {
     "whatsapp_webhook_url": "",
     "whatsapp_webhook_method": "GET",
     "whatsapp_webhook_param": "text",
+    # مخزن خصم مبيعات نقطة البيع (فارغ = المخزن الرئيسي)
+    "default_sales_warehouse_id": "",
 }
 
 

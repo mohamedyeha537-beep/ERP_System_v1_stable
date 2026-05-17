@@ -82,6 +82,7 @@ def seed_if_empty(db: Session) -> None:
         "مسؤول مخزن",
         "inventory:view",
         "inventory:adjust",
+        "warehouses:manage",
         "reports:view",
     )
     db.flush()

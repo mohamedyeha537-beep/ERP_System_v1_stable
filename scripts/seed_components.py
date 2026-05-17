@@ -215,6 +215,8 @@ def initial_inventory_purchase(db, components: dict[str, Product]) -> Purchase |
     if not lines:
         return None
 
+    from modules.inventory.service import get_main_warehouse
+
     purchase = record_inventory_purchase(
         db,
         payment_method_id=cash.id,
@@ -222,6 +224,7 @@ def initial_inventory_purchase(db, components: dict[str, Product]) -> Purchase |
         note="فاتورة افتتاحية لتعبئة المخزون (مولّدة من سكربت seed)",
         lines=lines,
         user_id=None,
+        warehouse_id=get_main_warehouse(db).id,
     )
     print(f"  + فاتورة شراء #{purchase.id} على محفظة «{cash.name_ar}» بإجمالي {purchase.amount} د.ل")
     return purchase

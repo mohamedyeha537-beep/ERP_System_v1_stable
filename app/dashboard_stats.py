@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from modules.catalog.models import Product, ProductCategory
-from modules.inventory.service import low_stock_products
+from modules.inventory.service import low_stock_by_warehouse
 from modules.payments.daily_burden import (
     compute_daily_burden,
     recurring_costs_breakdown_in_period,
@@ -25,7 +25,14 @@ from modules.payments.depreciation import (
     total_depreciation_in_period,
 )
 from modules.payments.models import Purchase, PurchaseKind
-from modules.payments.service import wallet_breakdown
+from modules.payments.service import (
+    list_payment_methods_for_dashboard,
+    payment_method_balances_map,
+    wallet_breakdown,
+)
+from modules.payments.treasury_service import treasury_summaries
+from modules.payables.service import payables_summary
+from modules.receivables.service import receivables_summary
 from modules.reporting.queries import (
     cogs_summary,
     inventory_value,
@@ -56,6 +63,14 @@ class RecentSaleRow:
     created_at: datetime
     total: Decimal
     items: int
+
+
+@dataclass
+class TreasuryDashboardCard:
+    method_id: int
+    name_ar: str
+    kind: str  # CASH | BANK
+    balance: Decimal
 
 
 @dataclass
@@ -97,6 +112,19 @@ class DashboardStats:
     recent_sales: list[RecentSaleRow] = field(default_factory=list)
     low_rows: list = field(default_factory=list)
     wallets: list = field(default_factory=list)
+
+    cash_current: Decimal | None = None
+    cash_last_close: Decimal | None = None
+    bank_current: Decimal | None = None
+    bank_last_close: Decimal | None = None
+
+    ar_outstanding_total: Decimal = Decimal("0")
+    ar_invoice_count: int = 0
+    ar_unpaid_count: int = 0
+    ar_partial_count: int = 0
+
+    ap_outstanding_total: Decimal = Decimal("0")
+    ap_invoice_count: int = 0
 
 
 def _day_bounds(now: datetime, offset_days: int = 0) -> tuple[datetime, datetime]:
@@ -229,9 +257,12 @@ def collect(db: Session) -> DashboardStats:
         db.execute(select(func.count(ProductCategory.id))).scalar_one() or 0
     )
     stats.inventory_value = inventory_value(db)
-    low = low_stock_products(db)
-    stats.low_stock_count = len(low)
-    stats.low_rows = low[:6]
+    low_all = low_stock_by_warehouse(db)
+    stats.low_stock_count = sum(len(rows) for _wh, rows in low_all)
+    low_flat: list = []
+    for _wh, rows in low_all:
+        low_flat.extend(rows)
+    stats.low_rows = low_flat[:6]
 
     stats.month_purchases = _period_purchase_total(
         db, month_s, month_e, PurchaseKind.INVENTORY
@@ -295,6 +326,43 @@ def collect(db: Session) -> DashboardStats:
     stats.top_today = _top_today(db, today_s, today_e, limit=5)
     stats.recent_sales = _recent_sales(db, limit=6)
     stats.wallets = wallet_breakdown(db, None, None)
+
+    treasuries = treasury_summaries(db)
+    cash_t = treasuries.get("CASH")
+    bank_t = treasuries.get("BANK")
+    if cash_t:
+        stats.cash_current = cash_t.current_balance
+        stats.cash_last_close = cash_t.last_close_balance
+    if bank_t:
+        stats.bank_current = bank_t.current_balance
+        stats.bank_last_close = bank_t.last_close_balance
+
+    bal_map = payment_method_balances_map(db)
+    stats.treasury_cards = [
+        TreasuryDashboardCard(
+            method_id=m.id,
+            name_ar=m.name_ar,
+            kind=m.kind.value,
+            balance=bal_map.get(m.id, Decimal("0")).quantize(Decimal("0.001")),
+        )
+        for m in list_payment_methods_for_dashboard(db, only_active=True)
+    ]
+
+    try:
+        ar = receivables_summary(db)
+        stats.ar_outstanding_total = ar.total_outstanding
+        stats.ar_invoice_count = ar.invoice_count_with_balance
+        stats.ar_unpaid_count = ar.unpaid_count
+        stats.ar_partial_count = ar.partial_count
+    except Exception:  # noqa: BLE001
+        pass
+
+    try:
+        ap = payables_summary(db, kind=PurchaseKind.INVENTORY)
+        stats.ap_outstanding_total = ap.total_outstanding
+        stats.ap_invoice_count = ap.invoice_count_with_balance
+    except Exception:  # noqa: BLE001
+        pass
 
     try:
         stats.daily_burden = compute_daily_burden(db)

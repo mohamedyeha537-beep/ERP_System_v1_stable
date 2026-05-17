@@ -37,6 +37,27 @@
     font-size: 1.25rem;
     font-weight: 700;
   }
+  .purchase-invoice-fields .pif-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 11rem;
+  }
+  .purchase-invoice-fields .pif-cell-wide {
+    flex: 1;
+    min-width: 16rem;
+  }
+  .purchase-invoice-fields .pif-control,
+  .purchase-invoice-fields select.pif-control,
+  .purchase-invoice-fields input.pif-control {
+    max-width: 16rem;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .purchase-pay-hint {
+    margin: -0.35rem 0 0.75rem;
+    font-size: 0.78rem;
+  }
 </style>
 {% endblock %}
 {% block body %}
@@ -65,30 +86,83 @@
 </div>
 {% endif %}
 
-<form method="post" action="/admin/purchases/new" id="purchase-form">
+<form method="post" action="/admin/purchases/new" id="purchase-form" enctype="multipart/form-data">
   <div class="card">
     <h2 style="margin-top: 0">بيانات الفاتورة</h2>
-    <div class="row" style="gap: 0.6rem; align-items: flex-end; flex-wrap: wrap">
-      <div>
-        <label for="payment_method_id">الدفع من المحفظة</label>
-        <select id="payment_method_id" name="payment_method_id" required style="max-width: 14rem">
+    <div class="row purchase-invoice-fields" style="gap: 0.6rem; align-items: flex-start; flex-wrap: wrap">
+      <div class="pif-cell">
+        <label for="payment_method_id">طريقة السداد</label>
+        <select id="payment_method_id" name="payment_method_id" required class="pif-control">
           {% for m in methods %}
-          <option value="{{ m.id }}">{{ m.name_ar }}</option>
+          <option value="{{ m.id }}" data-kind="{{ m.kind.value }}" data-credit="{% if m.name_ar == 'ذمم دائن — مورد (آجل)' %}1{% else %}0{% endif %}">{{ m.name_ar }}</option>
           {% endfor %}
         </select>
       </div>
-      <div>
+      <div id="pay-now-block" class="pif-cell" style="display:none; min-width:16rem">
+        <label>دفع جزئي الآن (اختياري)</label>
+        <div class="row" style="gap:0.4rem; flex-wrap:wrap; align-items:flex-end">
+          <select name="pay_now_method_id" id="pay_now_method_id" style="max-width:12rem">
+            <option value="">— لا دفع الآن —</option>
+            {% for m in methods %}
+            {% if m.name_ar != 'ذمم دائن — مورد (آجل)' %}
+            <option value="{{ m.id }}" data-kind="{{ m.kind.value }}">{{ m.name_ar }}</option>
+            {% endif %}
+            {% endfor %}
+          </select>
+          <input name="pay_now_amount" id="pay_now_amount" type="number" step="0.001" min="0" placeholder="المبلغ" style="max-width:8rem" />
+        </div>
+      </div>
+      <div class="pif-cell">
+        <label for="warehouse_id">إضافة البضاعة إلى المخزن <span style="color:#dc2626">*</span></label>
+        <select id="warehouse_id" name="warehouse_id" required class="pif-control">
+          {% for wh in warehouses %}
+          <option value="{{ wh.id }}" {% if wh.id == default_warehouse_id %}selected{% endif %}>
+            {{ wh.name_ar }}{% if wh.is_main %} (رئيسي){% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="pif-cell">
         <label for="supplier">المورّد (اختياري)</label>
-        <input id="supplier" name="supplier" placeholder="اسم المورّد" style="max-width: 14rem" />
+        <input id="supplier" name="supplier" placeholder="اسم المورّد" class="pif-control" />
       </div>
-      <div>
+      <div class="pif-cell">
         <label for="purchase_date">تاريخ الفاتورة (اختياري)</label>
-        <input id="purchase_date" name="purchase_date" type="datetime-local" value="{{ today }}" />
+        <input id="purchase_date" name="purchase_date" type="datetime-local" value="{{ today }}" class="pif-control" />
       </div>
-      <div style="flex: 1; min-width: 16rem">
-        <label for="note">ملاحظة</label>
-        <input id="note" name="note" placeholder="رقم فاتورة المورّد، شحن، إلخ" />
+      <div class="pif-cell pif-cell-wide">
+        <label for="note">ملاحظة داخلية</label>
+        <input id="note" name="note" placeholder="شحن، خصم، تفاصيل إضافية..." class="pif-control" />
       </div>
+    </div>
+    <p class="muted purchase-pay-hint">اختر «ذمم دائن» لتسجيل فاتورة آجلة غير مدفوعة للمورد.</p>
+    <div class="card" style="margin-top: 0.85rem; background: #f8fafc; border-style: dashed">
+      <h3 style="margin: 0 0 0.5rem; font-size: 1rem">مرفقات التوثيق (فاتورة المورّد)</h3>
+      <div class="row" style="gap: 0.6rem; align-items: flex-end; flex-wrap: wrap">
+        <div style="flex: 1; min-width: 14rem">
+          <label for="supplier_invoice_ref" class="muted" style="font-size: 0.82rem">رقم فاتورة المورّد / مرجع (اختياري)</label>
+          <input id="supplier_invoice_ref" class="input" name="supplier_invoice_ref" placeholder="مثلاً: INV-2026-00412" style="width: 100%; max-width: 22rem" />
+        </div>
+        <div style="min-width: 12rem">
+          <label for="invoice_image" class="muted" style="font-size: 0.82rem">صورة الفاتورة (اختياري)</label>
+          <input id="invoice_image" name="invoice_image" type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" />
+        </div>
+      </div>
+      <p id="invoice-preview-wrap" class="muted" style="margin: 0.6rem 0 0; font-size: 0.82rem; display: none">
+        معاينة: <img id="invoice-preview" alt="" style="max-width: min(100%, 280px); max-height: 160px; border-radius: 8px; margin-top: 0.35rem; border: 1px solid var(--border); vertical-align: top" />
+      </p>
+      <p class="muted" style="margin: 0.45rem 0 0; font-size: 0.78rem">تُخزَّن الصور تحت <code>uploads/purchases/supplier_invoices/</code> — الصيغ: JPG أو PNG أو WebP — حتى 2 ميجابايت.</p>
+    </div>
+    <div id="payment-proof-block" class="card" style="margin-top: 0.85rem; background: #fffbeb; border-style: dashed; display: none">
+      <h3 style="margin: 0 0 0.35rem; font-size: 1rem">إيصال إثبات الدفع</h3>
+      <p class="muted" style="margin: 0 0 0.5rem; font-size: 0.82rem">يظهر عند اختيار محفظة <strong>مصرف</strong>. يُحفظ في <code>uploads/purchases/payment_receipts/</code> منفصلاً عن صورة فاتورة المورّد.</p>
+      <div>
+        <label for="payment_proof_image" class="muted" style="font-size: 0.82rem">صورة إيصال التحويل أو إثبات الدفع (اختياري)</label>
+        <input id="payment_proof_image" name="payment_proof_image" type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" />
+      </div>
+      <p id="proof-preview-wrap" class="muted" style="margin: 0.6rem 0 0; font-size: 0.82rem; display: none">
+        معاينة الإيصال: <img id="proof-preview" alt="" style="max-width: min(100%, 280px); max-height: 160px; border-radius: 8px; margin-top: 0.35rem; border: 1px solid var(--border); vertical-align: top" />
+      </p>
     </div>
   </div>
 
@@ -222,6 +296,74 @@
       recalc();
     });
     recalc();
+  })();
+</script>
+<script>
+  (function () {
+    var input = document.getElementById("invoice_image");
+    var wrap = document.getElementById("invoice-preview-wrap");
+    var img = document.getElementById("invoice-preview");
+    if (!input || !wrap || !img) return;
+    var prevUrl = null;
+    input.addEventListener("change", function () {
+      if (prevUrl) {
+        URL.revokeObjectURL(prevUrl);
+        prevUrl = null;
+      }
+      var f = input.files && input.files[0];
+      if (!f) {
+        wrap.style.display = "none";
+        img.removeAttribute("src");
+        return;
+      }
+      prevUrl = URL.createObjectURL(f);
+      img.src = prevUrl;
+      wrap.style.display = "block";
+    });
+  })();
+  (function () {
+    var pmSel = document.getElementById("payment_method_id");
+    var proofBlock = document.getElementById("payment-proof-block");
+    var proofInput = document.getElementById("payment_proof_image");
+    var proofWrap = document.getElementById("proof-preview-wrap");
+    var proofImg = document.getElementById("proof-preview");
+    var proofPrevUrl = null;
+    function clearProofPreview() {
+      if (proofPrevUrl) {
+        URL.revokeObjectURL(proofPrevUrl);
+        proofPrevUrl = null;
+      }
+      if (proofImg) proofImg.removeAttribute("src");
+      if (proofWrap) proofWrap.style.display = "none";
+    }
+    var payNowBlock = document.getElementById("pay-now-block");
+    function syncPaymentProof() {
+      if (!pmSel || !proofBlock) return;
+      var opt = pmSel.options[pmSel.selectedIndex];
+      var kind = opt ? (opt.getAttribute("data-kind") || "") : "";
+      var isCredit = opt && opt.getAttribute("data-credit") === "1";
+      var isBank = kind === "BANK";
+      if (payNowBlock) payNowBlock.style.display = isCredit ? "block" : "none";
+      proofBlock.style.display = isBank && !isCredit ? "block" : "none";
+      if ((!isBank || isCredit) && proofInput) {
+        proofInput.value = "";
+        clearProofPreview();
+      }
+    }
+    if (proofInput && proofWrap && proofImg) {
+      proofInput.addEventListener("change", function () {
+        clearProofPreview();
+        var f = proofInput.files && proofInput.files[0];
+        if (!f) return;
+        proofPrevUrl = URL.createObjectURL(f);
+        proofImg.src = proofPrevUrl;
+        proofWrap.style.display = "block";
+      });
+    }
+    if (pmSel) {
+      pmSel.addEventListener("change", syncPaymentProof);
+      syncPaymentProof();
+    }
   })();
 </script>
 {% endblock %}

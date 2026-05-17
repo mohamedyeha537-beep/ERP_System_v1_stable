@@ -4,16 +4,26 @@
 <h1>المخزون</h1>
 
 <p class="muted" style="margin-top: -0.4rem">
-  تظهر هنا فقط <strong>مكوّنات المخزون</strong> التي تُشترى من المورّد (STOCK_ONLY).
-  المنتجات النهائية المعروضة للبيع (مثل البرجر/الشيش/القهوة) <strong>لا تظهر في المخزون</strong>
-  لأنها تُصنَّع من المكوّنات؛ وعند البيع تُخصم تلك المكوّنات تلقائياً حسب وصفة التركيب.
+  تظهر هنا فقط <strong>مكوّنات المخزون</strong> (STOCK_ONLY). المنتجات النهائية تُخصم مكوّناتها تلقائياً عند البيع.
+  {% if p('warehouses:manage') %}
+  <a href="/admin/warehouses">إدارة المخازن</a> ·
+  <a href="/admin/warehouses/transfer">صرف من الرئيسي للفرعي</a>
+  {% endif %}
 </p>
+
+<div class="row" style="gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.75rem">
+  <label for="wh-select" class="muted" style="margin: 0">عرض مخزن:</label>
+  <select id="wh-select" onchange="location.href='/inventory?w='+this.value" style="max-width: 14rem">
+    {% for wh in warehouses %}
+    <option value="{{ wh.id }}" {% if wh.id == warehouse_id %}selected{% endif %}>{{ wh.name_ar }}{% if wh.is_main %} ★{% endif %}</option>
+    {% endfor %}
+  </select>
+  <strong>{{ current_warehouse.name_ar }}</strong>
+</div>
 
 {% set err = request.query_params.get('err') %}
 {% if err == 'composite' %}
-<div class="alert">
-  المنتجات المركّبة (لها وصفة تركيب) لا يمكن تعديل رصيدها يدوياً — تُخصم مكوّناتها تلقائياً عند البيع.
-</div>
+<div class="alert">المنتجات المركّبة لا يمكن تعديل رصيدها يدوياً.</div>
 {% elif err == 'sale_via_pos' %}
 <div class="alert">حركات البيع تُسجَّل تلقائياً من نقطة البيع.</div>
 {% elif err == 'stock' %}
@@ -23,18 +33,37 @@
 {% endif %}
 
 {% if low_stock %}
-<div class="alert">
-  <strong>تنبيه نفاد:</strong>
-  {% for p, q in low_stock %}
-  <span>{{ p.name_ar }} ({{ q }}){% if not loop.last %} — {% endif %}</span>
+<div class="alert" style="display:flex;flex-wrap:wrap;align-items:center;gap:0.5rem;justify-content:space-between">
+  <div>
+    <strong>تنبيه نفاد — {{ current_warehouse.name_ar }}:</strong>
+    {% for p, q in low_stock %}
+    <span>{{ p.name_ar }} ({{ q }}){% if not loop.last %} — {% endif %}</span>
+    {% endfor %}
+  </div>
+  <a class="btn" href="/inventory/low-stock/print?warehouse_id={{ warehouse_id }}" target="_blank">🖨 طباعة / مشاركة القائمة</a>
+</div>
+{% endif %}
+
+{% if low_stock_all|length > 1 or (low_stock_all|length == 1 and low_stock_all[0][0].id != warehouse_id) %}
+<div class="card" style="background:#fffbeb;border-color:#fcd34d">
+  <h3 style="margin:0 0 0.5rem;font-size:0.95rem">تنبيهات في مخازن أخرى</h3>
+  {% for wh, rows in low_stock_all %}
+  {% if wh.id != warehouse_id %}
+  <div style="margin-bottom:0.45rem">
+    <strong>{{ wh.name_ar }}</strong> ({{ rows|length }} صنف)
+    <a href="/inventory?w={{ wh.id }}" style="margin-inline-start:0.35rem">عرض</a>
+    <a href="/inventory/low-stock/print?warehouse_id={{ wh.id }}" target="_blank" style="margin-inline-start:0.35rem">طباعة</a>
+  </div>
+  {% endif %}
   {% endfor %}
 </div>
 {% endif %}
 
 <div class="card">
-  <h2 style="margin-top: 0">تسجيل حركة</h2>
+  <h2 style="margin-top: 0">تسجيل حركة — {{ current_warehouse.name_ar }}</h2>
   {% if products %}
   <form method="post" action="/inventory/movement">
+    <input type="hidden" name="warehouse_id" value="{{ warehouse_id }}" />
     <label for="product_id">الصنف</label>
     <select id="product_id" name="product_id" required>
       {% for p in products %}
@@ -47,7 +76,7 @@
       <option value="ADJUSTMENT">تسوية (يمكن سالباً أو موجباً)</option>
       <option value="ONLINE_SYNC">مزامنة أونلاين</option>
     </select>
-    <label for="quantity">الكمية (موجبة للشراء؛ للتسوية استخدم الإشارة المناسبة)</label>
+    <label for="quantity">الكمية</label>
     <input id="quantity" name="quantity" required value="0" />
     <label for="note">ملاحظة</label>
     <input id="note" name="note" />
@@ -56,17 +85,15 @@
     </div>
   </form>
   <p class="muted" style="margin-top: 0.75rem">
-    لإدخال بضاعة دفعة واحدة بأسعارها، استخدم
-    <a href="/admin/purchases/new">فاتورة شراء جديدة</a>
-    — تُضيف الكميات للمخزون وتخصم المبلغ من المحفظة معاً.
+    لإدخال بضاعة بفاتورة شراء، استخدم <a href="/admin/purchases/new">فاتورة شراء جديدة</a> واختر المخزن عند الحفظ.
   </p>
   {% else %}
-  <p class="muted">لا توجد أصناف قابلة للحفظ في المخزون. أضف منتجات (مكوّنات) من <a href="/catalog/products">صفحة الأصناف</a>.</p>
+  <p class="muted">لا توجد أصناف. أضف مكوّنات من <a href="/catalog/products">صفحة الأصناف</a>.</p>
   {% endif %}
 </div>
 
 <div class="card">
-  <h2 style="margin-top: 0">الأرصدة</h2>
+  <h2 style="margin-top: 0">الأرصدة — {{ current_warehouse.name_ar }}</h2>
   {% if products %}
   <table>
     <thead>

@@ -1,6 +1,9 @@
 from typing import Annotated
 
+from collections.abc import Callable
+
 from fastapi import Depends, HTTPException, Request, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from infra.db import get_db as infra_get_db
@@ -49,5 +52,14 @@ def require_permission(code: str):
         if not user_has_permission(user, code):
             raise HTTPException(status_code=403, detail="ليس لديك صلاحية لهذا الإجراء.")
         return user
+
+    return dep
+
+
+def require_any_permission(*codes: str) -> Callable[..., User]:
+    def dep(user: User = Depends(require_login)) -> User:
+        if any(user_has_permission(user, code) for code in codes):
+            return user
+        raise HTTPException(status_code=403, detail="ليس لديك صلاحية لهذا الإجراء.")
 
     return dep

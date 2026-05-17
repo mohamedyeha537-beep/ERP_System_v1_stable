@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+{% block title %}{{ kind_label }}{% endblock %}
+{% block head_extra %}
+<style>
+  .treasury-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 0.75rem;
+    margin-top: 1rem;
+  }
+  .treasury-stat-grid .stat-card {
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 12px;
+    padding: 1rem;
+    background: var(--card, #fff);
+  }
+  .treasury-stat-grid .stat-card .label { color: var(--muted, #64748b); font-size: 0.85rem; }
+  .treasury-stat-grid .stat-card .value { font-size: 1.35rem; font-weight: 700; margin-top: 0.25rem; }
+  .filter-tabs { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 1rem 0; }
+  .filter-tabs a {
+    padding: 0.35rem 0.75rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    text-decoration: none;
+    font-size: 0.9rem;
+  }
+  .filter-tabs a.active { background: var(--primary, #2563eb); color: #fff; border-color: transparent; }
+  .dir-in { color: #16a34a; }
+  .dir-out { color: #b91c1c; }
+</style>
+{% endblock %}
+{% block body %}
+{% if page_error %}<div class="alert">{{ page_error }}</div>{% endif %}
+<div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem">
+  <h1 style="margin:0">{{ kind_label }}</h1>
+  <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+    <a class="btn btn-primary" href="/pos/treasury/transfer?kind={{ kind }}">تحويل أموال</a>
+    <a class="btn" href="/admin/payment-methods">إدارة الحسابات</a>
+    <a class="btn" href="/pos/shift">جلسة البيع</a>
+    <a class="btn" href="/pos">الكاشير</a>
+  </div>
+</div>
+
+{% if treasury_accounts|length > 1 %}
+<form method="get" action="/pos/treasury" class="row" style="gap:0.5rem;align-items:flex-end;flex-wrap:wrap;margin:0.5rem 0">
+  <input type="hidden" name="dir" value="{{ filter_dir }}" />
+  {% if filter_day %}<input type="hidden" name="day" value="{{ filter_day }}" />{% endif %}
+  <label style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.85rem">
+    <span>الحساب</span>
+    <select name="pm" style="min-width:14rem;padding:0.4rem;border-radius:8px;border:1px solid var(--border)">
+      <option value="">— إجمالي {{ 'الكاش' if kind == 'cash' else 'المصرف' }} —</option>
+      {% for acc in treasury_accounts if acc.kind.value.lower() == kind %}
+      <option value="{{ acc.id }}" {% if selected_pm_id == acc.id %}selected{% endif %}>{{ acc.name_ar }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <button class="btn" type="submit">عرض</button>
+</form>
+<p class="muted" style="font-size:0.82rem;margin:0 0 0.5rem">
+  التحويل بين حسابين من نوع «كاش» لا يغيّر إجمالي الكاش في لوحة التحكم — يغيّر رصيد كل حساب على حدة.
+</p>
+{% endif %}
+
+<div class="treasury-stat-grid">
+  <div class="stat-card">
+    <div class="label">الرصيد الحالي</div>
+    <div class="value">{{ pos_money(current_balance) }} <span class="money-currency">د.ل</span></div>
+  </div>
+  {% if summary and summary.last_close_balance is not none %}
+  <div class="stat-card">
+    <div class="label">رصيد آخر إقفال جلسة</div>
+    {% if summary.last_close_shift_id %}
+    <div class="muted" style="font-size:0.78rem;margin-top:0.15rem">جلسة #{{ summary.last_close_shift_id }}
+      {% if summary.last_close_at %} · {{ summary.last_close_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}
+    </div>
+    {% endif %}
+    <div class="value">{{ pos_money(summary.last_close_balance) }} <span class="money-currency">د.ل</span></div>
+  </div>
+  {% else %}
+  <div class="stat-card">
+    <div class="label">رصيد آخر إقفال جلسة</div>
+    <div class="value muted" style="font-size:1rem;font-weight:500">— لم يُسجَّل بعد</div>
+  </div>
+  {% endif %}
+</div>
+
+<div class="filter-tabs">
+  <a href="/pos/treasury?kind={{ kind }}&dir=all{% if filter_day %}&day={{ filter_day }}{% endif %}"
+    class="{% if filter_dir == 'all' %}active{% endif %}">الكل</a>
+  <a href="/pos/treasury?kind={{ kind }}&dir=in{% if filter_day %}&day={{ filter_day }}{% endif %}"
+    class="{% if filter_dir == 'in' %}active{% endif %}">وارد فقط</a>
+  <a href="/pos/treasury?kind={{ kind }}&dir=out{% if filter_day %}&day={{ filter_day }}{% endif %}"
+    class="{% if filter_dir == 'out' %}active{% endif %}">منصرف فقط</a>
+  <a href="/pos/treasury?kind={{ kind }}&dir={{ filter_dir }}"
+    class="{% if not filter_day %}active{% endif %}" style="margin-inline-start:auto">كل الأيام</a>
+</div>
+
+<form method="get" action="/pos/treasury" class="row" style="gap:0.5rem;align-items:flex-end;flex-wrap:wrap;margin-bottom:0.5rem">
+  <input type="hidden" name="kind" value="{{ kind }}" />
+  <input type="hidden" name="dir" value="{{ filter_dir }}" />
+  <label style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.85rem">
+    <span>يوم محدد</span>
+    <input type="date" name="day" value="{{ filter_day }}" style="padding:0.4rem;border-radius:8px;border:1px solid var(--border)" />
+  </label>
+  <button type="submit" class="btn btn-primary">عرض اليوم</button>
+  {% if filter_day %}
+  <a class="btn" href="/pos/treasury?kind={{ kind }}&dir={{ filter_dir }}">إلغاء الفلتر</a>
+  {% endif %}
+</form>
+
+<div class="card" style="margin-top:0.5rem">
+  <h2 style="margin-top:0">الرصيد يومياً</h2>
+  <p class="muted" style="font-size:0.88rem;margin:0 0 0.75rem">
+    في كل يوم: الرصيد عند بداية اليوم، إجمالي الوارد والمنصرف، والرصيد في نهاية اليوم.
+    اضغط على «تفاصيل» لعرض حركات ذلك اليوم.
+  </p>
+  {% if daily_rows %}
+  <table>
+    <thead>
+      <tr>
+        <th>اليوم</th>
+        <th>رصيد افتتاح</th>
+        <th>وارد</th>
+        <th>منصرف</th>
+        <th>رصيد ختام</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in daily_rows %}
+      <tr>
+        <td>{{ row.day.strftime('%Y-%m-%d') }}</td>
+        <td>{{ pos_money(row.opening) }}</td>
+        <td class="dir-in">+{{ pos_money(row.total_in) }}</td>
+        <td class="dir-out">−{{ pos_money(row.total_out) }}</td>
+        <td><strong>{{ pos_money(row.closing) }}</strong></td>
+        <td>
+          <a class="btn" style="padding:0.2rem 0.5rem;font-size:0.82rem"
+            href="/pos/treasury?kind={{ kind }}&dir={{ filter_dir }}&day={{ row.day.isoformat() }}">تفاصيل</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">لا توجد حركات مسجّلة بعد.</p>
+  {% endif %}
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0">
+    {% if filter_day %}حركات يوم {{ filter_day }}
+    {% elif filter_dir == 'in' %}تفاصيل الوارد
+    {% elif filter_dir == 'out' %}تفاصيل المنصرف
+    {% else %}كل الحركات{% endif %}
+  </h2>
+  {% if entries %}
+  <table>
+    <thead>
+      <tr>
+        <th>الوقت</th>
+        <th>الاتجاه</th>
+        <th>المبلغ</th>
+        <th>التصنيف</th>
+        <th>المرجع</th>
+        <th>طريقة الدفع</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in entries %}
+      <tr>
+        <td>{% if e.at %}{{ e.at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+        <td>
+          {% if e.direction == 'IN' %}
+          <span class="dir-in">وارد</span>
+          {% else %}
+          <span class="dir-out">منصرف</span>
+          {% endif %}
+        </td>
+        <td>{{ pos_money(e.amount) }} <span class="money-currency">د.ل</span></td>
+        <td>{{ e.category_ar }}</td>
+        <td>{{ e.reference }}</td>
+        <td>{{ e.method_name }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">لا توجد حركات مطابقة للفلتر.</p>
+  {% endif %}
+</div>
+{% endblock %}

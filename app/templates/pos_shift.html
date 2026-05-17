@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block title %}جلسة البيع{% endblock %}
+{% block head_extra %}
+<style>
+  .treasury-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.75rem;
+    margin-top: 1.25rem;
+  }
+  .treasury-cards .t-card {
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 12px;
+    padding: 1rem;
+    background: var(--card, #fff);
+    text-decoration: none;
+    color: inherit;
+    display: block;
+    transition: box-shadow 0.15s, border-color 0.15s;
+  }
+  .treasury-cards a.t-card:hover {
+    border-color: var(--primary, #2563eb);
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.12);
+  }
+  .treasury-cards .t-card .label { color: var(--muted, #64748b); font-size: 0.85rem; }
+  .treasury-cards .t-card .value { font-size: 1.35rem; font-weight: 700; margin-top: 0.35rem; }
+  .treasury-cards .t-card.static { cursor: default; }
+  .treasury-cards .t-card.cash { border-top: 3px solid #16a34a; }
+  .treasury-cards .t-card.bank { border-top: 3px solid #2563eb; }
+  .treasury-cards .t-card.muted-card { opacity: 0.92; }
+</style>
+{% endblock %}
+{% block body %}
+<div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem">
+  <h1 style="margin:0">جلسة نقطة البيع</h1>
+  <a class="btn" href="/pos">العودة للكاشير</a>
+</div>
+
+{% if need_open %}
+<div class="alert" style="background:#fef3c7;border:1px solid #fcd34d;color:#92400e;margin-top:1rem">
+  يجب <strong>فتح جلسة بيع</strong> قبل استخدام شاشة الكاشير — تمت إعادتك هنا.
+</div>
+{% endif %}
+
+{% if closed_shift_id %}
+<div class="card" style="margin-top:1rem;border-color:#86efac;background:#f0fdf4">
+  <p style="margin:0;font-weight:600">تم إغلاق الجلسة #{{ closed_shift_id }} بنجاح.</p>
+  <p class="muted" style="margin:0.5rem 0 0;font-size:0.9rem">
+    راجع الفرق بين المعدود والمتوقع، وصدّر التقرير عند الحاجة.
+  </p>
+  <div style="margin-top:0.75rem;display:flex;flex-wrap:wrap;gap:0.5rem">
+    <a class="btn btn-primary" href="/pos/shift/{{ closed_shift_id }}/report" target="_blank">تقرير للطباعة (PDF)</a>
+    <a class="btn" href="/pos/shift/{{ closed_shift_id }}/export.csv">تنزيل Excel (CSV)</a>
+  </div>
+</div>
+{% endif %}
+
+{% if error %}
+<div class="alert" style="margin-top:1rem">{{ error }}</div>
+{% endif %}
+
+{% if treasuries %}
+<div class="treasury-cards">
+  {% set cash = treasuries.get('CASH') %}
+  {% set bank = treasuries.get('BANK') %}
+  {% if cash %}
+  <a class="t-card cash" href="/pos/treasury?kind=cash" title="عرض حركة خزينة الكاش">
+    <div class="label">خزينة الكاش — الرصيد الحالي</div>
+    <div class="value">{{ pos_money(cash.current_balance) }} <span class="money-currency">د.ل</span></div>
+    <p class="muted" style="font-size:0.78rem;margin:0.5rem 0 0">اضغط لعرض الحركة اليومية والتفاصيل</p>
+  </a>
+  <div class="t-card cash static muted-card">
+    <div class="label">خزينة الكاش — آخر إقفال جلسة</div>
+    {% if cash.last_close_balance is not none %}
+    <div class="value">{{ pos_money(cash.last_close_balance) }} <span class="money-currency">د.ل</span></div>
+    {% if cash.last_close_shift_id %}
+    <p class="muted" style="font-size:0.78rem;margin:0.5rem 0 0">جلسة #{{ cash.last_close_shift_id }}
+      {% if cash.last_close_at %} · {{ cash.last_close_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}
+    </p>
+    {% endif %}
+    {% else %}
+    <div class="value" style="font-size:1rem;font-weight:500;color:var(--muted)">—</div>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% if bank %}
+  <a class="t-card bank" href="/pos/treasury?kind=bank" title="عرض حركة خزينة المصرف">
+    <div class="label">خزينة المصرف — الرصيد الحالي</div>
+    <div class="value">{{ pos_money(bank.current_balance) }} <span class="money-currency">د.ل</span></div>
+    <p class="muted" style="font-size:0.78rem;margin:0.5rem 0 0">اضغط لعرض الحركة اليومية والتفاصيل</p>
+  </a>
+  <div class="t-card bank static muted-card">
+    <div class="label">خزينة المصرف — آخر إقفال جلسة</div>
+    {% if bank.last_close_balance is not none %}
+    <div class="value">{{ pos_money(bank.last_close_balance) }} <span class="money-currency">د.ل</span></div>
+    {% if bank.last_close_shift_id %}
+    <p class="muted" style="font-size:0.78rem;margin:0.5rem 0 0">جلسة #{{ bank.last_close_shift_id }}
+      {% if bank.last_close_at %} · {{ bank.last_close_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}
+    </p>
+    {% endif %}
+    {% else %}
+    <div class="value" style="font-size:1rem;font-weight:500;color:var(--muted)">—</div>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card" style="margin-top:1.25rem">
+  <h2 style="margin-top:0">الحالة الحالية</h2>
+  {% if open_shift %}
+  <p>جلسة مفتوحة: <strong>#{{ open_shift.id }}</strong> منذ
+    {% if open_shift.opened_at %}{{ open_shift.opened_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}
+  </p>
+  {% if open_shift.opening_note %}
+  <p class="muted" style="margin:0.25rem 0">ملاحظة عند الفتح: {{ open_shift.opening_note }}</p>
+  {% endif %}
+
+  <form method="post" action="/pos/shift/close" style="margin-top:1rem;max-width:480px">
+    <label for="counted_cash" style="display:block;font-weight:600;margin-bottom:0.35rem">المبلغ المعدود في الدرج (كاش)</label>
+    {% if preview_expected_cash is not none %}
+    <p class="muted" style="font-size:0.82rem;margin:0 0 0.35rem">متوقع في الجلسة: <strong>{{ pos_money(preview_expected_cash) }}</strong> د.ل</p>
+    {% endif %}
+    <input id="counted_cash" name="counted_cash" type="text" inputmode="decimal" required
+      placeholder="مثال: 1250.500" style="width:100%;padding:0.5rem;border-radius:8px;border:1px solid var(--border)" />
+    <label for="counted_bank" style="display:block;font-weight:600;margin:0.75rem 0 0.35rem">رصيد المصرف المعدود</label>
+    {% if preview_expected_bank is not none %}
+    <p class="muted" style="font-size:0.82rem;margin:0 0 0.35rem">متوقع في الجلسة: <strong>{{ pos_money(preview_expected_bank) }}</strong> د.ل — اترك الحقل فارغاً لاستخدام المتوقع</p>
+    {% endif %}
+    <input id="counted_bank" name="counted_bank" type="text" inputmode="decimal"
+      placeholder="اختياري — يُستخدم المتوقع إن تُرك فارغاً" style="width:100%;padding:0.5rem;border-radius:8px;border:1px solid var(--border)" />
+    <label for="closing_note" style="display:block;font-weight:600;margin:0.75rem 0 0.35rem">ملاحظة الإغلاق (اختياري)</label>
+    <textarea id="closing_note" name="closing_note" rows="2" style="width:100%;padding:0.5rem;border-radius:8px;border:1px solid var(--border)"></textarea>
+    <p class="muted" style="font-size:0.85rem;margin:0.5rem 0">
+      يُحسب الكاش <strong>المتوقع</strong> من تحصيلات الكاش في الجلسة ناقص أجور التوصيل المسجّلة من الكاش وناقص المرتجعات النقدية.
+      المصرف <strong>المتوقع</strong> = تحصيلات المصرف في الجلسة ناقص مرتجعات المصرف.
+      الفرق = المعدود − المتوقع (موجب = زيادة، سالب = عجز).
+    </p>
+    <button type="submit" class="btn btn-primary" style="margin-top:0.5rem">إغلاق الجلسة وحفظ النتيجة</button>
+  </form>
+  {% else %}
+  <p>لا توجد جلسة مفتوحة لهذا المستخدم.</p>
+  <form method="post" action="/pos/shift/open" style="margin-top:1rem;max-width:420px">
+    <label for="opening_note" style="display:block;font-weight:600;margin-bottom:0.35rem">ملاحظة عند الفتح (اختياري)</label>
+    <textarea id="opening_note" name="opening_note" rows="2" style="width:100%;padding:0.5rem;border-radius:8px;border:1px solid var(--border)"></textarea>
+    <button type="submit" class="btn btn-primary" style="margin-top:0.75rem">فتح جلسة بيع</button>
+  </form>
+  {% endif %}
+</div>
+
+{% if recent_closed %}
+<div class="card" style="margin-top:1.25rem">
+  <h2 style="margin-top:0">جلسات سابقة</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>فتح</th>
+        <th>إغلاق</th>
+        <th>متوقع</th>
+        <th>معدود</th>
+        <th>الفرق</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in recent_closed %}
+      <tr>
+        <td>{{ s.id }}</td>
+        <td>{% if s.opened_at %}{{ s.opened_at.strftime('%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+        <td>{% if s.closed_at %}{{ s.closed_at.strftime('%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+        <td>{% if s.expected_cash is not none %}{{ pos_money(s.expected_cash) }}{% else %}—{% endif %}</td>
+        <td>{% if s.counted_cash is not none %}{{ pos_money(s.counted_cash) }}{% else %}—{% endif %}</td>
+        <td>{% if s.cash_difference is not none %}{{ pos_money(s.cash_difference) }}{% else %}—{% endif %}</td>
+        <td>
+          <a class="btn" style="padding:0.25rem 0.5rem;font-size:0.85rem" href="/pos/shift/{{ s.id }}/report" target="_blank">طباعة</a>
+          <a class="btn" style="padding:0.25rem 0.5rem;font-size:0.85rem" href="/pos/shift/{{ s.id }}/export.csv">CSV</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

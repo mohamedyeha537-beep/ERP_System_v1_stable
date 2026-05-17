@@ -1,14 +1,17 @@
 {% extends "base.html" %}
-{% from "_reports_macros.html" import reports_nav, period_filter, export_button %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button %}
 {% block title %}تقرير المبيعات{% endblock %}
 {% block body %}
 <h1>تقرير المبيعات</h1>
 {{ reports_nav('sales') }}
 {{ period_filter('/reports/sales', period, period_labels, start, end, start_str, end_str) }}
+{{ report_export_format_help() }}
 <div class="export-bar">
-  <span class="label">📤 تصدير:</span>
-  {{ export_button('/reports/export/sales.csv?period=' ~ period, 'ملخص (CSV)') }}
-  {{ export_button('/reports/export/sales-detailed.csv?period=' ~ period, 'تفصيلي (CSV)') }}
+  <span class="label">Excel (.csv):</span>
+  {{ export_button('/reports/export/sales.csv?period=' ~ period, 'ملخص المبيعات') }}
+  {{ export_button('/reports/export/sales-detailed.csv?period=' ~ period, 'مبيعات تفصيلية') }}
+  <span class="label no-print" style="margin-inline-start:0.75rem">PDF:</span>
+  {{ pdf_export_button() }}
 </div>
 
 

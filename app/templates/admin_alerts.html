@@ -24,15 +24,23 @@
     عدد الأصناف المنخفضة الآن:
     <strong style="color: {% if low_count > 0 %}#b91c1c{% else %}#16a34a{% endif %}">{{ low_count }}</strong>
   </p>
-  {% if low_rows %}
-  <table>
-    <thead><tr><th>الصنف</th><th>المتاح</th><th>الحد الأدنى</th></tr></thead>
+  {% if low_by_warehouse %}
+  {% for wh, rows in low_by_warehouse %}
+  <h3 style="font-size:0.95rem;margin:0.75rem 0 0.35rem">{{ wh.name_ar }} ({{ rows|length }})</h3>
+  <table style="margin-bottom:0.75rem">
+    <thead><tr><th>الصنف</th><th>المتاح</th><th>الحد الأدنى</th><th></th></tr></thead>
     <tbody>
-      {% for p, qty in low_rows %}
-      <tr><td>{{ p.name_ar }}</td><td style="color: #b91c1c; font-weight: 700">{{ qty }} {{ p.unit }}</td><td>{{ p.reorder_level }} {{ p.unit }}</td></tr>
+      {% for p, qty in rows %}
+      <tr>
+        <td>{{ p.name_ar }}</td>
+        <td style="color: #b91c1c; font-weight: 700">{{ qty }} {{ p.unit }}</td>
+        <td>{{ p.reorder_level }} {{ p.unit }}</td>
+        <td><a href="/inventory/low-stock/print?warehouse_id={{ wh.id }}" target="_blank">طباعة</a></td>
+      </tr>
       {% endfor %}
     </tbody>
   </table>
+  {% endfor %}
   {% endif %}
   <form method="post" action="/admin/alerts/test" style="margin-top: 0.6rem">
     <button class="btn btn-primary" type="submit">إرسال تنبيه الآن (اختبار)</button>

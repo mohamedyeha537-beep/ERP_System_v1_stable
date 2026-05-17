@@ -37,9 +37,36 @@ def customers_page(
     db: DBSession,
     _: User = Depends(_view),
 ):
+    import logging
+
+    log = logging.getLogger("pos.customers")
     search = (request.query_params.get("q") or "").strip()
-    customers = list_customers(db, search=search or None)
-    settings = loyalty_settings(db)
+    try:
+        customers = list_customers(db, search=search or None)
+        settings = loyalty_settings(db)
+        grand = total_points_grand(db)
+    except Exception as exc:
+        log.exception("customers page failed: %s", exc)
+        return templates.TemplateResponse(
+            "admin_customers.html",
+            {
+                "request": request,
+                "customers": [],
+                "search": search,
+                "loyalty": {
+                    "enabled": True,
+                    "earn_per_dinar": Decimal("1"),
+                    "redeem_value_per_point": Decimal("0.1"),
+                    "min_points_to_redeem": Decimal("50"),
+                },
+                "grand_points": Decimal("0"),
+                "saved": request.query_params.get("saved"),
+                "error": (
+                    "تعذّر تحميل العملاء. أعد تشغيل التطبيق لترقية قاعدة البيانات "
+                    "أو راجع سجل السيرفر."
+                ),
+            },
+        )
     return templates.TemplateResponse(
         "admin_customers.html",
         {
@@ -47,7 +74,7 @@ def customers_page(
             "customers": customers,
             "search": search,
             "loyalty": settings,
-            "grand_points": total_points_grand(db),
+            "grand_points": grand,
             "saved": request.query_params.get("saved"),
             "error": request.query_params.get("error"),
         },

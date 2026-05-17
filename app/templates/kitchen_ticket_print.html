@@ -40,7 +40,7 @@
 <body>
   <div class="ticket-page">
     <div class="head">
-      <h1>{{ section.name_ar }}</h1>
+      <h1>{{ section_name or (section.name_ar if section else 'قسم') }}</h1>
       <div class="meta">طلب #{{ sale.id }} — {{ ticket.created_at.strftime('%H:%M') }}</div>
     </div>
     {% if sale.table %}

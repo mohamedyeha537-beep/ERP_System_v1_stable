@@ -1,15 +1,18 @@
 {% extends "base.html" %}
-{% from "_reports_macros.html" import reports_nav, period_filter, export_button %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button %}
 {% block title %}التقرير الشامل{% endblock %}
 {% block body %}
 <h1>التقرير الشامل</h1>
 {{ reports_nav('comprehensive') }}
 {{ period_filter('/reports/comprehensive', period, period_labels, start, end, start_str, end_str) }}
+{{ report_export_format_help() }}
 <div class="export-bar">
-  <span class="label">📤 تصدير:</span>
-  {{ export_button('/reports/export/comprehensive.csv?period=' ~ period, 'التقرير الشامل (CSV)') }}
-  {{ export_button('/reports/export/sales-detailed.csv?period=' ~ period, 'مبيعات تفصيلية (CSV)') }}
-  {{ export_button('/reports/export/profit-by-product.csv?period=' ~ period, 'الربح بكل صنف (CSV)') }}
+  <span class="label">Excel (.csv):</span>
+  {{ export_button('/reports/export/comprehensive.csv?period=' ~ period, 'التقرير الشامل') }}
+  {{ export_button('/reports/export/sales-detailed.csv?period=' ~ period, 'مبيعات تفصيلية') }}
+  {{ export_button('/reports/export/profit-by-product.csv?period=' ~ period, 'الربح بكل صنف') }}
+  <span class="label no-print" style="margin-inline-start:0.75rem">PDF:</span>
+  {{ pdf_export_button() }}
 </div>
 
 

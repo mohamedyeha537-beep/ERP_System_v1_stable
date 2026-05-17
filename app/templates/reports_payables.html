@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% from "_reports_macros.html" import reports_nav %}
+{% block title %}الذمم الدائنة — ديون الموردين{% endblock %}
+{% block body %}
+<h1>الذمم الدائنة (ديون الموردين)</h1>
+{{ reports_nav('payables') }}
+
+<div class="card">
+  <h2 style="margin-top:0">ملخص الديون للموردين</h2>
+  <div class="stat-grid">
+    <div class="stat-card bad"><div class="label">إجمالي المستحق</div><div class="value">{{ summary.total_outstanding }} د.ل</div></div>
+    <div class="stat-card"><div class="label">فواتير برصيد</div><div class="value">{{ summary.invoice_count_with_balance }}</div></div>
+    <div class="stat-card"><div class="label">غير مدفوعة</div><div class="value">{{ summary.unpaid_count }}</div></div>
+    <div class="stat-card"><div class="label">مدفوعة جزئياً</div><div class="value">{{ summary.partial_count }}</div></div>
+    <div class="stat-card good"><div class="label">مسدّدة</div><div class="value">{{ summary.paid_count }}</div></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">تصفية</h2>
+  <form method="get" class="recv-filters">
+    <div class="filter-row">
+      <span class="filter-label">حالة السداد:</span>
+      <div class="filter-pills">
+        <a class="pill-btn {% if pay_filter == 'all' %}active{% endif %}" href="?pay=all&kind={{ kind_filter }}&balance_only={{ 1 if balance_only else 0 }}">الكل</a>
+        <a class="pill-btn {% if pay_filter == 'unpaid' %}active{% endif %}" href="?pay=unpaid&kind={{ kind_filter }}&balance_only={{ 1 if balance_only else 0 }}">غير مدفوعة</a>
+        <a class="pill-btn {% if pay_filter == 'partial' %}active{% endif %}" href="?pay=partial&kind={{ kind_filter }}&balance_only={{ 1 if balance_only else 0 }}">جزئية</a>
+        <a class="pill-btn {% if pay_filter == 'paid' %}active{% endif %}" href="?pay=paid&kind={{ kind_filter }}&balance_only={{ 1 if balance_only else 0 }}">مدفوعة</a>
+      </div>
+    </div>
+    <div class="filter-row">
+      <span class="filter-label">النوع:</span>
+      <select name="kind" onchange="this.form.submit()">
+        <option value="inventory" {% if kind_filter == 'inventory' %}selected{% endif %}>مشتريات مخزون</option>
+        <option value="expense" {% if kind_filter == 'expense' %}selected{% endif %}>مصروفات</option>
+        <option value="asset" {% if kind_filter == 'asset' %}selected{% endif %}>أصول</option>
+        <option value="all" {% if kind_filter == 'all' %}selected{% endif %}>الكل</option>
+      </select>
+      <input type="hidden" name="pay" value="{{ pay_filter }}">
+      <label class="chk"><input type="checkbox" name="balance_only" value="1" {% if balance_only %}checked{% endif %} onchange="this.form.submit()"> رصيد فقط</label>
+    </div>
+  </form>
+</div>
+
+{% if by_supplier %}
+<div class="card">
+  <h2 style="margin-top:0">تجميع حسب المورّد</h2>
+  <table>
+    <thead><tr><th>المورّد</th><th>عدد الفواتير</th><th>المستحق</th></tr></thead>
+    <tbody>
+      {% for g in by_supplier %}
+      <tr><td><strong>{{ g.supplier_label }}</strong></td><td>{{ g.invoice_count }}</td><td style="color:#b91c1c;font-weight:700">{{ g.total_outstanding }} د.ل</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0">الفواتير ({{ rows|length }})</h2>
+  {% if rows %}
+  <table>
+    <thead>
+      <tr><th>#</th><th>التاريخ</th><th>المورّد</th><th>الإجمالي</th><th>المدفوع</th><th>المتبقي</th><th>الحالة</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>{{ r.purchase_id }}</td>
+        <td>{{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '—' }}</td>
+        <td>{{ r.supplier_label }}</td>
+        <td>{{ r.invoice_total }} د.ل</td>
+        <td style="color:#16a34a">{{ r.paid_total }} د.ل</td>
+        <td style="font-weight:700;{% if r.outstanding > 0 %}color:#b91c1c{% endif %}">{{ r.outstanding }} د.ل</td>
+        <td>
+          {% if r.pay_status.value == 'unpaid' %}<span class="badge bad">غير مدفوعة</span>
+          {% elif r.pay_status.value == 'partial' %}<span class="badge warn">جزئية</span>
+          {% else %}<span class="badge good">مدفوعة</span>{% endif %}
+        </td>
+        <td><a href="/admin/purchases/{{ r.purchase_id }}">عرض / سداد</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">لا توجد فواتير مطابقة.</p>{% endif %}
+</div>
+
+<style>
+  .recv-filters .filter-row { display:flex; flex-wrap:wrap; align-items:center; gap:0.75rem; margin-bottom:0.75rem; }
+  .filter-label { font-weight:600; color:var(--muted); }
+  .filter-pills { display:flex; flex-wrap:wrap; gap:0.35rem; }
+  .pill-btn { padding:0.35rem 0.75rem; border-radius:999px; border:1px solid var(--border); text-decoration:none; color:inherit; }
+  .pill-btn.active { background:#0f172a; color:#fff; }
+  .badge { display:inline-block; padding:0.15rem 0.5rem; border-radius:6px; font-size:0.8rem; font-weight:600; }
+  .badge.bad { background:#fee2e2; color:#b91c1c; }
+  .badge.warn { background:#ffedd5; color:#c2410c; }
+  .badge.good { background:#dcfce7; color:#15803d; }
+  .chk { display:flex; align-items:center; gap:0.35rem; }
+</style>
+{% endblock %}

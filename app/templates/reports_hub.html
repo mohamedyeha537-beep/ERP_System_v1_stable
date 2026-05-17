@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_reports_macros.html" import reports_nav, period_filter, export_button %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button %}
 {% block title %}مركز التقارير{% endblock %}
 {% block head_extra %}
 <style>
@@ -54,15 +54,20 @@
 {{ reports_nav('hub') }}
 {{ period_filter('/reports', period, period_labels, start, end, start_str, end_str) }}
 
+{{ report_export_format_help() }}
+
 <div class="export-bar">
-  <span class="label">📤 تصدير الفترة الحالية إلى Excel:</span>
+  <span class="label">تنزيل Excel (ملف .csv):</span>
   {{ export_button('/reports/export/comprehensive.csv?period=' ~ period, 'تقرير شامل') }}
   {{ export_button('/reports/export/sales.csv?period=' ~ period, 'المبيعات') }}
   {{ export_button('/reports/export/sales-detailed.csv?period=' ~ period, 'مبيعات تفصيلية') }}
+  {{ export_button('/reports/export/financial-operational.csv?period=' ~ period, 'مالي تشغيلي (CSV)') }}
   {{ export_button('/reports/export/purchases.csv?period=' ~ period, 'فواتير الشراء') }}
   {{ export_button('/reports/export/expenses.csv?period=' ~ period, 'المصروفات') }}
   {{ export_button('/reports/export/assets.csv?period=' ~ period, 'الأصول') }}
   {{ export_button('/reports/export/inventory.csv', 'المخزون الحالي') }}
+  <span class="label no-print" style="margin-inline-start:0.75rem">PDF:</span>
+  {{ pdf_export_button() }}
 </div>
 
 <div class="card">

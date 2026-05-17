@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button %}
+{% block title %}تقرير مالي تشغيلي موثّق{% endblock %}
+{% block body %}
+<h1>التقرير المالي التشغيلي الموثّق</h1>
+{{ reports_nav(nav_active|default('financial_ops')) }}
+{{ period_filter('/reports/financial-operational', period, period_labels, start, end, start_str, end_str, filter_extra|default('')) }}
+{{ report_export_format_help() }}
+
+<div class="card" style="border-color:#0ea5e9; background:linear-gradient(180deg,#e0f2fe 0%,#fff 55%)">
+  <h2 style="margin-top:0">1) مصدر البيانات وحالة الترحيل</h2>
+  <table class="table-like" style="width:100%; border-collapse:collapse; font-size:0.92rem">
+    <thead>
+      <tr style="border-bottom:2px solid #bae6fd">
+        <th style="text-align:right; padding:0.35rem">المستند / الجدول</th>
+        <th style="text-align:right; padding:0.35rem">ما يُعتبر «مرحّلاً» في هذا التقرير</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td style="padding:0.35rem"><code>sales</code></td><td>فقط <strong>COMPLETED</strong> (إتمام البيع) — <strong>لا مسودات</strong> ولا ملغاة.</td></tr>
+      <tr><td style="padding:0.35rem"><code>sale_lines</code></td><td>عبر الفاتورة المكتملة فقط (للتوسعة؛ الإجماليات هنا من إجمالي الفاتورة).</td></tr>
+      <tr><td style="padding:0.35rem"><code>sale_returns</code></td><td>سندات مرتجع بحالة <strong>POSTED</strong> فقط.</td></tr>
+      <tr><td style="padding:0.35rem"><code>sale_payments</code></td><td>دفعات مرتبطة بفواتير تطابق الفترة والفلاتر (استحقاق الفاتورة، لا تاريخ الدفعة).</td></tr>
+      <tr><td style="padding:0.35rem"><code>refund_payments</code></td><td>ردود مبالغ لمرتجعات مرحّلة في الفترة ومطابقة للفلاتر.</td></tr>
+    </tbody>
+  </table>
+  <p class="muted" style="margin-top:0.75rem; line-height:1.65">
+    <strong>2) القيود اليومية العامة (GL):</strong> غير موجودة في قاعدة البيانات حالياً؛ لذلك <em>لا يمكن</em> المطابقة الآلية مع دفتر أستاذ عام أو ميزان مراجعة كامل.
+    هذا التقرير يعرض <strong>أرقاماً تشغيلية قابلة للتدقيق</strong> من المستندات أعلاه، مع «قيد منطقي توضيحي» لا يُخزَّن ولا يُوازَن آلياً كقيد GL.
+  </p>
+  <p class="muted" style="line-height:1.65">
+    <strong>3) فرع / قسم / مركز تكلفة:</strong> غير مُعرَّف في النموذج الحالي — الفلاتر المتاحة: مستخدم إنشاء الفاتورة، طريقة دفع، عميل (حيث ينطبق على الفاتورة الأصلية للمرتجع).
+  </p>
+  <p class="muted" style="line-height:1.65">
+    <strong>4) منع العد المزدوج:</strong> الإيراد الخام من جدول الفواتير؛ المرتجعات من جدول منفصل وتُطرح لصافي الإيراد؛ التحصيل من <code>sale_payments</code> وليس بإضافة إجمالي الفاتورة مرة أخرى في عمود التحصيل.
+  </p>
+  <p class="muted" style="line-height:1.65">
+    <strong>5) الضرائب والخصومات السطرية:</strong> غير مُخزَّنة في نموذج البيع الحالي — تظهر كصفر مع إمكانية ربطها لاحقاً بحقول أو قيود منفصلة.
+  </p>
+  <p class="muted" style="line-height:1.65">
+    <strong>6) PDF:</strong> استخدم زر <strong>«حفظ PDF»</strong> في شريط التصدير أسفل الفلاتر (طباعة المتصفح).
+  </p>
+  <p class="muted" style="line-height:1.65">
+    <strong>7) الصلاحيات:</strong> نفس صلاحية التقارير <code>reports:view</code>.
+  </p>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">فلاتر التقرير</h2>
+  <form method="get" action="/reports/financial-operational" class="row" style="flex-wrap:wrap; gap:0.75rem; align-items:flex-end">
+    <input type="hidden" name="period" value="{{ period }}" />
+    {% if period == 'custom' %}
+    <input type="hidden" name="start" value="{{ start_str }}" />
+    <input type="hidden" name="end" value="{{ end_str }}" />
+    {% endif %}
+    <div>
+      <label class="muted" style="font-size:0.8rem">المستخدم (منشئ الفاتورة)</label>
+      <select name="user_id" style="min-width:10rem">
+        <option value="">— الكل —</option>
+        {% for u in users %}
+        <option value="{{ u.id }}" {% if filters.user_id == u.id %}selected{% endif %}>{{ u.username }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="muted" style="font-size:0.8rem">طريقة الدفع</label>
+      <select name="payment_method_id" style="min-width:10rem">
+        <option value="">— الكل —</option>
+        {% for pm in payment_methods %}
+        <option value="{{ pm.id }}" {% if filters.payment_method_id == pm.id %}selected{% endif %}>{{ pm.name_ar }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="muted" style="font-size:0.8rem">العميل (هاتف/اسم)</label>
+      <select name="customer_id" style="min-width:12rem">
+        <option value="">— الكل —</option>
+        {% for c in customers %}
+        <option value="{{ c.id }}" {% if filters.customer_id == c.id %}selected{% endif %}>{{ c.phone }}{% if c.name %} — {{ c.name }}{% endif %}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button class="btn btn-primary" type="submit">تطبيق الفلاتر</button>
+  </form>
+</div>
+
+<div class="export-bar" style="margin:0.75rem 0">
+  <span class="label">Excel (.csv):</span>
+  {{ export_button('/reports/export/financial-operational.csv?' ~ filter_qs, 'تنزيل التقرير') }}
+  <span class="label no-print" style="margin-inline-start:0.75rem">PDF:</span>
+  {{ pdf_export_button() }}
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">الإجماليات والفرعيات</h2>
+  <div class="stat-grid">
+    <div class="stat-card">
+      <div class="label">عدد الفواتير المكتملة</div>
+      <div class="value">{{ stmt.invoice_count }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">عدد المرتجعات المرحّلة</div>
+      <div class="value">{{ stmt.return_count }}</div>
+    </div>
+    <div class="stat-card good">
+      <div class="label">إجمالي مبيعات الاستحقاق</div>
+      <div class="value">{{ "%.3f"|format(stmt.gross_revenue) }}</div>
+    </div>
+    <div class="stat-card bad">
+      <div class="label">إجمالي المرتجعات</div>
+      <div class="value">{{ "%.3f"|format(stmt.returns_total) }}</div>
+    </div>
+    <div class="stat-card good">
+      <div class="label">صافي إيراد الاستحقاق</div>
+      <div class="value">{{ "%.3f"|format(stmt.net_revenue) }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">مجموع التحصيل (دفعات)</div>
+      <div class="value">{{ "%.3f"|format(stmt.collections_total) }}</div>
+    </div>
+    <div class="stat-card warn">
+      <div class="label">مجموع ردود المبالغ</div>
+      <div class="value">{{ "%.3f"|format(stmt.refunds_payment_total) }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">صافي أثر نقدي تشغيلي</div>
+      <div class="value">{{ "%.3f"|format(stmt.net_cash_effect) }}</div>
+    </div>
+  </div>
+  <p class="muted" style="margin-top:0.6rem; font-size:0.88rem">
+    <strong>طريقة الحساب:</strong> صافي الإيراد = ∑(إجمالي الفاتورة للمكتملة في الفترة والفلاتر) − ∑(إجمالي المرتجع المرحّل في الفترة والفلاتر).
+    التحصيل = ∑(<code>sale_payments.amount</code>) لنفس مجموعة الفواتير. ردود المبالغ = ∑(<code>refund_payments.amount</code>) للمرتجعات المطابقة.
+    قد يختلف صافي الإيراد عن «صافي التحصيل» بسبب آجال/ذمم أو مرتجعات بلا دفعة نقدية أو اختلاف التوقيت — وهذا متوقع حتى يُبنى GL.
+  </p>
+  <p class="muted" style="font-size:0.88rem">
+    <strong>ضرائب / خصومات:</strong> {{ "%.3f"|format(stmt.taxes_included) }} / {{ "%.3f"|format(stmt.line_discounts_included) }} (غير مفعّلة في النموذج).
+  </p>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">قيد منطقي توضيحي (غير مرحّل)</h2>
+  <table style="width:100%; border-collapse:collapse; font-size:0.92rem">
+    <thead>
+      <tr style="border-bottom:2px solid var(--border)">
+        <th style="text-align:right; padding:0.4rem">البند</th>
+        <th style="text-align:right; padding:0.4rem">مدين / دائن (عرض)</th>
+        <th style="text-align:left; direction:ltr; padding:0.4rem">المبلغ</th>
+        <th style="text-align:right; padding:0.4rem">ملاحظة</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for label, side, amt, note in logical %}
+      <tr style="border-bottom:1px dashed var(--border)">
+        <td style="padding:0.35rem">{{ label }}</td>
+        <td style="padding:0.35rem">{{ side }}</td>
+        <td style="padding:0.35rem; font-variant-numeric:tabular-nums; direction:ltr; text-align:left">{{ "%.3f"|format(amt) }}</td>
+        <td style="padding:0.35rem; color:#64748b; font-size:0.85rem">{{ note }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card" style="background:#fef9c3; border-color:#facc15">
+  <h3 style="margin-top:0">عكس العمليات</h3>
+  <p style="margin:0; line-height:1.65">
+    لا يُلغى «ترحيل» من هذا التقرير — الإلغاء يتم عبر مسارات النظام (مرتجع، عكس قيد عند توفر GL لاحقاً).
+    التقرير يقرأ الحالة الفعلية للقاعدة في لحظة التشغيل.
+  </p>
+</div>
+{% endblock %}

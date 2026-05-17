@@ -27,6 +27,7 @@ BRANDING_MANAGE = "branding:manage"
 SALES_REFUND = "sales:refund"
 SALES_REFUND_OVERRIDE = "sales:refund_override"
 DELIVERY_MANAGE = "delivery:manage"
+WAREHOUSES_MANAGE = "warehouses:manage"
 
 ALL_PERMISSIONS: list[tuple[str, str]] = [
     (SALES_CREATE, "إنشاء مبيعات (كاشير)"),
@@ -56,4 +57,5 @@ ALL_PERMISSIONS: list[tuple[str, str]] = [
     (SALES_REFUND, "تنفيذ مرتجعات المبيعات"),
     (SALES_REFUND_OVERRIDE, "اعتماد مرتجع بوسيلة رد مختلفة مع قيد تسوية"),
     (DELIVERY_MANAGE, "إدارة مناطق التوصيل ورسومها"),
+    (WAREHOUSES_MANAGE, "إدارة المخازن الفرعية والتحويل من الرئيسي"),
 ]

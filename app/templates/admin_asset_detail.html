@@ -10,7 +10,17 @@
   <h2 style="margin-top: 0">بيانات الفاتورة</h2>
   <p><strong>التاريخ:</strong> {{ purchase.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
   <p><strong>المورّد:</strong> {{ purchase.supplier or '—' }}</p>
+  <p><strong>رقم فاتورة المورّد / المرجع:</strong> {{ purchase.supplier_invoice_ref or '—' }}</p>
   <p><strong>المحفظة:</strong> {% if purchase.method %}{{ purchase.method.name_ar }}{% else %}—{% endif %}</p>
+  {% if purchase.invoice_image_filename %}
+  <p>
+    <strong>صورة فاتورة المورّد:</strong>
+    <a href="/static/{{ purchase.invoice_image_filename }}" target="_blank" rel="noopener">فتح الصورة</a>
+  </p>
+  <p style="margin-top: 0.5rem">
+    <img src="/static/{{ purchase.invoice_image_filename }}" alt="مرفق الفاتورة" style="max-width: min(100%, 420px); max-height: 320px; border-radius: 10px; border: 1px solid var(--border)" loading="lazy" />
+  </p>
+  {% endif %}
   {% if purchase.note %}<p><strong>ملاحظة:</strong> {{ purchase.note }}</p>{% endif %}
 </div>
 

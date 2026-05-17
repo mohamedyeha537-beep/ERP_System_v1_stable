@@ -2,14 +2,17 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse
+from sqlalchemy import select
 
 from app.deps import DBSession, require_permission
 from app.jinja_env import templates
 from modules.authz.models import User
 from modules.authz.permissions import REPORTS_VIEW
+from modules.customers.models import Customer
 from modules.delivery.service import delivery_fee_cash_out_total
 from modules.payments.daily_burden import (
     compute_daily_burden,
@@ -24,7 +27,7 @@ from modules.payments.depreciation import (
     snapshot_at,
     total_depreciation_in_period,
 )
-from modules.payments.models import PurchaseKind
+from modules.payments.models import PaymentMethod, PurchaseKind
 from modules.payments.service import list_purchases, wallet_breakdown
 from modules.reporting import queries as report_queries
 from modules.reporting.exports import csv_response
@@ -203,8 +206,34 @@ def reports_purchases(
         db, s, e, kind=PurchaseKind.INVENTORY
     )
     items = list_purchases(db, s, e, kind=PurchaseKind.INVENTORY)
+    pay_filter = (request.query_params.get("pay") or "all").lower()
+    if pay_filter not in ("all", "paid", "partial", "unpaid"):
+        pay_filter = "all"
+    balance_only = request.query_params.get("balance_only") == "1"
+    from modules.payables.service import build_payable_rows, payables_summary
+
+    ap_summary = payables_summary(db, kind=PurchaseKind.INVENTORY)
+    pay_rows = build_payable_rows(
+        db,
+        start=s,
+        end=e,
+        kind=PurchaseKind.INVENTORY,
+        pay_filter=pay_filter,
+        only_with_balance=balance_only,
+    )
+    pay_by_id = {r.purchase_id: r for r in pay_rows}
     ctx = _common_ctx(request, period, s, e, start, end)
-    ctx.update({"summary": summary, "by_pm": by_pm, "items": items})
+    ctx.update(
+        {
+            "summary": summary,
+            "by_pm": by_pm,
+            "items": items,
+            "ap_summary": ap_summary,
+            "pay_by_id": pay_by_id,
+            "pay_filter": pay_filter,
+            "balance_only": balance_only,
+        }
+    )
     return templates.TemplateResponse("reports_purchases.html", ctx)
 
 
@@ -314,14 +343,35 @@ def reports_inventory(
     end: str | None = Query(None),
     q: str = Query(""),
     only_low: int = Query(0, ge=0, le=1),
+    w: str | None = Query(None),
 ):
+    from modules.inventory.service import get_main_warehouse, get_warehouse, list_warehouses
+
     period, s, e = _resolve_period(period, start, end)
+    warehouses = list_warehouses(db)
+    warehouse_id = get_main_warehouse(db).id
+    if w:
+        try:
+            wid = int(w)
+            if get_warehouse(db, wid) is not None:
+                warehouse_id = wid
+        except ValueError:
+            pass
+    current_wh = get_warehouse(db, warehouse_id) or get_main_warehouse(db)
     rows = report_queries.inventory_snapshot(
-        db, search=q or None, only_low=bool(only_low)
+        db, search=q or None, only_low=bool(only_low), warehouse_id=warehouse_id
     )
-    movements = report_queries.stock_movements_aggregate(db, s, e)
-    inv_value = report_queries.inventory_value(db)
-    low_count = sum(1 for r in report_queries.inventory_snapshot(db, only_low=True))
+    movements = report_queries.stock_movements_aggregate(
+        db, s, e, warehouse_id=warehouse_id
+    )
+    inv_value = report_queries.inventory_value(db, warehouse_id)
+    inv_by_wh = report_queries.inventory_value_by_warehouse(db)
+    low_count = sum(
+        1
+        for r in report_queries.inventory_snapshot(
+            db, only_low=True, warehouse_id=warehouse_id
+        )
+    )
     ctx = _common_ctx(request, period, s, e, start, end)
     ctx.update(
         {
@@ -330,7 +380,11 @@ def reports_inventory(
             "q": q,
             "only_low": bool(only_low),
             "inv_value": inv_value,
+            "inv_by_wh": inv_by_wh,
             "low_count": low_count,
+            "warehouses": warehouses,
+            "warehouse_id": warehouse_id,
+            "current_warehouse": current_wh,
         }
     )
     return templates.TemplateResponse("reports_inventory.html", ctx)
@@ -492,6 +546,163 @@ def reports_comprehensive(
         }
     )
     return templates.TemplateResponse("reports_comprehensive.html", ctx)
+
+
+def _financial_operational_filter_qs(
+    period: str,
+    start: str | None,
+    end: str | None,
+    user_id: int | None,
+    payment_method_id: int | None,
+    customer_id: int | None,
+) -> str:
+    q: dict[str, str] = {"period": period}
+    if period == "custom":
+        if start:
+            q["start"] = start
+        if end:
+            q["end"] = end
+    if user_id is not None:
+        q["user_id"] = str(user_id)
+    if payment_method_id is not None:
+        q["payment_method_id"] = str(payment_method_id)
+    if customer_id is not None:
+        q["customer_id"] = str(customer_id)
+    return urlencode(q)
+
+
+@router.get("/financial-operational", response_class=HTMLResponse)
+def reports_financial_operational(
+    request: Request,
+    db: DBSession,
+    _: User = Depends(_perm),
+    period: str = Query("month"),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+    user_id: str | None = Query(None),
+    payment_method_id: str | None = Query(None),
+    customer_id: str | None = Query(None),
+):
+    """تقرير مالي تشغيلي موثّق: استحقاق مبيعات + مرتجعات + تحصيل/ردود — دون مسودات ودون جدول قيود عام بعد."""
+    period, s, e = _resolve_period(period, start, end)
+
+    def _parse_opt_id(raw: str | None) -> int | None:
+        if raw is None or str(raw).strip() == "":
+            return None
+        try:
+            return int(str(raw).strip())
+        except ValueError:
+            return None
+
+    uid = _parse_opt_id(user_id)
+    pmid = _parse_opt_id(payment_method_id)
+    cid = _parse_opt_id(customer_id)
+    filters = report_queries.ReportFilters(
+        user_id=uid,
+        payment_method_id=pmid,
+        customer_id=cid,
+    )
+    stmt = report_queries.financial_operational_statement(db, s, e, filters)
+    logical = report_queries.financial_operational_logical_lines(stmt)
+    users = list(db.scalars(select(User).order_by(User.username)).all())
+    methods = list(
+        db.scalars(select(PaymentMethod).order_by(PaymentMethod.sort_order, PaymentMethod.id)).all()
+    )
+    customers = list(
+        db.scalars(select(Customer).order_by(Customer.phone).limit(500)).all()
+    )
+    filter_qs = _financial_operational_filter_qs(
+        period, start, end, uid, pmid, cid
+    )
+    extra_bits = []
+    if uid is not None:
+        extra_bits.append(f"user_id={uid}")
+    if pmid is not None:
+        extra_bits.append(f"payment_method_id={pmid}")
+    if cid is not None:
+        extra_bits.append(f"customer_id={cid}")
+    filter_extra = ("&" + "&".join(extra_bits)) if extra_bits else ""
+    ctx = _common_ctx(request, period, s, e, start, end)
+    ctx.update(
+        {
+            "stmt": stmt,
+            "logical": logical,
+            "filters": filters,
+            "users": users,
+            "payment_methods": methods,
+            "customers": customers,
+            "filter_qs": filter_qs,
+            "filter_extra": filter_extra,
+            "nav_active": "financial_ops",
+        }
+    )
+    return templates.TemplateResponse("reports_financial_operational.html", ctx)
+
+
+@router.get("/export/financial-operational.csv")
+def export_financial_operational_csv(
+    db: DBSession,
+    _: User = Depends(_perm),
+    period: str = Query("month"),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+    user_id: str | None = Query(None),
+    payment_method_id: str | None = Query(None),
+    customer_id: str | None = Query(None),
+):
+    period, s, e = _resolve_period(period, start, end)
+
+    def _parse_opt_id(raw: str | None) -> int | None:
+        if raw is None or str(raw).strip() == "":
+            return None
+        try:
+            return int(str(raw).strip())
+        except ValueError:
+            return None
+
+    uid = _parse_opt_id(user_id)
+    pmid = _parse_opt_id(payment_method_id)
+    cid = _parse_opt_id(customer_id)
+    filters = report_queries.ReportFilters(
+        user_id=uid,
+        payment_method_id=pmid,
+        customer_id=cid,
+    )
+    stmt = report_queries.financial_operational_statement(db, s, e, filters)
+    logical = report_queries.financial_operational_logical_lines(stmt)
+    headers = ["البند", "الاتجاه التوضيحي", "المبلغ", "مصدر البيانات / الملاحظة"]
+    rows: list[list] = [
+        ["الفترة", "", f"{s.strftime('%Y-%m-%d')} → {e.strftime('%Y-%m-%d')}", ""],
+        ["فلاتر المستخدم/طريقة الدفع/العميل", "", str(filters), ""],
+        [],
+        ["عدد الفواتير المكتملة", "", stmt.invoice_count, "sales حيث status=COMPLETED"],
+        ["عدد سندات المرتجع المرحّلة", "", stmt.return_count, "sale_returns حيث status=POSTED"],
+        ["إجمالي مبيعات الاستحقاق", "", stmt.gross_revenue, "مجموع sales.total"],
+        ["إجمالي المرتجعات", "", stmt.returns_total, "مجموع sale_returns.total"],
+        ["صافي إيراد الاستحقاق", "", stmt.net_revenue, "فرق الإيراد عن المرتجعات — لا عد مزدوج"],
+        ["مجموع التحصيل (دفعات الفواتير المفسرة)", "", stmt.collections_total, "sale_payments"],
+        ["مجموع ردود المبالغ", "", stmt.refunds_payment_total, "refund_payments"],
+        ["صافي أثر نقدي تشغيلي", "", stmt.net_cash_effect, "تحصيل − ردود"],
+        ["ضرائب معروضة في التقرير", "", stmt.taxes_included, "غير مطبّقة في نموذج البيع"],
+        ["خصومات سطرية معروضة", "", stmt.line_discounts_included, "غير مطبّقة في نموذج البيع"],
+        [],
+        ["--- قيد منطقي توضيحي (ليس مرحّلاً في دفتر أستاذ عام) ---", "", "", ""],
+    ]
+    for label, side, amt, note in logical:
+        rows.append([label, side, amt, note])
+    rows.append(
+        [
+            "مطابقة ميزان المراجعة",
+            "",
+            "غير متاحة حتى يُبنى جدول قيود يومية مرحّل",
+            "انظر خطة ERP / gl_journal",
+        ]
+    )
+    return csv_response(
+        f"financial-operational-{_period_tag(period, s, e)}",
+        headers,
+        rows,
+    )
 
 
 @router.get("/break-even", response_class=HTMLResponse)
@@ -866,9 +1077,20 @@ def export_inventory_csv(
     _: User = Depends(_perm),
     only_low: int = Query(0, ge=0, le=1),
     q: str = Query(""),
+    w: str | None = Query(None),
 ):
+    from modules.inventory.service import get_main_warehouse, get_warehouse
+
+    warehouse_id = get_main_warehouse(db).id
+    if w:
+        try:
+            wid = int(w)
+            if get_warehouse(db, wid) is not None:
+                warehouse_id = wid
+        except ValueError:
+            pass
     rows_data = report_queries.inventory_snapshot(
-        db, search=q or None, only_low=bool(only_low)
+        db, search=q or None, only_low=bool(only_low), warehouse_id=warehouse_id
     )
     headers = [
         "الصنف",

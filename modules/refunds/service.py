@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 from modules.catalog.models import Product
 from modules.customers.models import Customer, LoyaltyTransaction, LoyaltyTxnKind
 from modules.inventory.models import StockMovementType
-from modules.inventory.service import apply_movement
+from modules.inventory.service import apply_movement, get_sales_warehouse_id
 from modules.payments.models import RefundPayment, SalePayment
 from modules.payments.service import (
     PaymentsError,
@@ -80,6 +80,21 @@ def _get_sale_returns_query(sale_id: int):
         .where(SaleReturn.original_sale_id == sale_id)
         .order_by(SaleReturn.created_at.desc(), SaleReturn.id.desc())
     )
+
+
+def list_recent_sale_returns(db: Session, *, limit: int = 40) -> list[SaleReturn]:
+    """سندات الاسترداد/الترجيع المرحّلة مؤخراً (لعرض في لوحة الاسترداد)."""
+    stmt = (
+        select(SaleReturn)
+        .where(SaleReturn.status == SaleReturnStatus.POSTED)
+        .order_by(SaleReturn.created_at.desc(), SaleReturn.id.desc())
+        .limit(limit)
+        .options(
+            selectinload(SaleReturn.lines).selectinload(SaleReturnLine.product),
+            selectinload(SaleReturn.sale),
+        )
+    )
+    return list(db.scalars(stmt).all())
 
 
 def list_sale_returns(db: Session, sale_id: int) -> list[SaleReturn]:
@@ -236,7 +251,8 @@ def _normalize_return_lines(
     sale: Sale,
     returned_qty_map: dict[int, Decimal],
     lines: list[tuple[int, Decimal]],
-) -> tuple[list[tuple[SaleLine, Decimal, Decimal]], Decimal]:
+    line_restock: dict[int, bool] | None,
+) -> tuple[list[tuple[SaleLine, Decimal, Decimal, bool]], Decimal]:
     grouped: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
     for sale_line_id, qty in lines:
         grouped[int(sale_line_id)] += Decimal(str(qty or 0))
@@ -244,7 +260,7 @@ def _normalize_return_lines(
         raise RefundsError("اختر بنداً واحداً على الأقل للترجيع.")
 
     sale_line_map = {line.id: line for line in sale.lines}
-    normalized: list[tuple[SaleLine, Decimal, Decimal]] = []
+    normalized: list[tuple[SaleLine, Decimal, Decimal, bool]] = []
     total = Decimal("0")
     for sale_line_id, qty_raw in grouped.items():
         line = sale_line_map.get(sale_line_id)
@@ -264,7 +280,10 @@ def _normalize_return_lines(
         line_total = (qty * Decimal(str(line.unit_price or 0))).quantize(
             Decimal("0.001")
         )
-        normalized.append((line, qty, line_total))
+        restock = True
+        if line_restock is not None and line_restock.get(sale_line_id) is False:
+            restock = False
+        normalized.append((line, qty, line_total, restock))
         total += line_total
 
     total = total.quantize(Decimal("0.001"))
@@ -277,13 +296,16 @@ def _return_components(
     db: Session,
     *,
     sale_return_id: int,
-    lines: list[tuple[SaleLine, Decimal, Decimal]],
+    lines: list[tuple[SaleLine, Decimal, Decimal, bool]],
     user_id: int | None,
 ) -> None:
     component_qty: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
-    for sale_line, qty, _line_total in lines:
+    for sale_line, qty, _line_total, restock in lines:
+        if not restock:
+            continue
         for bom in sale_line.product.bom_lines_as_parent:
             component_qty[bom.component_product_id] += bom.qty_per_parent * qty
+    sales_wh = get_sales_warehouse_id(db)
     for product_id, qty in component_qty.items():
         if qty <= 0:
             continue
@@ -294,6 +316,7 @@ def _return_components(
             movement_type=StockMovementType.SALE_RETURN,
             user_id=user_id,
             sale_id=None,
+            warehouse_id=sales_wh,
             note=f"مرتجع بيع #{sale_return_id}",
         )
 
@@ -403,6 +426,7 @@ def create_sale_return(
     refund_payment_method_id: int | None = None,
     allow_payment_override: bool = False,
     approved_by_id: int | None = None,
+    line_restock: dict[int, bool] | None = None,
 ) -> SaleReturn:
     sale = _load_completed_sale(db, sale_id)
     if sale is None:
@@ -410,7 +434,9 @@ def create_sale_return(
 
     previous_returned_total = sale_returned_total(db, sale_id)
     returned_qty_map = returned_qty_by_sale_line(db, sale_id)
-    normalized_lines, total = _normalize_return_lines(sale, returned_qty_map, lines)
+    normalized_lines, total = _normalize_return_lines(
+        sale, returned_qty_map, lines, line_restock
+    )
     remaining_before = (
         Decimal(str(sale.total or 0)) - previous_returned_total
     ).quantize(Decimal("0.001"))
@@ -468,7 +494,7 @@ def create_sale_return(
     db.add(sale_return)
     db.flush()
 
-    for sale_line, qty, line_total in normalized_lines:
+    for sale_line, qty, line_total, restock in normalized_lines:
         db.add(
             SaleReturnLine(
                 sale_return_id=sale_return.id,
@@ -477,6 +503,7 @@ def create_sale_return(
                 quantity=qty,
                 unit_price=sale_line.unit_price,
                 line_total=line_total,
+                restock=restock,
             )
         )
     db.flush()

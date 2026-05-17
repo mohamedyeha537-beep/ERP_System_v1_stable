@@ -35,6 +35,30 @@ class PaymentMethod(Base):
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    #: قبض من الزبائن في نقطة البيع فقط — لا يعني استلام تحويلات.
+    can_receive: Mapped[bool] = mapped_column(Boolean, default=True)
+    #: صرف للموردين والمصروفات والتحويل الصادر (بما فيها إيداع من حساب المالك).
+    can_pay: Mapped[bool] = mapped_column(Boolean, default=True)
+    #: استلام تحويلات من حسابات أخرى — منفصل عن نقطة البيع.
+    can_fund: Mapped[bool] = mapped_column(Boolean, default=False)
+    #: حساب نظامي لا يُحذف (ذمم مورد، سحوبات مالك).
+    is_system: Mapped[bool] = mapped_column(Boolean, default=False)
+    #: إظهار بطاقة الرصيد في لوحة «الخزينة والذمم».
+    show_on_dashboard: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+SUPPLIER_CREDIT_PM_NAME = "ذمم دائن — مورد (آجل)"
+OWNER_EQUITY_PM_NAME = "حساب المالك — حقوق الملكية"
+# أسماء قديمة — تُدمَّج تلقائياً في حساب المالك الموحّد
+LEGACY_OWNER_DRAW_PM_NAME = "سحوبات المالك — حقوق الملكية"
+LEGACY_OWNER_CAPITAL_PM_NAME = "إيداعات المالك — حقوق الملكية"
+
+
+class PaymentTransferType(str, enum.Enum):
+    REFUND_SETTLEMENT = "REFUND_SETTLEMENT"
+    MANUAL = "MANUAL"
+    OWNER_DRAW = "OWNER_DRAW"
+    OWNER_CAPITAL = "OWNER_CAPITAL"
 
 
 class SalePayment(Base):
@@ -50,11 +74,44 @@ class SalePayment(Base):
         ForeignKey("payment_methods.id", ondelete="RESTRICT")
     )
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 3), default=Decimal("0"))
+    payment_proof_image_filename: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
     method: Mapped[PaymentMethod] = relationship()
+
+
+class PurchasePayment(Base):
+    """دفعة على فاتورة شراء — الخروج الفعلي من المحفظة للمورد."""
+
+    __tablename__ = "purchase_payments"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    purchase_id: Mapped[int] = mapped_column(
+        ForeignKey("purchases.id", ondelete="CASCADE"), index=True
+    )
+    payment_method_id: Mapped[int] = mapped_column(
+        ForeignKey("payment_methods.id", ondelete="RESTRICT"), index=True
+    )
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 3), default=Decimal("0"))
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payment_proof_image_filename: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        index=True,
+    )
+    created_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+    method: Mapped[PaymentMethod] = relationship()
+    purchase: Mapped["Purchase"] = relationship(back_populates="payments")
 
 
 class RefundPayment(Base):
@@ -85,10 +142,15 @@ class PaymentTransfer(Base):
     __tablename__ = "payment_transfers"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    sale_return_id: Mapped[int] = mapped_column(
+    transfer_type: Mapped[PaymentTransferType] = mapped_column(
+        Enum(PaymentTransferType),
+        default=PaymentTransferType.MANUAL,
+        index=True,
+    )
+    sale_return_id: Mapped[int | None] = mapped_column(
         ForeignKey("sale_returns.id", ondelete="CASCADE"),
         index=True,
-        unique=True,
+        nullable=True,
     )
     from_payment_method_id: Mapped[int] = mapped_column(
         ForeignKey("payment_methods.id", ondelete="RESTRICT"),
@@ -134,6 +196,14 @@ class Purchase(Base):
         Enum(PurchaseKind), default=PurchaseKind.EXPENSE, index=True
     )
     supplier: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    #: رقم أو مرجع فاتورة المورّد الخارجية (للتوثيق والمطابقة).
+    supplier_invoice_ref: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    #: مسار نسبي تحت static — صورة فاتورة المورّد (مثل uploads/purchases/supplier_invoices/…).
+    invoice_image_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    #: عند الدفع من مصرف: إيصال/صورة إثبات التحويل (uploads/purchases/payment_receipts/…).
+    payment_proof_image_filename: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
     expense_category: Mapped[str | None] = mapped_column(String(80), nullable=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 3), default=Decimal("0"))
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -145,9 +215,18 @@ class Purchase(Base):
     created_by_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    warehouse_id: Mapped[int | None] = mapped_column(
+        ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
 
     method: Mapped[PaymentMethod] = relationship()
+    warehouse = relationship("Warehouse", foreign_keys=[warehouse_id])
     lines: Mapped[list["PurchaseLine"]] = relationship(
+        back_populates="purchase",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+    payments: Mapped[list["PurchasePayment"]] = relationship(
         back_populates="purchase",
         cascade="all, delete-orphan",
         lazy="selectin",

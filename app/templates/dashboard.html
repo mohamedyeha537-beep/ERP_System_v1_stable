@@ -108,6 +108,15 @@
   .kpi.kpi-cats .kpi-icon { background: linear-gradient(135deg,#ec4899,#be185d); }
   .kpi.kpi-stock .kpi-icon { background: linear-gradient(135deg,#14b8a6,#0f766e); }
   .kpi.kpi-low .kpi-icon { background: linear-gradient(135deg,#ef4444,#b91c1c); }
+  .kpi.kpi-cash .kpi-icon { background: linear-gradient(135deg,#16a34a,#15803d); }
+  .kpi.kpi-bank .kpi-icon { background: linear-gradient(135deg,#2563eb,#1d4ed8); }
+  .kpi.kpi-ar .kpi-icon { background: linear-gradient(135deg,#dc2626,#991b1b); }
+  .kpi.kpi-ap .kpi-icon { background: linear-gradient(135deg,#ea580c,#c2410c); }
+  /* نفس توزيع kpi-grid — يملأ عرض البلوك بالكامل */
+  .kpi-grid-treasury {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    width: 100%;
+  }
 
   /* ============== Two-column area ============== */
   .dash-cols {
@@ -650,6 +659,96 @@
       <div class="kpi-sub">بعد طرح تكلفة المباع والمصروفات والأصول</div>
     </a>
   </div>
+</div>
+  </div>
+</details>
+
+{# ====================== Treasury & receivables ====================== #}
+<details class="dash-section" open>
+  <summary>الخزينة والذمم <span class="section-meta">الرصيد الحالي والديون المستحقة</span></summary>
+  <div class="dash-section-body">
+<div class="kpi-grid kpi-grid-treasury">
+  {% for card in stats.treasury_cards %}
+  <div class="kpi {% if card.kind == 'BANK' %}kpi-bank{% else %}kpi-cash{% endif %}" title="عرض حركة {{ card.name_ar }}">
+    <a class="kpi-link" href="/pos/treasury?pm={{ card.method_id }}">
+      <div class="kpi-icon">
+        {% if card.kind == 'BANK' %}
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 21h18"></path>
+          <path d="M5 21V7l7-4 7 4v14"></path>
+          <path d="M9 9h1"></path>
+          <path d="M14 9h1"></path>
+        </svg>
+        {% else %}
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="2" y="6" width="20" height="12" rx="2"></rect>
+          <line x1="2" y1="10" x2="22" y2="10"></line>
+          <circle cx="12" cy="14" r="2"></circle>
+        </svg>
+        {% endif %}
+      </div>
+      <div class="kpi-label">{{ card.name_ar }}</div>
+      <div class="kpi-value">{{ card.balance }} <span style="font-size:0.65em;color:var(--muted)">د.ل</span></div>
+      <div class="kpi-sub">اضغط لعرض الحركة والتحويلات لهذا الحساب</div>
+    </a>
+  </div>
+  {% else %}
+  {% if stats.cash_current is not none %}
+  <div class="kpi kpi-cash">
+    <a class="kpi-link" href="/pos/treasury?kind=cash">
+      <div class="kpi-label">خزينة الكاش — إجمالي</div>
+      <div class="kpi-value">{{ stats.cash_current }} <span style="font-size:0.65em;color:var(--muted)">د.ل</span></div>
+    </a>
+  </div>
+  {% endif %}
+  {% if stats.bank_current is not none %}
+  <div class="kpi kpi-bank">
+    <a class="kpi-link" href="/pos/treasury?kind=bank">
+      <div class="kpi-label">خزينة المصرف — إجمالي</div>
+      <div class="kpi-value">{{ stats.bank_current }} <span style="font-size:0.65em;color:var(--muted)">د.ل</span></div>
+    </a>
+  </div>
+  {% endif %}
+  {% endfor %}
+
+  {% if perm('reports:view') %}
+  <div class="kpi kpi-ar" title="انقر لعرض تفاصيل الذمم المدينة">
+    <a class="kpi-link" href="/reports/receivables?balance_only=1">
+      <div class="kpi-icon">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
+          <line x1="12" y1="18" x2="12" y2="12"></line>
+          <line x1="9" y1="15" x2="15" y2="15"></line>
+        </svg>
+      </div>
+      <div class="kpi-label">الذمم المدينة — إجمالي الديون</div>
+      <div class="kpi-value">{{ stats.ar_outstanding_total }} <span style="font-size:0.65em;color:var(--muted)">د.ل</span></div>
+      <div class="kpi-sub">
+        {{ stats.ar_invoice_count }} فاتورة برصيد —
+        {{ stats.ar_unpaid_count }} غير مدفوعة، {{ stats.ar_partial_count }} جزئية
+      </div>
+    </a>
+  </div>
+  {% endif %}
+
+  {% if perm('reports:view') %}
+  <div class="kpi kpi-ap" title="ديون المتجر للموردين">
+    <a class="kpi-link" href="/reports/payables?balance_only=1">
+      <div class="kpi-icon">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+          <circle cx="9" cy="7" r="4"></circle>
+          <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+        </svg>
+      </div>
+      <div class="kpi-label">الذمم الدائنة — ديون الموردين</div>
+      <div class="kpi-value">{{ stats.ap_outstanding_total }} <span style="font-size:0.65em;color:var(--muted)">د.ل</span></div>
+      <div class="kpi-sub">{{ stats.ap_invoice_count }} فاتورة شراء عليها رصيد للمورد</div>
+    </a>
+  </div>
+  {% endif %}
 </div>
   </div>
 </details>

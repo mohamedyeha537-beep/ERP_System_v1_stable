@@ -7,9 +7,26 @@
 {% block body %}
 <div class="container pos-shell">
   <h1 style="margin-top: 0">{{ brand.pos_label }}</h1>
+  {% if open_pos_shift %}
+  <div class="card" style="margin-bottom:0.75rem;border-color:#3b82f6;background:#eff6ff;display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:0.75rem">
+    <div>
+      <strong>جلسة بيع #{{ open_pos_shift.id }}</strong>
+      <span class="muted" style="font-size:0.9rem">— مفتوحة منذ {% if open_pos_shift.opened_at %}{{ open_pos_shift.opened_at.strftime('%H:%M') }}{% endif %}</span>
+    </div>
+    <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+      <a class="btn btn-primary" href="/pos/shift">إدارة الجلسة / الإغلاق</a>
+      <a class="btn" href="/pos/shift/{{ open_pos_shift.id }}/report" target="_blank">تقرير الجلسة</a>
+    </div>
+  </div>
+  {% endif %}
   {% if request.query_params.get('ctx_err') %}
   <div class="alert" style="background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;padding:0.6rem 1rem;border-radius:8px;margin-bottom:0.75rem">
     ⚠️ {{ request.query_params.get('ctx_err') }}
+  </div>
+  {% endif %}
+  {% if request.query_params.get('new') and sale %}
+  <div class="alert" style="background:#eff6ff;border:1px solid #93c5fd;color:#1d4ed8;padding:0.55rem 1rem;border-radius:8px;margin-bottom:0.75rem">
+    تم فتح <strong>طلب جديد #{{ sale.id }}</strong> — اختر الطاولة/السياق ثم أضف الأصناف.
   </div>
   {% endif %}
   {% if request.query_params.get('ok') %}

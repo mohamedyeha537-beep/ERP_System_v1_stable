@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}تقرير جلسة #{{ shift.id }}{% endblock %}
+{% block head_extra %}
+<style>
+  @media print {
+    .no-print { display: none !important; }
+    body { background: #fff !important; }
+  }
+</style>
+{% endblock %}
+{% block body %}
+<div class="no-print row" style="justify-content:space-between;align-items:center;margin-bottom:0.75rem">
+  <h1 style="margin:0">تقرير جلسة الكاشير #{{ shift.id }}</h1>
+  <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+    <button type="button" class="btn btn-primary" onclick="window.print()">طباعة / حفظ PDF</button>
+    <a class="btn" href="/pos/shift/{{ shift.id }}/export.csv">تنزيل CSV</a>
+    <a class="btn" href="/pos/shift">رجوع</a>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">{{ store_name }}</h2>
+  <p style="margin:0.25rem 0"><strong>الحالة:</strong> {{ shift.status.value }}</p>
+  <p style="margin:0.25rem 0"><strong>فتح:</strong> {% if shift.opened_at %}{{ shift.opened_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</p>
+  <p style="margin:0.25rem 0"><strong>إغلاق:</strong> {% if shift.closed_at %}{{ shift.closed_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</p>
+  {% if shift.status.value == 'CLOSED' %}
+  <p style="margin:0.25rem 0"><strong>كاش متوقع:</strong> {{ pos_money(shift.expected_cash) }} <span class="money-currency">د.ل</span></p>
+  <p style="margin:0.25rem 0"><strong>كاش معدود:</strong> {{ pos_money(shift.counted_cash) }} <span class="money-currency">د.ل</span></p>
+  <p style="margin:0.25rem 0"><strong>الفرق (معدود − متوقع):</strong> {{ pos_money(shift.cash_difference) }} <span class="money-currency">د.ل</span></p>
+  {% if shift.expected_bank is not none %}
+  <p style="margin:0.25rem 0"><strong>مصرف متوقع:</strong> {{ pos_money(shift.expected_bank) }} <span class="money-currency">د.ل</span></p>
+  <p style="margin:0.25rem 0"><strong>مصرف معدود:</strong> {{ pos_money(shift.counted_bank) }} <span class="money-currency">د.ل</span></p>
+  <p style="margin:0.25rem 0"><strong>فرق المصرف:</strong> {{ pos_money(shift.bank_difference) }} <span class="money-currency">د.ل</span></p>
+  {% endif %}
+  {% elif preview_expected_cash is not none %}
+  <p style="margin:0.25rem 0"><strong>كاش متوقع (حتى الآن):</strong> {{ pos_money(preview_expected_cash) }} <span class="money-currency">د.ل</span></p>
+  <p class="muted" style="font-size:0.88rem;margin:0">يُحدَّث هذا الرقم مع كل عملية بيع؛ القيم النهائية تُثبَّت عند إغلاق الجلسة.</p>
+  {% endif %}
+  {% if shift.closing_note %}
+  <p style="margin:0.5rem 0"><strong>ملاحظة الإغلاق:</strong> {{ shift.closing_note }}</p>
+  {% endif %}
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0">ملخص المبيعات</h2>
+  <p>عدد الفواتير المكتملة: <strong>{{ sales_count }}</strong></p>
+  <p>إجمالي قيمة الفواتير (بنود): <strong>{{ pos_money(sales_total) }}</strong> <span class="money-currency">د.ل</span></p>
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0">تفاصيل الفواتير</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>فاتورة</th>
+        <th>سياق</th>
+        <th>الدفع</th>
+        <th>الإجمالي</th>
+        <th>وقت</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>#{{ r.sale_id }}</td>
+        <td>{{ r.context }}</td>
+        <td>{{ r.payment_label }}</td>
+        <td>{{ pos_money(r.total) }} <span class="money-currency">د.ل</span></td>
+        <td>{% if r.created_at %}{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

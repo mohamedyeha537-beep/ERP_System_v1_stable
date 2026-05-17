@@ -23,7 +23,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import delete, select, update  # noqa: E402
 
 from app.main import app  # noqa: E402
-from infra.db import get_session_factory  # noqa: E402
+from infra.db import get_engine, get_session_factory  # noqa: E402
+from infra.sqlite_patch import patch_sqlite_schema  # noqa: E402
 from modules.authz.service import get_user_by_username  # noqa: E402
 from modules.catalog.models import (  # noqa: E402
     BillOfMaterialsLine,
@@ -255,6 +256,7 @@ def cleanup_test_data() -> None:
 
 
 cleanup_test_data()
+patch_sqlite_schema(get_engine())
 db = Session()
 sale1_id = sale2_id = sale3_id = None
 cash_id = bank_id = None
@@ -335,6 +337,8 @@ try:
         db.flush()
     room_id = room.id
 
+    from modules.inventory.service import get_main_warehouse
+
     purchase = record_inventory_purchase(
         db,
         payment_method_id=cash.id,
@@ -342,6 +346,7 @@ try:
         note="تهيئة مخزون المرتجع",
         lines=[(component.id, Decimal("100.0000"), Decimal("5.000"))],
         user_id=user_id,
+        warehouse_id=get_main_warehouse(db).id,
         created_at=TEST_TS - timedelta(days=30),
     )
     purchase.created_at = TEST_TS - timedelta(days=30)
@@ -512,6 +517,32 @@ try:
     must(wallet_cash is not None and wallet_cash.net == Decimal("30.000"), "صافي محفظة الكاش صحيح بعد الرد والتسوية")
     must(wallet_bank is not None and wallet_bank.net == Decimal("0.000"), "التسوية حافظت على توازن محفظة المصرف")
 
+    section("5) استرداد بدون عودة للمخزن (وجبة مطهاة)")
+    sale_nr = create_sale_with_payment(
+        db,
+        user_id=user_id,
+        product_id=final.id,
+        qty=Decimal("1.0000"),
+        payment_method_id=cash.id,
+        created_at=TEST_TS + timedelta(minutes=40),
+    )
+    line_nr = db.execute(
+        select(SaleLine).where(SaleLine.sale_id == sale_nr.id)
+    ).scalar_one()
+    bal_before_nr = db.get(StockBalance, component.id).quantity
+    create_sale_return(
+        db,
+        sale_id=sale_nr.id,
+        lines=[(line_nr.id, Decimal("1.0000"))],
+        created_by_id=user_id,
+        reason="وجبة لا تعاد للثلاجة",
+        refund_payment_method_id=cash.id,
+        line_restock={line_nr.id: False},
+    )
+    db.commit()
+    bal_after_nr = db.get(StockBalance, component.id).quantity
+    must(bal_after_nr == bal_before_nr, "عند تعطيل العودة للمخزن لا يتغير رصيد المكوّن")
+
     client = TestClient(app)
     login = client.post(
         "/auth/login",
@@ -522,9 +553,12 @@ try:
     page = client.get("/refunds")
     detail = client.get(f"/refunds/sale/{sale1.id}")
     receipt = client.get(f"/refunds/receipt/{ret1.id}")
-    must(page.status_code == 200 and "مرتجعات المبيعات" in page.text, "صفحة المرتجعات الرئيسية تعمل")
-    must(detail.status_code == 200 and f"فاتورة #{sale1.id}" in detail.text, "تفاصيل الفاتورة للمرتجع تعمل")
-    must(receipt.status_code == 200 and f"مرتجع #{ret1.id}" in receipt.text, "سند المرتجع يطبع بشكل مستقل")
+    must(page.status_code == 200 and "استرداد وترجيع المبيعات" in page.text, "صفحة الاسترداد الرئيسية تعمل")
+    must(
+        detail.status_code == 200 and f"استرداد فاتورة #{sale1.id}" in detail.text,
+        "تفاصيل الفاتورة للاسترداد تعمل",
+    )
+    must(receipt.status_code == 200 and f"استرداد #{ret1.id}" in receipt.text, "سند الاسترداد يعرض بشكل مستقل")
 
 finally:
     section("تنظيف الأثر التجريبي")

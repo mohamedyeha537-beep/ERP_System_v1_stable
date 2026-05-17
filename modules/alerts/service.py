@@ -20,7 +20,7 @@ from email.utils import formatdate
 
 from sqlalchemy.orm import Session
 
-from modules.inventory.service import low_stock_products
+from modules.inventory.service import low_stock_by_warehouse
 from modules.settings.service import get_bool, get_int, get_setting
 
 
@@ -102,13 +102,13 @@ def _send_whatsapp_webhook(url: str, method: str, param: str, text: str) -> None
 def send_low_stock_alert(db: Session) -> AlertOutcome:
     """يحضر قائمة الأصناف المنخفضة ويرسل التنبيه عبر القنوات المفعّلة."""
     out = AlertOutcome()
-    rows = low_stock_products(db)
-    out.items = len(rows)
+    by_wh = low_stock_by_warehouse(db)
+    out.items = sum(len(rows) for _wh, rows in by_wh)
     store_name = get_setting(db, "store_name", "نقطة البيع")
-    text = _format_low_stock_message(rows, store_name)
+    text = _format_low_stock_message_all(by_wh, store_name)
     out.message = text
 
-    if not rows:
+    if not by_wh:
         return out
 
     # ===== Email =====
@@ -117,7 +117,7 @@ def send_low_stock_alert(db: Session) -> AlertOutcome:
     if email_to and smtp_host:
         try:
             _send_email(
-                subject=f"[{store_name}] تنبيه نفاد مخزون ({len(rows)} صنف)",
+                subject=f"[{store_name}] تنبيه نفاد مخزون ({out.items} صنف)",
                 body=text,
                 smtp_host=smtp_host,
                 smtp_port=get_int(db, "smtp_port", 587),

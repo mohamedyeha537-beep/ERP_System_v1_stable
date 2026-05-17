@@ -91,7 +91,7 @@
 </div>
 {% endif %}
 
-<form method="post" action="/admin/assets/new" id="asset-form">
+<form method="post" action="/admin/assets/new" id="asset-form" enctype="multipart/form-data">
   <div class="card">
     <h2 style="margin-top: 0">بيانات الفاتورة</h2>
     <div class="row" style="gap: 0.6rem; align-items: flex-end; flex-wrap: wrap">
@@ -108,13 +108,21 @@
         <input id="supplier" name="supplier" placeholder="اسم المورّد" style="max-width: 14rem" />
       </div>
       <div>
+        <label for="supplier_invoice_ref">رقم فاتورة المورّد / مرجع (اختياري)</label>
+        <input id="supplier_invoice_ref" name="supplier_invoice_ref" placeholder="مثلاً: INV-2026-00412" style="max-width: 16rem" />
+      </div>
+      <div>
         <label for="purchase_date">تاريخ الفاتورة (اختياري)</label>
         <input id="purchase_date" name="purchase_date" type="datetime-local" value="{{ today }}" />
       </div>
       <div style="flex: 1; min-width: 16rem">
         <label for="note">ملاحظة</label>
-        <input id="note" name="note" placeholder="رقم فاتورة المورّد، الغرض، إلخ" />
+        <input id="note" name="note" placeholder="تفاصيل إضافية" />
       </div>
+    </div>
+    <div style="margin-top: 0.85rem">
+      <label for="invoice_image" class="muted" style="font-size: 0.82rem; display: block; margin-bottom: 0.25rem">صورة فاتورة المورّد (اختياري — JPG أو PNG أو WebP، حتى 2 ميجابايت)</label>
+      <input id="invoice_image" name="invoice_image" type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" />
     </div>
   </div>
 

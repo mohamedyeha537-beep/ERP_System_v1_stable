@@ -12,6 +12,8 @@
     اللوحة
   </a>
   <a class="rep-tab {% if active == 'sales' %}active{% endif %}" href="/reports/sales">المبيعات</a>
+  <a class="rep-tab {% if active == 'receivables' %}active{% endif %}" href="/reports/receivables" style="background:#fef2f2;color:#b91c1c;border-color:#fecaca">ذمم مدينة</a>
+  <a class="rep-tab {% if active == 'payables' %}active{% endif %}" href="/reports/payables" style="background:#fff7ed;color:#c2410c;border-color:#fdba74">ذمم دائنة</a>
   <a class="rep-tab {% if active == 'delivery' %}active{% endif %}" href="/reports/delivery">التوصيل</a>
   <a class="rep-tab {% if active == 'purchases' %}active{% endif %}" href="/reports/purchases">المشتريات</a>
   <a class="rep-tab {% if active == 'assets' %}active{% endif %}" href="/reports/assets">الأصول</a>
@@ -28,6 +30,9 @@
   </a>
   <a class="rep-tab {% if active == 'inventory' %}active{% endif %}" href="/reports/inventory">المخزون</a>
   <a class="rep-tab {% if active == 'comprehensive' %}active{% endif %}" href="/reports/comprehensive">شامل</a>
+  <a class="rep-tab {% if active == 'financial_ops' %}active{% endif %}" href="/reports/financial-operational" title="استحقاق وتحصيل ومرتجعات — منطق محاسبي تشغيلي">
+    مالي تشغيلي
+  </a>
   <a class="rep-tab {% if active == 'accounting' %}active{% endif %}" href="/reports/accounting-help" title="دليل المعالجة المحاسبية والمراجع">
     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <circle cx="12" cy="12" r="10"></circle>
@@ -61,6 +66,15 @@
   }
   .rep-tab:hover { background: #f1f5f9; }
   .rep-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+  @media print {
+    body.pos-report-printing .app-header,
+    body.pos-report-printing .app-footer,
+    body.pos-report-printing .reports-nav { display: none !important; }
+    body.pos-report-printing .no-print { display: none !important; }
+    body.pos-report-printing { background: #fff !important; }
+    body.pos-report-printing .app-main { padding: 0.35rem 0 !important; }
+    body.pos-report-printing .app-main > .container { max-width: 100% !important; padding: 0 0.5rem !important; }
+  }
   .stat-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
@@ -78,10 +92,23 @@
   .stat-card.bad .value { color: #b91c1c; }
   .stat-card.warn .value { color: #d97706; }
 </style>
+<script>
+(function () {
+  if (window.__posReportPrintInit) return;
+  window.__posReportPrintInit = true;
+  window.posPrintReportAsPdf = function () {
+    document.body.classList.add("pos-report-printing");
+    window.print();
+    setTimeout(function () {
+      document.body.classList.remove("pos-report-printing");
+    }, 900);
+  };
+})();
+</script>
 {% endmacro %}
 
 {% macro period_filter(base_url, period, period_labels, start, end, start_str, end_str, extra_params='') %}
-<div class="card">
+<div class="card no-print report-period-filter">
   <div class="row" style="justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem">
     <div class="row" style="gap: 0.4rem; flex-wrap: wrap; margin: 0">
       {% for code, label in period_labels.items() %}
@@ -109,9 +136,64 @@
 </div>
 {% endmacro %}
 
-{# ========== زر تصدير CSV ========== #}
-{% macro export_button(url, label='تصدير CSV (يفتح في Excel)') %}
-<a class="btn export-btn" href="{{ url }}" title="ينزّل ملف CSV بترميز UTF-8 يفتح مباشرةً في Excel/LibreOffice">
+{# ========== توضيح Excel / PDF + زر PDF (طباعة المتصفح) ========== #}
+{% macro report_export_format_help() %}
+<style>
+  .export-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    padding: 0.5rem 0.7rem;
+    background: #f8fafc;
+    border: 1px dashed #cbd5e1;
+    border-radius: 8px;
+    align-items: center;
+  }
+  .export-bar > .label {
+    color: #64748b;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-inline-end: 0.3rem;
+  }
+  .pdf-export-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: #f1f5f9 !important;
+    color: #334155 !important;
+    border: 1px solid #94a3b8 !important;
+    font-weight: 700;
+  }
+  .pdf-export-btn:hover {
+    background: #64748b !important;
+    color: #fff !important;
+    border-color: #475569 !important;
+  }
+</style>
+<div class="card no-print" style="padding:0.65rem 0.9rem; margin-bottom:0.75rem; background:linear-gradient(180deg,#eff6ff 0%,#fff 55%); border-color:#93c5fd">
+  <p style="margin:0; font-size:0.9rem; line-height:1.65; color:#1e3a8a">
+    <strong>Microsoft Excel:</strong> استخدم أزرار «تنزيل» أدناه — الملف بصيغة <strong>.csv</strong> (UTF-8 مع BOM) ويفتح مباشرة في Excel؛ يمكنك بعد الفتح «حفظ باسم» واختيار <strong>.xlsx</strong> إن أردت.
+    <br>
+    <strong>PDF:</strong> اضغط «حفظ PDF» ثم في نافذة الطباعة اختر <strong>Microsoft Print to PDF</strong> أو <strong>Save as PDF</strong> (اسم الخيار يختلف حسب المتصفح والنظام).
+  </p>
+</div>
+{% endmacro %}
+
+{% macro pdf_export_button(label='حفظ PDF') %}
+<button type="button" class="btn pdf-export-btn no-print" onclick="posPrintReportAsPdf()" title="يفتح الطباعة — اختر حفظ كملف PDF">
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+    <polyline points="14 2 14 8 20 8"></polyline>
+    <line x1="12" y1="18" x2="12" y2="12"></line>
+    <line x1="9" y1="15" x2="15" y2="15"></line>
+  </svg>
+  {{ label }}
+</button>
+{% endmacro %}
+
+{# ========== زر تصدير CSV (Excel) ========== #}
+{% macro export_button(url, label='تنزيل Excel (.csv)') %}
+<a class="btn export-btn" href="{{ url }}" title="ملف CSV بترميز UTF-8 — يفتح في Microsoft Excel و LibreOffice">
   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
     <polyline points="7 10 12 15 17 10"></polyline>
@@ -149,6 +231,20 @@
     font-size: 0.85rem;
     font-weight: 600;
     margin-inline-end: 0.3rem;
+  }
+  .pdf-export-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: #f1f5f9 !important;
+    color: #334155 !important;
+    border: 1px solid #94a3b8 !important;
+    font-weight: 700;
+  }
+  .pdf-export-btn:hover {
+    background: #64748b !important;
+    color: #fff !important;
+    border-color: #475569 !important;
   }
 </style>
 {% endmacro %}

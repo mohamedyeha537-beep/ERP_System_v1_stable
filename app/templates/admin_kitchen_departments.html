@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}أقسام المطبخ{% endblock %}
+{% block body %}
+<div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem">
+  <h1 style="margin:0">أقسام التجهيز (المطبخ / المقهى)</h1>
+  <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+    <a class="btn" href="/admin/kds">شاشة المطبخ</a>
+    <a class="btn btn-primary" href="/admin/kitchen-departments/new?venue={{ venue.value }}">قسم جديد</a>
+  </div>
+</div>
+
+<p class="muted" style="margin:0.5rem 0 1rem">
+  الأقسام <strong>لا تظهر في نقطة البيع</strong> — الكاشير يبيع حسب <a href="/catalog/categories">فئات المنتجات</a>.
+  هنا تُربط كل صنف بقسم تجهيز (من صفحة الصنف) ليصل طلبه لشاشة/طابعة القسم، مع ورقة تجميع تجمع كل الأصناف للطاولة.
+</p>
+
+{% if request.query_params.get('err') %}
+<div class="alert">{{ request.query_params.get('err') }}</div>
+{% endif %}
+
+<div style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap">
+  {% for v in venues %}
+  <a class="btn {% if venue == v %}btn-primary{% endif %}" href="/admin/kitchen-departments?venue={{ v.value }}">
+    {% if v.value == 'KITCHEN' %}المطبخ{% else %}المقهى{% endif %}
+  </a>
+  {% endfor %}
+</div>
+
+<div class="card">
+  {% if departments %}
+  <table>
+    <thead>
+      <tr>
+        <th>القسم</th>
+        <th>الترتيب</th>
+        <th>التوجيه</th>
+        <th>الحالة</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for d in departments %}
+      <tr>
+        <td><strong>{{ d.name_ar }}</strong></td>
+        <td>{{ d.sort_order }}</td>
+        <td>{{ d.routing_mode.value }}{% if d.routing_target %} — {{ d.routing_target }}{% endif %}</td>
+        <td>{% if d.is_active %}نشط{% else %}معطّل{% endif %}</td>
+        <td style="white-space:nowrap">
+          <a class="btn" style="padding:0.25rem 0.5rem;font-size:0.85rem" href="/admin/kitchen-departments/{{ d.id }}/edit">تعديل</a>
+          <a class="btn" style="padding:0.25rem 0.5rem;font-size:0.85rem" href="/admin/kds?section=dept:{{ d.id }}">الشاشة</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted" style="margin:0">
+    لا توجد أقسام في {{ 'المطبخ' if venue.value == 'KITCHEN' else 'المقهى' }} بعد.
+    {% if venue.value == 'CAFE' %}
+    يمكنك ترك المقهى بدون أقسام والاعتماد على توجيه <a href="/catalog/categories">الفئات الجذرية</a> كما كان سابقاً.
+    {% endif %}
+  </p>
+  {% endif %}
+</div>
+{% endblock %}

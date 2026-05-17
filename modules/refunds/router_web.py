@@ -16,6 +16,7 @@ from modules.refunds.service import (
     create_sale_return,
     get_refundable_sale_summary,
     get_sale_return,
+    list_recent_sale_returns,
     sale_remaining_total,
     search_completed_sales,
 )
@@ -46,11 +47,13 @@ def refunds_index(
         }
         for sale in sales
     ]
+    recent_returns = list_recent_sale_returns(db, limit=40)
     return templates.TemplateResponse(
         "refunds_index.html",
         {
             "request": request,
             "rows": rows,
+            "recent_returns": recent_returns,
             "q": q,
             "user": user,
             "error": request.query_params.get("error"),
@@ -93,10 +96,17 @@ async def refunds_create(
 ):
     form = await request.form()
     items: list[tuple[int, Decimal]] = []
+    line_restock: dict[int, bool] = {}
     for key, value in form.items():
-        if not str(key).startswith("qty_"):
+        sk = str(key)
+        if sk.startswith("skip_restock_"):
+            tail = sk[len("skip_restock_") :]
+            if tail.isdigit() and str(value).strip().lower() in ("1", "on", "true", "yes"):
+                line_restock[int(tail)] = False
             continue
-        sale_line_id = str(key).replace("qty_", "", 1)
+        if not sk.startswith("qty_"):
+            continue
+        sale_line_id = sk.replace("qty_", "", 1)
         if not sale_line_id.isdigit():
             continue
         qty = _parse_decimal(str(value))
@@ -125,6 +135,7 @@ async def refunds_create(
             approved_by_id=user.id
             if user_has_permission(user, SALES_REFUND_OVERRIDE)
             else None,
+            line_restock=line_restock or None,
         )
         db.commit()
     except RefundsError as exc:
@@ -150,7 +161,7 @@ def refund_receipt(
 ):
     sale_return = get_sale_return(db, sale_return_id)
     if sale_return is None:
-        return RedirectResponse("/refunds?error=سند المرتجع غير موجود.", status_code=302)
+        return RedirectResponse("/refunds?error=سند الاسترداد غير موجود.", status_code=302)
     return templates.TemplateResponse(
         "refund_receipt.html",
         {
