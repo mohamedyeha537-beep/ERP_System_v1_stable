@@ -12,7 +12,7 @@ from modules.gl.models import GlAccount, GlAccountType, GlJournalEntry, GlJourna
 from modules.gl.seed import account_type_label
 from modules.gl.hierarchy import filter_leaf_accounts, header_account_ids
 from modules.gl.domain import filter_gl_accounts, gl_entry_db_values
-from modules.gl.service import ACCOUNT_TYPE_ORDER, list_accounts
+from modules.gl.service import ACCOUNT_TYPE_ORDER, get_opening_balance, list_accounts
 
 _ZERO = Decimal("0")
 
@@ -46,7 +46,7 @@ def account_balance_as_of(
             _entry_domain_filter(domain),
         )
     )
-    return _q(Decimal(str(net or 0)))
+    return (_q(Decimal(str(net or 0))) + get_opening_balance(db, account_id)).quantize(Decimal("0.001"))
 
 
 def account_period_movement(

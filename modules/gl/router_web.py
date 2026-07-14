@@ -875,9 +875,9 @@ def fiscal_years_create(
         create_fiscal_year(db, name, s, e, set_as_current=True)
         db.commit()
     except GLError as exc:
-        return RedirectResponse(f"/admin/gl/fiscal?err={exc}", status_code=303)
+        return _err_redirect("/admin/gl/fiscal", str(exc))
     except ValueError:
-        return RedirectResponse("/admin/gl/fiscal?err=تاريخ غير صالح", status_code=303)
+        return _err_redirect("/admin/gl/fiscal", "تاريخ غير صالح")
     return RedirectResponse("/admin/gl/fiscal?saved=1", status_code=303)
 
 
@@ -892,7 +892,7 @@ def fiscal_years_set_current(
         set_current_fiscal_year(db, fiscal_year_id)
         db.commit()
     except GLError as exc:
-        return RedirectResponse(f"/admin/gl/fiscal?err={exc}", status_code=303)
+        return _err_redirect("/admin/gl/fiscal", str(exc))
     return RedirectResponse("/admin/gl/fiscal?saved=1", status_code=303)
 
 
@@ -947,7 +947,7 @@ async def opening_balances_save(
 
     fy = get_current_fiscal_year(db)
     if fy is None:
-        return RedirectResponse("/admin/gl/opening-balances?err=لا توجد سنة مالية حالية", status_code=303)
+        return _err_redirect("/admin/gl/opening-balances", "لا توجد سنة مالية حالية")
     try:
         form = await request.form()
         for acc in list_accounts(db, active_only=False):
@@ -957,5 +957,5 @@ async def opening_balances_save(
             set_opening_balance(db, int(fy.id), int(acc.id), Decimal(debit_raw), Decimal(credit_raw), note)
         db.commit()
     except (ValueError, InvalidOperation) as exc:
-        return RedirectResponse(f"/admin/gl/opening-balances?err=قيمة غير صالحة: {exc}", status_code=303)
+        return _err_redirect("/admin/gl/opening-balances", f"قيمة غير صالحة: {exc}")
     return RedirectResponse("/admin/gl/opening-balances?saved=1", status_code=303)
