@@ -26,7 +26,7 @@ DEFAULTS: dict[str, str] = {
     "print_paper_size": "A5",
     "hotel_print_paper_size": "A5",
     "hotel_receipt_printer_id": "",
-    "store_name": "نقطة البيع",
+    "store_name": "Bayatak — Roof Caffee",
     "public_base_url": "",
     # تنبيهات نفاد المخزون
     "alerts_enabled": "0",
