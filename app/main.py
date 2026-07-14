@@ -28,6 +28,9 @@ from modules.catalog.import_export_router import router as catalog_import_router
 from modules.catalog.router_web import router as catalog_router
 from modules.catalog.service import ensure_default_units
 from modules.integration.router_api import router as integration_router
+from modules.sync.router_api import router as sync_api_router
+from modules.sync.router_api import web_router as sync_admin_router
+from modules.sync.scheduler import start_scheduler
 from modules.inventory.router_web import router as inventory_router
 from modules.inventory.warehouses_router import router as warehouses_router
 from modules.admin.schema_fix_router import router as schema_fix_router
@@ -131,6 +134,7 @@ async def lifespan(app: FastAPI):
     import modules.notifications.models  # noqa: F401
     import modules.gl.models  # noqa: F401
     import modules.shop.models  # noqa: F401
+    import modules.sync.models  # noqa: F401
     import modules.web_marketing.models  # noqa: F401
 
     engine = get_engine()
@@ -285,6 +289,9 @@ async def lifespan(app: FastAPI):
         target=_messaging_worker, daemon=True, name="messaging-outbox"
     ).start()
     threading.Thread(target=_zk_sync_worker, daemon=True, name="zkbio-sync").start()
+
+    # تشغيل مزامنة أوفلاين/أونلاين
+    start_scheduler()
 
     yield
 
@@ -470,6 +477,8 @@ def create_app() -> FastAPI:
     app.include_router(payables_router)
     app.include_router(delivery_router)
     app.include_router(integration_router)
+    app.include_router(sync_api_router)
+    app.include_router(sync_admin_router)
     app.include_router(settings_router)
     app.include_router(schema_fix_router)
     app.include_router(gl_router)
