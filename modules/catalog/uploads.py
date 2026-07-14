@@ -43,7 +43,16 @@ def resolve_product_image_path(static_root: Path, image_filename: str | None) ->
         raw = raw.lstrip("/")
     if raw.startswith("uploads/"):
         raw = raw[len("uploads/") :]
-    fp = static_root / "uploads" / raw
+    parts = [p for p in raw.split("/") if p and p != "."]
+    if any(p == ".." for p in parts):
+        return None
+    fp = (static_root / "uploads" / "/".join(parts)).resolve()
+    static_root_resolved = static_root.resolve()
+    try:
+        if not str(fp).startswith(str(static_root_resolved)):
+            return None
+    except (ValueError, OSError):
+        return None
     return fp if fp.is_file() else None
 
 
@@ -203,10 +212,21 @@ def save_payment_method_icon(upload: UploadFile, static_root: Path) -> str:
 
 
 def delete_stored_relative_file(static_root: Path, relative: str | None) -> None:
-    rel = (relative or "").strip()
+    rel = (relative or "").strip().replace("\\", "/")
     if not rel:
         return
-    fp = static_root.joinpath(*rel.split("/"))
+    if rel.startswith("/"):
+        rel = rel.lstrip("/")
+    parts = [p for p in rel.split("/") if p and p != "."]
+    if any(p == ".." for p in parts):
+        return
+    fp = (static_root / "/".join(parts)).resolve()
+    static_root_resolved = static_root.resolve()
+    try:
+        if not str(fp).startswith(str(static_root_resolved)):
+            return
+    except (ValueError, OSError):
+        return
     if fp.is_file():
         try:
             fp.unlink()

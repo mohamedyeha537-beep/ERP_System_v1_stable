@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 os.environ["DATABASE_URL"] = "sqlite:///./tests/test.db"
-os.environ["SECRET_KEY"] = "test-secret-key"
+os.environ["SECRET_KEY"] = "test-secret-key-32-characters-long"
 os.environ["DEFAULT_ADMIN_USERNAME"] = "admin"
 os.environ["DEFAULT_ADMIN_PASSWORD"] = "admin123"
 

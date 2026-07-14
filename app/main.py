@@ -8,6 +8,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.dashboard_stats import collect as collect_dashboard_stats
+from app.security_headers import SecurityHeadersMiddleware
 from app.deps import get_current_user
 from app.jinja_env import templates
 from infra.config import get_settings
@@ -290,7 +291,16 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="نقطة البيع", lifespan=lifespan)
+    docs_url = "/docs" if settings.show_docs else None
+    redoc_url = "/redoc" if settings.show_docs else None
+    openapi_url = "/openapi.json" if settings.show_docs else None
+    app = FastAPI(
+        title="نقطة البيع",
+        lifespan=lifespan,
+        docs_url=docs_url,
+        redoc_url=redoc_url,
+        openapi_url=openapi_url,
+    )
 
     _SKIP_STATE_PREFIXES = ("/static/", "/uploads/")
     _LIGHT_STATE_PREFIXES = ("/pos/live", "/pos/web-chat-rails", "/shop", "/api/shop", "/suites", "/api/suites", "/stay/my", "/api/web-analytics")
@@ -429,6 +439,9 @@ def create_app() -> FastAPI:
         SessionMiddleware,
         secret_key=settings.secret_key,
         session_cookie=settings.session_cookie_name,
+        max_age=settings.session_max_age,
+        same_site=settings.session_same_site,  # type: ignore[arg-type]
+        https_only=settings.session_https_only,
     )
 
     static_dir = Path(__file__).resolve().parent / "static"
@@ -437,6 +450,8 @@ def create_app() -> FastAPI:
     uploads_dir.mkdir(exist_ok=True)
     app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+    app.add_middleware(SecurityHeadersMiddleware)
 
     app.include_router(auth_router)
     app.include_router(admin_router)

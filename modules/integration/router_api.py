@@ -1,3 +1,5 @@
+import secrets
+
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -12,7 +14,8 @@ router = APIRouter(prefix="/api/integration", tags=["integration"])
 
 
 def verify_api_key(x_api_key: str | None = Header(default=None, alias="X-API-Key")):
-    if not x_api_key or x_api_key != get_settings().integration_api_key:
+    expected = (get_settings().integration_api_key or "").strip()
+    if not x_api_key or not expected or not secrets.compare_digest(x_api_key, expected):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="مفتاح API غير صالح.")
     return True
 

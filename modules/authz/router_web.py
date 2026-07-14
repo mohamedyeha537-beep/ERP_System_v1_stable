@@ -18,6 +18,7 @@ from modules.authz.ui_blocks import (
 from modules.platform.business_domain import UserViewScope, parse_user_view_scope, user_view_scope_choices
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+_MIN_PASSWORD_LENGTH = 8
 KDS_SCOPE_OPTIONS = (
     ("ALL", "كل أقسام شاشة المطبخ"),
     ("CAFE", "المقهى / المشروبات فقط"),
@@ -235,9 +236,24 @@ def admin_user_create(
     ui_show: list[str] | None = Form(None),
     role_ids: list[int] | None = Form(None),
 ):
+    users = list(db.scalars(select(User).order_by(User.id)).all())
+    roles = list(db.scalars(select(Role).order_by(Role.id)).all())
+    if len((password or "").strip()) < _MIN_PASSWORD_LENGTH:
+        return templates.TemplateResponse(
+            "admin_users.html",
+            {
+                "request": request,
+                "users": users,
+                "roles": roles,
+                "kds_scope_options": KDS_SCOPE_OPTIONS,
+                "view_scope_options": user_view_scope_choices(),
+                "ui_block_groups": UI_BLOCK_GROUPS,
+                "ui_blocks_by_group": ui_blocks_by_group(),
+                "error": f"كلمة المرور يجب أن لا تقل عن {_MIN_PASSWORD_LENGTH} أحرف.",
+            },
+            status_code=400,
+        )
     if db.execute(select(User).where(User.username == username.strip())).scalar_one_or_none():
-        users = list(db.scalars(select(User).order_by(User.id)).all())
-        roles = list(db.scalars(select(Role).order_by(Role.id)).all())
         return templates.TemplateResponse(
             "admin_users.html",
             {
@@ -312,8 +328,11 @@ def admin_user_password_save(
     if u is None:
         return RedirectResponse("/admin/users", status_code=302)
     new_password = (password or "").strip()
-    if len(new_password) < 4:
-        return RedirectResponse("/admin/users?error=كلمة المرور قصيرة جداً.", status_code=302)
+    if len(new_password) < _MIN_PASSWORD_LENGTH:
+        return RedirectResponse(
+            f"/admin/users?error=كلمة المرور يجب أن لا تقل عن {_MIN_PASSWORD_LENGTH} أحرف.",
+            status_code=302,
+        )
     u.password_hash = hash_password(new_password)
     db.commit()
     return RedirectResponse("/admin/users", status_code=302)

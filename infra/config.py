@@ -27,16 +27,30 @@ class Settings(BaseSettings):
         default=1800,
         validation_alias=AliasChoices("DB_POOL_RECYCLE", "db_pool_recycle"),
     )
+    # يجب أن يكون عشوائياً وبطول ≥ 32 في الإنتاج
     secret_key: str = Field(
-        default="change-me-in-production-use-long-random-string",
+        min_length=32,
         validation_alias=AliasChoices("SECRET_KEY", "secret_key"),
     )
     session_cookie_name: str = Field(
         default="pos_session",
         validation_alias=AliasChoices("SESSION_COOKIE_NAME", "session_cookie_name"),
     )
-    integration_api_key: str = Field(
-        default="dev-integration-key-change-me",
+    session_same_site: str = Field(
+        default="lax",
+        validation_alias=AliasChoices("SESSION_SAMESITE", "session_same_site"),
+    )
+    session_max_age: int = Field(
+        default=86400,
+        validation_alias=AliasChoices("SESSION_MAX_AGE", "session_max_age"),
+    )
+    session_https_only: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("SESSION_HTTPS_ONLY", "session_https_only"),
+    )
+    # None يعطّل نقطة نهاية التكامل حتى يُضبط مفتاح قوي
+    integration_api_key: str | None = Field(
+        default=None,
         validation_alias=AliasChoices("INTEGRATION_API_KEY", "integration_api_key"),
     )
     default_admin_username: str = Field(
@@ -44,16 +58,21 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("DEFAULT_ADMIN_USERNAME", "default_admin_username"),
     )
     default_admin_password: str = Field(
-        default="admin123",
+        min_length=8,
         validation_alias=AliasChoices("DEFAULT_ADMIN_PASSWORD", "default_admin_password"),
     )
+    # في الإنتاج اترك SEED_DEMO_USERS=false
     seed_demo_users: bool = Field(
-        default=True,
+        default=False,
         validation_alias=AliasChoices("SEED_DEMO_USERS", "seed_demo_users"),
     )
-    demo_users_password: str = Field(
-        default="demo123",
+    demo_users_password: str | None = Field(
+        default=None,
         validation_alias=AliasChoices("DEMO_USERS_PASSWORD", "demo_users_password"),
+    )
+    show_docs: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("SHOW_DOCS", "show_docs"),
     )
 
     @field_validator("database_url")

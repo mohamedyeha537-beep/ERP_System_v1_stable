@@ -42,7 +42,7 @@ _DEMO_USER_ROLE_PAIRS: tuple[tuple[str, str], ...] = (
 
 
 def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("ascii")
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("ascii")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
@@ -385,6 +385,8 @@ def ensure_demo_users(db: Session) -> None:
     settings = get_settings()
     if not settings.seed_demo_users:
         return
+    if not settings.demo_users_password:
+        raise ValueError("DEMO_USERS_PASSWORD مطلوب عند تفعيل SEED_DEMO_USERS.")
     pwd_hash = hash_password(settings.demo_users_password)
     changed = False
     for username, role_name_ar in _DEMO_USER_ROLE_PAIRS:
@@ -419,14 +421,18 @@ def ensure_demo_users(db: Session) -> None:
 
 
 def ensure_purchases_clerk_demo_user(db: Session) -> None:
-    """مستخدم تجريبي لموظف المشتريات — يُنشأ دائماً للاختبار."""
+    """مستخدم تجريبي لموظف المشتريات — يُنشأ فقط عند تفعيل بذور المستخدمين."""
+    settings = get_settings()
+    if not settings.seed_demo_users:
+        return
+    if not settings.demo_users_password:
+        raise ValueError("DEMO_USERS_PASSWORD مطلوب عند تفعيل SEED_DEMO_USERS.")
     ensure_catalog_purchases_role(db)
     role = db.execute(
         select(Role).where(Role.name_ar == CATALOG_PURCHASES_ROLE_NAME_AR)
     ).scalar_one_or_none()
     if role is None:
         return
-    settings = get_settings()
     pwd_hash = hash_password(settings.demo_users_password)
     user = get_user_by_username(db, PURCHASES_DEMO_USERNAME)
     if user is None:
