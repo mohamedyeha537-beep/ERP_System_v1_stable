@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}ربط تصنيفات المصروفات — GL{% endblock %}
+{% block body %}
+<div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem">
+  <div>
+    <h1 style="margin:0">ربط تصنيفات المصروفات بحسابات GL</h1>
+    {% if domain_label %}<p class="muted" style="margin:0.35rem 0 0">حسابات المجال: <strong>{{ domain_label }}</strong></p>{% endif %}
+  </div>
+  <a class="btn" href="/admin/gl">← إعدادات GL</a>
+</div>
+
+{% if saved %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4"><p style="margin:0">تم الحفظ.</p></div>
+{% endif %}
+{% if err_msg %}
+<div class="card" style="border-color:#fca5a5;background:#fef2f2"><p style="margin:0">{{ err_msg }}</p></div>
+{% endif %}
+
+<div class="card" style="border-color:#bae6fd;background:#f0f9ff">
+  <p style="margin:0;line-height:1.65;font-size:0.92rem">
+    عند تسجيل مصروف في <a href="/admin/expenses">المصروفات</a> بفئة «إيجار» أو «نقل»… يُرحَّل تلقائياً إلى الحساب المحاسبي المطابق
+    فيظهر في <a href="/admin/gl/reports?report=pl">قائمة الدخل</a> تحت البند الصحيح — وليس كل المصروفات تحت 5200 فقط.
+  </p>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">إضافة / تحديث ربط</h2>
+  <form method="post" action="/admin/gl/expense-maps" class="row" style="flex-wrap:wrap;gap:0.75rem;align-items:flex-end">
+    <div>
+      <label class="muted" style="font-size:0.8rem;display:block">اسم التصنيف (كما في المصروفات)</label>
+      <input name="category_label" required placeholder="إيجار / نقل / كهرباء..." list="known-cats" style="min-width:12rem" />
+      <datalist id="known-cats">
+        {% for m in maps %}<option value="{{ m.category_label }}">{% endfor %}
+        <option value="إيجار"><option value="كهرباء"><option value="نقل"><option value="صيانة">
+      </datalist>
+    </div>
+    <div>
+      <label class="muted" style="font-size:0.8rem;display:block">حساب GL</label>
+      <select name="gl_account_id" required>
+        {% for acc in expense_accounts %}
+        <option value="{{ acc.id }}">{{ acc.code }} — {{ acc.name_ar }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button class="btn btn-primary" type="submit">حفظ الربط</button>
+  </form>
+</div>
+
+{% if maps %}
+<div class="card">
+  <h2 style="margin-top:0">الربط الحالي</h2>
+  <table style="width:100%;border-collapse:collapse;font-size:0.92rem">
+    <thead>
+      <tr style="border-bottom:2px solid var(--border)">
+        <th style="text-align:right;padding:0.4rem">التصنيف</th>
+        <th style="text-align:right;padding:0.4rem">حساب GL</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in maps %}
+      <tr style="border-bottom:1px dashed var(--border)">
+        <td style="padding:0.35rem">{{ m.category_label }}</td>
+        <td style="padding:0.35rem">{% if m.gl_account %}{{ m.gl_account.code }} — {{ m.gl_account.name_ar }}{% else %}—{% endif %}</td>
+        <td style="padding:0.35rem">
+          <form method="post" action="/admin/gl/expense-maps/{{ m.id }}/delete" style="margin:0" onsubmit="return confirm('حذف هذا الربط؟')">
+            <button class="btn" type="submit" style="font-size:0.8rem">حذف</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

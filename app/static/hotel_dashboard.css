@@ -1,0 +1,1075 @@
+/* ── لوحة الشقق — كروت مثل الرئيسية (qlink) ── */
+
+.quick-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+
+/* قائمة تنقل الفندق — كروت متجاورة مع التفاف طبيعي */
+.hotel-quick-nav.quick-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: stretch;
+  justify-content: flex-start;
+}
+.hotel-quick-nav .qlink {
+  flex: 0 1 auto;
+  width: min(12.25rem, calc(50% - 0.3rem));
+  min-width: 10.5rem;
+}
+
+/* إعدادات الحجز — الكروت الكبيرة جنباً إلى جنب */
+.hotel-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  align-items: stretch;
+  margin-top: 0.25rem;
+}
+.hotel-settings-grid > .card,
+.hotel-settings-grid > .hotel-settings-stack {
+  margin: 0;
+  max-width: none;
+  height: 100%;
+  box-sizing: border-box;
+}
+.hotel-settings-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+}
+.hotel-settings-stack > .card {
+  margin: 0;
+  flex: 0 0 auto;
+}
+.hotel-settings-grid > .card--wide {
+  grid-column: 1 / -1;
+}
+/* إعدادات الحجز — عناوين أوضح بخط العرض */
+.hotel-settings-grid h2 {
+  font-family: var(--pos-font-display, "Cairo", sans-serif);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+.hotel-settings-grid .card {
+  font-family: var(--pos-font-arabic, "IBM Plex Sans Arabic", sans-serif);
+}
+.hotel-quick-nav .qtitle {
+  font-family: var(--pos-font-display, "Cairo", sans-serif);
+  font-weight: 700;
+}
+
+.qlink {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.85rem 1rem;
+  background: #fff;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+  color: inherit;
+  text-decoration: none;
+  transition: all 0.15s ease;
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+.qlink::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block-start: 0;
+  inset-block-end: 0;
+  width: 4px;
+  background: var(--accent, var(--primary, #6366f1));
+  border-radius: 4px 0 0 4px;
+}
+.qlink:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px -18px rgba(15, 23, 42, 0.4);
+  text-decoration: none;
+  border-color: var(--accent, var(--primary, #6366f1));
+}
+.qlink .qicon {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent, #6366f1) 14%, white);
+  color: var(--accent, #6366f1);
+  flex-shrink: 0;
+  font-size: 1.15rem;
+  line-height: 1;
+}
+.qlink .qicon--stat {
+  font-size: 1.35rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.qlink .qtitle {
+  font-weight: 600;
+  line-height: 1.2;
+  font-size: 0.95rem;
+}
+.qlink .qhint {
+  color: var(--muted, #64748b);
+  font-size: 0.78rem;
+  margin-top: 0.1rem;
+}
+.qlink--active {
+  border-color: var(--accent, #6366f1);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent, #6366f1) 35%, transparent);
+  background: color-mix(in srgb, var(--accent, #6366f1) 6%, white);
+}
+.qlink--static {
+  cursor: default;
+}
+.qlink--static:hover {
+  transform: none;
+  box-shadow: none;
+}
+.qlink--warn {
+  border-color: #fca5a5;
+  background: #fff5f5;
+}
+.qlink--warn .qtitle {
+  color: #b91c1c;
+}
+
+.hotel-quick-nav {
+  margin-bottom: 1rem;
+}
+.hotel-stat-grid {
+  margin-bottom: 1rem;
+}
+.hotel-debt-grid {
+  margin-bottom: 1rem;
+}
+
+.booking-room-type-info {
+  padding: 0.55rem 0.65rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-weight: 600;
+  min-height: 2.35rem;
+  display: flex;
+  align-items: center;
+}
+
+.hotel-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+  padding: 0.35rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+.hotel-nav__link {
+  padding: 0.35rem 0.75rem;
+  border-radius: 8px;
+  text-decoration: none;
+  color: #475569;
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+.hotel-nav__link:hover {
+  background: #eef2ff;
+  color: #4338ca;
+}
+.hotel-nav__link--active {
+  background: #6366f1;
+  color: #fff;
+}
+
+.hotel-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.hotel-badge--ok {
+  background: #ecfdf5;
+  color: #047857;
+}
+.hotel-badge--muted {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+.hotel-badge--warn {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.fd-alert {
+  padding: 0.65rem 0.85rem;
+  border-radius: 10px;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+.fd-alert--danger {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+}
+.fd-alert a { font-weight: 700; }
+
+.fd-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 0.55rem;
+  margin-bottom: 1rem;
+}
+.fd-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 4.5rem;
+  padding: 0.55rem 0.4rem;
+  border-radius: 12px;
+  text-decoration: none;
+  color: inherit;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  transition: transform 0.12s, box-shadow 0.12s;
+}
+.fd-stat:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+}
+.fd-stat__n {
+  font-size: 1.65rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+.fd-stat__lbl {
+  font-size: 0.78rem;
+  font-weight: 700;
+  opacity: 0.85;
+  margin-top: 0.15rem;
+  text-align: center;
+}
+.fd-stat--ok { background: linear-gradient(135deg, #ecfdf5, #d1fae5); color: #065f46; }
+.fd-stat--busy { background: linear-gradient(135deg, #fef2f2, #fee2e2); color: #991b1b; }
+.fd-stat--warn { background: linear-gradient(135deg, #fff7ed, #ffedd5); color: #c2410c; }
+.fd-stat--info { background: linear-gradient(135deg, #eff6ff, #dbeafe); color: #1d4ed8; }
+.fd-stat--portal { background: linear-gradient(135deg, #f5f3ff, #ede9fe); color: #6d28d9; }
+.fd-stat--reserved { background: linear-gradient(135deg, #f8fafc, #e2e8f0); color: #475569; }
+
+.fd-debt-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+}
+.fd-debt-card {
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+}
+.fd-debt-card--alert {
+  border-color: #fca5a5;
+  background: #fff5f5;
+  box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.08);
+}
+.fd-debt-card__head {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #64748b;
+  margin-bottom: 0.25rem;
+}
+.fd-debt-card__amt {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+.fd-debt-card__amt small { font-size: 0.75rem; font-weight: 600; }
+.fd-debt-card--alert .fd-debt-card__amt { color: #b91c1c; }
+.fd-debt-card__sub {
+  font-size: 0.78rem;
+  color: #64748b;
+  margin-top: 0.2rem;
+}
+
+.fd-lists {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.fd-list-block h3 { font-size: 0.92rem; }
+.fd-mini-list {
+  margin: 0;
+  padding: 0 1.1rem 0 0;
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+.fd-mini-list a { font-weight: 600; }
+
+.fd-debt-table-wrap { margin-bottom: 1rem; overflow-x: auto; }
+.fd-debt-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+.fd-debt-table th,
+.fd-debt-table td {
+  padding: 0.45rem 0.55rem;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: right;
+}
+.fd-debt-amt {
+  font-weight: 800;
+  color: #b91c1c;
+  white-space: nowrap;
+}
+
+.apt-tile__debt {
+  margin-top: 0.2rem;
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #b91c1c;
+  background: #fef2f2;
+  padding: 0.12rem 0.35rem;
+  border-radius: 6px;
+  display: inline-block;
+}
+
+.apt-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+.apt-page-header__actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.apt-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 1rem;
+}
+.apt-summary__pill {
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+.apt-summary__pill--ok {
+  background: #dcfce7;
+  color: #166534;
+}
+.apt-summary__pill--no {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.apt-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+
+.apt-grid-note {
+  margin: 0.75rem 0 0;
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+.apt-tile {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.85rem 0.9rem;
+  background: #fff;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+  color: inherit;
+  text-decoration: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  position: relative;
+  overflow: hidden;
+  min-height: 88px;
+}
+.apt-tile--card {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  cursor: default;
+}
+.apt-tile--card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px -18px rgba(15, 23, 42, 0.4);
+  border-color: var(--accent, #6366f1);
+}
+.apt-tile__link {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.85rem 0.9rem;
+  color: inherit;
+  text-decoration: none;
+  flex: 1;
+  cursor: pointer;
+}
+.apt-tile__link:hover { text-decoration: none; color: inherit; }
+.apt-tile__maint-bar {
+  border-top: 1px solid var(--border, #e2e8f0);
+  padding: 0.45rem 0.65rem;
+  background: #fafafa;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+.apt-tile__maint-label {
+  font-size: 0.72rem;
+  color: #64748b;
+  margin-inline-end: auto;
+}
+.apt-tile__maint-btn {
+  font-size: 0.78rem;
+  padding: 0.28rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid #fdba74;
+  background: #fff7ed;
+  color: #c2410c;
+  cursor: pointer;
+}
+.apt-tile__maint-btn:hover { background: #ffedd5; }
+.apt-tile__maint-btn--ready {
+  border-color: #86efac;
+  background: #ecfdf5;
+  color: #15803d;
+}
+.apt-tile__maint-btn--ready:hover { background: #d1fae5; }
+.apt-tile::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block-start: 0;
+  inset-block-end: 0;
+  width: 4px;
+  background: var(--accent, #6366f1);
+  border-radius: 4px 0 0 4px;
+}
+.apt-tile:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px -18px rgba(15, 23, 42, 0.4);
+  text-decoration: none;
+  border-color: var(--accent, #6366f1);
+}
+.apt-tile--static {
+  cursor: default;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.apt-tile--static:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.apt-tile__icon {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent, #6366f1) 14%, white);
+  font-size: 1.15rem;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.apt-tile__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.apt-tile__title {
+  font-weight: 700;
+  font-size: 0.95rem;
+  line-height: 1.25;
+  color: #0f172a;
+  word-break: break-word;
+}
+
+.apt-tile__price {
+  color: #64748b;
+  font-size: 0.78rem;
+  margin-top: 0.12rem;
+  line-height: 1.3;
+}
+
+.apt-tile__status {
+  font-size: 0.78rem;
+  font-weight: 800;
+  margin-top: 0.2rem;
+  line-height: 1.2;
+}
+.apt-tile__status--ok { color: #16a34a; }
+.apt-tile__status--no { color: #dc2626; }
+.apt-tile__status--maint { color: #ea580c; font-weight: 600; }
+
+.apt-tile__hint {
+  font-size: 0.72rem;
+  color: #64748b;
+  margin-top: 0.1rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.apt-tile__hint--maint {
+  color: #c2410c;
+  font-weight: 600;
+  white-space: normal;
+}
+.apt-tile__hint--upcoming {
+  color: #1d4ed8;
+  font-weight: 600;
+  white-space: normal;
+}
+
+.apt-tile__setup-actions {
+  width: 100%;
+  padding-top: 0.35rem;
+  margin-top: 0.15rem;
+  border-top: 1px dashed #e2e8f0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.apt-tile__setup-actions .apt-tile__btn,
+.apt-tile__setup-actions form {
+  flex: 1;
+  min-width: 72px;
+}
+.apt-tile__btn {
+  width: 100%;
+  padding: 0.3rem;
+  border: 1px solid #6366f1;
+  background: #fff;
+  color: #6366f1;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.apt-tile__btn:hover { background: #eef2ff; }
+.apt-tile__btn--maint {
+  border-color: #fdba74;
+  background: #fff7ed;
+  color: #c2410c;
+}
+.apt-tile__btn--maint:hover { background: #ffedd5; }
+.apt-tile__btn--ready {
+  border-color: #86efac;
+  background: #ecfdf5;
+  color: #15803d;
+}
+.apt-tile__btn--ready:hover { background: #d1fae5; }
+
+.apt-tile__edit {
+  width: 100%;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 0.5rem;
+  margin-top: 0.35rem;
+}
+.apt-tile__edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.apt-tile__edit-form input,
+.apt-tile__edit-form select {
+  width: 100%;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+.apt-tile__file,
+.apt-tile__check { font-size: 0.8rem; }
+.apt-tile__delete {
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.35rem;
+  background: #fee2e2;
+  color: #b91c1c;
+  border: none;
+  border-radius: 4px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.hotel-room-edit-dialog {
+  border: 0;
+  border-radius: 16px;
+  padding: 0;
+  width: min(760px, calc(100vw - 2rem));
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.24);
+}
+
+.hotel-room-edit-dialog::backdrop {
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.hotel-room-edit-dialog__inner {
+  padding: 1rem;
+  background: #fff;
+}
+
+.hotel-room-edit-dialog label {
+  display: block;
+  font-size: 0.84rem;
+  color: var(--muted);
+}
+
+.hotel-room-edit-dialog input,
+.hotel-room-edit-dialog select {
+  width: 100%;
+  margin-top: 0.25rem;
+}
+
+/* ── رسالة نجاح تسجيل الخروج ── */
+.hotel-checkout-success-banner {
+  text-align: center;
+  padding: 1.35rem 1rem;
+  margin: 1rem 0 1.25rem;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #ecfdf5 0%, #d1fae5 100%);
+  border: 2px solid #4ade80;
+  box-shadow: 0 6px 20px rgba(34, 197, 94, 0.18);
+}
+
+.hotel-checkout-success-banner__text {
+  display: block;
+  font-size: clamp(1.45rem, 3.2vw, 1.85rem);
+  font-weight: 800;
+  color: #047857;
+  letter-spacing: 0.01em;
+  line-height: 1.35;
+}
+
+/* ── صفحة تفاصيل الحجز ── */
+.booking-detail-page {
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.booking-detail-hero {
+  margin-bottom: 1rem;
+  padding: 1rem 1.15rem;
+  border: 1px solid #e2e8f0;
+  background: linear-gradient(180deg, #f8fafc 0%, #fff 100%);
+}
+
+.booking-detail-hero__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.85rem;
+}
+
+.booking-detail-hero__nav,
+.booking-detail-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.booking-detail-hero__actions {
+  flex-shrink: 0;
+}
+
+.booking-detail-btn-print {
+  white-space: nowrap;
+}
+
+.booking-detail-hero__title {
+  margin: 0;
+  font-size: clamp(1.25rem, 2.5vw, 1.55rem);
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.booking-detail-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+.booking-detail-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
+
+.booking-detail-badge--checked_in { background: #ecfdf5; color: #047857; border-color: #86efac; }
+.booking-detail-badge--confirmed { background: #eff6ff; color: #1d4ed8; border-color: #93c5fd; }
+.booking-detail-badge--pending { background: #fffbeb; color: #b45309; border-color: #fcd34d; }
+.booking-detail-badge--checked_out { background: #f1f5f9; color: #64748b; border-color: #cbd5e1; }
+.booking-detail-badge--cancelled { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+.booking-detail-badge--room { background: #f0fdf4; color: #15803d; border-color: #bbf7d0; }
+.booking-detail-badge--dates { font-weight: 600; }
+
+.booking-detail-success {
+  display: flex;
+  justify-content: center;
+  margin: 0.75rem 0 1rem;
+}
+
+.booking-detail-success__box {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  min-width: 11rem;
+  min-height: 3.1rem;
+  padding: 0.65rem 1.35rem;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #ecfdf5 0%, #d1fae5 100%);
+  border: 2px solid #4ade80;
+  box-shadow: 0 4px 14px rgba(34, 197, 94, 0.15);
+  text-align: center;
+}
+
+.booking-detail-success__box--info {
+  background: linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%);
+  border-color: #93c5fd;
+  box-shadow: 0 4px 14px rgba(59, 130, 246, 0.12);
+}
+
+.booking-detail-success__icon {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #16a34a;
+  line-height: 1;
+}
+
+.booking-detail-success__text {
+  font-size: clamp(1.15rem, 2.2vw, 1.45rem);
+  font-weight: 800;
+  color: #047857;
+  line-height: 1.25;
+}
+
+.booking-detail-success__box--info .booking-detail-success__text {
+  color: #1d4ed8;
+}
+
+.booking-detail-success__link {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #047857;
+  text-decoration: underline;
+  margin-top: 0.15rem;
+}
+
+.booking-detail-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+}
+
+.booking-detail-kpi {
+  padding: 0.75rem 0.9rem;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.booking-detail-kpi__label {
+  display: block;
+  font-size: 0.78rem;
+  color: #64748b;
+  margin-bottom: 0.2rem;
+}
+
+.booking-detail-kpi__value {
+  display: block;
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.booking-detail-kpi__value small {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+.booking-detail-kpi--paid .booking-detail-kpi__value { color: #16a34a; }
+.booking-detail-kpi--credit .booking-detail-kpi__value { color: #16a34a; }
+.booking-detail-kpi--due .booking-detail-kpi__value { color: #b45309; }
+.booking-detail-kpi--ok .booking-detail-kpi__value { color: #047857; }
+
+.booking-detail-actions-card {
+  margin-bottom: 1rem;
+  background: #eff6ff;
+  border-color: #93c5fd;
+}
+
+.booking-detail-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  gap: 1rem;
+  margin-bottom: 1rem;
+  align-items: start;
+}
+
+.booking-detail-finance-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.booking-detail-card--data {
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .booking-detail-split {
+    grid-template-columns: 1fr;
+  }
+}
+
+.booking-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.booking-detail-card {
+  min-width: 0;
+}
+
+.booking-detail-card--folio,
+.booking-detail-card--account {
+  background: linear-gradient(180deg, #fafafa 0%, #fff 100%);
+}
+
+.booking-detail-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.booking-detail-table td,
+.booking-detail-table th {
+  padding: 0.4rem 0;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: top;
+}
+
+.booking-detail-table tr:last-child td,
+.booking-detail-table tr:last-child th {
+  border-bottom: none;
+}
+
+.booking-detail-alert {
+  margin-bottom: 0.75rem;
+}
+
+/* واتساب — شريط أدوات بجوار الطباعة */
+.receipt-wa-block {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.receipt-wa-block--stack {
+  margin-top: 0.35rem;
+  width: 100%;
+}
+
+.receipt-wa-block--toolbar {
+  margin-top: 0;
+  width: auto;
+}
+
+.receipt-wa-block .pos-receipt-whatsapp-btn {
+  background: #25d366;
+  color: #fff;
+  border-color: #128c7e;
+  font-weight: 700;
+  min-width: 7rem;
+  white-space: nowrap;
+}
+
+.receipt-wa-block--toolbar .pos-receipt-whatsapp-btn {
+  min-width: auto;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.9rem;
+}
+
+.receipt-wa-phone-wrap {
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.82rem;
+}
+
+.receipt-wa-phone-wrap .receipt-wa-phone-input {
+  width: 9.5rem;
+  padding: 0.3rem 0.45rem;
+}
+
+.receipt-wa-status {
+  font-size: 0.82rem;
+}
+
+@media (max-width: 640px) {
+  .booking-detail-hero__top {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .booking-detail-hero__actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .booking-detail-hero__actions .btn,
+  .booking-detail-hero__actions .receipt-wa-block--toolbar {
+    flex: 1;
+  }
+
+  .booking-detail-hero__actions .pos-receipt-whatsapp-btn {
+    width: 100%;
+  }
+}
+
+/* نماذج صف واحد — دفعة / خدمة إضافية */
+.booking-detail-action-card__hint {
+  font-size: 0.85rem;
+  margin: 0 0 0.65rem;
+}
+
+.booking-detail-inline-form {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.booking-detail-inline-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+  margin: 0;
+}
+
+.booking-detail-inline-form__label {
+  display: block;
+  font-size: 0.78rem;
+  color: #64748b;
+  font-weight: 600;
+  line-height: 1.2;
+  margin: 0;
+}
+
+.booking-detail-inline-form__field input,
+.booking-detail-inline-form__field select {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.booking-detail-inline-form__field--grow {
+  flex: 1 1 10rem;
+}
+
+.booking-detail-inline-form__field--amount {
+  flex: 0 0 6.5rem;
+}
+
+.booking-detail-inline-form__field--qty {
+  flex: 0 0 4.25rem;
+}
+
+.booking-detail-inline-form__field--price {
+  flex: 0 0 6rem;
+}
+
+.booking-detail-inline-form__field--amount input,
+.booking-detail-inline-form__field--qty input,
+.booking-detail-inline-form__field--price input {
+  text-align: center;
+  padding-left: 0.35rem;
+  padding-right: 0.35rem;
+}
+
+.booking-detail-inline-form__field--check {
+  flex: 0 0 auto;
+}
+
+.booking-detail-inline-form__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-height: 2.15rem;
+  font-size: 0.88rem;
+  white-space: nowrap;
+  color: #475569;
+}
+
+.booking-detail-inline-form__check input {
+  width: auto;
+  max-width: none;
+  margin: 0;
+}
+
+.booking-detail-inline-form__btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  align-self: flex-end;
+}
+
+@media (max-width: 720px) {
+  .booking-detail-inline-form {
+    flex-wrap: wrap;
+  }
+
+  .booking-detail-inline-form__field--grow {
+    flex: 1 1 100%;
+  }
+
+  .booking-detail-inline-form__btn {
+    width: 100%;
+  }
+}

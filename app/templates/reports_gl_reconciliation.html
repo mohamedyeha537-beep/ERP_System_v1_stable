@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button with context %}
+{% block title %}مطابقة GL — إيراد تشغيلي{% endblock %}
+{% block body %}
+<h1>مطابقة GL{% if domain_label %} — {{ domain_label }}{% endif %}</h1>
+<p class="muted" style="margin-top:-0.35rem;margin-bottom:0.75rem">
+  مقارنة الإيراد التشغيلي (POS / تحصيلات الحجز) مع صافي دائن حسابات GL
+  {% if report.show_restaurant %}4100{% endif %}{% if report.show_restaurant and report.show_hotel %} · {% endif %}{% if report.show_hotel %}4150{% endif %}
+  — الفارق = تشغيل − GL.
+</p>
+{{ reports_nav('gl_reconciliation') }}
+{{ period_filter('/reports/gl-reconciliation', period, period_labels, start, end, start_str, end_str) }}
+{{ report_export_format_help() }}
+<div class="export-bar">
+  <span class="label">Excel (.csv):</span>
+  {{ export_button('/reports/export/gl-reconciliation.csv?period=' ~ period, 'مطابقة GL') }}
+  <span class="label no-print" style="margin-inline-start:0.75rem">PDF:</span>
+  {{ pdf_export_button() }}
+</div>
+
+{% if not report.gl_enabled %}
+<div class="card no-print" style="background:#fef3c7;border-color:#f59e0b">
+  <p style="margin:0;font-size:0.9rem">
+    <strong>GL غير مفعّل.</strong> يُعرض الإيراد التشغيلي فقط — فعّل دفتر الأستاذ من
+    <a href="/admin/settings">الإعدادات</a> لمطابقة الحسابات.
+  </p>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top: 0">ملخص الفترة · {{ report.from_date }} → {{ report.to_date }}</h2>
+  <div class="stat-grid">
+    <div class="stat-card"><div class="label">أيام بفارق</div><div class="value">{{ report.mismatch_days }}</div></div>
+    <div class="stat-card {% if report.total_gap == 0 %}good{% else %}bad{% endif %}"><div class="label">مجموع الفوارق (مطلق)</div><div class="value">{{ report.total_gap }} د.ل</div></div>
+  </div>
+</div>
+
+{% for seg in report.segments %}
+<div class="card" style="border-color:#6ee7b7;background:linear-gradient(180deg,#ecfdf5 0%,#fff 55%)">
+  <h2 style="margin-top: 0">{{ seg.segment_label }} — حساب {{ seg.account_code }}</h2>
+  <p class="muted" style="margin-top:0;font-size:0.85rem">{{ seg.account_name }}</p>
+  <div class="stat-grid">
+    <div class="stat-card good"><div class="label">{{ seg.operational_label }}</div><div class="value">{{ seg.operational_net }} د.ل</div></div>
+    <div class="stat-card"><div class="label">صافي دائن GL</div><div class="value">{{ seg.gl_revenue_net }} د.ل</div></div>
+    <div class="stat-card {% if seg.gap == 0 %}good{% else %}bad{% endif %}"><div class="label">الفارق (تشغيل − GL)</div><div class="value">{{ seg.gap }} د.ل</div></div>
+  </div>
+  {% if seg.account_id %}
+  <p style="margin:0.65rem 0 0;font-size:0.88rem">
+    <a href="/admin/gl/accounts/{{ seg.account_id }}/ledger">دفتر حساب {{ seg.account_code }} ←</a>
+    {% if seg.segment == 'restaurant' %}
+    · <a href="/reports/sales?period={{ period }}">المبيعات</a>
+    · <a href="/reports/comprehensive?period={{ period }}">التقرير الشامل</a>
+    {% else %}
+    · <a href="/reports/hotel-collections?period={{ period }}">تحصيلات الفندق</a>
+    · <a href="/reports/hotel-daily-close?period={{ period }}">الإقفال اليومي</a>
+    {% endif %}
+  </p>
+  {% endif %}
+</div>
+{% endfor %}
+
+<div class="card">
+  <h2 style="margin-top: 0">تفصيل يومي</h2>
+  {% if report.daily_rows %}
+  <table>
+    <thead>
+      <tr>
+        <th>التاريخ</th>
+        {% if report.show_restaurant %}
+        <th>POS تشغيلي</th>
+        <th>4100 GL</th>
+        <th>فارق مطعم</th>
+        {% endif %}
+        {% if report.show_hotel %}
+        <th>فندق تشغيلي</th>
+        <th>4150 GL</th>
+        <th>فارق فندق</th>
+        {% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in report.daily_rows %}
+      {% set row_mismatch = (r.restaurant_gap is not none and r.restaurant_gap != 0) or (r.hotel_gap is not none and r.hotel_gap != 0) %}
+      <tr{% if row_mismatch %} style="background:#fef2f2"{% endif %}>
+        <td><strong>{{ r.day }}</strong></td>
+        {% if report.show_restaurant %}
+        <td>{{ r.restaurant_operational if r.restaurant_operational is not none else '—' }}</td>
+        <td>{{ r.restaurant_gl if r.restaurant_gl is not none else '—' }}</td>
+        <td{% if r.restaurant_gap is not none and r.restaurant_gap != 0 %} style="color:#b91c1c;font-weight:600"{% endif %}>{{ r.restaurant_gap if r.restaurant_gap is not none else '—' }}</td>
+        {% endif %}
+        {% if report.show_hotel %}
+        <td>{{ r.hotel_operational if r.hotel_operational is not none else '—' }}</td>
+        <td>{{ r.hotel_gl if r.hotel_gl is not none else '—' }}</td>
+        <td{% if r.hotel_gap is not none and r.hotel_gap != 0 %} style="color:#b91c1c;font-weight:600"{% endif %}>{{ r.hotel_gap if r.hotel_gap is not none else '—' }}</td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">لا توجد أيام في الفترة المحددة.</p>
+  {% endif %}
+</div>
+{% endblock %}

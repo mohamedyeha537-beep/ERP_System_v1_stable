@@ -1,8 +1,9 @@
 {% extends "base.html" %}
-{% from "_reports_macros.html" import reports_nav %}
-{% block title %}الذمم المدينة — الديون{% endblock %}
+{% from "_reports_macros.html" import reports_nav with context %}
+{% block title %}ديون على العملاء{% endblock %}
 {% block body %}
-<h1>الذمم المدينة</h1>
+<h1>ديون على العملاء</h1>
+<p class="muted" style="margin-top:-0.35rem">فواتير غير مسدّدة أو مسدّدة جزئياً — بما فيها قيود غرف الفندق على الحساب.</p>
 {{ reports_nav('receivables') }}
 
 <div class="card">
@@ -17,30 +18,25 @@
       <div class="value">{{ summary.invoice_count_with_balance }}</div>
     </div>
     <div class="stat-card">
-      <div class="label">غير مدفوعة</div>
+      <div class="label">غير مسدّدة بالكامل</div>
       <div class="value">{{ summary.unpaid_count }}</div>
     </div>
     <div class="stat-card">
-      <div class="label">مدفوعة جزئياً</div>
+      <div class="label">مسدّدة جزئياً</div>
       <div class="value">{{ summary.partial_count }}</div>
-    </div>
-    <div class="stat-card good">
-      <div class="label">مسدّدة بالكامل</div>
-      <div class="value">{{ summary.paid_count }}</div>
     </div>
   </div>
 </div>
 
 <div class="card">
-  <h2 style="margin-top:0">تصفية الفواتير</h2>
+  <h2 style="margin-top:0">تصفية</h2>
   <form method="get" class="recv-filters">
     <div class="filter-row">
       <span class="filter-label">حالة السداد:</span>
       <div class="filter-pills">
         <a class="pill-btn {% if pay_filter == 'all' %}active{% endif %}" href="?pay=all&context={{ context_filter }}&balance_only={{ 1 if balance_only else 0 }}">الكل</a>
         <a class="pill-btn {% if pay_filter == 'unpaid' %}active{% endif %}" href="?pay=unpaid&context={{ context_filter }}&balance_only={{ 1 if balance_only else 0 }}">غير مدفوعة</a>
-        <a class="pill-btn {% if pay_filter == 'partial' %}active{% endif %}" href="?pay=partial&context={{ context_filter }}&balance_only={{ 1 if balance_only else 0 }}">مدفوعة جزئياً</a>
-        <a class="pill-btn {% if pay_filter == 'paid' %}active{% endif %}" href="?pay=paid&context={{ context_filter }}&balance_only={{ 1 if balance_only else 0 }}">مدفوعة</a>
+        <a class="pill-btn {% if pay_filter == 'partial' %}active{% endif %}" href="?pay=partial&context={{ context_filter }}&balance_only={{ 1 if balance_only else 0 }}">جزئي</a>
       </div>
     </div>
     <div class="filter-row">
@@ -53,7 +49,7 @@
       <input type="hidden" name="pay" value="{{ pay_filter }}">
       <label class="chk">
         <input type="checkbox" name="balance_only" value="1" {% if balance_only %}checked{% endif %} onchange="this.form.submit()">
-        عرض الفواتير التي عليها رصيد فقط
+        عرض ما عليه رصيد فقط
       </label>
     </div>
   </form>
@@ -61,18 +57,34 @@
 
 {% if by_customer %}
 <div class="card">
-  <h2 style="margin-top:0">تجميع حسب العميل / الطرف</h2>
-  <p class="muted" style="margin-top:0">للتجار أو العملاء الذين لديهم أكثر من فاتورة غير مسدّدة.</p>
-  <table>
+  <h2 style="margin-top:0">ديون مجمّعة حسب الزبون / النزيل</h2>
+  <p class="muted" style="margin-top:0">انقر على الصف لعرض كل الفواتير والتحصيل.</p>
+  <table class="recv-click-table">
     <thead>
-      <tr><th>العميل / الطرف</th><th>عدد الفواتير</th><th>إجمالي المستحق</th></tr>
+      <tr>
+        <th>الزبون / الطرف</th>
+        <th>حالة السداد</th>
+        <th>عدد الفواتير</th>
+        <th>إجمالي المستحق</th>
+        <th></th>
+      </tr>
     </thead>
     <tbody>
       {% for g in by_customer %}
-      <tr>
+      <tr class="click-row" data-href="/reports/receivables/debtor?key={{ g.debt_key | urlencode }}">
         <td><strong>{{ g.party_label }}</strong></td>
+        <td>
+          {% if g.pay_status.value == 'unpaid' %}
+          <span class="badge bad">{{ status_labels[g.pay_status] }}</span>
+          {% elif g.pay_status.value == 'partial' %}
+          <span class="badge warn">{{ status_labels[g.pay_status] }}</span>
+          {% else %}
+          <span class="badge good">{{ status_labels[g.pay_status] }}</span>
+          {% endif %}
+        </td>
         <td>{{ g.invoice_count }}</td>
         <td style="font-weight:700;color:#b91c1c">{{ g.total_outstanding }} د.ل</td>
+        <td><span class="muted">تفاصيل ←</span></td>
       </tr>
       {% endfor %}
     </tbody>
@@ -81,17 +93,15 @@
 {% endif %}
 
 <div class="card">
-  <h2 style="margin-top:0">تفاصيل الفواتير <span class="muted" style="font-size:0.85rem;font-weight:400">({{ rows|length }})</span></h2>
+  <h2 style="margin-top:0">كل الفواتير <span class="muted" style="font-size:0.85rem;font-weight:400">({{ rows|length }})</span></h2>
   {% if rows %}
-  <table>
+  <table class="recv-click-table">
     <thead>
       <tr>
         <th>الفاتورة</th>
         <th>التاريخ</th>
-        <th>السياق</th>
-        <th>العميل / الطرف</th>
-        <th>صافي الفاتورة</th>
-        <th>المدفوع</th>
+        <th>الغرفة / الشقة</th>
+        <th>الزبون / الطرف</th>
         <th>المتبقي</th>
         <th>الحالة</th>
         <th></th>
@@ -99,39 +109,35 @@
     </thead>
     <tbody>
       {% for r in rows %}
-      <tr>
+      <tr class="click-row" data-href="/reports/receivables/invoice/{{ r.sale_id }}">
         <td><strong>#{{ r.sale_id }}</strong></td>
-        <td>{{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '—' }}</td>
+        <td>{{ pos_format_dt(r.created_at, '%Y-%m-%d %H:%M') if r.created_at else '—' }}</td>
         <td>
-          {% if r.context_type.value == 'TABLE' %}طاولة
-          {% elif r.context_type.value == 'ROOM' %}غرفة
-          {% else %}خارجي{% endif %}
+          {% if r.room_number %}
+          <strong>شقة/غرفة {{ r.room_number }}</strong>
+          {% if r.guest_name %}<br><span class="muted" style="font-size:0.82rem">{{ r.guest_name }}</span>{% endif %}
+          {% elif r.context_type.value == 'ROOM' %}
+          <span class="muted">غير مربوطة</span>
+          {% else %}—{% endif %}
         </td>
         <td>{{ r.party_label }}</td>
-        <td>{{ r.net_total }} د.ل</td>
-        <td style="color:#16a34a">{{ r.paid_total }} د.ل</td>
         <td style="font-weight:700;{% if r.outstanding > 0 %}color:#b91c1c{% endif %}">{{ r.outstanding }} د.ل</td>
         <td>
           {% if r.pay_status.value == 'unpaid' %}
           <span class="badge bad">غير مدفوعة</span>
           {% elif r.pay_status.value == 'partial' %}
-          <span class="badge warn">جزئية</span>
+          <span class="badge warn">جزئي</span>
           {% else %}
-          <span class="badge good">مدفوعة</span>
+          <span class="badge good">مسدّد</span>
           {% endif %}
         </td>
-        <td class="actions-cell">
-          <a href="/refunds/sale/{{ r.sale_id }}">التفاصيل</a>
-          {% if r.has_open_room_charge %}
-          <a href="/hotel/settle">تسكين غرفة</a>
-          {% endif %}
-        </td>
+        <td><span class="muted">تحصيل ←</span></td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
   {% else %}
-  <p class="muted">لا توجد فواتير مطابقة للتصفية.</p>
+  <p class="muted">لا توجد فواتير مطابقة.</p>
   {% endif %}
 </div>
 
@@ -148,7 +154,18 @@
   .badge.bad { background:#fee2e2; color:#b91c1c; }
   .badge.warn { background:#ffedd5; color:#c2410c; }
   .badge.good { background:#dcfce7; color:#15803d; }
-  .actions-cell a { margin-inline-start:0.5rem; white-space:nowrap; }
   .chk { display:flex; align-items:center; gap:0.35rem; font-size:0.9rem; }
+  .recv-click-table .click-row { cursor:pointer; }
+  .recv-click-table .click-row:hover { background:#f8fafc; }
 </style>
+<script>
+(function () {
+  document.querySelectorAll(".click-row[data-href]").forEach(function (row) {
+    row.addEventListener("click", function (e) {
+      if (e.target.closest("a")) return;
+      window.location.href = row.getAttribute("data-href");
+    });
+  });
+})();
+</script>
 {% endblock %}

@@ -1,0 +1,143 @@
+{# نافذة تعديل سجل حضور — ساعات مباشرة + حفظ/إلغاء #}
+
+{% macro attendance_adjust_dialog(r, emp_name) %}
+
+<button type="button" class="btn att-adj-open" data-dialog="adj-dlg-{{ r.id }}"
+
+        style="padding:0.2rem 0.55rem;font-size:0.78rem;background:#eff6ff;color:#1d4ed8;border:1px solid #93c5fd">
+
+  تعديل
+
+</button>
+
+<dialog id="adj-dlg-{{ r.id }}" class="att-adj-dialog"
+
+        data-check-in="{{ pos_format_dt(r.check_in, '%Y-%m-%dT%H:%M:%S') }}">
+
+  <form method="post" action="/admin/attendance/{{ r.id }}/adjust" class="att-adj-form">
+
+    <h3 style="margin:0 0 0.35rem;font-size:1.05rem">تعديل سجل — {{ emp_name }}</h3>
+
+    <p class="muted" style="margin:0 0 0.85rem;font-size:0.85rem;line-height:1.6">
+
+      دخول: <strong>{{ pos_format_dt(r.check_in, '%Y-%m-%d %H:%M') }}</strong>
+
+      · خروج حالياً: <strong>{{ pos_format_dt(r.check_out, '%Y-%m-%d %H:%M') if r.check_out else '—' }}</strong>
+
+      · ساعات حالياً: <strong>{{ r.hours_worked }} س</strong>
+
+    </p>
+
+
+
+    <label for="wh-{{ r.id }}" style="font-weight:700">ساعات العمل الجديدة</label>
+
+    <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.35rem">
+
+      <input id="wh-{{ r.id }}" name="work_hours" type="number" step="0.01" min="0.01" required
+
+             value="{{ r.hours_worked }}"
+
+             style="width:5.5rem;font-size:1.15rem;font-weight:700;padding:0.35rem 0.5rem" />
+
+      <span class="muted">ساعة</span>
+
+    </div>
+
+    <p class="att-adj-preview muted" id="wh-preview-{{ r.id }}"
+
+       style="margin:0 0 0.65rem;font-size:0.82rem;line-height:1.5">
+
+      يُحدَّث وقت الخروج تلقائياً ويُعاد حساب الإضافي حسب الوردية.
+
+    </p>
+
+
+
+    <label for="notes-{{ r.id }}" style="font-size:0.82rem">ملاحظة</label>
+
+    <input id="notes-{{ r.id }}" name="notes" value="{{ r.notes or '' }}" style="width:100%;margin-bottom:0.5rem" />
+
+
+
+    <details class="att-adj-advanced" style="margin:0.5rem 0;font-size:0.85rem">
+
+      <summary style="cursor:pointer;color:#2563eb">خيارات متقدمة (أوقات أو تأخير/إضافي يدوي)</summary>
+
+      <p class="muted" style="margin:0.4rem 0;font-size:0.8rem">
+
+        افتراضياً يُحسب التأخير والإضافي من الوردية. فعّل «تعديل يدوي» فقط إذا أردت فرض قيم محددة.
+
+      </p>
+
+      <label style="display:flex;align-items:center;gap:0.35rem;margin:0.35rem 0;font-weight:600">
+
+        <input type="checkbox" name="override_metrics" value="1" class="att-adj-override" />
+
+        تعديل يدوي للتأخير والإضافي
+
+      </label>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin-bottom:0.5rem">
+
+        <div>
+
+          <label for="late-{{ r.id }}" style="font-size:0.82rem">تأخير (دقيقة)</label>
+
+          <input id="late-{{ r.id }}" name="late_minutes" type="number" min="0" disabled
+
+                 value="{{ r.late_minutes or 0 }}" style="width:100%" class="att-adj-metric" />
+
+        </div>
+
+        <div>
+
+          <label for="ot-{{ r.id }}" style="font-size:0.82rem">إضافي (دقيقة)</label>
+
+          <input id="ot-{{ r.id }}" name="overtime_minutes" type="number" min="0" disabled
+
+                 value="{{ r.overtime_minutes or 0 }}" style="width:100%" class="att-adj-metric" />
+
+        </div>
+
+      </div>
+
+      <p class="muted" style="margin:0.35rem 0 0.5rem;font-size:0.8rem">
+
+        أو اترك «ساعات العمل» فارغاً وعدّل وقت الدخول/الخروج مباشرة:
+
+      </p>
+
+      <label for="ci-{{ r.id }}">دخول</label>
+
+      <input id="ci-{{ r.id }}" name="check_in" type="datetime-local" disabled
+
+             value="{{ pos_format_dt(r.check_in, '%Y-%m-%dT%H:%M') }}" style="width:100%;margin-bottom:0.35rem" />
+
+      <label for="co-{{ r.id }}">خروج</label>
+
+      <input id="co-{{ r.id }}" name="check_out" type="datetime-local" disabled
+
+             value="{{ pos_format_dt(r.check_out, '%Y-%m-%dT%H:%M') if r.check_out else '' }}" style="width:100%" />
+
+      <input type="hidden" name="use_manual_times" class="att-adj-umt" value="" />
+
+    </details>
+
+
+
+    <div class="row" style="margin-top:1rem;gap:0.5rem;flex-wrap:wrap">
+
+      <button class="btn btn-primary" type="submit">حفظ التعديل</button>
+
+      <button class="btn att-adj-cancel" type="button">إلغاء</button>
+
+    </div>
+
+  </form>
+
+</dialog>
+
+{% endmacro %}
+
+

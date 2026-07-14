@@ -1,0 +1,21 @@
+﻿avg count 13
+onion avg 0.003
+get_balance 420.0000
+from_movements 3440.0000
+python : Traceback (most recent call last):
+At C:\Users\PIXEL\AppData\Local\Temp\ps-script-058c3016-b526-485a-9d0c-a6aef9ca59e2.ps1:146 char:43
++ ... IXEL\OneDrive\Desktop\pos"; python tools/test_inv_ctx.py 2>&1 | Out-F ...
++                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Traceback (most recent call last)::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  File "C:\Users\PIXEL\OneDrive\Desktop\pos\tools\test_inv_ctx.py", line 28, in <module>
+    print(p.id, p.name_ar, "cost", avg.get(p.id), "bal", get_balance(db, p.id, 1))
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program 
+Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3568.0_x64__qbz5n2kfra8p0\Lib\encodings\cp1252.py", line 
+19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode characters in position 0-2: character maps to <undefined>
+10 

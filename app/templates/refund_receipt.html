@@ -37,25 +37,27 @@
       <div style="text-align:left">
         <div class="badge">مرتجع #{{ sale_return.id }}</div>
         <div class="muted" style="margin-top:0.4rem">فاتورة أصلية #{{ sale_return.original_sale_id }}</div>
-        <div class="muted">{{ sale_return.created_at.strftime('%Y-%m-%d %H:%M') }}</div>
+        <div class="muted">{{ pos_format_dt(sale_return.created_at, '%Y-%m-%d %H:%M') }}</div>
       </div>
     </div>
 
     <div class="summary">
+      {% set return_type = sale_return.return_type.value if sale_return.return_type.value is defined else sale_return.return_type %}
+      {% set return_mode = sale_return.mode.value if sale_return.mode.value is defined else sale_return.mode %}
       <div class="card">
         <div class="label">الإجمالي</div>
         <div class="value">{{ pos_money(sale_return.total) }} <span class="money-currency">د.ل</span></div>
       </div>
       <div class="card">
         <div class="label">نوع الاسترداد</div>
-        <div class="value" style="font-size:1rem">{{ 'كامل' if sale_return.return_type.value == 'FULL' else 'جزئي' }}</div>
+        <div class="value" style="font-size:1rem">{{ 'كامل' if return_type == 'FULL' else 'جزئي' }}</div>
       </div>
       <div class="card">
         <div class="label">الوضع المالي</div>
         <div class="value" style="font-size:1rem">
-          {% if sale_return.mode.value == 'REDUCE_RECEIVABLE' %}تخفيض مستحق
-          {% elif sale_return.mode.value == 'OVERRIDE_TRANSFER' %}رد مع تسوية
-          {% elif sale_return.mode.value == 'SAME_METHOD' %}رد بنفس الوسيلة
+          {% if return_mode == 'REDUCE_RECEIVABLE' %}تخفيض مستحق
+          {% elif return_mode == 'OVERRIDE_TRANSFER' %}رد مع تسوية
+          {% elif return_mode == 'SAME_METHOD' %}رد بنفس الوسيلة
           {% else %}بدون رد مالي{% endif %}
         </div>
       </div>
@@ -97,7 +99,12 @@
 
     <div class="actions">
       <button class="btn btn-primary" type="button" onclick="window.print()">طباعة</button>
+      {% if pos_receipt_context|default(false) %}
+      <a class="btn" href="/pos/refund/{{ sale_return.original_sale_id }}">الرجوع للفاتورة</a>
+      <a class="btn" href="/pos?orders=1">جميع الطلبات</a>
+      {% else %}
       <a class="btn" href="/refunds/sale/{{ sale_return.original_sale_id }}">الرجوع للفاتورة</a>
+      {% endif %}
     </div>
   </div>
 

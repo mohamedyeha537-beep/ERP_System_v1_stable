@@ -1,0 +1,192 @@
+﻿{% extends "base.html" %}
+{% block title %}لوحة الشقق{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/hotel_dashboard.css?v=12" />
+{% endblock %}
+{% block body %}
+<div class="apt-page-header">
+  <div>
+    <h1 style="margin:0">🏨 لوحة الاستقبال — الشقق</h1>
+    <p class="muted" style="margin:0.2rem 0 0;font-size:0.88rem">
+      {{ today.strftime('%Y-%m-%d') }} · سياسة الدفع: {{ prepayment_percent_label if prepayment_percent_label is defined else '100% — دفع كامل' }}
+    </p>
+  </div>
+  <div class="apt-page-header__actions">
+    <a class="btn" href="/admin/hotel/bookings">الحجوزات</a>
+    <a class="btn" href="/hotel/settle">تسوية حسابات</a>
+    <a class="btn" href="/admin/hotel/rooms">إعداد</a>
+  </div>
+</div>
+
+{% set active = 'dashboard' %}
+{% include "_hotel_nav.html" %}
+
+{% if saved == 'maintenance' %}
+<div class="fd-alert" style="background:#fff7ed;border-color:#fed7aa" role="status">تم وضع الشقة في الصيانة — تظهر الآن <strong>غير متاحة بسبب الصيانة</strong>.</div>
+{% elif saved == 'ready' %}
+<div class="fd-alert" style="background:#ecfdf5;border-color:#86efac" role="status">اكتملت الصيانة — الشقة متاحة للحجز ✓</div>
+{% endif %}
+{% if error %}
+<div class="fd-alert fd-alert--danger" role="alert">{{ error }}</div>
+{% endif %}
+
+{% if summary.debt_grand_total > 0 %}
+<div class="fd-alert fd-alert--danger" role="alert">
+  <strong>⚠️ تنبيه ديون:</strong>
+  إجمالي غير المدفوع <strong>{{ '%.3f'|format(summary.debt_grand_total) }} د.ل</strong>
+  على {{ summary.debt_stay_rooms + summary.debt_laundry_rooms + summary.debt_restaurant_rooms }} شقة/حساب —
+  <a href="/hotel/settle">تسوية الآن</a>
+</div>
+{% endif %}
+
+<section class="quick-grid hotel-stat-grid" aria-label="ملخص اليوم">
+  <a class="qlink" href="#apt-grid" style="--accent:#22c55e">
+    <div class="qicon qicon--stat" aria-hidden="true">{{ summary.available }}</div>
+    <div><div class="qtitle">متاحة</div><div class="qhint">جاهزة للحجز</div></div>
+  </a>
+  <a class="qlink" href="#apt-grid" style="--accent:#ef4444">
+    <div class="qicon qicon--stat" aria-hidden="true">{{ summary.occupied }}</div>
+    <div><div class="qtitle">مشغولة</div><div class="qhint">نزلاء حالياً</div></div>
+  </a>
+  <a class="qlink" href="/admin/hotel/bookings" style="--accent:#f97316">
+    <div class="qicon qicon--stat" aria-hidden="true">{{ summary.checkout_due }}</div>
+    <div><div class="qtitle">مغادرة اليوم</div><div class="qhint">check-out</div></div>
+  </a>
+  <a class="qlink" href="/admin/hotel/bookings" style="--accent:#3b82f6">
+    <div class="qicon qicon--stat" aria-hidden="true">{{ summary.arrivals_today }}</div>
+    <div><div class="qtitle">وصول اليوم</div><div class="qhint">check-in</div></div>
+  </a>
+  <a class="qlink" href="/admin/hotel/bookings?status=PENDING" style="--accent:#8b5cf6">
+    <div class="qicon qicon--stat" aria-hidden="true">{{ summary.online_requests }}</div>
+    <div><div class="qtitle">طلبات أونلاين</div><div class="qhint">من متجر /suites</div></div>
+  </a>
+  <a class="qlink" href="#apt-grid" style="--accent:#64748b">
+    <div class="qicon qicon--stat" aria-hidden="true">{{ summary.reserved }}</div>
+    <div><div class="qtitle">محجوزة</div><div class="qhint">لم يُسجّل دخول</div></div>
+  </a>
+  <a class="qlink" href="/admin/hotel/housekeeping" style="--accent:#14b8a6">
+    <div class="qicon qicon--stat" aria-hidden="true">{{ summary.dirty }}</div>
+    <div><div class="qtitle">للتنظيف</div><div class="qhint">بعد المغادرة</div></div>
+  </a>
+  <a class="qlink" href="#apt-grid" style="--accent:#f97316">
+    <div class="qicon qicon--stat" aria-hidden="true">{{ summary.maintenance }}</div>
+    <div><div class="qtitle">صيانة</div><div class="qhint">غير متاحة — صيانة</div></div>
+  </a>
+</section>
+
+<section class="quick-grid hotel-debt-grid" aria-label="تتبع الديون">
+  <div class="qlink qlink--static{% if summary.debt_stay_total > 0 %} qlink--warn{% endif %}" style="--accent:#6366f1">
+    <div class="qicon" aria-hidden="true">🛏️</div>
+    <div>
+      <div class="qtitle">{{ '%.3f'|format(summary.debt_stay_total) }} د.ل</div>
+      <div class="qhint">ديون إقامة · {{ summary.debt_stay_rooms }} شقة</div>
+    </div>
+  </div>
+  <div class="qlink qlink--static{% if summary.debt_laundry_total > 0 %} qlink--warn{% endif %}" style="--accent:#14b8a6">
+    <div class="qicon" aria-hidden="true">👕</div>
+    <div>
+      <div class="qtitle">{{ '%.3f'|format(summary.debt_laundry_total) }} د.ل</div>
+      <div class="qhint">ديون مغسلة · {{ summary.debt_laundry_rooms }} شقة</div>
+    </div>
+  </div>
+  <div class="qlink qlink--static{% if summary.debt_restaurant_total > 0 %} qlink--warn{% endif %}" style="--accent:#f59e0b">
+    <div class="qicon" aria-hidden="true">🍽️</div>
+    <div>
+      <div class="qtitle">{{ '%.3f'|format(summary.debt_restaurant_total) }} د.ل</div>
+      <div class="qhint">ديون مطعم · {{ summary.debt_restaurant_rooms }} شقة</div>
+    </div>
+  </div>
+</section>
+
+{% if summary.checkout_list or summary.arrivals_list or summary.online_list %}
+<div class="fd-lists card">
+  {% if summary.checkout_list %}
+  <div class="fd-list-block">
+    <h3 style="margin:0 0 0.45rem">🚪 مغادرة اليوم ({{ summary.checkout_list|length }})</h3>
+    <ul class="fd-mini-list">
+      {% for b in summary.checkout_list %}
+      <li>
+        <a href="/admin/hotel/bookings/{{ b.id }}">#{{ b.reference }} — {{ b.guest_name }}</a>
+        {% if b.room %} · {{ b.room.number }}{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+  {% if summary.arrivals_list %}
+  <div class="fd-list-block">
+    <h3 style="margin:0 0 0.45rem">📥 وصول اليوم ({{ summary.arrivals_list|length }})</h3>
+    <ul class="fd-mini-list">
+      {% for b in summary.arrivals_list %}
+      <li>
+        <a href="/admin/hotel/bookings/{{ b.id }}">#{{ b.reference }} — {{ b.guest_name }}</a>
+        {% if b.room %} · {{ b.room.number }}{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+  {% if summary.online_list %}
+  <div class="fd-list-block">
+    <h3 style="margin:0 0 0.45rem">🌐 طلبات حجز أونلاين ({{ summary.online_list|length }})</h3>
+    <ul class="fd-mini-list">
+      {% for b in summary.online_list %}
+      <li>
+        <a href="/admin/hotel/bookings/{{ b.id }}">#{{ b.reference }} — {{ b.guest_name }}</a>
+        <span class="hotel-badge hotel-badge--muted">{{ b.booking_status.value }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if summary.debt_alerts %}
+<div class="card fd-debt-table-wrap">
+  <h2 style="margin-top:0">⚠️ شقق عليها مبالغ غير مدفوعة</h2>
+  <table class="fd-debt-table">
+    <thead>
+      <tr><th>الشقة</th><th>النزيل</th><th>النوع</th><th>المتبقي</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for a in summary.debt_alerts %}
+      <tr>
+        <td><strong>{{ a.room_label }}</strong></td>
+        <td>{{ a.guest_name or '—' }}</td>
+        <td><span class="hotel-badge hotel-badge--warn">{{ a.category_label }}</span></td>
+        <td class="fd-debt-amt">{{ '%.3f'|format(a.amount) }} د.ل</td>
+        <td>
+          {% if a.booking_id %}
+          <a class="btn" href="/admin/hotel/bookings/{{ a.booking_id }}">الحجز</a>
+          {% elif a.room_id %}
+          <a class="btn" href="/hotel/settle/room/{{ a.room_id }}">تسوية</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<h2 style="margin:1.25rem 0 0.65rem;font-size:1.05rem" id="apt-grid">خريطة الشقق</h2>
+
+{% if not cards %}
+<div class="card">
+  <p class="muted" style="margin:0">لا توجد شقق في النظام بعد.</p>
+  <p style="margin:0.5rem 0 0"><a class="btn btn-primary" href="/admin/hotel/rooms">أضف أول شقة</a></p>
+</div>
+{% else %}
+<div class="apt-grid">
+  {% for c in cards %}
+  {% set tile_mode = 'view' %}
+  {% include "_hotel_apartment_tile.html" %}
+  {% endfor %}
+</div>
+<p class="muted apt-grid-note">🟢 متاحة للحجز · 📅 متاحة مع حجز قادم · 🔴 مشغولة/محجوزة اليوم · 🔧 غير متاحة — صيانة · ⚠️ دين · 🚪 مغادرة اليوم<br />النص داخل الكرت = <strong>الحالة الحالية</strong> · الزر أسفل الكرت = <strong>إجراء</strong> (وضع في الصيانة أو إنهاؤها)</p>
+{% if can_maintain %}
+{% include "_hotel_maintenance_dialog.html" %}
+{% endif %}
+{% endif %}
+{% endblock %}

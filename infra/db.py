@@ -4,22 +4,25 @@ from threading import Lock
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
+from infra.database import engine_kwargs, is_sqlite_url
+
 
 class Base(DeclarativeBase):
     pass
 
 
 def make_engine(database_url: str):
-    connect_args = {}
-    if database_url.startswith("sqlite"):
-        connect_args["check_same_thread"] = False
-    eng = create_engine(database_url, connect_args=connect_args)
-    if database_url.startswith("sqlite"):
+    kwargs = engine_kwargs(database_url)
+    eng = create_engine(database_url, **kwargs)
+    if is_sqlite_url(database_url):
 
         @event.listens_for(eng, "connect")
-        def _sqlite_fk(dbapi_conn, _connection_record):
+        def _sqlite_pragmas(dbapi_conn, _connection_record):
             cur = dbapi_conn.cursor()
             cur.execute("PRAGMA foreign_keys=ON")
+            cur.execute("PRAGMA journal_mode=WAL")
+            cur.execute("PRAGMA synchronous=NORMAL")
+            cur.execute("PRAGMA busy_timeout=15000")
             cur.close()
 
     return eng
@@ -28,6 +31,16 @@ def make_engine(database_url: str):
 _engine = None
 _session_factory: sessionmaker[Session] | None = None
 _lock = Lock()
+
+
+def reset_engine() -> None:
+    """إعادة تهيئة المحرك بعد تغيير DATABASE_URL في .env."""
+    global _engine, _session_factory
+    with _lock:
+        if _engine is not None:
+            _engine.dispose()
+        _engine = None
+        _session_factory = None
 
 
 def get_engine():

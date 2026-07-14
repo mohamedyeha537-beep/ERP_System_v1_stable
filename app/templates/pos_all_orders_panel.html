@@ -1,0 +1,197 @@
+{% set orders_hub_rows = orders_hub_rows if orders_hub_rows is defined else [] %}
+
+{% set refund_auth_configured = refund_auth_configured if refund_auth_configured is defined else false %}
+
+
+
+<div class="pos-all-orders">
+
+  <p class="muted pos-all-orders-hint">
+
+    كل طلبات الجلسة المحددة (مفتوحة ومغلقة) — تتبّع مسار التجهيز والتقديم والدفع.
+
+    للفواتير المغلقة: طباعة الفاتورة، تصحيح وسيلة الدفع، أو الاسترداد.
+
+  </p>
+
+
+
+  {% if not refund_auth_configured %}
+
+  <div class="pos-all-orders-warn">
+
+    لم يُضبط <strong>كود تفويض الاسترداد</strong> بعد — من
+
+    <a href="/admin/settings" target="_blank">إعدادات النظام</a>.
+
+  </div>
+
+  {% endif %}
+
+
+
+  {% if orders_hub_rows|length > 0 %}
+
+  <div class="pos-all-orders-scroll">
+
+    <table class="pos-all-orders-table">
+
+      <thead>
+
+        <tr>
+
+          <th>#</th>
+
+          <th>الطلب</th>
+
+          <th>مسار الطلب</th>
+
+          <th>الدفع</th>
+
+          <th>الإجمالي</th>
+
+          <th>إجراء</th>
+
+        </tr>
+
+      </thead>
+
+      <tbody>
+
+        {% for row in orders_hub_rows %}
+
+        <tr class="{% if row.is_active %}is-active{% endif %}">
+
+          <td><strong>#{{ row.id }}</strong></td>
+
+          <td>
+
+            {{ row.label }}
+
+            {% if row.created_at %}
+
+            <div class="muted" style="font-size:0.75rem">{{ pos_format_dt(row.created_at, '%H:%M') }}</div>
+
+            {% endif %}
+
+            {% if row.driver_label %}
+
+            <div class="muted" style="font-size:0.72rem;color:#7c2d12">🚗 {{ row.driver_label }}</div>
+
+            {% endif %}
+
+            {% if row.payment_method_name %}
+
+            <div class="muted" style="font-size:0.72rem">💳 {{ row.payment_method_name }}</div>
+
+            {% endif %}
+
+          </td>
+
+          <td>
+
+            <span class="pos-order-badge pos-pipe--{{ row.pipeline_key }}" title="{{ row.pipeline_hint }}">{{ row.pipeline_status }}</span>
+
+          </td>
+
+          <td>
+
+            <span class="pos-order-badge pos-order-badge--pay-{{ row.pay_status_key }}">{{ row.pay_status }}</span>
+
+          </td>
+
+          <td>{{ pos_money(row.total) }} <span class="money-currency">د.ل</span></td>
+
+          <td class="pos-all-orders-actions">
+
+            {% if row.can_open %}
+
+            <form method="post" action="/pos/open-order/{{ row.id }}" style="margin:0">
+
+              <button type="submit" class="btn btn-primary" style="padding:0.25rem 0.55rem;font-size:0.8rem">فتح</button>
+
+            </form>
+
+            {% endif %}
+
+            {% if row.can_checkout %}
+
+            <form method="post" action="/pos/open-order/{{ row.id }}/checkout" style="margin:0">
+
+              <button type="submit" class="btn" style="padding:0.25rem 0.55rem;font-size:0.8rem">تحصيل</button>
+
+            </form>
+
+            {% endif %}
+
+            {% if row.can_mark_served %}
+
+            <form method="post" action="/pos/order/{{ row.id }}/mark-served" style="margin:0">
+
+              <button type="submit" class="btn" style="padding:0.25rem 0.5rem;font-size:0.75rem">تم التقديم</button>
+
+            </form>
+
+            {% endif %}
+
+            {% if row.can_print %}
+
+            <button type="button" class="btn btn-primary pos-hub-print-btn" style="padding:0.25rem 0.5rem;font-size:0.75rem"
+              data-sale-id="{{ row.id }}" title="إعادة طباعة الفاتورة">طباعة</button>
+
+            {% endif %}
+
+            {% if row.can_edit_invoice %}
+
+            <a class="btn" href="/sales/invoices/{{ row.id }}/edit" target="_blank"
+              style="padding:0.25rem 0.5rem;font-size:0.75rem;border-color:#22c55e;background:#f0fdf4;color:#166534"
+              title="تعديل الفاتورة وتصحيح التسوية">تعديل</a>
+
+            {% endif %}
+
+            {% if row.can_change_payment %}
+
+            <button type="button" class="btn pos-payfix-btn" style="padding:0.25rem 0.5rem;font-size:0.75rem;border-color:#6366f1;background:#eef2ff;color:#3730a3"
+              data-sale-id="{{ row.id }}" data-sale-label="#{{ row.id }}"
+              data-current-payment="{{ row.payment_method_name or '—' }}"
+              data-current-payment-id="{{ row.payment_method_id or '' }}">تصحيح الدفع</button>
+
+            {% endif %}
+
+            {% if row.can_refund %}
+
+            <button type="button" class="btn btn-refund-start" style="padding:0.25rem 0.55rem;font-size:0.8rem;border-color:#f59e0b;background:#fff7ed;color:#9a3412"
+
+              data-sale-id="{{ row.id }}"
+
+              title="{% if not refund_auth_configured %}اضبط كود الاسترداد في الإعدادات أولاً{% else %}استرداد الفاتورة{% endif %}">
+
+              استرداد
+
+            </button>
+
+            {% elif not row.can_open and not row.can_checkout and not row.can_mark_served and not row.can_print and not row.can_edit_invoice and not row.can_change_payment and not row.can_refund %}
+
+            <span class="muted" style="font-size:0.78rem">—</span>
+
+            {% endif %}
+
+          </td>
+
+        </tr>
+
+        {% endfor %}
+
+      </tbody>
+
+    </table>
+
+  </div>
+
+  {% else %}
+
+  <p class="muted" style="margin:0.75rem 0 0">لا توجد طلبات مسجّلة في هذه الجلسة بعد.</p>
+
+  {% endif %}
+
+</div>

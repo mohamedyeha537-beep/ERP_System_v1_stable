@@ -1,0 +1,205 @@
+{# أزرار الطباعة — صورة مطابقة للمعاينة عبر الوكيل، أو معاينة/ويندوز #}
+{% if not embed|default(0) %}
+<div class="receipt-actions no-print" id="receipt-print-actions">
+  {% if silent_print_enabled and silent_print_url %}
+  <button type="button" class="btn btn-primary" id="btn-silent-print" data-silent-url="{{ silent_print_url }}">
+    طباعة
+  </button>
+  <button type="button" class="btn" id="btn-preview-receipt" title="عرض الفاتورة كما على الشاشة">معاينة</button>
+  <button type="button" class="btn btn-secondary" id="btn-browser-print" title="نافذة ويندوز">طباعة ويندوز…</button>
+  <span id="silent-print-status" class="muted" style="font-size:0.82rem;margin-inline-start:0.35rem">
+    {% if receipt_printer_name %}→ {{ receipt_printer_name }}{% endif %}
+  </span>
+  <p class="muted no-print" style="margin:0.35rem 0 0;font-size:0.78rem;max-width:40rem">
+    <strong>طباعة</strong>: نفس شكل المعاينة (صورة) على الورقة الحرارية — بدون نافذة.
+    <strong>معاينة</strong>: على الشاشة فقط.
+    <strong>طباعة ويندوز</strong>: اختياري — نافذة اختيار الطابعة.
+  </p>
+  {% else %}
+  <button type="button" class="btn btn-primary" id="btn-browser-print">طباعة</button>
+  <p class="muted no-print" style="margin:0.5rem 0 0;font-size:0.82rem;max-width:36rem">
+    ستظهر نافذة اختيار الطابعة لأن <strong>الطباعة المباشرة</strong> غير مفعّلة.
+    من <a href="/admin/settings">الإعدادات</a> اختر «طابعة الكاشير»، ثم شغّل
+    <a href="/admin/printing">وكيل الطباعة</a> على هذا الجهاز.
+  </p>
+  {% endif %}
+  {% if whatsapp_send_url|default('') %}
+  {% include "_receipt_whatsapp_block.html" %}
+  {% endif %}
+</div>
+{% endif %}
+{% if silent_print_enabled and silent_print_url %}
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" crossorigin="anonymous"></script>
+<script src="/static/receipt_capture.js?v=4"></script>
+{% elif whatsapp_send_url|default('') %}
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" crossorigin="anonymous"></script>
+{% endif %}
+{% if whatsapp_send_url|default('') %}
+<script src="/static/receipt_whatsapp.js?v=3"></script>
+{% endif %}
+{% if silent_print_enabled and silent_print_url %}
+<script>
+(function () {
+  var statusEl = document.getElementById("silent-print-status");
+  var silentBtn = document.getElementById("btn-silent-print");
+  var previewBtn = document.getElementById("btn-preview-receipt");
+  var browserBtn = document.getElementById("btn-browser-print");
+  var url = {{ silent_print_url|tojson }};
+  var auto = {{ 1 if autoprint else 0 }};
+  var returnPos = {{ 1 if request.query_params.get('return_pos') == '1' else 0 }};
+  var returnRoom = {{ 1 if request.query_params.get('room') == '1' else 0 }};
+  var returnKitchenSent = {{ sale.id|tojson if (return_kitchen_sent|default(false) and sale is defined) else 'null' }};
+  var embed = {{ 1 if embed|default(0) else 0 }};
+  var saleId = {{ sale.id|tojson if sale is defined else 'null' }};
+
+  function notifyParent(payload) {
+    if (!embed || window.parent === window) return;
+    try {
+      window.parent.postMessage(
+        Object.assign({ type: "pos-receipt-print", saleId: saleId }, payload || {}),
+        window.location.origin
+      );
+    } catch (e) { /* ignore */ }
+  }
+
+  function setStatus(msg, ok) {
+    if (!statusEl) return;
+    statusEl.textContent = msg || "";
+    statusEl.style.color = ok ? "#15803d" : (ok === false ? "#b91c1c" : "");
+  }
+
+  async function silentPrint() {
+    if (!url) return false;
+    if (silentBtn) silentBtn.disabled = true;
+    try {
+      if (typeof window.receiptCapturePrint !== "function") {
+        var loadErr = "تعذّر تحميل أداة التقاط الفاتورة — حدّث الصفحة";
+        setStatus(loadErr, false);
+        notifyParent({ ok: false, error: loadErr });
+        return false;
+      }
+      var out = await window.receiptCapturePrint(url, setStatus);
+      if (!out.res.ok || !out.data.ok) {
+        var msg = out.data.error
+          || ("خطأ من السيرفر (" + out.res.status + ")");
+        setStatus(msg, false);
+        notifyParent({ ok: false, error: msg });
+        return false;
+      }
+      setStatus("تم الإرسال — تُطبع خلال ثوانٍ", true);
+      notifyParent({ ok: true, message: "تم إرسال الطباعة للطابعة" });
+      return true;
+    } catch (e) {
+      var errMsg = (e && e.message) ? e.message : "تعذّر التقاط أو إرسال الفاتورة";
+      setStatus(errMsg, false);
+      notifyParent({ ok: false, error: errMsg });
+      return false;
+    } finally {
+      if (silentBtn) silentBtn.disabled = false;
+    }
+  }
+
+  if (silentBtn) {
+    silentBtn.addEventListener("click", function () { silentPrint(); });
+  }
+  if (previewBtn) {
+    previewBtn.addEventListener("click", function () {
+      var page = document.getElementById("receipt-capture-root") || document.querySelector(".receipt-page");
+      if (page) {
+        page.scrollIntoView({ behavior: "smooth", block: "start" });
+        page.classList.add("receipt-preview-focus");
+        setTimeout(function () { page.classList.remove("receipt-preview-focus"); }, 2000);
+      }
+      setStatus("معاينة — الفاتورة أدناه", true);
+    });
+  }
+  if (browserBtn) {
+    browserBtn.addEventListener("click", function () { window.print(); });
+  }
+  if (auto) {
+    window.addEventListener("load", function () {
+      setTimeout(async function () {
+        var ok = await silentPrint();
+        if (embed) return;
+        if (returnPos && ok) {
+          if (returnKitchenSent && !returnRoom) {
+            window.location.href = "/pos?ok=1&kitchen_sent=" + returnKitchenSent;
+          } else {
+            window.location.href = returnRoom ? "/pos?ok=1&room=1" : "/pos?ok=1";
+          }
+        }
+      }, 600);
+    });
+  }
+})();
+</script>
+{% else %}
+<script>
+(function () {
+  var browserBtn = document.getElementById("btn-browser-print");
+  var auto = {{ 1 if autoprint else 0 }};
+  var embed = {{ 1 if embed|default(0) else 0 }};
+  var saleId = {{ sale.id|tojson if sale is defined else 'null' }};
+  function notifyParent(payload) {
+    if (!embed || window.parent === window) return;
+    try {
+      window.parent.postMessage(
+        Object.assign({ type: "pos-receipt-print", saleId: saleId }, payload || {}),
+        window.location.origin
+      );
+    } catch (e) { /* ignore */ }
+  }
+  if (browserBtn) {
+    browserBtn.addEventListener("click", function () { window.print(); });
+  }
+  if (auto) {
+    window.addEventListener("load", function () {
+      setTimeout(function () {
+        if (embed) {
+          notifyParent({
+            ok: false,
+            needsBrowserPrint: true,
+            error: "الطباعة المباشرة غير مفعّلة",
+          });
+          return;
+        }
+        window.print();
+      }, 350);
+    });
+  }
+})();
+</script>
+{% endif %}
+{% if whatsapp_send_url|default('') %}
+<script>
+(function () {
+  function bindWaButtons(root) {
+    (root || document).querySelectorAll(".pos-receipt-whatsapp-btn").forEach(function (btn) {
+      if (btn._waPageBound) return;
+      btn._waPageBound = true;
+      btn.addEventListener("click", async function () {
+        var url = btn.getAttribute("data-send-url");
+        var bid = btn.getAttribute("data-booking-id");
+        var block = btn.closest(".receipt-wa-block");
+        var statusEl = block ? block.querySelector(".receipt-wa-status") : null;
+        function setStatus(msg, ok) {
+          if (!statusEl) return;
+          statusEl.textContent = msg || "";
+          statusEl.style.color = ok ? "#15803d" : (ok === false ? "#b91c1c" : "");
+        }
+        btn.disabled = true;
+        try {
+          if (bid && typeof window.hotelReceiptWhatsApp === "function") {
+            await window.hotelReceiptWhatsApp(bid, setStatus, window.receiptWhatsAppResolvePhone(btn));
+          } else if (url && typeof window.receiptWhatsAppSend === "function") {
+            await window.receiptWhatsAppSend(url, setStatus, window.receiptWhatsAppResolvePhone(btn));
+          }
+        } catch (e) { /* setStatus */ }
+        finally { btn.disabled = false; }
+      });
+    });
+  }
+  bindWaButtons(document);
+})();
+</script>
+{% endif %}

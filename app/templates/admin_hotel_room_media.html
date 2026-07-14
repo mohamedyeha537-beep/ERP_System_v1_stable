@@ -1,0 +1,64 @@
+﻿{% extends "base.html" %}
+{% block title %}وسائط الشقة — {{ room.name_ar or room.number }}{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/hotel_dashboard.css?v=12" />
+{% endblock %}
+{% block body %}
+<h1 style="margin-top:0">🖼 وسائط المتجر — {{ room.name_ar or room.number }}</h1>
+<p class="muted"><a href="/admin/hotel/rooms">← إعداد الشقق</a> · <a href="/suites/room/{{ room.id }}" target="_blank">معاينة في المتجر</a></p>
+
+{% if saved %}<div class="card" style="background:#ecfdf5;border-color:#86efac"><p style="margin:0">تم الحفظ.</p></div>{% endif %}
+{% if error %}<div class="card" style="background:#fef2f2;border-color:#fecaca"><p style="margin:0;color:#b91c1c">{{ error }}</p></div>{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0">رفع صورة أو فيديو</h2>
+  <form method="post" action="/admin/hotel/rooms/{{ room.id }}/media/upload" enctype="multipart/form-data">
+    <div class="row" style="gap:0.6rem;flex-wrap:wrap;align-items:flex-end">
+      <div>
+        <label>النوع</label>
+        <select name="media_kind">
+          <option value="IMAGE">صورة</option>
+          <option value="VIDEO">فيديو (mp4/webm)</option>
+        </select>
+      </div>
+      <div style="flex:1;min-width:200px">
+        <label>الملف *</label>
+        <input type="file" name="upload" required accept="image/jpeg,image/png,image/webp,video/mp4,video/webm" />
+      </div>
+      <div style="flex:1;min-width:160px">
+        <label>وصف قصير</label>
+        <input name="caption" placeholder="مثلاً: غرفة النوم" />
+      </div>
+      <div style="width:90px">
+        <label>ترتيب</label>
+        <input name="sort_order" type="number" value="0" />
+      </div>
+      <button class="btn btn-primary" type="submit">رفع</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">المعرض ({{ media|length }})</h2>
+  {% if media %}
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:0.75rem">
+    {% for item in media %}
+    {% set m = item.row %}
+    <div class="card" style="margin:0;padding:0.5rem">
+      {% if m.kind.value == 'VIDEO' %}
+      <video src="{{ item.url }}" controls style="width:100%;border-radius:8px;max-height:140px"></video>
+      {% else %}
+      <img src="{{ item.url }}" alt="" style="width:100%;border-radius:8px;aspect-ratio:4/3;object-fit:cover" />
+      {% endif %}
+      <p style="margin:0.35rem 0 0;font-size:0.82rem">{{ m.caption or '—' }} · ترتيب {{ m.sort_order }}</p>
+      <form method="post" action="/admin/hotel/rooms/{{ room.id }}/media/{{ m.id }}/delete" onsubmit="return confirm('حذف؟');" style="margin-top:0.35rem">
+        <button type="submit" class="btn" style="color:#b91c1c;padding:0.2rem 0.45rem">حذف</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">لا توجد وسائط بعد — الصورة الرئيسية للشقة تظهر كاحتياط.</p>
+  {% endif %}
+</div>
+{% endblock %}

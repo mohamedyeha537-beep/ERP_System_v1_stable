@@ -1,0 +1,21 @@
+{% set chat_orders = chat_orders if chat_orders is defined else [] %}
+{% if chat_orders|length > 0 %}
+{% set _ids = chat_orders|map(attribute='sale_id')|list|join(',') %}
+<div class="pos-chat-rail-incoming" data-web-chat-sale-ids="{{ _ids }}">
+  <div class="pos-chat-rail-incoming__head">
+    <span class="pos-chat-rail-incoming__pulse" aria-hidden="true"></span>
+    <strong>💬 طلبات الشات</strong>
+    <span class="pos-chat-rail-incoming__count">{{ chat_orders|length }}</span>
+  </div>
+  <div class="pos-chat-rail-incoming__list">
+    {% for o in chat_orders %}
+    <button type="button" class="pos-chat-rail-chip" data-open-order="{{ o.sale_id }}"
+      title="فتح طلب #{{ o.sale_id }} — {{ o.guest_name or 'زائر' }}">
+      <span class="pos-chat-rail-chip__id">#{{ o.sale_id }}</span>
+      <span class="pos-chat-rail-chip__meta">{{ o.guest_name or 'زائر' }}{% if o.guest_phone %} · <span dir="ltr">{{ o.guest_phone }}</span>{% endif %}</span>
+      <span class="pos-chat-rail-chip__total">{{ o.sale_total }} د.ل</span>
+    </button>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}

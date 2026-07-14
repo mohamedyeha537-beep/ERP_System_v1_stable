@@ -1,0 +1,226 @@
+{% extends "base.html" %}
+{% from "_gl_export_macros.html" import gl_export_bar, gl_export_format_help, gl_report_print_styles with context %}
+{% block title %}التقارير المالية — GL{% endblock %}
+{% block head_extra %}{{ gl_report_print_styles() }}{% endblock %}
+{% block body %}
+<div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem">
+  <div>
+    <h1 style="margin:0">التقارير المالية من دفتر الأستاذ</h1>
+    <p class="muted" style="margin:0.35rem 0 0">مجال التقرير: <strong>{{ domain_label }}</strong></p>
+  </div>
+  <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center">
+    {% if gl_status.production_ready %}
+    <a class="btn btn-primary" href="/admin/gl/reports?report=pl">عرض الربح والخسارة</a>
+    {% endif %}
+    <a class="btn" href="/admin/gl/accounts">شجرة الحسابات</a>
+    <a class="btn" href="/admin/gl/journal">قيود اليومية</a>
+    <a class="btn" href="/admin/gl/reconciliation">مطابقة GL</a>
+    <a class="btn" href="/admin/gl">إعدادات GL</a>
+  </div>
+</div>
+
+<div class="card" style="border-color:#0ea5e9;background:linear-gradient(180deg,#e0f2fe 0%,#fff 55%)">
+  <p style="margin:0;line-height:1.65">
+    هذه التقارير تُبنى من <strong>قيود GL فقط</strong> — المصدر المحاسبي الموحّد للإيرادات والمصاريف والأصول والخصوم.
+    سجّل العمليات من POS والمصروفات والتحصيلات؛ تُرحَّل تلقائياً إلى GL ثم تظهر هنا.
+  </p>
+  {% if gl_status.production_ready %}
+  <p style="margin:0.75rem 0 0;color:#15803d;font-weight:600">
+    ✓ GL في وضع تشغيلي — هذه التقارير هي المرجع الرسمي للإدارة.
+  </p>
+  <div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:0.85rem">
+    <a class="btn btn-primary" href="/admin/gl/reports?report=pl">قائمة الدخل — ربح وخسارة</a>
+    <a class="btn" href="/admin/gl/reports?report=bs">الميزانية العمومية</a>
+    <a class="btn" href="/admin/gl/reports?report=tb">ميزان المراجعة</a>
+  </div>
+  {% elif not gl_status.enabled %}
+  <p style="margin:0.75rem 0 0;color:#b45309;font-weight:600">
+    GL غير مفعّل — فعّله من <a href="/admin/gl">الإعدادات</a>.
+  </p>
+  {% elif not gl_status.is_live %}
+  <p style="margin:0.75rem 0 0;color:#b45309;font-weight:600">
+    GL في وضع مقارنة — اضغط «تفعيل النسخة النهائية» من <a href="/admin/gl">إعدادات GL</a> قبل الاعتماد على الأرقام.
+  </p>
+  {% elif gl_status.entry_count == 0 %}
+  <p style="margin:0.75rem 0 0;color:#b45309">
+    لا توجد قيود بعد — <a href="/admin/gl/journal">ترحيل الحركات السابقة</a>.
+  </p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <form method="get" action="/admin/gl/reports" class="row" style="flex-wrap:wrap;gap:0.75rem;align-items:flex-end">
+    <div>
+      <label class="muted" style="font-size:0.8rem;display:block">التقرير</label>
+      <select name="report">
+        <option value="pl" {% if report == 'pl' %}selected{% endif %}>قائمة الدخل (ربح وخسارة)</option>
+        <option value="bs" {% if report == 'bs' %}selected{% endif %}>الميزانية العمومية</option>
+        <option value="tb" {% if report == 'tb' %}selected{% endif %}>ميزان المراجعة</option>
+      </select>
+    </div>
+    <div>
+      <label class="muted" style="font-size:0.8rem;display:block">الفترة</label>
+      <select name="period">
+        {% for key, label in period_labels.items() %}
+        <option value="{{ key }}" {% if period == key %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="muted" style="font-size:0.8rem;display:block">من</label>
+      <input type="date" name="start" value="{{ start_str }}" />
+    </div>
+    <div>
+      <label class="muted" style="font-size:0.8rem;display:block">إلى</label>
+      <input type="date" name="end" value="{{ end_str }}" />
+    </div>
+    <button class="btn btn-primary" type="submit">عرض</button>
+  </form>
+  <p class="muted" style="margin:0.75rem 0 0;font-size:0.82rem">
+    للميزانية: تُستخدم نهاية الفترة ({{ to_date }}) كتاريخ «حتى». لقائمة الدخل وميزان المراجعة: من {{ from_date }} إلى {{ to_date }}.
+    الحسابات <strong>التجميعية</strong> (1000، 5000…) لا تُحسب في الإجماليات — فقط الحسابات الفرعية التي تُرحَّل إليها القيود.
+  </p>
+</div>
+
+{% set export_qs = 'report=' ~ report ~ '&period=' ~ period ~ '&start=' ~ start_str ~ '&end=' ~ end_str %}
+
+<div id="gl-report-print">
+{% if report == 'pl' and profit_loss %}
+<div class="card gl-report-section">
+  {{ gl_export_bar('/admin/gl/reports/export.xlsx?' ~ export_qs, '/admin/gl/reports/export.csv?' ~ export_qs) }}
+  {{ gl_export_format_help() }}
+  <h2 style="margin-top:0">قائمة الدخل — ربح وخسارة</h2>
+  <p class="muted" style="margin:0 0 1rem">{{ from_date }} → {{ to_date }}</p>
+
+  <h3 style="font-size:1rem;margin:0 0 0.5rem">الإيرادات</h3>
+  {% if profit_loss.revenue_lines %}
+  <table style="width:100%;border-collapse:collapse;font-size:0.92rem;margin-bottom:1rem">
+    <tbody>
+      {% for ln in profit_loss.revenue_lines %}
+      <tr style="border-bottom:1px dashed var(--border)">
+        <td style="padding:0.35rem"><a href="/admin/gl/accounts/{{ ln.account.id }}">{{ ln.account.code }} — {{ ln.account.name_ar }}</a></td>
+        <td style="padding:0.35rem;text-align:left;direction:ltr;font-variant-numeric:tabular-nums">{{ "%.3f"|format(ln.amount) }}</td>
+      </tr>
+      {% endfor %}
+      <tr style="font-weight:700;border-top:2px solid var(--border)">
+        <td style="padding:0.4rem">إجمالي الإيرادات</td>
+        <td style="padding:0.4rem;text-align:left;direction:ltr">{{ "%.3f"|format(profit_loss.total_revenue) }} د.ل</td>
+      </tr>
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">لا إيرادات في هذه الفترة.</p>
+  {% endif %}
+
+  <h3 style="font-size:1rem;margin:1rem 0 0.5rem">المصروفات</h3>
+  {% if profit_loss.expense_lines %}
+  <table style="width:100%;border-collapse:collapse;font-size:0.92rem;margin-bottom:1rem">
+    <tbody>
+      {% for ln in profit_loss.expense_lines %}
+      <tr style="border-bottom:1px dashed var(--border)">
+        <td style="padding:0.35rem"><a href="/admin/gl/accounts/{{ ln.account.id }}">{{ ln.account.code }} — {{ ln.account.name_ar }}</a></td>
+        <td style="padding:0.35rem;text-align:left;direction:ltr;font-variant-numeric:tabular-nums">{{ "%.3f"|format(ln.amount) }}</td>
+      </tr>
+      {% endfor %}
+      <tr style="font-weight:700;border-top:2px solid var(--border)">
+        <td style="padding:0.4rem">إجمالي المصروفات</td>
+        <td style="padding:0.4rem;text-align:left;direction:ltr">{{ "%.3f"|format(profit_loss.total_expense) }} د.ل</td>
+      </tr>
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">لا مصروفات في هذه الفترة.</p>
+  {% endif %}
+
+  <div class="stat-card {% if profit_loss.net_income >= 0 %}good{% else %}bad{% endif %}" style="max-width:20rem;margin-top:1rem">
+    <div class="label">صافي الربح / الخسارة</div>
+    <div class="value">{{ "%.3f"|format(profit_loss.net_income) }} د.ل</div>
+  </div>
+</div>
+{% endif %}
+
+{% if report == 'bs' and balance_sheet %}
+<div class="card gl-report-section">
+  {{ gl_export_bar('/admin/gl/reports/export.xlsx?' ~ export_qs, '/admin/gl/reports/export.csv?' ~ export_qs) }}
+  {{ gl_export_format_help() }}
+  <h2 style="margin-top:0">الميزانية العمومية</h2>
+  <p class="muted" style="margin:0 0 1rem">حتى {{ balance_sheet.as_of }}</p>
+
+  {% for sec in balance_sheet.sections %}
+  <h3 style="font-size:1rem;margin:1rem 0 0.5rem">{{ sec.label }}</h3>
+  {% if sec.lines %}
+  <table style="width:100%;border-collapse:collapse;font-size:0.92rem;margin-bottom:0.5rem">
+    <tbody>
+      {% for ln in sec.lines %}
+      <tr style="border-bottom:1px dashed var(--border)">
+        <td style="padding:0.35rem"><a href="/admin/gl/accounts/{{ ln.account.id }}">{{ ln.account.code }} — {{ ln.account.name_ar }}</a></td>
+        <td style="padding:0.35rem;text-align:left;direction:ltr;font-variant-numeric:tabular-nums">{{ "%.3f"|format(ln.display_amount) }}</td>
+      </tr>
+      {% endfor %}
+      <tr style="font-weight:700;border-top:2px solid var(--border)">
+        <td style="padding:0.4rem">إجمالي {{ sec.label }}</td>
+        <td style="padding:0.4rem;text-align:left;direction:ltr">{{ "%.3f"|format(sec.subtotal) }} د.ل</td>
+      </tr>
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">—</p>
+  {% endif %}
+  {% endfor %}
+
+  <div style="margin-top:1rem;padding:0.75rem;background:var(--bg-muted,#f8fafc);border-radius:8px;line-height:1.65">
+    <div><strong>إجمالي الأصول:</strong> {{ "%.3f"|format(balance_sheet.total_assets) }} د.ل</div>
+    <div><strong>إجمالي الخصوم:</strong> {{ "%.3f"|format(balance_sheet.total_liabilities) }} د.ل</div>
+    <div><strong>حقوق الملكية (حسابات):</strong> {{ "%.3f"|format(balance_sheet.total_equity_accounts) }} د.ل</div>
+    <div><strong>ربح/خسارة متراكم (غير مرحّل):</strong> {{ "%.3f"|format(balance_sheet.unclosed_net_income) }} د.ل</div>
+    <div style="margin-top:0.5rem;font-weight:700">الخصوم + حقوق الملكية = {{ "%.3f"|format(balance_sheet.total_liabilities_equity) }} د.ل
+      {% if balance_sheet.balanced %}<span style="color:#15803d"> ✓ متوازنة</span>{% else %}<span style="color:#b45309"> — راجع المطابقة</span>{% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if report == 'tb' and trial_balance %}
+<div class="card gl-report-section">
+  {{ gl_export_bar('/admin/gl/reports/export.xlsx?' ~ export_qs, '/admin/gl/reports/export.csv?' ~ export_qs) }}
+  {{ gl_export_format_help() }}
+  <h2 style="margin-top:0">ميزان المراجعة</h2>
+  <p class="muted" style="margin:0 0 1rem">أرصدة حتى {{ trial_balance.as_of }} — حركة الفترة {{ trial_balance.from_date }} → {{ trial_balance.as_of }}</p>
+  {% if trial_balance.rows %}
+  <table style="width:100%;border-collapse:collapse;font-size:0.88rem">
+    <thead>
+      <tr style="border-bottom:2px solid var(--border)">
+        <th style="text-align:right;padding:0.4rem">الحساب</th>
+        <th style="text-align:left;padding:0.4rem;direction:ltr">مدين فترة</th>
+        <th style="text-align:left;padding:0.4rem;direction:ltr">دائن فترة</th>
+        <th style="text-align:left;padding:0.4rem;direction:ltr">رصيد — مدين</th>
+        <th style="text-align:left;padding:0.4rem;direction:ltr">رصيد — دائن</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in trial_balance.rows %}
+      <tr style="border-bottom:1px dashed var(--border)">
+        <td style="padding:0.35rem"><a href="/admin/gl/accounts/{{ r.account.id }}">{{ r.account.code }} — {{ r.account.name_ar }}</a></td>
+        <td style="padding:0.35rem;text-align:left;direction:ltr">{% if r.period_debit > 0 %}{{ "%.3f"|format(r.period_debit) }}{% else %}—{% endif %}</td>
+        <td style="padding:0.35rem;text-align:left;direction:ltr">{% if r.period_credit > 0 %}{{ "%.3f"|format(r.period_credit) }}{% else %}—{% endif %}</td>
+        <td style="padding:0.35rem;text-align:left;direction:ltr">{% if r.tb_debit > 0 %}{{ "%.3f"|format(r.tb_debit) }}{% else %}—{% endif %}</td>
+        <td style="padding:0.35rem;text-align:left;direction:ltr">{% if r.tb_credit > 0 %}{{ "%.3f"|format(r.tb_credit) }}{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+      <tr style="font-weight:700;border-top:2px solid var(--border)">
+        <td style="padding:0.4rem">الإجمالي</td>
+        <td colspan="2"></td>
+        <td style="padding:0.4rem;text-align:left;direction:ltr">{{ "%.3f"|format(trial_balance.total_debit) }}</td>
+        <td style="padding:0.4rem;text-align:left;direction:ltr">{{ "%.3f"|format(trial_balance.total_credit) }}
+          {% if trial_balance.balanced %}<span style="color:#15803d"> ✓</span>{% endif %}
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">لا حركة في الفترة المحددة.</p>
+  {% endif %}
+</div>
+{% endif %}
+</div>{# gl-report-print #}
+{% endblock %}

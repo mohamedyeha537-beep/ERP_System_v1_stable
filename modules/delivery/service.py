@@ -208,7 +208,7 @@ def delivery_orders_report(
             Sale.created_at >= start,
             Sale.created_at < end,
         )
-        .order_by(Sale.created_at.desc(), Sale.id.desc())
+        .order_by(Sale.id.desc())
     ).all()
     out: list[DeliveryOrderRow] = []
     for sale_id, created_at, customer_name, customer_phone, zone_name, order_total, delivery_fee, payment_method_name in rows:

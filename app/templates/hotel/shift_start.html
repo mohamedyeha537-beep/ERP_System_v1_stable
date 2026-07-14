@@ -1,0 +1,48 @@
+﻿{% extends "base.html" %}
+{% block title %}فتح وردية الفندق{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/hotel_dashboard.css?v=12" />
+{% endblock %}
+{% block body %}
+<div style="max-width:520px;margin:2rem auto">
+  <h1 style="margin-top:0">فتح وردية الاستقبال</h1>
+  <p class="muted">الوردية الحالية: <strong>{{ current_slot.name_ar }}</strong> ({{ shift_window }})</p>
+
+  {% if error %}
+  <div class="alert" style="background:#fef2f2;margin-bottom:0.75rem">{{ error }}</div>
+  {% endif %}
+
+  <form method="post" action="/admin/hotel/shift/start" class="card" style="display:grid;gap:0.75rem">
+    <label>الوردية
+      <select name="shift_number">
+        <option value="{{ current_slot.number }}" selected>{{ current_slot.name_ar }}</option>
+        {% if current_slot.number != 1 %}<option value="1">الوردية الأولى</option>{% endif %}
+        {% if current_slot.number != 2 %}<option value="2">الوردية الثانية</option>{% endif %}
+        {% if current_slot.number != 3 %}<option value="3">الوردية الثالثة</option>{% endif %}
+      </select>
+    </label>
+    <label>رصيد كاش الافتتاح (د.ل)
+      <input name="opening_cash" id="opening_cash" type="number" step="0.001" min="0" value="0" />
+    </label>
+    <label style="display:flex;align-items:center;gap:0.4rem">
+      <input type="checkbox" name="no_opening_float" id="no_opening_float" /> بدون رصيد افتتاح
+    </label>
+    <label>ملاحظة
+      <textarea name="opening_note" rows="2" placeholder="اختياري"></textarea>
+    </label>
+    <button class="btn btn-primary" type="submit">فتح الوردية</button>
+  </form>
+</div>
+<script>
+(function () {
+  var cb = document.getElementById("no_opening_float");
+  var inp = document.getElementById("opening_cash");
+  if (cb && inp) {
+    cb.addEventListener("change", function () {
+      inp.disabled = cb.checked;
+      if (cb.checked) inp.value = "0";
+    });
+  }
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,26 @@
+<form method="post" action="/pos/set-context" class="pos-ext-hub-form" id="room-ctx-form">
+  <input type="hidden" name="context_type" value="ROOM" />
+  <div class="pos-ext-hub-fields">
+    {% if pos_perm(request)('hotel:charge') and rooms %}
+    <select name="room_id" class="input pos-ext-hub-select" onchange="this.form.submit()">
+      <option value="" {% if not session_room_id %}selected{% endif %}>— اختر شقة —</option>
+      {% for r in rooms %}
+      <option value="{{ r.id }}" {% if session_room_id and session_room_id|int == r.id|int %}selected{% endif %}>#{{ r.number }}</option>
+      {% endfor %}
+    </select>
+  {% else %}
+    <p class="muted" style="margin:0;font-size:0.85rem">لا توجد صلاحية أو شقق متاحة.</p>
+    {% endif %}
+  </div>
+  {% if open_orders_nav|length > 0 %}
+  <div class="pos-hub-open-orders" aria-label="طلبات مفتوحة">
+    {% for row in open_orders_nav %}
+    <form method="post" action="/pos/open-order/{{ row.id }}" class="pos-hub-open-order-form">
+      <button type="submit" class="pos-hub-order-chip{% if row.active %} is-active{% endif %}" title="{{ row.status }}">
+        #{{ row.id }} · {{ row.label }} · {{ pos_money(row.total) }}
+      </button>
+    </form>
+    {% endfor %}
+  </div>
+  {% endif %}
+</form>

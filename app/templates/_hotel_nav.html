@@ -1,0 +1,68 @@
+<nav class="quick-grid hotel-quick-nav" aria-label="قائمة الفندق">
+  {% if pos_ui_show(request, 'ui_hotel_nav_dashboard') %}
+  <a class="qlink{% if active == 'dashboard' %} qlink--active{% endif %}" href="/admin/hotel/dashboard" style="--accent:#6366f1">
+    <div class="qicon" aria-hidden="true">🏨</div>
+    <div><div class="qtitle">لوحة الشقق</div><div class="qhint">التوفر · الديون</div></div>
+  </a>
+  {% endif %}
+  {% if pos_ui_show(request, 'ui_hotel_nav_bookings') %}
+  <a class="qlink{% if active == 'bookings' %} qlink--active{% endif %}" href="/admin/hotel/bookings" style="--accent:#8b5cf6">
+    <div class="qicon" aria-hidden="true">📋</div>
+    <div><div class="qtitle">الحجوزات</div><div class="qhint">قائمة · وصول · مغادرة</div></div>
+  </a>
+  {% endif %}
+  {% if pos_ui_show(request, 'ui_hotel_nav_quotations') %}
+  <a class="qlink{% if active == 'quotations' %} qlink--active{% endif %}" href="/admin/hotel/quotations" style="--accent:#0d9488">
+    <div class="qicon" aria-hidden="true">📄</div>
+    <div><div class="qtitle">عروض الشركات</div><div class="qhint">عرض سعر · متابعة</div></div>
+  </a>
+  {% endif %}
+  {% if pos_ui_show(request, 'ui_hotel_nav_calendar') %}
+  <a class="qlink{% if active == 'calendar' %} qlink--active{% endif %}" href="/admin/hotel/bookings/calendar" style="--accent:#a855f7">
+    <div class="qicon" aria-hidden="true">📅</div>
+    <div><div class="qtitle">التقويم</div><div class="qhint">عرض زمني</div></div>
+  </a>
+  {% endif %}
+  {% if pos_ui_show(request, 'ui_hotel_nav_rooms') %}
+  <a class="qlink{% if active == 'rooms' %} qlink--active{% endif %}" href="/admin/hotel/rooms" style="--accent:#3b82f6">
+    <div class="qicon" aria-hidden="true">🛠️</div>
+    <div><div class="qtitle">إعداد الشقق</div><div class="qhint">أرقام · أسعار · صور</div></div>
+  </a>
+  {% endif %}
+  {% if pos_ui_show(request, 'ui_hotel_nav_room_types') %}
+  <a class="qlink{% if active == 'room-types' %} qlink--active{% endif %}" href="/admin/hotel/room-types" style="--accent:#0ea5e9">
+    <div class="qicon" aria-hidden="true">🏷️</div>
+    <div><div class="qtitle">أنواع الغرف</div><div class="qhint">جناح · عائلي · VIP</div></div>
+  </a>
+  {% endif %}
+  {% if pos_ui_show(request, 'ui_hotel_nav_housekeeping') %}
+  <a class="qlink{% if active == 'housekeeping' %} qlink--active{% endif %}" href="/admin/hotel/housekeeping" style="--accent:#14b8a6">
+    <div class="qicon" aria-hidden="true">🧹</div>
+    <div><div class="qtitle">التنظيف والصيانة</div><div class="qhint">{% if summary is defined %}{{ summary.dirty }} تنظيف · {{ summary.maintenance }} صيانة{% else %}شقق للتنظيف{% endif %}</div></div>
+  </a>
+  {% endif %}
+  {% if pos_ui_show(request, 'ui_hotel_nav_shift') %}
+  <a class="qlink{% if active == 'shift' %} qlink--active{% endif %}" href="/admin/hotel/shift" style="--accent:#f59e0b">
+    <div class="qicon" aria-hidden="true">🕐</div>
+    <div><div class="qtitle">وردية الفندق</div><div class="qhint">فتح · إقفال · إيراد</div></div>
+  </a>
+  {% endif %}
+  {% if pos_ui_show(request, 'ui_hotel_nav_reports') %}
+  <a class="qlink{% if active == 'reports' %} qlink--active{% endif %}" href="/admin/hotel/reports" style="--accent:#64748b">
+    <div class="qicon" aria-hidden="true">📊</div>
+    <div><div class="qtitle">التقارير</div><div class="qhint">إشغال · إيراد</div></div>
+  </a>
+  {% endif %}
+  {% if pos_ui_show(request, 'ui_hotel_nav_settle') %}
+  <a class="qlink{% if active == 'settle' %} qlink--active{% endif %}" href="/hotel/settle" style="--accent:#f59e0b">
+    <div class="qicon" aria-hidden="true">💰</div>
+    <div><div class="qtitle">تسوية الحسابات</div><div class="qhint">استلام النقد · POS</div></div>
+  </a>
+  {% endif %}
+  {% if pos_ui_show(request, 'ui_hotel_nav_settings') %}
+  <a class="qlink{% if active == 'settings' %} qlink--active{% endif %}" href="/admin/hotel/settings" style="--accent:#475569">
+    <div class="qicon" aria-hidden="true">⚙️</div>
+    <div><div class="qtitle">إعدادات الحجز</div><div class="qhint">عربون · دفع مقدّم</div></div>
+  </a>
+  {% endif %}
+</nav>

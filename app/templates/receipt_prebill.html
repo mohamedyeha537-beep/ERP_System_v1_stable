@@ -6,49 +6,48 @@
     {% set brand = pos_brand(request) %}
     <title>أمر تجهيز #{{ sale.id }}</title>
     <style>
-      html, body { font-family: "Segoe UI", "Tahoma", "Arial",
-        "Microsoft Sans Serif", "Geeza Pro", system-ui, sans-serif; }
+      html, body {
+        font-family: "Segoe UI", "Tahoma", "Arial",
+          "Microsoft Sans Serif", "Geeza Pro", system-ui, sans-serif;
+        background: #fff !important;
+        color: #111;
+        margin: 0;
+      }
     </style>
     <link rel="stylesheet" href="/static/app.css" />
-    <link rel="stylesheet" href="/static/receipt_print.css" />
+    <link rel="stylesheet" href="/static/receipt_print.css?v=2" />
     <style>
       @page {
         size: {{ paper_css.size }};
         margin: {{ paper_css.margin }};
       }
       .receipt-page { max-width: {{ paper_css.max_width }}; }
-      .prebill-banner {
-        background: #fef3c7;
-        border: 2px dashed #f59e0b;
-        color: #92400e;
-        padding: 0.55rem 0.75rem;
-        border-radius: 8px;
-        margin-bottom: 0.75rem;
-        font-weight: 700;
+      .prebill-cashier {
+        margin: 0.2rem 0 0;
+        font-size: 0.85rem;
         text-align: center;
       }
+      .prebill-guest-blank {
+        font-size: 0.88rem;
+        letter-spacing: 0.02em;
+      }
     </style>
-    {% if autoprint %}
-    <script>
-      window.addEventListener("load", function () {
-        setTimeout(function () {
-          window.print();
-        }, 350);
-      });
-    </script>
-    {% endif %}
   </head>
-  <body class="paper-{{ paper }}">
+  <body class="paper-{{ paper }}{% if embed|default(0) %} receipt-embed{% endif %}">
     <div class="receipt-page paper-{{ paper }}">
-      <div class="receipt-actions no-print">
-        <button type="button" class="btn btn-primary" onclick="window.print()">طباعة</button>
-        <a class="btn" href="/pos">رجوع للكاشير</a>
+      {% if not embed|default(0) %}
+      {% include "_receipt_print_actions.html" %}
+      <div class="receipt-actions no-print" style="margin-top:0.35rem">
+        {% set back_label = 'رجوع للكاشير' %}
+        {% include "_receipt_nav_button.html" %}
         <a class="btn" href="/pos/checkout">التحصيل عند المغادرة</a>
         <a class="btn" href="/admin/kds/print-sale/{{ sale.id }}?autoprint=1" target="_blank">ورقة تجميع المطبخ</a>
       </div>
+      {% else %}
+      {% include "_receipt_print_actions.html" %}
+      {% endif %}
 
-      <div class="prebill-banner no-print">لم يُحصَّل بعد — للمطبخ / العميل (عرض الأسعار)</div>
-
+      <div id="receipt-capture-root" class="receipt-capture-root">
       <header class="receipt-header">
         {% set receipt_logo = brand.print_logo_url or brand.logo_url %}
         {% if receipt_logo %}
@@ -58,7 +57,10 @@
         {% endif %}
         <h1 style="margin: 0; font-size: 1.15rem">{{ store_name }}</h1>
         <p style="margin: 0.25rem 0 0; font-size: 0.95rem; font-weight: 700; color: #b45309">أمر تجهيز — غير مدفوع</p>
-        <p style="margin: 0.15rem 0 0; font-size: 0.85rem">رقم الطلب: {{ sale.id }} — {{ sale.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+        <p style="margin: 0.15rem 0 0; font-size: 0.85rem">رقم الطلب: {{ sale.id }} — {{ pos_format_dt(sale.created_at, '%Y-%m-%d %H:%M') }}</p>
+        {% if cashier_name %}
+        <p class="prebill-cashier">الكاشير: <strong>{{ cashier_name }}</strong></p>
+        {% endif %}
         {% if sale.table %}
         <p style="margin: 0.15rem 0 0; font-size: 0.95rem; font-weight: 700; color: #1d4ed8">الطاولة: {{ sale.table.name_ar }}</p>
         {% endif %}
@@ -68,6 +70,20 @@
         {% if sale.context_type.value == 'EXTERNAL' and sale.external_order_type.value == 'DELIVERY' %}
         <p style="margin: 0.15rem 0 0; font-size: 0.88rem; font-weight: 700; color: #9a3412">
           🚚 توصيل — {{ sale.delivery_zone_name or 'منطقة توصيل' }}
+        </p>
+        {% endif %}
+        {% if is_delivery %}
+        {% include "_receipt_delivery_extra.html" %}
+        {% else %}
+        {% include "_receipt_prebill_guest.html" %}
+        {% endif %}
+        {% if prebill_loyalty_show|default(false) %}
+        <p style="margin:0.2rem 0 0;font-size:0.82rem;color:#047857;font-weight:700">
+          ⭐ عميل ولاء{% if prebill_loyalty_customer and prebill_loyalty_customer.phone %}: <span dir="ltr">{{ prebill_loyalty_customer.phone }}</span>{% endif %}
+          — الرصيد {{ prebill_loyalty_balance_display }} نقطة
+          {% if prebill_loyalty_expected_display != '0' %}
+          — المتوقع بعد الدفع {{ prebill_loyalty_expected_display }} نقطة ({{ prebill_loyalty_expected_dinar_display }} د.ل)
+          {% endif %}
         </p>
         {% endif %}
       </header>
@@ -91,7 +107,12 @@
           <tbody>
             {% for line in sg.lines %}
             <tr>
-              <td>{{ line.product.name_ar }}</td>
+              <td>
+                {{ line.product.name_ar }}
+                {% if line.line_note %}
+                <div class="receipt-line-note">↳ {{ line.line_note }}</div>
+                {% endif %}
+              </td>
               <td class="num">{{ pos_qty(line.quantity) }}</td>
               <td class="num">{{ pos_money(line.unit_price) }}</td>
               <td class="num">{{ pos_money(line.line_total) }}</td>
@@ -118,7 +139,7 @@
         <span><strong>{{ pos_money(sale.total + sale.delivery_fee) }} <span class="money-currency">د.ل</span></strong></span>
       </div>
       {% endif %}
-      <p class="receipt-thanks" style="font-size:0.82rem;color:#64748b">هذا المستند ليس فاتورة ضريبية نهائية حتى يتم التحصيل من شاشة الدفع.</p>
+      </div>{# receipt-capture-root #}
     </div>
   </body>
 </html>

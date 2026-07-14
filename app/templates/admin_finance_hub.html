@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+{% block title %}مركز الربح{% endblock %}
+{% block head_extra %}
+<style>
+  .fh-hero {
+    background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 55%, #2563eb 100%);
+    color: #fff;
+    padding: 1.35rem 1.5rem;
+    border-radius: 14px;
+    margin-bottom: 1.25rem;
+  }
+  .fh-hero h1 { margin: 0 0 0.35rem; font-size: 1.5rem; }
+  .fh-hero p { margin: 0; opacity: 0.9; font-size: 0.92rem; }
+  .fh-mode-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    margin-top: 1rem;
+  }
+  .fh-mode-bar form { display: inline; margin: 0; }
+  .fh-mode-btn {
+    border: 1px solid rgba(255,255,255,0.35);
+    background: rgba(255,255,255,0.1);
+    color: #fff;
+    padding: 0.35rem 0.85rem;
+    border-radius: 999px;
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+  .fh-mode-btn.is-active {
+    background: #fff;
+    color: #1e3a8a;
+    font-weight: 700;
+  }
+  .fh-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+  }
+  .fh-card {
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: #fff;
+    padding: 1.1rem 1.2rem;
+    position: relative;
+    overflow: hidden;
+  }
+  .fh-card.is-active { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
+  .fh-card__head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin-bottom: 0.85rem;
+  }
+  .fh-card__title { font-size: 1.15rem; font-weight: 700; margin: 0; }
+  .fh-badge {
+    font-size: 0.72rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    background: #eff6ff;
+    color: #1d4ed8;
+  }
+  .fh-kpis {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.55rem;
+  }
+  .fh-kpi {
+    background: #f8fafc;
+    border-radius: 10px;
+    padding: 0.55rem 0.65rem;
+  }
+  .fh-kpi .label { font-size: 0.75rem; color: var(--muted); }
+  .fh-kpi .value { font-size: 1.05rem; font-weight: 700; margin-top: 0.1rem; }
+  .fh-kpi .value.good { color: #15803d; }
+  .fh-kpi .value.bad { color: #b91c1c; }
+  .fh-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.85rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border);
+  }
+  .fh-links a {
+    font-size: 0.8rem;
+    padding: 0.25rem 0.55rem;
+    border-radius: 8px;
+    background: #f1f5f9;
+    text-decoration: none;
+    color: inherit;
+  }
+  .fh-links a:hover { background: #e2e8f0; }
+  .fh-note {
+    background: #f0fdf4;
+    border: 1px solid #86efac;
+    color: #14532d;
+    padding: 0.75rem 1rem;
+    border-radius: 10px;
+    font-size: 0.88rem;
+    line-height: 1.7;
+  }
+</style>
+{% endblock %}
+{% block body %}
+<div class="fh-hero">
+  <h1>مركز الربح (Profit Center Hub)</h1>
+  <p>
+    فصل محاسبي بين المطعم والفندق — اختر وضع العرض لترى التقارير والتكاليف والإيرادات لكل segment.
+    {% if can_switch_mode %}الوضع الحالي: <strong>{{ view_mode_label }}</strong>.{% endif %}
+  </p>
+  {% if can_switch_mode %}
+  <div class="fh-mode-bar" aria-label="تبديل وضع العرض">
+    {% for mode, label in [('general', 'عام — إجماليات وتقارير'), ('restaurant', 'مطعم'), ('hotel', 'فندق')] %}
+    <form method="post" action="/admin/view-mode">
+      <input type="hidden" name="mode" value="{{ mode }}" />
+      <button type="submit" class="fh-mode-btn{% if view_mode == mode %} is-active{% endif %}">{{ label }}</button>
+    </form>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+{% if segments %}
+<div class="fh-grid">
+  {% for seg in segments %}
+  <article class="fh-card{% if active_domain and seg.domain == active_domain %} is-active{% endif %}">
+    <div class="fh-card__head">
+      <h2 class="fh-card__title">
+        {% if seg.domain.value == 'restaurant' %}🍽️{% else %}🏨{% endif %}
+        {{ seg.label }}
+      </h2>
+      {% if active_domain and seg.domain == active_domain %}
+      <span class="fh-badge">الوضع النشط</span>
+      {% endif %}
+    </div>
+    <div class="fh-kpis">
+      <div class="fh-kpi">
+        <div class="label">العبء اليومي</div>
+        <div class="value">{{ seg.burden_daily }} د.ل</div>
+      </div>
+      <div class="fh-kpi">
+        <div class="label">عتبة التعادل / يوم</div>
+        <div class="value">{{ seg.break_even_daily }} د.ل</div>
+      </div>
+      <div class="fh-kpi">
+        <div class="label">إيراد اليوم</div>
+        <div class="value{% if seg.is_above_break_even %} good{% else %} bad{% endif %}">{{ seg.today_revenue }} د.ل</div>
+      </div>
+      <div class="fh-kpi">
+        <div class="label">الموقف الصافي</div>
+        <div class="value{% if seg.is_above_break_even %} good{% else %} bad{% endif %}">
+          {% if seg.is_above_break_even %}+{% endif %}{{ seg.today_net }} د.ل
+        </div>
+      </div>
+      <div class="fh-kpi">
+        <div class="label">هامش المساهمة</div>
+        <div class="value">{{ seg.cm_ratio_pct }}٪</div>
+      </div>
+      <div class="fh-kpi">
+        <div class="label">تغطية العتبة</div>
+        <div class="value">{{ seg.coverage_pct }}٪</div>
+      </div>
+      {% if seg.domain.value == 'hotel' %}
+      <div class="fh-kpi">
+        <div class="label">ذمم الحجز (عدد)</div>
+        <div class="value{% if seg.open_balance_count > 0 %} bad{% endif %}">{{ seg.open_balance_count }}</div>
+      </div>
+      <div class="fh-kpi">
+        <div class="label">ذمم الحجز (رصيد)</div>
+        <div class="value{% if seg.open_balance_total > 0 %} bad{% endif %}">{{ seg.open_balance_total }} د.ل</div>
+      </div>
+      {% endif %}
+    </div>
+    <div class="fh-links">
+      <a href="/reports/break-even">تحليل التعادل</a>
+      <a href="/reports/profit?period=month">الأرباح</a>
+      <a href="/reports/financial-operational?period=month">مالي تشغيلي</a>
+      <a href="/reports/gl-reconciliation?period=month">مطابقة GL</a>
+      <a href="/admin/recurring-costs">التكاليف الشهرية</a>
+      <a href="/admin/gl">دفتر الأستاذ</a>
+      {% if seg.domain.value == 'restaurant' %}
+      <a href="/reports">لوحة التقارير</a>
+      <a href="/reports/sales">المبيعات</a>
+      <a href="/reports/pos-daily-close?period=month">الإقفال اليومي</a>
+      <a href="/reports/receivables?balance_only=1">ديون العملاء</a>
+      <a href="/pos">نقطة البيع</a>
+      {% else %}
+      <a href="/reports">لوحة التقارير</a>
+      <a href="/reports/sales?period=month">التحصيلات</a>
+      <a href="/reports/hotel-collections?period=month">تحصيلات الفندق</a>
+      <a href="/reports/hotel-bookings?period=month">حجوزات الفترة</a>
+      <a href="/reports/hotel-balances">ذمم الحجز</a>
+      <a href="/reports/hotel-daily-close?period=month">الإقفال اليومي</a>
+      <a href="/admin/hotel/dashboard">لوحة الفندق</a>
+      <a href="/admin/hotel/bookings">الحجوزات</a>
+      {% endif %}
+    </div>
+    <p class="muted" style="margin: 0.65rem 0 0; font-size: 0.78rem">
+      {% if seg.revenue_source == 'hotel' %}
+      الإيراد من تحصيلات الحجز (مدفوعات − مرتجعات).
+      {% elif seg.revenue_source == 'combined' %}
+      إيراد مجمّع: POS + الفندق.
+      {% else %}
+      الإيراد من مبيعات نقطة البيع (COGS من المخزون).
+      {% endif %}
+    </p>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+<p class="muted">لا توجد segments متاحة لحسابك.</p>
+{% endif %}
+
+<div class="fh-note">
+  <strong>كيف يعمل الفصل؟</strong>
+  التكاليف الشهرية والموظفون والمشتريات والمصروفات وGL تُصفّى حسب <em>business_domain</em>.
+  وضع «عام» يعرض الكل؛ «مطعم» أو «فندق» يقيّد الشاشات المالية على segment واحد (+ البنود المشتركة shared).
+</div>
+{% endblock %}

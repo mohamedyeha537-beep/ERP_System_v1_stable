@@ -1,0 +1,39 @@
+{# alert_msg, alert_tone, alert_clear_ctx_err, alert_cancel_url, alert_collect_url, alert_collect_label, alert_open_url #}
+{% if alert_msg %}
+<div
+  class="pos-dismissible-alert pos-dismissible-alert--{{ alert_tone|default('error') }}"
+  role="alert"
+  data-pos-alert
+  {% if alert_clear_ctx_err %}data-clear-ctx-err="1"{% endif %}
+>
+  <span class="pos-dismissible-alert__icon" aria-hidden="true">⚠️</span>
+  <span class="pos-dismissible-alert__text">{{ alert_msg }}</span>
+  <span class="pos-dismissible-alert__actions">
+    {% if alert_collect_url %}
+    <a
+      href="{{ alert_collect_url }}"
+      class="btn btn-primary pos-dismissible-alert__collect"
+      {% if alert_collect_url.startswith('#') %}data-pos-alert-goto="{{ alert_collect_url }}"{% endif %}
+    >{{ alert_collect_label|default('التحصيل وإتمام الفاتورة') }}</a>
+    {% elif alert_checkout_modal is defined and alert_checkout_modal %}
+    <button
+      type="button"
+      class="btn btn-primary pos-dismissible-alert__collect pos-checkout-modal-btn"
+      data-sale-id="{{ alert_checkout_modal }}"
+    >{{ alert_collect_label|default('التحصيل وإتمام الفاتورة') }}</button>
+    {% endif %}
+    {% if alert_cancel_url %}
+    <form method="post" action="{{ alert_cancel_url }}" style="margin:0;display:inline">
+      <button type="submit" class="btn pos-dismissible-alert__cancel">إلغاء الطلب</button>
+    </form>
+    {% endif %}
+    {% if alert_open_url %}
+    <form method="post" action="{{ alert_open_url }}" style="margin:0;display:inline">
+      <button type="submit" class="btn pos-dismissible-alert__ok">موافق</button>
+    </form>
+    {% else %}
+    <button type="button" class="btn pos-dismissible-alert__ok" data-pos-alert-dismiss>موافق</button>
+    {% endif %}
+  </span>
+</div>
+{% endif %}

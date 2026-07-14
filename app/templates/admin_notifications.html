@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+
+{% block title %}محرك الإشعارات{% endblock %}
+
+{% block body %}
+<h1>محرك الإشعارات</h1>
+<p class="muted">الأحداث → القواعد → القوالب → السجل. الإرسال عبر طبقة المراسلات (TextMeBot).</p>
+
+{% if saved %}<div class="card" style="border-color:#86efac;background:#f0fdf4"><p style="margin:0">تم الحفظ.</p></div>{% endif %}
+{% if err %}<div class="card" style="border-color:#fca5a5;background:#fef2f2"><p style="margin:0">{{ err }}</p></div>{% endif %}
+{% if test %}<div class="card" style="border-color:#fcd34d;background:#fffbeb"><p style="margin:0">{{ test }}</p></div>{% endif %}
+
+<nav class="row notif-admin-nav" style="gap:0.4rem;margin:1rem 0;flex-wrap:wrap">
+  <a class="btn" data-notif-tab="settings" href="/admin/notifications">الإعدادات</a>
+  <a class="btn" data-notif-tab="modules" href="/admin/notifications?tab=modules">المجموعات</a>
+  <a class="btn" data-notif-tab="events" href="/admin/notifications?tab=events">الأحداث</a>
+  <a class="btn" href="/admin/notifications/routes">التوجيه</a>
+  <a class="btn" href="/admin/notifications/templates">القوالب</a>
+  <a class="btn" href="/admin/notifications/rules">القواعد</a>
+  <a class="btn" href="/admin/notifications/logs">السجل{% if failed_logs %} ({{ failed_logs }} فاشلة){% endif %}</a>
+  <a class="btn" href="/admin/notifications/inventory">المخزون</a>
+  <a class="btn" href="/admin/notifications/analytics">التحليلات</a>
+  <a class="btn" href="/admin/notifications/delivery">إرسال WhatsApp</a>
+  <a class="btn" href="/admin/messaging/inbox">صندوق الوارد</a>
+  <a class="btn" href="/admin/messaging/chat-orders">طلبات الشات</a>
+</nav>
+
+<section id="notif-panel-settings">
+<div class="card" style="{% if enabled %}border-color:#86efac;background:#f0fdf4{% else %}border-color:#fca5a5;background:#fef2f2{% endif %}">
+  <p style="margin:0">الحالة الكاملة: <strong>{% if enabled %}مفعّل — الإرسال يعمل{% else %}معطّل — لن تُرسل رسائل{% endif %}</strong></p>
+  <p style="margin:0.45rem 0 0;font-size:0.9rem">
+    محرك الإشعارات: <strong>{% if notifications_on %}مفعّل{% else %}معطّل{% endif %}</strong>
+    — بوت الإرسال (WhatsApp): <strong>{% if messaging_on %}مفعّل{% else %}معطّل{% endif %}</strong>
+    — قوالب: {{ template_count }} — قواعد: {{ rule_count }}
+    — أحداث معلّقة: {{ pending_events }} — فاشلة: {{ failed_logs }}
+  </p>
+  {% if not enabled %}
+  <p style="margin:0.55rem 0 0;color:#b91c1c;font-size:0.88rem">
+    {% if not notifications_on and not messaging_on %}
+    فعّل الخيارين أدناه ثم «حفظ» — وأدخل مفتاح TextMeBot من <a href="/admin/notifications/delivery">إعدادات الإرسال</a>.
+    {% elif not messaging_on %}
+    محرك الإشعارات مفعّل لكن <strong>بوت الإرسال معطّل</strong> — فعّل «بوت الإرسال» أدناه أو من <a href="/admin/notifications/delivery">إعدادات الإرسال</a>.
+    {% elif not notifications_on %}
+    بوت الإرسال مفعّل لكن <strong>محرك الإشعارات معطّل</strong> — فعّل المربع الأول أدناه.
+    {% endif %}
+  </p>
+  {% endif %}
+</div>
+
+<div class="card pos-guide-panel" style="border-color:#bbf7d0;background:#f0fdf4;margin-top:1rem">
+  <p style="margin:0;font-size:0.9rem">
+    <strong>المرحلة 1:</strong> order.created، order.delivered، loyalty.points_earned، inventory.low_stock<br>
+    <strong>المرحلة 2:</strong> تأكيد الطلب، المطبخ، السائق، الولاء، العملاء، الجلسة، موافقة المشرف<br>
+    <strong>المرحلة 5:</strong> حضور · رواتب · سلف · خصومات — <a href="/admin/notifications/routes">توجيه الأرقام</a><br>
+    إعدادات TextMeBot وصندوق الوارد من <a href="/admin/notifications/delivery">إرسال WhatsApp</a>.
+  </p>
+</div>
+
+<form method="post" action="/admin/notifications/settings" class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0">الإعدادات</h2>
+  <label style="display:flex;align-items:flex-start;gap:0.4rem;margin-bottom:0.5rem">
+    <input type="checkbox" name="notifications_enabled" {% if notifications_on %}checked{% endif %} style="width:auto;margin-top:0.2rem" />
+    <span>تفعيل محرك الإشعارات (الأحداث، القواعد، رسائل النقاط والطلبات)</span>
+  </label>
+  <label style="display:flex;align-items:flex-start;gap:0.4rem;margin-bottom:0.65rem">
+    <input type="checkbox" name="messaging_enabled" {% if messaging_on %}checked{% endif %} style="width:auto;margin-top:0.2rem" />
+    <span>تفعيل بوت الإرسال (WhatsApp / طابور الرسائل) — <strong>مطلوب</strong> لإرسال أي رسالة</span>
+  </label>
+  <p class="muted" style="font-size:0.85rem;margin:0 0 0.75rem">
+    مفتاح TextMeBot وإعدادات Webhook من <a href="/admin/notifications/delivery">إرسال WhatsApp</a>
+  </p>
+  <label>هواتف مدير المخزون (احتياطي)
+    <input type="text" name="notification_inventory_phones" value="{{ inventory_phones or '' }}" placeholder="091…, 092…" style="width:100%;max-width:28rem" />
+  </label>
+  <label>هواتف الموارد البشرية (احتياطي)
+    <input type="text" name="notification_hr_phones" value="{{ hr_phones or '' }}" placeholder="091…" style="width:100%;max-width:28rem" />
+  </label>
+  <label>هواتف المشرف (احتياطي)
+    <input type="text" name="notification_supervisor_phones" value="{{ supervisor_phones or '' }}" placeholder="091…" style="width:100%;max-width:28rem" />
+  </label>
+  <p class="muted" style="font-size:0.85rem"><a href="/admin/notifications/routes">مسارات التوجيه</a> تتجاوز هذه الأرقام عند التطابق.</p>
+  <button type="submit" class="btn btn-primary">حفظ</button>
+</form>
+
+<div class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0">اختبار حدث</h2>
+  <form method="post" action="/admin/notifications/test" class="row" style="gap:0.5rem;flex-wrap:wrap;align-items:flex-end">
+    <label>الحدث
+      <select name="event_key">
+        <option value="order.created">order.created</option>
+        <option value="order.confirmed">order.confirmed</option>
+        <option value="order.sent_to_kitchen">order.sent_to_kitchen</option>
+        <option value="order.driver_assigned">order.driver_assigned</option>
+        <option value="order.out_for_delivery">order.out_for_delivery</option>
+        <option value="order.delivered">order.delivered</option>
+        <option value="loyalty.points_earned">loyalty.points_earned</option>
+        <option value="loyalty.points_redeemed">loyalty.points_redeemed</option>
+        <option value="customer.created">customer.created</option>
+        <option value="pos.shift_closed">pos.shift_closed</option>
+        <option value="pos.cash_shortage">pos.cash_shortage</option>
+        <option value="pos.item_void_requested">pos.item_void_requested</option>
+        <option value="inventory.low_stock">inventory.low_stock</option>
+        <option value="inventory.out_of_stock">inventory.out_of_stock</option>
+        <option value="inventory.negative_stock">inventory.negative_stock</option>
+        <option value="inventory.purchase_needed">inventory.purchase_needed</option>
+        <option value="inventory.purchase_received">inventory.purchase_received</option>
+        <option value="inventory.expiry_warning">inventory.expiry_warning</option>
+      </select>
+    </label>
+    <label>رقم واتساب
+      <input type="text" name="phone" placeholder="0912345678" />
+    </label>
+    <button type="submit" class="btn">إرسال اختبار</button>
+  </form>
+</div>
+</section>
+
+<section id="notif-panel-modules" hidden>
+<div class="card pos-guide-panel" style="border-color:#bbf7d0;background:#f0fdf4;margin-bottom:1rem">
+  <p style="margin:0;font-size:0.9rem">أوقف مجموعة كاملة (مثل الموظفين أو المخزون) دون حذف القوالب. يمكن أيضاً إيقاف حدث واحد من تبويب «الأحداث».</p>
+</div>
+<table class="table">
+  <thead><tr><th>المجموعة</th><th>الوصف</th><th>التفعيل</th></tr></thead>
+  <tbody>
+  {% if modules is defined %}
+  {% for key, label, _prefixes in modules %}
+  {% set on = module_enabled[key] if module_enabled is defined else true %}
+  <tr{% if not on %} style="opacity:0.72"{% endif %}>
+    <td><code>{{ key }}</code></td>
+    <td>{{ label }}</td>
+    <td>
+      <form method="post" action="/admin/notifications/modules/toggle" style="margin:0;display:inline">
+        <input type="hidden" name="module_key" value="{{ key }}" />
+        <button type="submit" class="btn" style="min-width:5.5rem;{% if on %}background:#dcfce7;border-color:#86efac;color:#15803d{% else %}background:#fef2f2;border-color:#fca5a5;color:#b91c1c{% endif %}">
+          {% if on %}مفعّل{% else %}معطّل{% endif %}
+        </button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+  {% endif %}
+  </tbody>
+</table>
+</section>
+
+<section id="notif-panel-events" hidden>
+<div class="card pos-guide-panel" style="border-color:#bbf7d0;background:#f0fdf4;margin-bottom:1rem">
+  <p style="margin:0;font-size:0.9rem">
+    <strong>المرحلة 1:</strong> order.created · order.delivered · loyalty.points_earned · inventory.low_stock<br>
+    <strong>المرحلة 2 (مفعّلة):</strong> order.confirmed · order.sent_to_kitchen · … · pos.*<br>
+    <strong>المرحلة 3 (مفعّلة):</strong> inventory.* — مخزون، شراء، صلاحية<br>
+    <strong>المرحلة 4 (مفعّلة):</strong> إحالات · ولاء · مطبخ · إلغاء طلب · فتح/فائض جلسة · <a href="/admin/notifications/analytics">التحليلات</a><br>
+    اربط كل حدث بقالب من <a href="/admin/notifications/templates">القوالب</a> وقاعدة من <a href="/admin/notifications/rules">القواعد</a>.
+  </p>
+</div>
+<table class="table">
+  <thead><tr><th>مفتاح الحدث</th><th>الوصف</th><th>المرحلة</th><th>التفعيل</th></tr></thead>
+  <tbody>
+  {% if events is defined %}
+  {% for key, label in events %}
+  {% set on = event_enabled[key] if event_enabled is defined else true %}
+  <tr{% if not on %} style="opacity:0.72"{% endif %}>
+    <td><code>{{ key }}</code></td>
+    <td>{{ label }}</td>
+    <td>{% if key in phase1 %}1{% elif phase5 is defined and key in phase5 %}5{% elif phase4 is defined and key in phase4 %}4{% elif phase3 is defined and key in phase3 %}3{% elif wired is defined and key in wired %}2{% elif key.startswith('inventory.') %}3{% elif key.startswith('hr.') %}5{% else %}—{% endif %}</td>
+    <td>
+      <form method="post" action="/admin/notifications/events/toggle" style="margin:0;display:inline">
+        <input type="hidden" name="event_key" value="{{ key }}" />
+        <button type="submit" class="btn" style="min-width:5.5rem;{% if on %}background:#dcfce7;border-color:#86efac;color:#15803d{% else %}background:#fef2f2;border-color:#fca5a5;color:#b91c1c{% endif %}">
+          {% if on %}مفعّل{% else %}معطّل{% endif %}
+        </button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+  {% else %}
+  <tr><td><code>order.created</code></td><td>إنشاء طلب</td><td>1</td><td>—</td></tr>
+  <tr><td><code>order.delivered</code></td><td>تسليم طلب</td><td>1</td><td>—</td></tr>
+  <tr><td><code>loyalty.points_earned</code></td><td>اكتساب نقاط</td><td>1</td><td>—</td></tr>
+  <tr><td><code>inventory.low_stock</code></td><td>مخزون منخفض</td><td>1</td><td>—</td></tr>
+  {% endif %}
+  </tbody>
+</table>
+<p class="muted" style="font-size:0.85rem;margin-top:0.75rem">اضغط الزر لتفعيل أو إيقاف إرسال كل حدث. الإيقاف لا يحذف القوالب أو القواعد.</p>
+</section>
+
+<script>
+(function () {
+  var params = new URLSearchParams(location.search);
+  var tab = params.get("tab");
+  if (location.hash === "#events-catalog") tab = "events";
+  if (!tab || !["settings", "events", "modules"].includes(tab)) tab = "settings";
+
+  var settingsPanel = document.getElementById("notif-panel-settings");
+  var eventsPanel = document.getElementById("notif-panel-events");
+  var modulesPanel = document.getElementById("notif-panel-modules");
+  if (settingsPanel) settingsPanel.hidden = tab !== "settings";
+  if (eventsPanel) eventsPanel.hidden = tab !== "events";
+  if (modulesPanel) modulesPanel.hidden = tab !== "modules";
+
+  document.querySelectorAll(".notif-admin-nav [data-notif-tab]").forEach(function (btn) {
+    if (btn.getAttribute("data-notif-tab") === tab) {
+      btn.classList.add("btn-primary");
+    }
+  });
+})();
+</script>
+{% endblock %}

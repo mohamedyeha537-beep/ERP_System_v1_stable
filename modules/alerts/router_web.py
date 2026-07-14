@@ -8,7 +8,7 @@ from app.jinja_env import templates
 from modules.alerts.service import send_low_stock_alert
 from modules.authz.models import User
 from modules.authz.permissions import ADMIN_SETTINGS
-from modules.inventory.service import low_stock_by_warehouse
+from modules.inventory.service import low_stock_by_warehouse, reconcile_all_stock_balances
 from modules.settings.service import get_setting, set_setting
 
 router = APIRouter(prefix="/admin/alerts", tags=["alerts"])
@@ -30,6 +30,7 @@ def _ctx(request: Request, db, **extra):
         "whatsapp_webhook_param",
     ]
     s = {k: get_setting(db, k, "") for k in keys}
+    reconcile_all_stock_balances(db)
     low_all = low_stock_by_warehouse(db)
     low_count = sum(len(rows) for _wh, rows in low_all)
     base = {
@@ -49,10 +50,11 @@ def alerts_page(
     _: User = Depends(_perm),
     saved: int = Query(0),
     test: str | None = Query(None),
+    test_ok: int = Query(0),
 ):
     return templates.TemplateResponse(
         "admin_alerts.html",
-        _ctx(request, db, saved=bool(saved), test=test),
+        _ctx(request, db, saved=bool(saved), test=test, test_ok=bool(test_ok)),
     )
 
 
@@ -95,24 +97,43 @@ def alerts_test(
     db: DBSession,
     _: User = Depends(_perm),
 ):
-    outcome = send_low_stock_alert(db)
+    outcome = send_low_stock_alert(db, force=True, all_warehouses=True)
+    db.commit()
     parts = []
+    ok = False
     if outcome.items == 0:
         parts.append("لا توجد أصناف منخفضة الآن — لم يُرسل شيء.")
+    elif outcome.skipped_duplicate:
+        parts.append(
+            "قائمة النقص لم تتغير منذ آخر تنبيه — لم يُعاد الإرسال (لتجنب التكرار)."
+        )
     else:
+        if outcome.messaging_sent:
+            parts.append(
+                f"تم إرسال التنبيه عبر بوت المراسلات ({outcome.messaging_count} رسالة)."
+            )
+            ok = True
+        elif outcome.messaging_error:
+            parts.append(f"بوت المراسلات: {outcome.messaging_error}")
         if outcome.email_sent:
             parts.append("تم إرسال البريد بنجاح.")
+            ok = True
         elif outcome.email_error:
             parts.append(f"فشل البريد: {outcome.email_error}")
         if outcome.whatsapp_sent:
-            parts.append("تم استدعاء WhatsApp webhook بنجاح.")
+            parts.append("تم استدعاء WhatsApp (صفحة التنبيهات) بنجاح.")
+            ok = True
         elif outcome.whatsapp_error:
-            parts.append(f"فشل WhatsApp: {outcome.whatsapp_error}")
-        if not (outcome.email_sent or outcome.whatsapp_sent):
-            parts.append("لم تُهيّأ أي قناة إرسال (إيميل/Webhook).")
+            parts.append(f"فشل WhatsApp (صفحة التنبيهات): {outcome.whatsapp_error}")
+        if not ok and not parts:
+            parts.append(
+                "لم تُرسل رسالة — فعّل بوت المراسلات من /admin/messaging "
+                "أو اضبط إيميل/Webhook في هذه الصفحة."
+            )
     msg = " | ".join(parts) or "—"
     import urllib.parse as _p
 
-    return RedirectResponse(
-        "/admin/alerts?test=" + _p.quote(msg, safe=""), status_code=302
-    )
+    url = "/admin/alerts?test=" + _p.quote(msg, safe="")
+    if ok:
+        url += "&test_ok=1"
+    return RedirectResponse(url, status_code=302)

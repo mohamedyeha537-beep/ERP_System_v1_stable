@@ -1,57 +1,121 @@
-{% extends "base.html" %}
+{% extends "base_pos.html" %}
 {% block title %}جلسة البيع{% endblock %}
+{% block pos_topbar %}
+{% if not pos_is_kiosk(request) %}
+<a class="pos-topbar-btn" href="/">لوحة التحكم</a>
+{% endif %}
+{% if open_pos_shift is defined and open_pos_shift %}
+<a class="pos-topbar-btn" href="/pos/shift/{{ open_pos_shift.id }}/report" target="_blank">تقرير الجلسة</a>
+<a class="pos-topbar-btn primary" href="/pos">العودة للكاشير</a>
+{% elif not pos_is_kiosk(request) %}
+<a class="pos-topbar-btn primary" href="/pos/shift">إدارة الجلسة</a>
+{% else %}
+<a class="pos-topbar-btn primary" href="/pos">العودة للكاشير</a>
+{% endif %}
+{% endblock %}
 {% block head_extra %}
+<link rel="stylesheet" href="/static/shift_summary.css" />
 <style>
-  .treasury-cards {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 0.75rem;
-    margin-top: 1.25rem;
+  .shift-close-confirm {
+    position: fixed; inset: 0; z-index: 2000;
+    display: flex; align-items: center; justify-content: center; padding: 1rem;
   }
-  .treasury-cards .t-card {
-    border: 1px solid var(--border, #e2e8f0);
-    border-radius: 12px;
-    padding: 1rem;
-    background: var(--card, #fff);
-    text-decoration: none;
-    color: inherit;
-    display: block;
-    transition: box-shadow 0.15s, border-color 0.15s;
+  .shift-close-confirm[hidden] { display: none !important; }
+  .shift-close-confirm__backdrop {
+    position: absolute; inset: 0; background: rgba(127, 29, 29, 0.55);
   }
-  .treasury-cards a.t-card:hover {
-    border-color: var(--primary, #2563eb);
-    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.12);
+  .shift-close-confirm__dialog {
+    position: relative; z-index: 1; max-width: min(440px, 94vw); width: 100%;
+    background: linear-gradient(180deg, #fef2f2 0%, #fff 45%);
+    border: 2px solid #ef4444; border-radius: 14px;
+    padding: 1.25rem 1.35rem 1.15rem;
+    box-shadow: 0 20px 50px rgba(185, 28, 28, 0.35);
+    text-align: center;
   }
-  .treasury-cards .t-card .label { color: var(--muted, #64748b); font-size: 0.85rem; }
-  .treasury-cards .t-card .value { font-size: 1.35rem; font-weight: 700; margin-top: 0.35rem; }
-  .treasury-cards .t-card.static { cursor: default; }
-  .treasury-cards .t-card.cash { border-top: 3px solid #16a34a; }
-  .treasury-cards .t-card.bank { border-top: 3px solid #2563eb; }
-  .treasury-cards .t-card.muted-card { opacity: 0.92; }
+  .shift-close-confirm__title {
+    margin: 0 0 0.65rem; font-size: 1.15rem; font-weight: 800; color: #b91c1c;
+  }
+  .shift-close-confirm__body {
+    margin: 0 0 0.5rem; line-height: 1.65; color: #7f1d1d; font-size: 0.95rem;
+  }
+  .shift-close-confirm__hint {
+    margin: 0 0 1rem; font-size: 0.82rem; color: #991b1b; opacity: 0.9;
+  }
+  .shift-close-confirm__actions {
+    display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap;
+  }
+  .shift-close-confirm__cancel {
+    background: #fff; border: 1px solid #cbd5e1; color: #334155;
+  }
+  .shift-close-confirm__ok {
+    background: #dc2626; border-color: #b91c1c; color: #fff; font-weight: 700;
+  }
+  .shift-close-confirm__ok:hover { background: #b91c1c; }
 </style>
 {% endblock %}
 {% block body %}
-<div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem">
-  <h1 style="margin:0">جلسة نقطة البيع</h1>
-  <a class="btn" href="/pos">العودة للكاشير</a>
-</div>
+<div class="shift-close-page">
+<h1>إدارة وإغلاق الجلسة</h1>
 
 {% if need_open %}
 <div class="alert" style="background:#fef3c7;border:1px solid #fcd34d;color:#92400e;margin-top:1rem">
-  يجب <strong>فتح جلسة بيع</strong> قبل استخدام شاشة الكاشير — تمت إعادتك هنا.
+  يجب <strong>فتح جلسة بيع</strong> قبل استخدام شاشة الكاشير —
+  <a href="/pos/shift/start" style="font-weight:600">ابدأ وردية جديدة</a>.
 </div>
+{% endif %}
+
+{% if shortages_summary and shortages_summary.total_shortage > 0 and (pos_perm(request)('payments:manage') or pos_perm(request)('reports:view') or pos_perm(request)('hr:manage')) %}
+<a class="card" href="/pos/shift/shortages" style="display:block;margin-top:1rem;text-decoration:none;color:inherit;border-color:#fca5a5;background:#fef2f2">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem">
+    <div>
+      <div style="font-weight:700;color:#991b1b">إجمالي عجز الجلسات (كاش + مصرف)</div>
+      <div style="font-size:1.5rem;font-weight:800;color:#b91c1c;margin-top:0.25rem">
+        {{ pos_money(shortages_summary.total_shortage) }} <span class="money-currency">د.ل</span>
+      </div>
+      <p class="muted" style="margin:0.35rem 0 0;font-size:0.85rem">
+        {{ shortages_summary.event_count }} حدث — انقر لعرض التفاصيل (الكاشير، التاريخ، كاش/مصرف)
+      </p>
+    </div>
+    <span style="font-weight:600;color:#b91c1c">عرض التفاصيل ←</span>
+  </div>
+</a>
 {% endif %}
 
 {% if closed_shift_id %}
 <div class="card" style="margin-top:1rem;border-color:#86efac;background:#f0fdf4">
   <p style="margin:0;font-weight:600">تم إغلاق الجلسة #{{ closed_shift_id }} بنجاح.</p>
+  {% if closed_shift %}
+  {% if closed_shift.cash_difference is not none and closed_shift.cash_difference < 0 %}
+  <p style="margin:0.5rem 0 0;color:#b91c1c;font-weight:600">
+    عجز كاش في هذه الجلسة: {{ pos_money(closed_shift.cash_difference) }} د.ل (متوقع {{ pos_money(closed_shift.expected_cash) }} — معدود {{ pos_money(closed_shift.counted_cash) }})
+  </p>
+  {% elif closed_shift.cash_difference is not none and closed_shift.cash_difference > 0 %}
+  <p style="margin:0.5rem 0 0;color:#15803d;font-size:0.9rem">فائض كاش: {{ pos_money(closed_shift.cash_difference) }} د.ل</p>
+  {% endif %}
+  {% if closed_shift.bank_difference is not none and closed_shift.bank_difference < 0 %}
+  <p style="margin:0.35rem 0 0;color:#b91c1c;font-weight:600">
+    عجز مصرف في هذه الجلسة: {{ pos_money(closed_shift.bank_difference) }} د.ل (متوقع {{ pos_money(closed_shift.expected_bank) }} — معدود {{ pos_money(closed_shift.counted_bank) }})
+  </p>
+  {% elif closed_shift.bank_difference is not none and closed_shift.bank_difference > 0 %}
+  <p style="margin:0.35rem 0 0;color:#15803d;font-size:0.9rem">فائض مصرف: {{ pos_money(closed_shift.bank_difference) }} د.ل</p>
+  {% endif %}
+  {% if closed_shift.room_difference is not none and closed_shift.room_difference != 0 %}
+  <p style="margin:0.35rem 0 0;color:#92400e;font-weight:600">
+    فرق مراجعة الشقق: {{ pos_money(closed_shift.room_difference) }} د.ل (متوقع {{ pos_money(closed_shift.expected_room) }} — معدود {{ pos_money(closed_shift.counted_room) }})
+  </p>
+  {% endif %}
+  {% endif %}
   <p class="muted" style="margin:0.5rem 0 0;font-size:0.9rem">
     راجع الفرق بين المعدود والمتوقع، وصدّر التقرير عند الحاجة.
   </p>
-  <div style="margin-top:0.75rem;display:flex;flex-wrap:wrap;gap:0.5rem">
+  <div style="margin-top:0.75rem;display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">
     <a class="btn btn-primary" href="/pos/shift/{{ closed_shift_id }}/report" target="_blank">تقرير للطباعة (PDF)</a>
     <a class="btn" href="/pos/shift/{{ closed_shift_id }}/export.csv">تنزيل Excel (CSV)</a>
+    <a class="btn" href="/auth/logout" style="margin-inline-start:auto;border-color:#94a3b8">تسجيل الخروج من النظام</a>
   </div>
+  <p class="muted" style="margin:0.65rem 0 0;font-size:0.85rem">
+    بعد إغلاق الجلسة يمكنك تسجيل الخروج ليستخدم الجهاز موظّف آخر، أو فتح جلسة جديدة من الأسفل.
+  </p>
 </div>
 {% endif %}
 
@@ -59,97 +123,179 @@
 <div class="alert" style="margin-top:1rem">{{ error }}</div>
 {% endif %}
 
-{% if treasuries %}
-<div class="treasury-cards">
-  {% set cash = treasuries.get('CASH') %}
-  {% set bank = treasuries.get('BANK') %}
-  {% if cash %}
-  <a class="t-card cash" href="/pos/treasury?kind=cash" title="عرض حركة خزينة الكاش">
-    <div class="label">خزينة الكاش — الرصيد الحالي</div>
-    <div class="value">{{ pos_money(cash.current_balance) }} <span class="money-currency">د.ل</span></div>
-    <p class="muted" style="font-size:0.78rem;margin:0.5rem 0 0">اضغط لعرض الحركة اليومية والتفاصيل</p>
-  </a>
-  <div class="t-card cash static muted-card">
-    <div class="label">خزينة الكاش — آخر إقفال جلسة</div>
-    {% if cash.last_close_balance is not none %}
-    <div class="value">{{ pos_money(cash.last_close_balance) }} <span class="money-currency">د.ل</span></div>
-    {% if cash.last_close_shift_id %}
-    <p class="muted" style="font-size:0.78rem;margin:0.5rem 0 0">جلسة #{{ cash.last_close_shift_id }}
-      {% if cash.last_close_at %} · {{ cash.last_close_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}
-    </p>
-    {% endif %}
-    {% else %}
-    <div class="value" style="font-size:1rem;font-weight:500;color:var(--muted)">—</div>
-    {% endif %}
-  </div>
+{% if treasuries and open_shift %}
+<div class="no-print" style="margin-top:0.75rem;display:flex;flex-wrap:wrap;gap:0.45rem;align-items:center">
+  <button type="button" class="btn btn-primary" data-shift-expense-open data-next-url="/pos/shift"
+    style="font-size:0.88rem">💸 تسجيل مصروف</button>
+  {% if pos_perm(request)('payments:manage') %}
+  <a class="btn" href="/admin/shift-expense-categories" style="font-size:0.82rem">⚙ تصنيفات المصروف</a>
   {% endif %}
-  {% if bank %}
-  <a class="t-card bank" href="/pos/treasury?kind=bank" title="عرض حركة خزينة المصرف">
-    <div class="label">خزينة المصرف — الرصيد الحالي</div>
-    <div class="value">{{ pos_money(bank.current_balance) }} <span class="money-currency">د.ل</span></div>
-    <p class="muted" style="font-size:0.78rem;margin:0.5rem 0 0">اضغط لعرض الحركة اليومية والتفاصيل</p>
-  </a>
-  <div class="t-card bank static muted-card">
-    <div class="label">خزينة المصرف — آخر إقفال جلسة</div>
-    {% if bank.last_close_balance is not none %}
-    <div class="value">{{ pos_money(bank.last_close_balance) }} <span class="money-currency">د.ل</span></div>
-    {% if bank.last_close_shift_id %}
-    <p class="muted" style="font-size:0.78rem;margin:0.5rem 0 0">جلسة #{{ bank.last_close_shift_id }}
-      {% if bank.last_close_at %} · {{ bank.last_close_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}
-    </p>
-    {% endif %}
-    {% else %}
-    <div class="value" style="font-size:1rem;font-weight:500;color:var(--muted)">—</div>
-    {% endif %}
-  </div>
+  {% if pos_perm(request)('payments:manage') or pos_perm(request)('reports:view') %}
+  {% if treasuries.get('CASH') %}
+  <a class="btn" href="/pos/treasury?kind=cash" style="font-size:0.82rem">💵 حركة خزينة الكاش</a>
+  {% endif %}
+  {% if treasuries.get('BANK') %}
+  <a class="btn" href="/pos/treasury?kind=bank" style="font-size:0.82rem">🏦 حركة خزينة المصرف</a>
+  {% endif %}
   {% endif %}
 </div>
 {% endif %}
 
-<div class="card" style="margin-top:1.25rem">
-  <h2 style="margin-top:0">الحالة الحالية</h2>
+<div class="card" style="margin-top:1rem;border:none;background:transparent;padding:0;box-shadow:none">
   {% if open_shift %}
-  <p>جلسة مفتوحة: <strong>#{{ open_shift.id }}</strong> منذ
-    {% if open_shift.opened_at %}{{ open_shift.opened_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}
+  <p class="muted" style="margin:0 0 0.75rem;font-size:0.88rem">
+    <strong>رصيد افتتاحي في الدرج:</strong> {{ pos_money(open_shift.opening_cash or 0) }} <span class="money-currency">د.ل</span>
+    <span style="font-size:0.82rem"> (يُضاف للمتوقع عند الإغلاق)</span>
   </p>
   {% if open_shift.opening_note %}
-  <p class="muted" style="margin:0.25rem 0">ملاحظة عند الفتح: {{ open_shift.opening_note }}</p>
+  <p class="muted" style="margin:0 0 0.75rem;font-size:0.88rem">ملاحظة عند الفتح: {{ open_shift.opening_note }}</p>
+  {% endif %}
+  {% if open_shift_stale %}
+  <div class="alert" style="background:#fff7ed;border-color:#fdba74;color:#92400e;margin-top:0.65rem">
+    <strong>تنبيه:</strong> هذه الجلسة مفتوحة منذ أكثر من 24 ساعة. أغلقها قبل نهاية الوردية —
+    أو راجع المدير في <a href="/reports/shifts/{{ open_shift.id }}">تقرير الجلسات</a>.
+  </div>
   {% endif %}
 
-  <form method="post" action="/pos/shift/close" style="margin-top:1rem;max-width:480px">
-    <label for="counted_cash" style="display:block;font-weight:600;margin-bottom:0.35rem">المبلغ المعدود في الدرج (كاش)</label>
-    {% if preview_expected_cash is not none %}
-    <p class="muted" style="font-size:0.82rem;margin:0 0 0.35rem">متوقع في الجلسة: <strong>{{ pos_money(preview_expected_cash) }}</strong> د.ل</p>
-    {% endif %}
-    <input id="counted_cash" name="counted_cash" type="text" inputmode="decimal" required
-      placeholder="مثال: 1250.500" style="width:100%;padding:0.5rem;border-radius:8px;border:1px solid var(--border)" />
-    <label for="counted_bank" style="display:block;font-weight:600;margin:0.75rem 0 0.35rem">رصيد المصرف المعدود</label>
-    {% if preview_expected_bank is not none %}
-    <p class="muted" style="font-size:0.82rem;margin:0 0 0.35rem">متوقع في الجلسة: <strong>{{ pos_money(preview_expected_bank) }}</strong> د.ل — اترك الحقل فارغاً لاستخدام المتوقع</p>
-    {% endif %}
-    <input id="counted_bank" name="counted_bank" type="text" inputmode="decimal"
-      placeholder="اختياري — يُستخدم المتوقع إن تُرك فارغاً" style="width:100%;padding:0.5rem;border-radius:8px;border:1px solid var(--border)" />
-    <label for="closing_note" style="display:block;font-weight:600;margin:0.75rem 0 0.35rem">ملاحظة الإغلاق (اختياري)</label>
-    <textarea id="closing_note" name="closing_note" rows="2" style="width:100%;padding:0.5rem;border-radius:8px;border:1px solid var(--border)"></textarea>
-    <p class="muted" style="font-size:0.85rem;margin:0.5rem 0">
-      يُحسب الكاش <strong>المتوقع</strong> من تحصيلات الكاش في الجلسة ناقص أجور التوصيل المسجّلة من الكاش وناقص المرتجعات النقدية.
-      المصرف <strong>المتوقع</strong> = تحصيلات المصرف في الجلسة ناقص مرتجعات المصرف.
-      الفرق = المعدود − المتوقع (موجب = زيادة، سالب = عجز).
+  {% if pending_shift_orders and pending_shift_orders|length > 0 %}
+  <div class="alert" style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;margin-top:1rem;padding:0.85rem 1rem;border-radius:10px">
+    <p style="margin:0;font-weight:700">
+      لا يمكن إغلاق الجلسة — لديك {{ pending_shift_orders|length }} طلب/طلبات عالقة
     </p>
-    <button type="submit" class="btn btn-primary" style="margin-top:0.5rem">إغلاق الجلسة وحفظ النتيجة</button>
+    <p style="margin:0.45rem 0 0;font-size:0.9rem">
+      يجب معالجة كل طلب قبل الإغلاق: <strong>إتمام البيع والدفع</strong> إن تم التسليم للعميل،
+      أو <strong>إلغاء الطلب</strong> إن لم يُنفَّذ. افتح الطلب من القائمة أدناه ثم نفّذ الإجراء المناسب.
+    </p>
+    <ul style="margin:0.65rem 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:0.45rem">
+      {% for po in pending_shift_orders %}
+      <li style="background:#fff;border:1px solid #fecaca;border-radius:8px;padding:0.5rem 0.65rem">
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.5rem;justify-content:space-between">
+          <div>
+            <strong>#{{ po.id }}</strong> · {{ po.label }}
+            · {{ pos_money(po.total) }} <span class="money-currency">د.ل</span>
+            {% if po.item_count %}<span class="muted" style="font-size:0.82rem"> ({{ po.item_count }} صنف)</span>{% endif %}
+            <div style="font-size:0.82rem;margin-top:0.2rem;color:#b45309">{{ po.status }}</div>
+            <div style="font-size:0.78rem;margin-top:0.15rem;color:#64748b">{{ po.action_hint }}</div>
+          </div>
+          <form method="post" action="/pos/open-order/{{ po.id }}" style="margin:0">
+            <button type="submit" class="btn btn-primary" style="white-space:nowrap;font-size:0.85rem;padding:0.35rem 0.65rem">
+              فتح الطلب
+            </button>
+          </form>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    <p style="margin:0.65rem 0 0;font-size:0.85rem">
+      <a href="/pos" style="font-weight:600;color:#1d4ed8">العودة لشاشة الكاشير</a>
+      لمعالجة الطلبات، ثم ارجع هنا لإغلاق الجلسة.
+    </p>
+  </div>
+  {% endif %}
+
+  <div class="shift-close-summary-cards">
+    <div class="shift-close-summary-card shift-close-summary-card--session">
+      <div class="shift-close-summary-card__label">📂 الجلسة المفتوحة</div>
+      <div class="shift-close-summary-card__value">#{{ open_shift.id }}</div>
+      <div class="shift-close-summary-card__sub">
+        {% if open_shift.opened_at %}{{ pos_format_dt(open_shift.opened_at, '%Y-%m-%d %H:%M') }}{% else %}—{% endif %}
+      </div>
+    </div>
+    <div class="shift-close-summary-card shift-close-summary-card--expected">
+      <div class="shift-close-summary-card__label">🧮 إجمالي المتوقع</div>
+      <div class="shift-close-summary-card__value" id="shift-total-expected">
+        {% if shift_financial %}{{ pos_money(shift_financial.expected_cash_drawer + shift_financial.expected_bank) }}{% else %}0.000{% endif %}
+        <span class="money-currency">د.ل</span>
+      </div>
+    </div>
+    <div class="shift-close-summary-card shift-close-summary-card--counted">
+      <div class="shift-close-summary-card__label">✅ إجمالي المعدود</div>
+      <div class="shift-close-summary-card__value" id="shift-total-counted">0.000 <span class="money-currency">د.ل</span></div>
+    </div>
+    <div class="shift-close-summary-card shift-close-summary-card--deficit">
+      <div class="shift-close-summary-card__label">📉 إجمالي العجز</div>
+      <div class="shift-close-summary-card__value" id="shift-total-deficit">0.000 <span class="money-currency">د.ل</span></div>
+    </div>
+    <div class="shift-close-summary-card shift-close-summary-card--surplus">
+      <div class="shift-close-summary-card__label">📈 إجمالي الفائض</div>
+      <div class="shift-close-summary-card__value" id="shift-total-surplus">0.000 <span class="money-currency">د.ل</span></div>
+    </div>
+  </div>
+
+  <div class="shift-close-panel">
+  <form method="post" action="/pos/shift/close" id="shift-close-form">
+    <input type="hidden" name="counted_cash" id="counted_cash" value="" />
+    <input type="hidden" name="counted_bank" id="counted_bank" value="" />
+    <input type="hidden" name="counted_room" id="counted_room" value="" />
+
+    {% if close_rows is defined and close_rows|length > 0 %}
+    {% include "_shift_close_wallets.html" %}
+    {% endif %}
+
+    <div class="shift-close-note">
+      <label for="closing_note">ملاحظة الإغلاق (اختياري)</label>
+      <textarea id="closing_note" name="closing_note" rows="2" placeholder="أي ملاحظة عن العد أو الفروقات…"></textarea>
+    </div>
+
+    <div class="shift-close-footer">
+      <p class="shift-close-footer__hint">
+        <span aria-hidden="true">ℹ️</span>
+        يرجى التأكد من صحة جميع المبالغ قبل إغلاق الجلسة. <strong>المصرف وحساب الشقق إلزاميان</strong> — راجع الفواتير وأدخل المجموع. فرق العد بسبب نقاط الولاء لا يُحمَّل على الكاشير.
+      </p>
+      <div class="shift-close-footer__actions no-print">
+        <button type="button" class="btn" id="shift-clear-counts">🖨️ تفريغ وطباعة</button>
+        <button type="button" class="btn" id="shift-preview-btn">👁️ معاينة وتحقق</button>
+        <button type="button" class="btn btn-primary" id="shift-close-submit"
+          {% if pending_shift_orders and pending_shift_orders|length > 0 %}disabled title="أغلق الطلبات العالقة أولاً"{% endif %}>
+          🔒 إغلاق الجلسة وحفظ النتيجة
+        </button>
+      </div>
+    </div>
+    {% if pending_shift_orders and pending_shift_orders|length > 0 %}
+    <p class="muted" style="font-size:0.85rem;margin:0.75rem 0 0;color:#b91c1c">
+      زر الإغلاق معطّل حتى تُغلق جميع الطلبات العالقة ({{ pending_shift_orders|length }}).
+    </p>
+    {% endif %}
   </form>
+
+  <div id="shift-close-confirm-modal" class="shift-close-confirm" hidden aria-hidden="true">
+    <div class="shift-close-confirm__backdrop" data-shift-close-confirm-cancel tabindex="-1"></div>
+    <div class="shift-close-confirm__dialog" role="alertdialog" aria-modal="true" aria-labelledby="shift-close-confirm-title">
+      <div style="font-size:2rem;line-height:1;margin-bottom:0.35rem" aria-hidden="true">⚠️</div>
+      <h2 id="shift-close-confirm-title" class="shift-close-confirm__title">هل تريد إغلاق جلسة البيع؟</h2>
+      <p class="shift-close-confirm__body">
+        سيتم <strong>إغلاق الجلسة نهائياً</strong> وحفظ نتيجة العد. لا يمكن التراجع بسهولة.
+        تأكد من صحة جميع المبالغ قبل المتابعة.
+      </p>
+      <p class="shift-close-confirm__hint">Enter لا يُغلق الجلسة تلقائياً — اضغط الزر الأحمر للتأكيد فقط.</p>
+      <div class="shift-close-confirm__actions">
+        <button type="button" class="btn shift-close-confirm__cancel" data-shift-close-confirm-cancel>إلغاء — متابعة العد</button>
+        <button type="button" class="btn shift-close-confirm__ok" id="shift-close-confirm-ok">نعم، إغلاق الجلسة</button>
+      </div>
+    </div>
+  </div>
+
+  {% if shift_financial %}
+  {% include "_shift_expense_list.html" %}
+  <details class="shift-close-extra no-print">
+    <summary>تفاصيل مالية إضافية (مبيعات، توصيل، نقاط ولاء…)</summary>
+    <div class="shift-close-layout">
+      {% set show_drawer_expected = false %}
+      {% set show_count_preview = false %}
+      {% set shift_id = open_shift.id %}
+      {% include "_shift_financial_summary.html" %}
+    </div>
+  </details>
+  {% endif %}
+  </div>
   {% else %}
   <p>لا توجد جلسة مفتوحة لهذا المستخدم.</p>
-  <form method="post" action="/pos/shift/open" style="margin-top:1rem;max-width:420px">
-    <label for="opening_note" style="display:block;font-weight:600;margin-bottom:0.35rem">ملاحظة عند الفتح (اختياري)</label>
-    <textarea id="opening_note" name="opening_note" rows="2" style="width:100%;padding:0.5rem;border-radius:8px;border:1px solid var(--border)"></textarea>
-    <button type="submit" class="btn btn-primary" style="margin-top:0.75rem">فتح جلسة بيع</button>
-  </form>
+  <a class="btn btn-primary" href="/pos/shift/start" style="margin-top:1rem;display:inline-block">بدء وردية — إدخال رصيد الدرج</a>
   {% endif %}
 </div>
 
 {% if recent_closed %}
-<div class="card" style="margin-top:1.25rem">
+<div class="card shift-close-page" style="margin-top:1.25rem">
   <h2 style="margin-top:0">جلسات سابقة</h2>
   <table>
     <thead>
@@ -159,7 +305,8 @@
         <th>إغلاق</th>
         <th>متوقع</th>
         <th>معدود</th>
-        <th>الفرق</th>
+        <th>عجز</th>
+        <th>فائض</th>
         <th></th>
       </tr>
     </thead>
@@ -167,12 +314,28 @@
       {% for s in recent_closed %}
       <tr>
         <td>{{ s.id }}</td>
-        <td>{% if s.opened_at %}{{ s.opened_at.strftime('%m-%d %H:%M') }}{% else %}—{% endif %}</td>
-        <td>{% if s.closed_at %}{{ s.closed_at.strftime('%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+        <td>{% if s.opened_at %}{{ pos_format_dt(s.opened_at, '%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+        <td>{% if s.closed_at %}{{ pos_format_dt(s.closed_at, '%m-%d %H:%M') }}{% else %}—{% endif %}</td>
         <td>{% if s.expected_cash is not none %}{{ pos_money(s.expected_cash) }}{% else %}—{% endif %}</td>
         <td>{% if s.counted_cash is not none %}{{ pos_money(s.counted_cash) }}{% else %}—{% endif %}</td>
-        <td>{% if s.cash_difference is not none %}{{ pos_money(s.cash_difference) }}{% else %}—{% endif %}</td>
         <td>
+          {% set cash_short = (-s.cash_difference) if s.cash_difference is not none and s.cash_difference < 0 else 0 %}
+          {% set bank_short = (-s.bank_difference) if s.bank_difference is not none and s.bank_difference < 0 else 0 %}
+          {% set short_total = cash_short + bank_short %}
+          {% if short_total > 0 %}
+          <span style="color:#b91c1c;font-weight:600">{{ pos_money(short_total) }}</span>
+          {% else %}—{% endif %}
+        </td>
+        <td>
+          {% set cash_sur = s.cash_difference if s.cash_difference is not none and s.cash_difference > 0 else 0 %}
+          {% set bank_sur = s.bank_difference if s.bank_difference is not none and s.bank_difference > 0 else 0 %}
+          {% set sur_total = cash_sur + bank_sur %}
+          {% if sur_total > 0 %}
+          <span style="color:#15803d;font-weight:600">{{ pos_money(sur_total) }}</span>
+          {% else %}—{% endif %}
+        </td>
+        <td>
+          <a class="btn btn-primary" style="padding:0.25rem 0.5rem;font-size:0.85rem" href="/reports/shifts/{{ s.id }}">تفاصيل</a>
           <a class="btn" style="padding:0.25rem 0.5rem;font-size:0.85rem" href="/pos/shift/{{ s.id }}/report" target="_blank">طباعة</a>
           <a class="btn" style="padding:0.25rem 0.5rem;font-size:0.85rem" href="/pos/shift/{{ s.id }}/export.csv">CSV</a>
         </td>
@@ -181,5 +344,301 @@
     </tbody>
   </table>
 </div>
+{% endif %}
+</div>
+
+{% if open_shift and shift_financial %}
+<script>
+function posPrintShiftSummary() {
+  document.body.classList.add("pos-shift-printing");
+  window.print();
+  setTimeout(function () {
+    document.body.classList.remove("pos-shift-printing");
+  }, 900);
+}
+(function () {
+  var wrap = document.getElementById("shift-close-wallets");
+  if (!wrap) return;
+
+  var loyaltyCost = parseFloat(wrap.getAttribute("data-loyalty-cost")) || 0;
+  var cashHidden = document.getElementById("counted_cash");
+  var bankHidden = document.getElementById("counted_bank");
+  var roomHidden = document.getElementById("counted_room");
+  var form = document.getElementById("shift-close-form");
+  var elTotalCounted = document.getElementById("shift-total-counted");
+  var elTotalDeficit = document.getElementById("shift-total-deficit");
+  var elTotalSurplus = document.getElementById("shift-total-surplus");
+
+  function parseVal(el) {
+    if (!el) return null;
+    var t = (el.value || "").trim().replace(",", ".");
+    if (!t) return null;
+    var n = parseFloat(t);
+    return isNaN(n) ? null : n;
+  }
+
+  function fmt(n) {
+    return (Math.round(n * 1000) / 1000).toFixed(3);
+  }
+
+  function fmtMoney(n) {
+    return fmt(n) + ' <span class="money-currency">د.ل</span>';
+  }
+
+  function update() {
+    var totalExpected = 0;
+    var totalCounted = 0;
+    var totalRawSurplus = 0;
+    var cashSum = 0;
+    var bankSum = 0;
+    var roomSum = 0;
+    var hasCash = false;
+    var hasBank = false;
+    var hasRoom = false;
+    var cashDiff = null;
+    var bankDiff = null;
+
+    wrap.querySelectorAll('.shift-close-wallet-row[data-closable="1"]').forEach(function (row) {
+      var expected = parseFloat(row.getAttribute("data-expected")) || 0;
+      var kind = row.getAttribute("data-kind");
+      var input = row.querySelector(".shift-counted-input");
+      var deficitEl = row.querySelector(".shift-wallet-deficit");
+      var isReviewOnly = kind === "ROOM";
+      if (!isReviewOnly) {
+        totalExpected += expected;
+      }
+      var counted = parseVal(input);
+      if (counted !== null) {
+        if (!isReviewOnly) {
+          totalCounted += counted;
+        }
+        if (kind === "CASH") {
+          cashSum += counted;
+          hasCash = true;
+        } else if (kind === "BANK") {
+          bankSum += counted;
+          hasBank = true;
+        } else if (kind === "ROOM") {
+          roomSum += counted;
+          hasRoom = true;
+        }
+      }
+      if (deficitEl) {
+        if (counted === null) {
+          deficitEl.innerHTML = '0.000 <span class="money-currency">د.ل</span>';
+          deficitEl.classList.remove("is-short", "is-over", "is-review");
+        } else {
+          var diff = counted - expected;
+          if (Math.abs(diff) > 0.0005) {
+            var absDiff = Math.abs(diff);
+            if (diff < 0) {
+              deficitEl.innerHTML = "−" + fmt(absDiff) + ' <span class="money-currency">د.ل</span>';
+              deficitEl.classList.add("is-short");
+              deficitEl.classList.remove("is-over");
+            } else {
+              deficitEl.innerHTML = "+" + fmt(absDiff) + ' <span class="money-currency">د.ل</span>';
+              deficitEl.classList.add("is-over");
+              deficitEl.classList.remove("is-short");
+            }
+            if (isReviewOnly) {
+              deficitEl.classList.add("is-review");
+            } else if (diff > 0.0005) {
+              totalRawSurplus += absDiff;
+            }
+          } else {
+            deficitEl.innerHTML = '0.000 <span class="money-currency">د.ل</span>';
+            deficitEl.classList.remove("is-short", "is-over", "is-review");
+          }
+        }
+      }
+    });
+
+    var expCash = parseFloat(wrap.getAttribute("data-expected-cash")) || 0;
+    var expBank = parseFloat(wrap.getAttribute("data-expected-bank")) || 0;
+    if (hasCash) {
+      cashDiff = cashSum - expCash;
+      cashHidden.value = fmt(cashSum);
+    } else {
+      cashHidden.value = "";
+    }
+    if (hasBank) {
+      bankDiff = bankSum - expBank;
+      bankHidden.value = fmt(bankSum);
+    } else {
+      bankHidden.value = "";
+    }
+    if (hasRoom) {
+      roomHidden.value = fmt(roomSum);
+    } else {
+      roomHidden.value = "";
+    }
+
+    if (elTotalCounted) {
+      elTotalCounted.innerHTML = fmtMoney(totalCounted);
+    }
+
+    var realShortage = 0;
+    if (cashDiff !== null && cashDiff < -0.0005) {
+      var cashShort = -cashDiff;
+      realShortage += Math.max(0, cashShort - Math.min(cashShort, loyaltyCost));
+    }
+    if (bankDiff !== null && bankDiff < -0.0005) {
+      realShortage += -bankDiff;
+    }
+    if (elTotalDeficit) {
+      elTotalDeficit.innerHTML = fmtMoney(realShortage);
+    }
+    if (elTotalSurplus) {
+      elTotalSurplus.innerHTML = fmtMoney(totalRawSurplus);
+    }
+
+    var elPrevCash = document.getElementById("shift-preview-cash-diff");
+    var elPrevBank = document.getElementById("shift-preview-bank-diff");
+    var elPrevShort = document.getElementById("shift-preview-total-shortage");
+    var elPrevSurplus = document.getElementById("shift-preview-total-surplus");
+    if (elPrevCash) {
+      elPrevCash.textContent = cashDiff === null ? "—" : fmt(cashDiff);
+    }
+    if (elPrevBank) {
+      elPrevBank.textContent = bankDiff === null ? "—" : fmt(bankDiff);
+    }
+    if (elPrevShort) {
+      elPrevShort.textContent = fmt(realShortage);
+    }
+    if (elPrevSurplus) {
+      elPrevSurplus.textContent = fmt(totalRawSurplus);
+    }
+  }
+
+  wrap.querySelectorAll(".shift-counted-input").forEach(function (inp) {
+    inp.addEventListener("input", update);
+  });
+
+  function validateCloseFields() {
+    update();
+    var cashVal = (cashHidden.value || "").trim();
+    var bankVal = (bankHidden.value || "").trim();
+    var roomVal = (roomHidden.value || "").trim();
+    if (!cashVal) {
+      window.alert("أدخل المبلغ المعدود لخزينة الكاش.");
+      var firstCash = wrap.querySelector('.shift-close-wallet-row[data-kind="CASH"] .shift-counted-input');
+      if (firstCash) firstCash.focus();
+      return false;
+    }
+    if (!bankVal) {
+      window.alert("أدخل المبلغ المعدود لخزينة المصرف بعد مراجعة فواتير المصرف.");
+      var firstBank = wrap.querySelector('.shift-close-wallet-row[data-kind="BANK"] .shift-counted-input');
+      if (firstBank) firstBank.focus();
+      return false;
+    }
+    if (!roomVal) {
+      window.alert("أدخل إجمالي فواتير الشقق (قيد على حساب الشقة) بعد مراجعتها.");
+      var firstRoom = wrap.querySelector('.shift-close-wallet-row[data-kind="ROOM"] .shift-counted-input');
+      if (firstRoom) firstRoom.focus();
+      return false;
+    }
+    return true;
+  }
+
+  var confirmModal = document.getElementById("shift-close-confirm-modal");
+  var confirmOk = document.getElementById("shift-close-confirm-ok");
+
+  function hideCloseConfirm() {
+    if (!confirmModal) return;
+    confirmModal.hidden = true;
+    confirmModal.setAttribute("aria-hidden", "true");
+  }
+
+  function showCloseConfirm() {
+    if (!confirmModal || !confirmOk) {
+      if (window.confirm("هل تريد إغلاق جلسة البيع نهائياً؟")) {
+        form.dataset.confirmed = "1";
+        form.requestSubmit();
+      }
+      return;
+    }
+    confirmModal.hidden = false;
+    confirmModal.removeAttribute("aria-hidden");
+    confirmOk.focus();
+  }
+
+  if (confirmModal) {
+    confirmModal.querySelectorAll("[data-shift-close-confirm-cancel]").forEach(function (btn) {
+      btn.addEventListener("click", hideCloseConfirm);
+    });
+    confirmOk.addEventListener("click", function () {
+      hideCloseConfirm();
+      form.dataset.confirmed = "1";
+      form.requestSubmit();
+    });
+    document.addEventListener("keydown", function (ev) {
+      if (confirmModal.hidden) return;
+      if (ev.key === "Escape") {
+        ev.preventDefault();
+        hideCloseConfirm();
+      }
+    });
+  }
+
+  if (form) {
+    form.addEventListener("keydown", function (e) {
+      if (e.key !== "Enter") return;
+      if (e.target && e.target.tagName === "TEXTAREA") return;
+      if (confirmModal && !confirmModal.hidden) return;
+      e.preventDefault();
+    });
+
+    form.addEventListener("submit", function (e) {
+      if (form.dataset.confirmed === "1") {
+        form.dataset.confirmed = "";
+        return;
+      }
+      e.preventDefault();
+      if (!validateCloseFields()) return;
+      showCloseConfirm();
+    });
+  }
+
+  var submitBtn = document.getElementById("shift-close-submit");
+  if (submitBtn && form) {
+    submitBtn.addEventListener("click", function (e) {
+      if (submitBtn.disabled) return;
+      e.preventDefault();
+      if (!validateCloseFields()) return;
+      showCloseConfirm();
+    });
+  }
+
+  if (form) {
+    form.addEventListener("submit", function (e) {
+      update();
+    }, true);
+  }
+
+  var clearBtn = document.getElementById("shift-clear-counts");
+  if (clearBtn) {
+    clearBtn.addEventListener("click", function () {
+      wrap.querySelectorAll(".shift-counted-input").forEach(function (inp) {
+        inp.value = "";
+      });
+      update();
+      posPrintShiftSummary();
+    });
+  }
+
+  var previewBtn = document.getElementById("shift-preview-btn");
+  if (previewBtn) {
+    previewBtn.addEventListener("click", function () {
+      update();
+      var extra = document.querySelector(".shift-close-extra");
+      if (extra && !extra.open) extra.open = true;
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  }
+
+  update();
+})();
+</script>
+{% include "pos_shift_expense_modal.html" %}
 {% endif %}
 {% endblock %}

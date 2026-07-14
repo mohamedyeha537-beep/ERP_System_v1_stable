@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}تشخيص صندوق الوارد{% endblock %}
+{% block body %}
+<h1>🔧 تشخيص صندوق الوارد</h1>
+
+{% if ok %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4">
+  <p style="margin:0">✅ الملفات والجداول موجودة. عدد المحادثات: <strong>{{ conv_count }}</strong></p>
+</div>
+{% else %}
+<div class="alert">
+  <p style="margin:0 0 0.5rem"><strong>مشاكل مكتشفة:</strong></p>
+  <ul style="margin:0">
+    {% for issue in issues %}
+    <li>{{ issue }}</li>
+    {% endfor %}
+  </ul>
+</div>
+<div class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0;font-size:1rem">الحل على السيرفر الحي</h2>
+  <ol style="line-height:1.7">
+    <li>ارفع مجلد <code dir="ltr">modules/messaging/</code> كاملاً</li>
+    <li>ارفع القوالب: <code dir="ltr">admin_messaging_inbox*.html</code></li>
+    <li>أعد تشغيل السيرفر (لإنشاء الجداول عبر sqlite_patch)</li>
+    <li>تأكد أن <code dir="ltr">app/main.py</code> يضمّ <code dir="ltr">messaging_inbox_router</code></li>
+  </ol>
+</div>
+{% endif %}
+
+<p style="margin-top:1rem"><a class="btn" href="/admin/messaging/inbox">← صندوق الوارد</a></p>
+{% endblock %}

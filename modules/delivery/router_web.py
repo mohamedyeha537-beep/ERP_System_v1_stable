@@ -132,11 +132,16 @@ def delivery_zones_delete(
 def reports_delivery(
     request: Request,
     db: DBSession,
-    _: User = Depends(require_permission(REPORTS_VIEW)),
+    user: User = Depends(require_permission(REPORTS_VIEW)),
     period: str = Query("day"),
     start: str | None = Query(None),
     end: str | None = Query(None),
 ):
+    from modules.platform.business_domain import reports_show_pos_sections
+
+    if not reports_show_pos_sections(user, request.session):
+        return RedirectResponse("/reports/hotel-collections?period=month", status_code=302)
+
     period, s, e = _resolve_period(period, start, end)
     rows = delivery_orders_report(db, start=s, end=e)
     order_total = sum((row.order_total for row in rows), Decimal("0")).quantize(Decimal("0.001"))

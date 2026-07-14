@@ -1,0 +1,74 @@
+{# صفوف الإغلاق: كاش/مصرف/شقق (متوقع·معدود·عجز) + توصيل/ولاء (عرض فقط) #}
+{% if close_rows and close_rows|length > 0 %}
+<div class="shift-close-wallets" id="shift-close-wallets"
+  data-expected-cash="{{ shift_financial.expected_cash_drawer if shift_financial else 0 }}"
+  data-expected-bank="{{ shift_financial.expected_bank if shift_financial else 0 }}"
+  data-expected-room="{{ shift_financial.room_account_sales if shift_financial else 0 }}"
+  data-loyalty-cost="{{ shift_financial.loyalty_dinar_cost if shift_financial and shift_financial.loyalty_dinar_cost else 0 }}">
+
+  <div class="shift-close-wallets__head" aria-hidden="true">
+    <span class="shift-close-wallets__head-name">الحساب / الخزينة</span>
+    <span class="shift-close-wallets__head-col">المتوقع</span>
+    <span class="shift-close-wallets__head-col">المعدود</span>
+    <span class="shift-close-wallets__head-col">الفرق</span>
+  </div>
+
+  {% for row in close_rows %}
+  {% if row.closable %}
+  <article class="shift-close-wallet-row shift-close-wallet-row--{{ row.key }}"
+    data-closable="1"
+    data-kind="{{ row.kind }}"
+    data-expected="{{ row.close_expected }}"
+    {% if row.require_count %}data-require-count="1"{% endif %}>
+    <div class="shift-close-wallet-row__info">
+      <span class="shift-close-wallet-row__icon" aria-hidden="true">
+        {% if row.key == 'cash' %}💵{% elif row.key == 'bank' %}🏦{% elif row.key == 'room' %}🏨{% else %}📋{% endif %}
+      </span>
+      <div class="shift-close-wallet-row__meta">
+        <strong class="shift-close-wallet-row__name">{{ row.name_ar }}{% if row.require_count %} <span class="shift-required-mark" title="إلزامي">*</span>{% endif %}</strong>
+        <span class="shift-close-wallet-row__sub">{{ row.subtitle }}</span>
+      </div>
+    </div>
+    <div class="shift-close-wallet-row__box shift-close-wallet-row__box--expected">
+      <span class="shift-close-wallet-row__box-label">المتوقع</span>
+      <span class="shift-close-wallet-row__box-value">
+        {{ pos_money(row.sales_total) }} <span class="money-currency">د.ل</span>
+      </span>
+    </div>
+    <div class="shift-close-wallet-row__box shift-close-wallet-row__box--counted">
+      <span class="shift-close-wallet-row__box-label">المعدود{% if row.require_count %} *{% endif %}</span>
+      <input type="text" inputmode="decimal"
+        class="shift-counted-input{% if row.require_count %} shift-counted-input--required{% endif %}"
+        data-kind="{{ row.kind }}"
+        placeholder="{% if row.require_count %}أدخل بعد المراجعة{% else %}0.000{% endif %}"
+        autocomplete="off"
+        dir="ltr"
+        {% if row.require_count %}required aria-required="true"{% endif %} />
+    </div>
+    <div class="shift-close-wallet-row__box shift-close-wallet-row__box--deficit">
+      <span class="shift-close-wallet-row__box-label">الفرق</span>
+      <span class="shift-close-wallet-row__box-value shift-wallet-deficit">0.000 <span class="money-currency">د.ل</span></span>
+    </div>
+  </article>
+  {% else %}
+  <article class="shift-close-wallet-row shift-close-wallet-row--info shift-close-wallet-row--{{ row.key }}">
+    <div class="shift-close-wallet-row__info">
+      <span class="shift-close-wallet-row__icon" aria-hidden="true">
+        {% if row.key == 'room' %}🏨{% elif row.key == 'delivery' %}🛵{% elif row.key == 'shift_expense' %}💸{% else %}⭐{% endif %}
+      </span>
+      <div class="shift-close-wallet-row__meta">
+        <strong class="shift-close-wallet-row__name">{{ row.name_ar }}</strong>
+        <span class="shift-close-wallet-row__sub">{{ row.subtitle }}</span>
+      </div>
+    </div>
+    <div class="shift-close-wallet-row__info-amount" colspan="3">
+      <span class="shift-close-wallet-row__info-label">إجمالي الجلسة</span>
+      <span class="shift-close-wallet-row__info-value">
+        {{ pos_money(row.amount) }} <span class="money-currency">د.ل</span>
+      </span>
+    </div>
+  </article>
+  {% endif %}
+  {% endfor %}
+</div>
+{% endif %}

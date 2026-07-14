@@ -1,19 +1,26 @@
 {% extends "base.html" %}
 {% block title %}المخزون{% endblock %}
 {% block body %}
+{% set can_edit_catalog = p('catalog:write') %}
+{% set can_manage_warehouses = p('warehouses:manage') %}
 <h1>المخزون</h1>
 
-<p class="muted" style="margin-top: -0.4rem">
-  تظهر هنا فقط <strong>مكوّنات المخزون</strong> (STOCK_ONLY). المنتجات النهائية تُخصم مكوّناتها تلقائياً عند البيع.
+<p class="muted pos-guide-intro" data-guide-title="ℹ️ عن صفحة المخزون" style="margin-top: -0.4rem">
+  تظهر هنا <strong>مكوّنات المخزون</strong> والمنتجات النهائية المفعّل لها خيار الشراء المباشر من كرت الصنف.
+  المنتجات النهائية المركّبة التي لا تُشترى مباشرة تُخصم مكوّناتها تلقائياً عند البيع.
   {% if p('warehouses:manage') %}
   <a href="/admin/warehouses">إدارة المخازن</a> ·
-  <a href="/admin/warehouses/transfer">صرف من الرئيسي للفرعي</a>
+  <a href="/admin/warehouses/transfer">صرف من الرئيسي للفرعي</a> ·
+  <a href="/admin/warehouses/transfers">مستندات الصرف</a>
+  {% endif %}
+  {% if p('inventory:receive') %}
+  · <a href="/inventory/transfers/inbox">استلام الصرف</a>
   {% endif %}
 </p>
 
 <div class="row" style="gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.75rem">
   <label for="wh-select" class="muted" style="margin: 0">عرض مخزن:</label>
-  <select id="wh-select" onchange="location.href='/inventory?w='+this.value" style="max-width: 14rem">
+  <select id="wh-select" style="max-width: 14rem">
     {% for wh in warehouses %}
     <option value="{{ wh.id }}" {% if wh.id == warehouse_id %}selected{% endif %}>{{ wh.name_ar }}{% if wh.is_main %} ★{% endif %}</option>
     {% endfor %}
@@ -30,6 +37,23 @@
 <div class="alert">تعذّر تسجيل الحركة (تحقّق من توفّر الرصيد).</div>
 {% elif err == 'type' %}
 <div class="alert">نوع حركة غير صالح.</div>
+{% elif err == 'no_products' %}
+<div class="alert">حدّد صنفاً واحداً على الأقل قبل تنفيذ الإجراء الجماعي.</div>
+{% elif err == 'sales_warehouse' %}
+<div class="alert">اختر مخزناً مفعّلاً للخصم عند البيع من صفحة المخازن.</div>
+{% elif err == 'transfer_target' %}
+<div class="alert">اختر مخزن وجهة مختلفاً للنقل.</div>
+{% elif err == 'transfer_qty' %}
+<div class="alert">أدخل كمية نقل صحيحة أكبر من صفر للأصناف المحددة.</div>
+{% endif %}
+
+{% set assigned = request.query_params.get('assigned') %}
+{% if assigned %}
+<div class="alert good">تم ربط {{ assigned }} صنف بمخزن الخصم عند البيع.</div>
+{% endif %}
+{% set transfer_created = request.query_params.get('transfer_created') %}
+{% if transfer_created %}
+<div class="alert good">تم إنشاء مستند نقل #{{ transfer_created }} بانتظار مصادقة المستلم.</div>
 {% endif %}
 
 {% if low_stock %}
@@ -37,7 +61,7 @@
   <div>
     <strong>تنبيه نفاد — {{ current_warehouse.name_ar }}:</strong>
     {% for p, q in low_stock %}
-    <span>{{ p.name_ar }} ({{ q }}){% if not loop.last %} — {% endif %}</span>
+    <span>{{ p.name_ar }} ({{ pos_qty_plain(q) }}){% if not loop.last %} — {% endif %}</span>
     {% endfor %}
   </div>
   <a class="btn" href="/inventory/low-stock/print?warehouse_id={{ warehouse_id }}" target="_blank">🖨 طباعة / مشاركة القائمة</a>
@@ -61,15 +85,11 @@
 
 <div class="card">
   <h2 style="margin-top: 0">تسجيل حركة — {{ current_warehouse.name_ar }}</h2>
-  {% if products %}
+  {% if all_products %}
   <form method="post" action="/inventory/movement">
     <input type="hidden" name="warehouse_id" value="{{ warehouse_id }}" />
-    <label for="product_id">الصنف</label>
-    <select id="product_id" name="product_id" required>
-      {% for p in products %}
-      <option value="{{ p.id }}">{{ p.name_ar }} — الرصيد: {{ balances[p.id] }} {{ p.unit }}</option>
-      {% endfor %}
-    </select>
+    <label for="movement_product_input">الصنف</label>
+    <div style="max-width: 28rem">{% include "_inventory_movement_combobox.html" %}</div>
     <label for="movement_type">نوع الحركة</label>
     <select id="movement_type" name="movement_type" required>
       <option value="PURCHASE">شراء / إدخال (+)</option>
@@ -93,32 +113,500 @@
 </div>
 
 <div class="card">
-  <h2 style="margin-top: 0">الأرصدة — {{ current_warehouse.name_ar }}</h2>
-  {% if products %}
-  <table>
+  <div class="row" style="justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.75rem">
+    <h2 style="margin: 0">الأرصدة — {{ current_warehouse.name_ar }}</h2>
+    <div class="row" style="gap: 0.45rem; align-items: center; flex-wrap: wrap; margin: 0">
+      <a class="btn btn-primary" id="inventory-quick-export" href="#" title="تصدير Excel — كل الأصناف المطابقة للفلاتر">⬇ Excel</a>
+      <form method="get" action="/inventory" id="inventory-filter-form" class="row" style="gap: 0.45rem; align-items: flex-end; flex-wrap: wrap; margin: 0">
+      <input type="hidden" name="w" value="{{ warehouse_id }}" />
+      <div>
+        <label for="inv-q" class="muted" style="font-size: 0.78rem">بحث (اسم أو باركود)</label>
+        <input id="inv-q" name="q" type="search" value="{{ search_q }}" placeholder="اسم الصنف أو الباركود…" style="min-width: 11rem" />
+      </div>
+      <div>
+        <label for="inv-sort" class="muted" style="font-size: 0.78rem">ترتيب</label>
+        <select id="inv-sort" name="sort">
+          <option value="{{ sort_name }}" {% if sort == sort_name %}selected{% endif %}>الاسم (أ–ي)</option>
+          <option value="{{ sort_most_requested }}" {% if sort == sort_most_requested %}selected{% endif %}>الأكثر طلباً (مبيعات)</option>
+          <option value="{{ sort_most_used }}" {% if sort == sort_most_used %}selected{% endif %}>الأكثر استخداماً (كل الصرف)</option>
+        </select>
+      </div>
+      <div>
+        <label for="inv-stock" class="muted" style="font-size: 0.78rem">حالة الرصيد</label>
+        <select id="inv-stock" name="stock">
+          <option value="{{ filter_all }}" {% if stock_filter == filter_all %}selected{% endif %}>كل الأصناف</option>
+          <option value="{{ filter_low }}" {% if stock_filter == filter_low %}selected{% endif %}>منخفض / نفاد</option>
+          <option value="{{ filter_in_stock }}" {% if stock_filter == filter_in_stock %}selected{% endif %}>متوفر فوق الحد</option>
+          <option value="{{ filter_zero }}" {% if stock_filter == filter_zero %}selected{% endif %}>رصيد صفر</option>
+          <option value="{{ filter_negative }}" {% if stock_filter == filter_negative %}selected{% endif %}>رصيد سالب</option>
+        </select>
+      </div>
+      <div>
+        <label for="inv-ps" class="muted" style="font-size: 0.78rem">عدد الصفوف</label>
+        <select id="inv-ps" name="page_size">
+          {% for n in page_size_options %}
+          <option value="{{ n }}" {% if page_size == n %}selected{% endif %}>{{ n }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button class="btn btn-primary" type="submit">تطبيق</button>
+      {% if search_q or sort != sort_name or stock_filter != filter_all or page_size != 25 %}
+      <a class="btn" href="/inventory?w={{ warehouse_id }}">إعادة ضبط</a>
+      {% endif %}
+    </form>
+  </div>
+
+  <p class="muted" style="margin: 0.5rem 0 0.65rem; font-size: 0.85rem">
+    الرصيد = مجموع حركات الإدخال والإخراج. القيمة = الرصيد × متوسط تكلفة الشراء.
+    {% if total_count %}
+    {% set row_start = (page - 1) * page_size + 1 %}
+    {% set row_end = [page * page_size, total_count]|min %}
+    — عرض {{ row_start }}–{{ row_end }} من {{ total_count }} صنف
+    {% endif %}
+    {% if can_edit_catalog %}
+    · عدّل <strong>الحد الأدنى</strong> مباشرة من الجدول (Enter أو الخروج من الحقل = حفظ).
+    {% endif %}
+  </p>
+
+  <div class="card" style="margin: 0.75rem 0; background: #f8fafc; border-style: dashed">
+    <h3 style="margin: 0 0 0.5rem; font-size: 0.95rem">تصدير Excel (.xlsx)</h3>
+    <div class="row" style="gap: 0.65rem; align-items: flex-end; flex-wrap: wrap">
+      <div>
+        <label for="export-start" class="muted" style="font-size: 0.78rem">من تاريخ (اختياري)</label>
+        <input id="export-start" type="date" value="{{ export_start_default }}" style="max-width: 10rem" />
+      </div>
+      <div>
+        <label for="export-end" class="muted" style="font-size: 0.78rem">إلى تاريخ (اختياري)</label>
+        <input id="export-end" type="date" value="{{ export_end_default }}" style="max-width: 10rem" />
+      </div>
+      <div>
+        <span class="muted" style="font-size: 0.78rem; display: block">نطاق التصدير</span>
+        <label style="display: inline-flex; align-items: center; gap: 0.35rem; margin-inline-end: 0.75rem">
+          <input type="radio" name="export-scope" value="all" checked /> الكل (حسب البحث)
+        </label>
+        <label style="display: inline-flex; align-items: center; gap: 0.35rem">
+          <input type="radio" name="export-scope" value="selected" /> المحدد فقط ☑
+        </label>
+      </div>
+      <button type="button" class="btn btn-primary" id="inventory-export-btn">⬇ تنزيل Excel</button>
+    </div>
+    <p class="muted" style="margin: 0.45rem 0 0; font-size: 0.78rem">
+      عند تحديد فترة تُضاف أعمدة حركة (بيع / صرف / إدخال) للفترة. «الكل» يصدّر كل الأصناف المطابقة للفلاتر — وليس الصفحة الحالية فقط.
+    </p>
+  </div>
+
+  {% if inventory_rows %}
+  {% if can_edit_catalog %}
+  <form method="post" action="/inventory/products/sales-warehouse" id="inventory-sales-warehouse-form" class="card" style="margin:0.75rem 0;background:#f8fafc;border-style:dashed">
+    <input type="hidden" name="w" value="{{ warehouse_id }}" />
+    <input type="hidden" name="q" value="{{ search_q }}" />
+    <input type="hidden" name="sort" value="{{ sort }}" />
+    <input type="hidden" name="page" value="{{ page }}" />
+    <input type="hidden" name="page_size" value="{{ page_size }}" />
+    <div class="row" style="gap:0.5rem;align-items:flex-end;flex-wrap:wrap">
+      <div>
+        <label for="bulk_sales_warehouse_id" class="muted" style="font-size:0.78rem">نقل تبعية خصم المنتجات المحددة إلى</label>
+        <select id="bulk_sales_warehouse_id" name="sales_warehouse_id">
+          <option value="">الافتراضي من الجلسة/الإعدادات</option>
+          {% for wh in sales_deduction_warehouses %}
+          <option value="{{ wh.id }}">{{ wh.name_ar }}{% if wh.is_main %} (رئيسي){% endif %}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button class="btn btn-primary" type="submit">تطبيق على المحدد</button>
+      <span class="muted" style="font-size:0.82rem">حدّد الأصناف من الجدول ثم اختر المخزن.</span>
+    </div>
+  </form>
+  {% endif %}
+  {% if can_manage_warehouses %}
+  <form method="post" action="/inventory/products/transfer" id="inventory-transfer-form" class="card" style="margin:0.75rem 0;background:#fff7ed;border-color:#fed7aa;border-style:dashed">
+    <input type="hidden" name="from_warehouse_id" value="{{ warehouse_id }}" />
+    <input type="hidden" name="w" value="{{ warehouse_id }}" />
+    <input type="hidden" name="q" value="{{ search_q }}" />
+    <input type="hidden" name="sort" value="{{ sort }}" />
+    <input type="hidden" name="page" value="{{ page }}" />
+    <input type="hidden" name="page_size" value="{{ page_size }}" />
+    <div class="row" style="gap:0.5rem;align-items:flex-end;flex-wrap:wrap">
+      <div>
+        <label for="bulk_transfer_to_warehouse_id" class="muted" style="font-size:0.78rem">نقل الأصناف المحددة من {{ current_warehouse.name_ar }} إلى</label>
+        <select id="bulk_transfer_to_warehouse_id" name="to_warehouse_id" required>
+          <option value="">— اختر المخزن المستلم —</option>
+          {% for wh in warehouses %}
+          {% if wh.id != warehouse_id and wh.is_active %}
+          <option value="{{ wh.id }}">{{ wh.name_ar }}{% if wh.is_main %} (رئيسي){% endif %}</option>
+          {% endif %}
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="bulk_transfer_note" class="muted" style="font-size:0.78rem">ملاحظة</label>
+        <input id="bulk_transfer_note" name="note" placeholder="اختياري" />
+      </div>
+      <button class="btn btn-primary" type="submit">إنشاء نقل للمحدد</button>
+      <span class="muted" style="font-size:0.82rem">اكتب كمية النقل في عمود «كمية نقل» ثم حدّد الصفوف.</span>
+    </div>
+  </form>
+  {% endif %}
+  <table id="inventory-table">
     <thead>
       <tr>
+        <th style="width:2rem">
+          <input type="checkbox" id="inv-select-page" title="تحديد الصفحة" aria-label="تحديد الصفحة" />
+        </th>
         <th>الصنف</th>
+        <th>الباركود</th>
         <th>الوحدة</th>
         <th>الرصيد</th>
         <th>الحد الأدنى</th>
+        <th>مخزن البيع</th>
+        {% if can_manage_warehouses %}
+        <th>كمية نقل</th>
+        {% endif %}
+        {% if sort == sort_most_requested %}
+        <th>طلب (بيع)</th>
+        {% elif sort == sort_most_used %}
+        <th>استخدام (صرف)</th>
+        {% endif %}
+        <th>متوسط التكلفة</th>
+        <th>القيمة المالية</th>
+        <th></th>
       </tr>
     </thead>
     <tbody>
-      {% for p in products %}
-      {% set bal = balances[p.id] %}
-      {% set is_low = p.reorder_level and p.reorder_level > 0 and bal <= p.reorder_level %}
+      {% for row in inventory_rows %}
+      {% set p = row.product %}
+      {% set bal = row.balance %}
+      {% set is_low = (bal < 0) or (p.reorder_level and p.reorder_level > 0 and bal <= p.reorder_level) %}
       <tr {% if is_low %}style="background: #fef2f2"{% endif %}>
+        <td>
+          <input type="checkbox" class="inv-row-check" value="{{ p.id }}" aria-label="تحديد {{ p.name_ar }}" />
+          {% if can_edit_catalog %}
+          <input type="hidden" form="inventory-sales-warehouse-form" name="product_ids" value="{{ p.id }}" class="inv-bulk-hidden" disabled />
+          {% endif %}
+          {% if can_manage_warehouses %}
+          <input type="hidden" form="inventory-transfer-form" name="product_ids" value="{{ p.id }}" class="inv-transfer-product-hidden" disabled />
+          {% endif %}
+        </td>
         <td><strong>{{ p.name_ar }}</strong></td>
+        <td class="muted" style="font-size:0.85rem;direction:ltr;text-align:right">{{ p.barcode or '—' }}</td>
         <td>{{ p.unit }}</td>
-        <td style="font-weight: 700; color: {% if is_low %}#b91c1c{% endif %}">{{ bal }}</td>
-        <td>{{ p.reorder_level or 0 }}</td>
+        <td style="font-weight: 700; color: {% if is_low %}#b91c1c{% endif %}">{{ pos_qty(bal) }}</td>
+        <td style="min-width: 6.5rem">
+          {% if can_edit_catalog %}
+          <div class="reorder-inline-wrap">
+            <input
+              class="reorder-inline-input"
+              type="text"
+              inputmode="decimal"
+              autocomplete="off"
+              data-product-id="{{ p.id }}"
+              value="{{ pos_qty_plain(p.reorder_level or 0) }}"
+              title="حد طلب الشراء ({{ p.unit }})"
+              aria-label="الحد الأدنى — {{ p.name_ar }}"
+            />
+            <span class="reorder-inline-status" aria-hidden="true"></span>
+          </div>
+          {% else %}
+          {{ pos_qty(p.reorder_level or 0) }}
+          {% endif %}
+        </td>
+        <td>
+          {% if p.sales_warehouse %}
+          {{ p.sales_warehouse.name_ar }}
+          {% else %}
+          <span class="muted">الجلسة/الإعداد</span>
+          {% endif %}
+        </td>
+        {% if can_manage_warehouses %}
+        <td>
+          <input
+            form="inventory-transfer-form"
+            class="inv-transfer-qty"
+            name="quantities"
+            type="text"
+            inputmode="decimal"
+            value="{{ pos_qty_plain(bal if bal > 0 else 0) }}"
+            style="width:5rem"
+            disabled
+            aria-label="كمية نقل {{ p.name_ar }}"
+          />
+        </td>
+        {% endif %}
+        {% if sort == sort_most_requested %}
+        <td>{{ pos_qty(row.sale_out) }}</td>
+        {% elif sort == sort_most_used %}
+        <td>{{ pos_qty(row.total_out) }}</td>
+        {% endif %}
+        <td>{% if row.unit_cost is not none %}{{ pos_money(row.unit_cost) }} <span class="money-currency">د.ل</span>{% else %}<span class="muted">لا شراء</span>{% endif %}</td>
+        <td style="font-weight: 700">{% if row.unit_cost is not none %}{{ pos_money(row.line_value) }} <span class="money-currency">د.ل</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td><a href="/inventory/products/{{ p.id }}?w={{ warehouse_id }}">تتبع</a></td>
       </tr>
       {% endfor %}
     </tbody>
+    <tfoot>
+      <tr style="background:#f8fafc;border-top:2px solid #e2e8f0">
+        <td colspan="{% if sort == sort_name %}{% if can_manage_warehouses %}9{% else %}8{% endif %}{% else %}{% if can_manage_warehouses %}10{% else %}9{% endif %}{% endif %}" style="text-align:end;font-weight:700;padding-top:0.65rem">إجمالي قيمة المخزون ({{ current_warehouse.name_ar }})</td>
+        <td style="font-weight:800;font-size:1.05rem;padding-top:0.65rem">{{ pos_money(inventory_total) }} <span class="money-currency">د.ل</span></td>
+        <td></td>
+      </tr>
+    </tfoot>
   </table>
+
+  {% if total_pages > 1 %}
+  <div style="display:flex;gap:0.5rem;justify-content:center;margin-top:1rem;flex-wrap:wrap;align-items:center">
+    {% if page > 1 %}
+    <a class="btn" href="/inventory?w={{ warehouse_id }}&page={{ page - 1 }}&page_size={{ page_size }}&sort={{ sort }}&stock={{ stock_filter }}{% if search_q %}&q={{ search_q | urlencode }}{% endif %}">← السابق</a>
+    {% endif %}
+    <span class="muted" style="font-size:0.88rem">صفحة {{ page }} من {{ total_pages }}</span>
+    {% if page < total_pages %}
+    <a class="btn" href="/inventory?w={{ warehouse_id }}&page={{ page + 1 }}&page_size={{ page_size }}&sort={{ sort }}&stock={{ stock_filter }}{% if search_q %}&q={{ search_q | urlencode }}{% endif %}">التالي →</a>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% elif total_count == 0 and search_q %}
+  <p class="muted">لا نتائج مطابقة لـ «{{ search_q }}».</p>
   {% else %}
   <p class="muted">لا أرصدة بعد.</p>
   {% endif %}
 </div>
+
+<script src="/static/searchable_combobox.js?v=1"></script>
+<script>
+(function () {
+  function buildExportUrl(scope) {
+    var u = new URL("/inventory/export.xlsx", window.location.origin);
+    u.searchParams.set("w", "{{ warehouse_id }}");
+    u.searchParams.set("sort", "{{ sort }}");
+    u.searchParams.set("stock", "{{ stock_filter }}");
+    u.searchParams.set("scope", scope || "all");
+    var q = document.getElementById("inv-q");
+    if (q && q.value.trim()) u.searchParams.set("q", q.value.trim());
+    var start = document.getElementById("export-start");
+    var end = document.getElementById("export-end");
+    if (start && start.value) u.searchParams.set("start", start.value);
+    if (end && end.value) u.searchParams.set("end", end.value);
+    if (scope === "selected") {
+      var ids = [];
+      document.querySelectorAll(".inv-row-check:checked").forEach(function (cb) {
+        if (cb.value) ids.push(cb.value);
+      });
+      if (!ids.length) return null;
+      u.searchParams.set("ids", ids.join(","));
+    }
+    return u.pathname + u.search;
+  }
+
+  var quickExport = document.getElementById("inventory-quick-export");
+  if (quickExport) {
+    quickExport.addEventListener("click", function (e) {
+      e.preventDefault();
+      window.location.href = buildExportUrl("all");
+    });
+  }
+
+  var exportBtn = document.getElementById("inventory-export-btn");
+  if (exportBtn) {
+    exportBtn.addEventListener("click", function () {
+      var scopeEl = document.querySelector('input[name="export-scope"]:checked');
+      var scope = scopeEl ? scopeEl.value : "all";
+      var href = buildExportUrl(scope);
+      if (!href) {
+        alert("حدّد صنفاً واحداً على الأقل من الجدول، أو اختر «الكل».");
+        return;
+      }
+      window.location.href = href;
+    });
+  }
+
+  var selectPage = document.getElementById("inv-select-page");
+  function syncBulkProductIds() {
+    document.querySelectorAll(".inv-row-check").forEach(function (cb) {
+      var cell = cb.closest("td");
+      var row = cb.closest("tr");
+      var hidden = cell ? cell.querySelector(".inv-bulk-hidden") : null;
+      if (hidden) hidden.disabled = !cb.checked;
+      var transferProduct = cell ? cell.querySelector(".inv-transfer-product-hidden") : null;
+      var transferQty = row ? row.querySelector(".inv-transfer-qty") : null;
+      if (transferProduct) transferProduct.disabled = !cb.checked;
+      if (transferQty) transferQty.disabled = !cb.checked;
+    });
+  }
+  if (selectPage) {
+    selectPage.addEventListener("change", function () {
+      document.querySelectorAll(".inv-row-check").forEach(function (cb) {
+        cb.checked = selectPage.checked;
+      });
+      syncBulkProductIds();
+    });
+  }
+  document.querySelectorAll(".inv-row-check").forEach(function (cb) {
+    cb.addEventListener("change", syncBulkProductIds);
+  });
+  var bulkForm = document.getElementById("inventory-sales-warehouse-form");
+  if (bulkForm) {
+    bulkForm.addEventListener("submit", function (e) {
+      syncBulkProductIds();
+      if (!document.querySelector(".inv-bulk-hidden:not(:disabled)")) {
+        e.preventDefault();
+        alert("حدّد صنفاً واحداً على الأقل من الجدول.");
+      }
+    });
+  }
+  var transferForm = document.getElementById("inventory-transfer-form");
+  if (transferForm) {
+    transferForm.addEventListener("submit", function (e) {
+      syncBulkProductIds();
+      if (!document.querySelector(".inv-transfer-product-hidden:not(:disabled)")) {
+        e.preventDefault();
+        alert("حدّد صنفاً واحداً على الأقل من الجدول.");
+        return;
+      }
+      if (!confirm("سيتم خصم الكميات من مخزن {{ current_warehouse.name_ar }} وإنشاء مستند بانتظار مصادقة المستلم. متابعة؟")) {
+        e.preventDefault();
+      }
+    });
+  }
+})();
+(function () {
+  var wh = document.getElementById("wh-select");
+  if (wh) {
+    wh.addEventListener("change", function () {
+      var u = new URL("/inventory", window.location.origin);
+      u.searchParams.set("w", wh.value);
+      var q = document.getElementById("inv-q");
+      var sort = document.getElementById("inv-sort");
+      var stock = document.getElementById("inv-stock");
+      var ps = document.getElementById("inv-ps");
+      if (q && q.value.trim()) u.searchParams.set("q", q.value.trim());
+      if (sort && sort.value) u.searchParams.set("sort", sort.value);
+      if (stock && stock.value) u.searchParams.set("stock", stock.value);
+      if (ps && ps.value) u.searchParams.set("page_size", ps.value);
+      window.location.href = u.pathname + u.search;
+    });
+  }
+})();
+</script>
+{% if can_edit_catalog %}
+<style>
+  .reorder-inline-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+  .reorder-inline-input {
+    width: 4.5rem;
+    padding: 0.25rem 0.35rem;
+    font-size: 0.88rem;
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 6px;
+  }
+  .reorder-inline-input:focus {
+    border-color: var(--primary, #2563eb);
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+  }
+  .reorder-inline-input.is-saved {
+    border-color: #22c55e;
+    background: #f0fdf4;
+  }
+  .reorder-inline-input.is-error {
+    border-color: #ef4444;
+    background: #fef2f2;
+  }
+  .reorder-inline-input.is-saving {
+    opacity: 0.65;
+  }
+  .reorder-inline-status.is-busy::after {
+    content: "…";
+    color: var(--primary, #2563eb);
+    font-size: 0.72rem;
+  }
+  .reorder-inline-status.is-ok::after {
+    content: "✓";
+    color: #22c55e;
+    font-size: 0.72rem;
+  }
+</style>
+<script>
+(function () {
+  var table = document.getElementById("inventory-table");
+  if (!table) return;
+  var initialByInput = new WeakMap();
+  var saving = new WeakSet();
+
+  function saveInput(input) {
+    if (saving.has(input)) return;
+    var initial = initialByInput.has(input) ? initialByInput.get(input) : input.value;
+    if (input.value.trim() === String(initial).trim()) return;
+
+    var fd = new FormData();
+    fd.append("reorder_level", input.value.trim() || "0");
+
+    saving.add(input);
+    input.classList.add("is-saving");
+    var st = input.parentElement.querySelector(".reorder-inline-status");
+    if (st) st.className = "reorder-inline-status is-busy";
+
+    fetch("/catalog/products/" + input.dataset.productId + "/reorder-level", {
+      method: "POST",
+      body: fd,
+      headers: { "X-Inline-Save": "1", "Accept": "application/json" },
+      credentials: "same-origin",
+    })
+      .then(function (r) {
+        return r.json().then(function (data) {
+          return { ok: r.ok, data: data };
+        }).catch(function () {
+          return { ok: r.ok, data: null };
+        });
+      })
+      .then(function (res) {
+        saving.delete(input);
+        input.classList.remove("is-saving");
+        if (res.ok && res.data && res.data.ok) {
+          if (res.data.value !== undefined) input.value = res.data.value;
+          initialByInput.set(input, input.value);
+          input.classList.remove("is-error");
+          input.classList.add("is-saved");
+          if (st) st.className = "reorder-inline-status is-ok";
+          setTimeout(function () {
+            input.classList.remove("is-saved");
+            if (st) st.className = "reorder-inline-status";
+          }, 1400);
+        } else {
+          input.value = initial;
+          input.classList.add("is-error");
+          if (st) st.className = "reorder-inline-status";
+          window.alert("تعذّر حفظ الحد الأدنى.");
+        }
+      })
+      .catch(function () {
+        saving.delete(input);
+        input.classList.remove("is-saving");
+        input.value = initial;
+        input.classList.add("is-error");
+        if (st) st.className = "reorder-inline-status";
+        window.alert("تعذّر الاتصال بالخادم.");
+      });
+  }
+
+  table.addEventListener("focusin", function (e) {
+    if (e.target.classList.contains("reorder-inline-input")) {
+      initialByInput.set(e.target, e.target.value);
+      e.target.classList.remove("is-error");
+    }
+  });
+  table.addEventListener("focusout", function (e) {
+    if (e.target.classList.contains("reorder-inline-input")) saveInput(e.target);
+  });
+  table.addEventListener("keydown", function (e) {
+    if (e.target.classList.contains("reorder-inline-input") && e.key === "Enter") {
+      e.preventDefault();
+      e.target.blur();
+    }
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}

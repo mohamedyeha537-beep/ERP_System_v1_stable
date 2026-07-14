@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.deps import DBSession, require_permission
 from app.jinja_env import templates
+from infra.schema_bootstrap import ensure_schema_patched
 from modules.authz.models import User
 from modules.authz.permissions import ADMIN_ROLES, CATALOG_WRITE
 from modules.authz.service import user_has_permission
@@ -62,8 +63,50 @@ def _normalize_color(v: str) -> str:
     return t if t.startswith("#") and len(t) == 7 else "#3b82f6"
 
 
+def _has_direct_children(db, category_id: int) -> bool:
+    row = db.scalar(
+        select(ProductCategory.id)
+        .where(ProductCategory.parent_id == category_id)
+        .limit(1)
+    )
+    return row is not None
+
+
+def _would_create_parent_cycle(db, category_id: int, new_parent_id: int) -> bool:
+    if new_parent_id == category_id:
+        return True
+    return new_parent_id in _subtree_ids(db, category_id)
+
+
+def _apply_parent_change(
+    db,
+    cat: ProductCategory,
+    parent_root_id: str,
+) -> str | None:
+    """تغيير التسلسل: رئيسية ↔ فرعية. يُرجع رمز خطأ أو None."""
+    raw = (parent_root_id or "").strip()
+    if raw:
+        try:
+            new_parent_id = int(raw)
+        except ValueError:
+            return "invalid_parent"
+        if _would_create_parent_cycle(db, cat.id, new_parent_id):
+            return "cycle"
+        p = db.get(ProductCategory, new_parent_id)
+        if p is None or p.parent_id is not None:
+            return "invalid_parent"
+        if cat.parent_id is None and _has_direct_children(db, cat.id):
+            return "has_children"
+        cat.parent_id = new_parent_id
+        return None
+    if cat.parent_id is not None:
+        cat.parent_id = None
+    return None
+
+
 @router.get("", response_class=HTMLResponse)
 def categories_list(request: Request, db: DBSession, user: User = Depends(_perm)):
+    ensure_schema_patched()
     roots = list(
         db.scalars(
             select(ProductCategory)
@@ -74,11 +117,32 @@ def categories_list(request: Request, db: DBSession, user: User = Depends(_perm)
     )
     cannot_delete = _cannot_delete_ids(db, roots)
     err_code = request.query_params.get("error")
+    saved = request.query_params.get("saved") == "1"
     error_message = None
     if err_code == "protected":
         error_message = (
             "لا يمكن حذف الفئة لوجود قفل حماية من الحذف عليها أو على إحدى الفئات الفرعية تحتها."
         )
+    elif err_code == "has_children":
+        error_message = (
+            "لا يمكن جعل هذه الفئة فرعية لأن لها فئات فرعية تحتها. "
+            "انقل الفروع أو احذفها أولاً، ثم أعد المحاولة."
+        )
+    elif err_code == "cycle":
+        error_message = "لا يمكن جعل الفئة تابعة لنفسها أو لإحدى فروعها."
+    elif err_code == "invalid_parent":
+        error_message = "الفئة الأب غير صالحة — اختر فئة رئيسية فقط."
+    from modules.printing.models import KitchenSection
+
+    section_rows = list(
+        db.scalars(
+            select(KitchenSection)
+            .where(KitchenSection.is_active.is_(True))
+            .order_by(KitchenSection.name)
+        ).all()
+    )
+    from modules.kds.section_rules import keyword_hints_for_admin
+
     return templates.TemplateResponse(
         "catalog_categories.html",
         {
@@ -87,6 +151,9 @@ def categories_list(request: Request, db: DBSession, user: User = Depends(_perm)
             "cannot_delete": cannot_delete,
             "can_lock_delete": user_has_permission(user, ADMIN_ROLES),
             "error_message": error_message,
+            "saved_message": "تم حفظ التعديلات." if saved else None,
+            "section_rows": section_rows,
+            "section_keyword_hints": keyword_hints_for_admin(),
             "routing_modes": [
                 (CategoryRouting.NONE.value, "بدون توجيه"),
                 (CategoryRouting.SCREEN.value, "شاشة المطبخ KDS"),
@@ -105,6 +172,8 @@ def add_category(
     color_hex: str = Form("#3b82f6"),
     sort_order: str = Form("0"),
     parent_id: str = Form(""),
+    show_in_pos: str = Form(""),
+    show_in_shop: str = Form("on"),
 ):
     """فئة جديدة: بدون أب = رئيسية؛ أو تندرج تحت فئة رئيسية تختارها من القائمة."""
     name = name_ar.strip()
@@ -125,9 +194,18 @@ def add_category(
         parent_id=pid,
         sort_order=_parse_sort(sort_order),
         color_hex=_normalize_color(color_hex),
+        show_in_pos=show_in_pos == "on",
+        show_in_shop=show_in_shop == "on",
     )
     db.add(c)
+    db.flush()
+    from modules.kds.section_rules import assign_category_kitchen_section
+
+    assign_category_kitchen_section(db, c, force=False)
     db.commit()
+    from modules.shop.service import invalidate_shop_catalog_cache
+
+    invalidate_shop_catalog_cache()
     return RedirectResponse("/catalog/categories", status_code=302)
 
 
@@ -142,6 +220,9 @@ def update_category(
     parent_root_id: str = Form(""),
     routing_mode: str = Form("NONE"),
     routing_target: str = Form(""),
+    kitchen_section_id: str = Form(""),
+    show_in_pos: str = Form(""),
+    show_in_shop: str = Form(""),
 ):
     cat = db.get(ProductCategory, category_id)
     if cat is None:
@@ -152,17 +233,12 @@ def update_category(
     cat.name_ar = name
     cat.color_hex = _normalize_color(color_hex)
     cat.sort_order = _parse_sort(sort_order)
-    if cat.parent_id is not None:
-        raw = (parent_root_id or "").strip()
-        if raw:
-            try:
-                new_parent_id = int(raw)
-            except ValueError:
-                new_parent_id = None
-            else:
-                p = db.get(ProductCategory, new_parent_id)
-                if p is not None and p.parent_id is None:
-                    cat.parent_id = new_parent_id
+    cat.show_in_pos = show_in_pos == "on"
+    cat.show_in_shop = show_in_shop == "on"
+    parent_err = _apply_parent_change(db, cat, parent_root_id)
+    if parent_err:
+        db.rollback()
+        return RedirectResponse(f"/catalog/categories?error={parent_err}", status_code=302)
     # التوجيه يُطبَّق فعلياً على الفئة الجذر فقط (مطعم/مقهى)
     if cat.parent_id is None:
         try:
@@ -170,8 +246,22 @@ def update_category(
         except ValueError:
             cat.routing_mode = CategoryRouting.NONE
         cat.routing_target = (routing_target or "").strip() or None
+        sec_raw = (kitchen_section_id or "").strip()
+        if sec_raw.isdigit():
+            cat.kitchen_section_id = int(sec_raw)
+        else:
+            from modules.kds.section_rules import assign_category_kitchen_section
+
+            assign_category_kitchen_section(db, cat, force=False)
+    else:
+        from modules.kds.section_rules import assign_category_kitchen_section
+
+        assign_category_kitchen_section(db, cat, force=False)
     db.commit()
-    return RedirectResponse("/catalog/categories", status_code=302)
+    from modules.shop.service import invalidate_shop_catalog_cache
+
+    invalidate_shop_catalog_cache()
+    return RedirectResponse("/catalog/categories?saved=1", status_code=302)
 
 
 @router.post("/{category_id}/toggle-delete-protect", response_class=HTMLResponse)
@@ -184,6 +274,9 @@ def toggle_delete_protect(
     if cat is not None:
         cat.delete_protected = not cat.delete_protected
         db.commit()
+        from modules.shop.service import invalidate_shop_catalog_cache
+
+        invalidate_shop_catalog_cache()
     return RedirectResponse("/catalog/categories", status_code=302)
 
 
@@ -202,4 +295,7 @@ def delete_category(
     db.execute(update(Product).where(Product.category_id.in_(ids)).values(category_id=None))
     db.delete(cat)
     db.commit()
+    from modules.shop.service import invalidate_shop_catalog_cache
+
+    invalidate_shop_catalog_cache()
     return RedirectResponse("/catalog/categories", status_code=302)

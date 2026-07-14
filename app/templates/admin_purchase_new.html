@@ -4,27 +4,129 @@
 <style>
   .pl-line {
     display: grid;
-    grid-template-columns: 2.5fr 1fr 1fr 1fr auto;
-    gap: 0.4rem;
+    width: 100%;
+    grid-template-columns: minmax(14rem, 2.4fr) minmax(4.2rem, 0.7fr) minmax(6rem, 1fr) minmax(5.5rem, 0.95fr) minmax(8rem, 1.15fr) 2.25rem;
+    column-gap: 1.15rem;
+    row-gap: 0.45rem;
     align-items: end;
-    padding: 0.4rem 0;
+    padding: 0.55rem 0;
     border-bottom: 1px dashed var(--border);
+  }
+  .pl-line[data-kind="PRODUCT"].pl-expiry-active {
+    grid-template-columns: minmax(14rem, 2.2fr) minmax(4.2rem, 0.65fr) minmax(6rem, 0.9fr) auto minmax(5.5rem, 0.85fr) minmax(5.5rem, 0.85fr) minmax(5.5rem, 0.9fr) minmax(8rem, 1.05fr) 2.25rem;
+  }
+  .pl-line[data-kind="FIXED_ASSET"] {
+    grid-template-columns: minmax(11rem, 1.8fr) minmax(4.2rem, 0.7fr) minmax(4.2rem, 0.65fr) minmax(6rem, 0.9fr) minmax(4.8rem, 0.75fr) minmax(4.5rem, 0.7fr) minmax(5.5rem, 0.85fr) minmax(8rem, 1.05fr) 2.25rem;
+  }
+  .pl-line[data-kind="CONSUMABLE"] {
+    grid-template-columns: minmax(11rem, 2fr) minmax(4.2rem, 0.7fr) minmax(4.2rem, 0.65fr) minmax(6rem, 0.9fr) minmax(5.5rem, 0.85fr) minmax(8rem, 1.05fr) 2.25rem;
+  }
+  .pl-line .pl-product-fields,
+  .pl-line .pl-asset-fields,
+  .pl-line .pl-expiry-toggle,
+  .pl-line .pl-expiry {
+    display: none;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+  }
+  .pl-line[data-kind="PRODUCT"] .pl-product-fields { display: flex; }
+  .pl-line[data-kind="FIXED_ASSET"] .pl-asset-fields,
+  .pl-line[data-kind="CONSUMABLE"] .pl-asset-fields { display: flex; }
+  .pl-line[data-kind="FIXED_ASSET"] .pl-life-fields { display: flex; }
+  .pl-line[data-kind="CONSUMABLE"] .pl-life-fields { display: none !important; }
+  .pl-line[data-kind="PRODUCT"].pl-expiry-active .pl-expiry-toggle,
+  .pl-line[data-kind="PRODUCT"].pl-expiry-active .pl-expiry {
+    display: flex;
+  }
+  .pl-line[data-kind="PRODUCT"].pl-expiry-active .pl-expiry-fields-hidden .pl-expiry {
+    display: none !important;
+  }
+  .pl-line > div:not(.pl-product-fields):not(.pl-asset-fields):not(.pl-expiry-toggle):not(.pl-expiry) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+  }
+  .pl-line .pl-product-fields .bom-combobox {
+    width: 100%;
+  }
+  .pl-line .pl-product-fields .bom-combobox-field {
+    width: 100%;
+  }
+  .pl-line input[name="quantity"],
+  .pl-line input[name="unit_cost"],
+  .pl-line input[name="item_name"],
+  .pl-line input[name="item_unit"],
+  .pl-line input[name="useful_life_months"],
+  .pl-line input[name="salvage_value"] {
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .pl-kind-select {
+    font-size: 0.82rem;
+    font-weight: 600;
+    padding: 0.35rem 0.3rem;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .pl-line .field-life,
+  .pl-line .field-salvage {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.2rem;
+    border-radius: 8px;
+  }
+  .pl-line .field-life { background: #fef3c7; }
+  .pl-line .field-salvage { background: #ecfeff; }
+  .pl-expiry-toggle label {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    cursor: pointer;
+    margin: 0;
+    padding-bottom: 0.45rem;
   }
   .pl-line .pl-total {
     background: #f8fafc;
     padding: 0.45rem 0.55rem;
     border-radius: 8px;
     border: 1px solid var(--border);
-    text-align: center;
+    text-align: right;
+    direction: ltr;
     font-weight: 600;
   }
+  .pl-line .pl-remove-wrap {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 0.15rem;
+  }
+  .pl-line .pl-remove-wrap .pl-remove-spacer {
+    height: 1.05rem;
+    visibility: hidden;
+    font-size: 0.8rem;
+    line-height: 1;
+  }
   .pl-line .icon-btn {
+    width: 2.15rem;
+    height: 2.15rem;
+    min-width: 2.15rem;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     background: transparent;
     color: var(--danger);
     border: 1px solid var(--danger);
-    padding: 0.4rem;
     border-radius: 8px;
     cursor: pointer;
+    box-sizing: border-box;
+    flex-shrink: 0;
   }
   .pl-line .icon-btn:hover { background: var(--danger); color: #fff; }
   .pl-grand {
@@ -36,6 +138,10 @@
     border-top: 2px solid var(--border);
     font-size: 1.25rem;
     font-weight: 700;
+  }
+  .pl-grand #grand-total {
+    direction: ltr;
+    unicode-bidi: embed;
   }
   .purchase-invoice-fields .pif-cell {
     display: flex;
@@ -58,6 +164,12 @@
     margin: -0.35rem 0 0.75rem;
     font-size: 0.78rem;
   }
+  .pl-line .bom-combobox {
+    min-width: 0;
+  }
+  .pl-line .bom-combobox-menu {
+    z-index: 80;
+  }
 </style>
 {% endblock %}
 {% block body %}
@@ -68,10 +180,13 @@
 
 {% if error %}<div class="alert">{{ error }}</div>{% endif %}
 
-<p class="muted" style="margin-top: -0.4rem">
-  تظهر هنا فقط <strong>الأصناف القابلة للشراء فعلياً</strong> من المورّد (المخزون الخام، أو منتجات تُشترى وتُباع كما هي).
-  أمّا المنتجات <strong>المركّبة</strong> (مثل البرجر) فلا تظهر لأنها تُصنَّع داخلياً من مكوّناتها — اشترِ المكوّنات (الخبز، اللحم، البيض...).
-  لإدارة وصفات التركيب: <a href="/catalog/products">صفحة الأصناف</a>.
+    <p class="muted" style="margin-top: -0.4rem">
+  <strong>فاتورة موحّدة:</strong> أدخل الفاتورة كما وردت من المورّد.
+  لكل بند اختر نوعه من القائمة:
+  <strong>منتج/مخزون</strong> (خبز، جبن، لحوم… تُضاف للمخزون)،
+  <strong>أصل ثابت</strong> (خلاط، ثلاجة… بعمر للإهلاك)،
+  أو <strong>استهلاك/تغليف</strong> (أكواب ورقية، مناديل… تُخصم فوراً).
+  لا حاجة لتقسيم الفاتورة على شاشات مختلفة.
 </p>
 
 {% if not products %}
@@ -93,8 +208,8 @@
       <div class="pif-cell">
         <label for="payment_method_id">طريقة السداد</label>
         <select id="payment_method_id" name="payment_method_id" required class="pif-control">
-          {% for m in methods %}
-          <option value="{{ m.id }}" data-kind="{{ m.kind.value }}" data-credit="{% if m.name_ar == 'ذمم دائن — مورد (آجل)' %}1{% else %}0{% endif %}">{{ m.name_ar }}</option>
+          {% for m in methods if pos_is_main_treasury_wallet(m) or pos_is_supplier_credit_wallet(m) %}
+          <option value="{{ m.id }}" data-kind="{{ m.kind.value }}" data-credit="{% if pos_is_supplier_credit_wallet(m) %}1{% else %}0{% endif %}">{{ m.name_ar }}</option>
           {% endfor %}
         </select>
       </div>
@@ -109,12 +224,12 @@
             {% endif %}
             {% endfor %}
           </select>
-          <input name="pay_now_amount" id="pay_now_amount" type="number" step="0.001" min="0" placeholder="المبلغ" style="max-width:8rem" />
+          <input name="pay_now_amount" id="pay_now_amount" type="number" step="0.001" min="0" placeholder="المبلغ" class="input-num-ltr" style="max-width:8rem" />
         </div>
       </div>
-      <div class="pif-cell">
-        <label for="warehouse_id">إضافة البضاعة إلى المخزن <span style="color:#dc2626">*</span></label>
-        <select id="warehouse_id" name="warehouse_id" required class="pif-control">
+      <div class="pif-cell" id="warehouse-field">
+        <label for="warehouse_id">إضافة البضاعة إلى المخزن <span id="warehouse-req" style="color:#dc2626">*</span></label>
+        <select id="warehouse_id" name="warehouse_id" class="pif-control">
           {% for wh in warehouses %}
           <option value="{{ wh.id }}" {% if wh.id == default_warehouse_id %}selected{% endif %}>
             {{ wh.name_ar }}{% if wh.is_main %} (رئيسي){% endif %}
@@ -125,6 +240,10 @@
       <div class="pif-cell">
         <label for="supplier">المورّد (اختياري)</label>
         <input id="supplier" name="supplier" placeholder="اسم المورّد" class="pif-control" />
+      </div>
+      <div class="pif-cell">
+        <label for="supplier_phone">هاتف المورّد (اختياري)</label>
+        <input id="supplier_phone" name="supplier_phone" type="tel" dir="ltr" placeholder="09xxxxxxxx" class="pif-control" maxlength="40" />
       </div>
       <div class="pif-cell">
         <label for="purchase_date">تاريخ الفاتورة (اختياري)</label>
@@ -167,25 +286,29 @@
   </div>
 
   <div class="card">
-    <div class="row" style="justify-content: space-between; align-items: center">
-      <h2 style="margin: 0">بنود الفاتورة</h2>
-      <button type="button" class="btn btn-primary" id="add-line-btn">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align: -3px; margin-inline-end: 0.3rem">
-          <path d="M12 5v14M5 12h14"></path>
-        </svg>
-        إضافة بند
-      </button>
+    <h2 style="margin: 0">بنود الفاتورة</h2>
+    <p class="muted" style="margin: 0.5rem 0 0; font-size: 0.85rem">
+      <strong>تاريخ الصلاحية يُدخل هنا في كل بند</strong> — وليس في كرت الصنف.
+      أولاً فعّل «تتبع الصلاحية» من <a href="/catalog/products">الأصناف → تعديل</a>،
+      ثم عند الشراء يظهر خيار <strong>«صلاحية»</strong> ☑ وحقول التاريخ تلقائياً.
+    </p>
+    <div id="purchase-draft-bar" class="muted" style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-top:0.65rem;padding:0.55rem 0.7rem;border:1px dashed #f59e0b;border-radius:10px;background:#fffbeb;font-size:0.85rem">
+      <span id="purchase-draft-status">المسودة تُحفظ تلقائياً على هذا الجهاز حتى تضغط حفظ الفاتورة.</span>
+      <button type="button" class="btn" id="clear-purchase-draft" style="padding:0.25rem 0.55rem">مسح المسودة</button>
     </div>
     <div id="lines-wrap" style="margin-top: 0.6rem">
-      <div class="pl-line" data-line>
-        <div>
+      <div class="pl-line" data-line data-kind="PRODUCT">
+        <div class="pl-product-fields">
           <label class="muted" style="font-size: 0.8rem">الصنف</label>
-          <select name="product_id" required>
-            <option value="">— اختر صنفاً —</option>
-            {% for p in products %}
-            <option value="{{ p.id }}" data-unit="{{ p.unit }}">{{ p.name_ar }}{% if p.unit %} ({{ p.unit }}){% endif %}</option>
-            {% endfor %}
-          </select>
+          {% include "_purchase_product_combobox.html" %}
+        </div>
+        <div class="pl-asset-fields">
+          <label class="muted" style="font-size: 0.8rem">الاسم</label>
+          <input name="item_name" type="text" placeholder="خلاط / أكواب ورقية..." data-item-name />
+        </div>
+        <div class="pl-asset-fields">
+          <label class="muted" style="font-size: 0.8rem">الوحدة</label>
+          <input name="item_unit" type="text" placeholder="قطعة" data-item-unit />
         </div>
         <div>
           <label class="muted" style="font-size: 0.8rem">الكمية</label>
@@ -195,17 +318,63 @@
           <label class="muted" style="font-size: 0.8rem">سعر الوحدة (د.ل)</label>
           <input name="unit_cost" type="number" step="0.001" min="0" required value="0" data-cost />
         </div>
+        <div class="pl-asset-fields pl-life-fields">
+          <div class="field-life">
+            <label class="muted" style="font-size: 0.75rem">العمر (شهر)</label>
+            <input name="useful_life_months" type="number" min="0" step="1" value="0" data-life />
+          </div>
+        </div>
+        <div class="pl-asset-fields pl-life-fields">
+          <div class="field-salvage">
+            <label class="muted" style="font-size: 0.75rem">الخردة</label>
+            <input name="salvage_value" type="number" min="0" step="0.001" value="0" data-salvage />
+          </div>
+        </div>
+        <div class="pl-expiry-toggle">
+          <label>
+            <input type="checkbox" data-expiry-toggle value="on" />
+            صلاحية
+          </label>
+        </div>
+        <div class="pl-expiry">
+          <label class="muted" style="font-size: 0.8rem">إنتاج (اختياري)</label>
+          <input name="expiry_production_date" type="date" data-expiry-prod disabled />
+        </div>
+        <div class="pl-expiry">
+          <label class="muted" style="font-size: 0.8rem">انتهاء <span class="pl-expiry-req" style="color:#dc2626">*</span></label>
+          <input name="expiry_date" type="date" data-expiry-end disabled />
+        </div>
         <div>
           <label class="muted" style="font-size: 0.8rem">الإجمالي</label>
           <div class="pl-total" data-total>0.000</div>
         </div>
-        <button type="button" class="icon-btn" data-remove title="حذف البند" aria-label="حذف البند">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <polyline points="3 6 5 6 21 6"></polyline>
-            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
-          </svg>
-        </button>
+        <div>
+          <label class="muted" style="font-size: 0.8rem">النوع</label>
+          <select name="line_kind" class="pl-kind-select" data-line-kind>
+            <option value="PRODUCT" selected>منتج / مخزون</option>
+            <option value="FIXED_ASSET">أصل ثابت</option>
+            <option value="CONSUMABLE">استهلاك / تغليف</option>
+          </select>
+        </div>
+        <div class="pl-remove-wrap">
+          <span class="pl-remove-spacer" aria-hidden="true">.</span>
+          <button type="button" class="icon-btn" data-remove title="حذف البند" aria-label="حذف البند">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+            </svg>
+          </button>
+        </div>
       </div>
+    </div>
+
+    <div style="margin: 0.75rem 0 0">
+      <button type="button" class="btn btn-primary" id="add-line-btn">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align: -3px; margin-inline-end: 0.3rem">
+          <path d="M12 5v14M5 12h14"></path>
+        </svg>
+        إضافة بند
+      </button>
     </div>
 
     <div class="pl-grand">
@@ -219,22 +388,25 @@
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align: -3px; margin-inline-end: 0.3rem">
         <polyline points="20 6 9 17 4 12"></polyline>
       </svg>
-      حفظ الفاتورة وإضافتها للمخزون
+      حفظ الفاتورة
     </button>
     <a class="btn" href="/admin/purchases">إلغاء</a>
   </div>
 </form>
 
 <template id="line-template">
-  <div class="pl-line" data-line>
-    <div>
+  <div class="pl-line" data-line data-kind="PRODUCT">
+    <div class="pl-product-fields">
       <label class="muted" style="font-size: 0.8rem">الصنف</label>
-      <select name="product_id" required>
-        <option value="">— اختر صنفاً —</option>
-        {% for p in products %}
-        <option value="{{ p.id }}" data-unit="{{ p.unit }}">{{ p.name_ar }}{% if p.unit %} ({{ p.unit }}){% endif %}</option>
-        {% endfor %}
-      </select>
+      {% include "_purchase_product_combobox.html" %}
+    </div>
+    <div class="pl-asset-fields">
+      <label class="muted" style="font-size: 0.8rem">الاسم</label>
+      <input name="item_name" type="text" placeholder="خلاط / أكواب ورقية..." data-item-name />
+    </div>
+    <div class="pl-asset-fields">
+      <label class="muted" style="font-size: 0.8rem">الوحدة</label>
+      <input name="item_unit" type="text" placeholder="قطعة" data-item-unit />
     </div>
     <div>
       <label class="muted" style="font-size: 0.8rem">الكمية</label>
@@ -244,25 +416,143 @@
       <label class="muted" style="font-size: 0.8rem">سعر الوحدة (د.ل)</label>
       <input name="unit_cost" type="number" step="0.001" min="0" required value="0" data-cost />
     </div>
+    <div class="pl-asset-fields pl-life-fields">
+      <div class="field-life">
+        <label class="muted" style="font-size: 0.75rem">العمر (شهر)</label>
+        <input name="useful_life_months" type="number" min="0" step="1" value="0" data-life />
+      </div>
+    </div>
+    <div class="pl-asset-fields pl-life-fields">
+      <div class="field-salvage">
+        <label class="muted" style="font-size: 0.75rem">الخردة</label>
+        <input name="salvage_value" type="number" min="0" step="0.001" value="0" data-salvage />
+      </div>
+    </div>
+    <div class="pl-expiry-toggle">
+      <label>
+        <input type="checkbox" data-expiry-toggle value="on" />
+        صلاحية
+      </label>
+    </div>
+    <div class="pl-expiry">
+      <label class="muted" style="font-size: 0.8rem">إنتاج (اختياري)</label>
+      <input name="expiry_production_date" type="date" data-expiry-prod disabled />
+    </div>
+    <div class="pl-expiry">
+      <label class="muted" style="font-size: 0.8rem">انتهاء <span class="pl-expiry-req" style="color:#dc2626">*</span></label>
+      <input name="expiry_date" type="date" data-expiry-end disabled />
+    </div>
     <div>
       <label class="muted" style="font-size: 0.8rem">الإجمالي</label>
       <div class="pl-total" data-total>0.000</div>
     </div>
-    <button type="button" class="icon-btn" data-remove title="حذف" aria-label="حذف">
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <polyline points="3 6 5 6 21 6"></polyline>
-        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
-      </svg>
-    </button>
+    <div>
+      <label class="muted" style="font-size: 0.8rem">النوع</label>
+      <select name="line_kind" class="pl-kind-select" data-line-kind>
+        <option value="PRODUCT" selected>منتج / مخزون</option>
+        <option value="FIXED_ASSET">أصل ثابت</option>
+        <option value="CONSUMABLE">استهلاك / تغليف</option>
+      </select>
+    </div>
+    <div class="pl-remove-wrap">
+      <span class="pl-remove-spacer" aria-hidden="true">.</span>
+      <button type="button" class="icon-btn" data-remove title="حذف" aria-label="حذف">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="3 6 5 6 21 6"></polyline>
+          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+        </svg>
+      </button>
+    </div>
   </div>
 </template>
 
+<script src="/static/searchable_combobox.js?v=1"></script>
 <script>
   (function () {
+    var form = document.getElementById("purchase-form");
     var wrap = document.getElementById("lines-wrap");
     var tmpl = document.getElementById("line-template");
     var addBtn = document.getElementById("add-line-btn");
     var grand = document.getElementById("grand-total");
+    var draftStatus = document.getElementById("purchase-draft-status");
+    var clearDraftBtn = document.getElementById("clear-purchase-draft");
+    var draftKey = "purchase-invoice-draft:v2:{{ request.session.get('user_id', 'anon') }}";
+    var restoringDraft = false;
+    var saveTimer = null;
+    var warehouseSel = document.getElementById("warehouse_id");
+    var warehouseReq = document.getElementById("warehouse-req");
+
+    function setDraftStatus(text) {
+      if (draftStatus) draftStatus.textContent = text;
+    }
+
+    function syncWarehouseRequired() {
+      var needsWh = false;
+      wrap.querySelectorAll("[data-line]").forEach(function (line) {
+        var kind = (line.getAttribute("data-kind") || "PRODUCT");
+        if (kind === "PRODUCT") needsWh = true;
+      });
+      if (warehouseSel) {
+        warehouseSel.required = needsWh;
+      }
+      if (warehouseReq) {
+        warehouseReq.style.display = needsWh ? "inline" : "none";
+      }
+    }
+
+    function syncLineKind(line) {
+      var sel = line.querySelector("[data-line-kind]");
+      var kind = (sel && sel.value) || "PRODUCT";
+      line.setAttribute("data-kind", kind);
+      var isProduct = kind === "PRODUCT";
+      var isFixed = kind === "FIXED_ASSET";
+      var productHidden = line.querySelector("[data-product-value]");
+      var productInput = line.querySelector("[data-combobox-input]");
+      var itemName = line.querySelector("[data-item-name]");
+      var itemUnit = line.querySelector("[data-item-unit]");
+      var life = line.querySelector("[data-life]");
+      var salvage = line.querySelector("[data-salvage]");
+
+      // لا نستخدم disabled على حقول المصفوفات — وإلا تختلط فهارس البنود عند الإرسال.
+      if (productHidden) {
+        if (!isProduct) {
+          productHidden.value = "";
+          productHidden.removeAttribute("required");
+        } else {
+          productHidden.setAttribute("required", "required");
+        }
+      }
+      if (productInput) {
+        productInput.readOnly = !isProduct;
+        if (!isProduct && !restoringDraft) productInput.value = "";
+      }
+      if (itemName) {
+        itemName.readOnly = isProduct;
+        itemName.required = !isProduct;
+        if (isProduct && !restoringDraft) itemName.value = "";
+      }
+      if (itemUnit) {
+        itemUnit.readOnly = isProduct;
+        if (isProduct && !restoringDraft) itemUnit.value = "";
+      }
+      if (life) {
+        life.readOnly = !isFixed;
+        life.required = isFixed;
+        if (!isFixed) life.value = "0";
+        if (isFixed && (!life.value || life.value === "0")) life.value = "12";
+      }
+      if (salvage) {
+        salvage.readOnly = !isFixed;
+        if (!isFixed) salvage.value = "0";
+      }
+      if (isProduct) {
+        syncExpiry(line);
+      } else {
+        line.classList.remove("pl-expiry-active");
+        setExpiryFieldsEnabled(line, false);
+      }
+      syncWarehouseRequired();
+    }
 
     function recalc() {
       var sum = 0;
@@ -276,14 +566,239 @@
       grand.textContent = sum.toFixed(3);
     }
 
+    function productOption(line, value) {
+      var root = line.querySelector("[data-product-combobox]");
+      var menu = root && root.querySelector("[data-combobox-menu]");
+      if (!menu) return null;
+      return menu.querySelector('.bom-combobox-option[data-value="' + CSS.escape(value || "") + '"]');
+    }
+
+    function setProductValue(line, value) {
+      var hidden = line.querySelector("[data-product-value]");
+      var input = line.querySelector("[data-combobox-input]");
+      var opt = productOption(line, value);
+      if (hidden) hidden.value = value || "";
+      if (input) input.value = opt ? (opt.getAttribute("data-label") || opt.textContent.trim()) : "";
+      if (hidden) hidden.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+
+    function setExpiryFieldsEnabled(line, enabled) {
+      var prod = line.querySelector("[data-expiry-prod]");
+      var end = line.querySelector("[data-expiry-end]");
+      line.classList.toggle("pl-expiry-fields-hidden", !enabled);
+      if (prod) {
+        prod.disabled = !enabled;
+        if (!enabled && !restoringDraft) prod.value = "";
+      }
+      if (end) {
+        end.disabled = !enabled;
+        end.required = enabled;
+        if (!enabled && !restoringDraft) end.value = "";
+      }
+    }
+
+    function syncExpiry(line) {
+      var hidden = line.querySelector("[data-product-value]");
+      var root = line.querySelector("[data-product-combobox]");
+      var menu = root && root.querySelector("[data-combobox-menu]");
+      var val = hidden && (hidden.value || "").trim();
+      var opt = menu && val
+        ? menu.querySelector('.bom-combobox-option[data-value="' + CSS.escape(val) + '"]')
+        : null;
+      var tracked = opt && opt.getAttribute("data-expiry") === "1";
+      var toggle = line.querySelector("[data-expiry-toggle]");
+      line.classList.toggle("pl-expiry-active", !!tracked);
+      if (!tracked) {
+        if (toggle) {
+          toggle.checked = false;
+          toggle.disabled = true;
+        }
+        setExpiryFieldsEnabled(line, false);
+        return;
+      }
+      if (toggle) {
+        toggle.checked = !!tracked;
+        toggle.disabled = !!tracked;
+      }
+      setExpiryFieldsEnabled(line, !!tracked);
+    }
+
+    function initProductCombobox(line) {
+      var root = line.querySelector("[data-product-combobox]");
+      if (!root || !window.initSearchableCombobox) return;
+      root._comboboxInit = false;
+      initSearchableCombobox(root, { submitOnSelect: false });
+      var hidden = root.querySelector("[data-combobox-value]");
+      if (hidden) {
+        hidden.addEventListener("change", function () { syncExpiry(line); });
+      }
+    }
+
+    function serializeLine(line) {
+      return {
+        line_kind: (line.querySelector("[data-line-kind]") || {}).value || "PRODUCT",
+        product_id: (line.querySelector("[data-product-value]") || {}).value || "",
+        item_name: (line.querySelector("[data-item-name]") || {}).value || "",
+        item_unit: (line.querySelector("[data-item-unit]") || {}).value || "",
+        useful_life_months: (line.querySelector("[data-life]") || {}).value || "",
+        salvage_value: (line.querySelector("[data-salvage]") || {}).value || "",
+        quantity: (line.querySelector("[data-qty]") || {}).value || "",
+        unit_cost: (line.querySelector("[data-cost]") || {}).value || "",
+        expiry_enabled: !!((line.querySelector("[data-expiry-toggle]") || {}).checked),
+        production_date: (line.querySelector("[data-expiry-prod]") || {}).value || "",
+        expiry_date: (line.querySelector("[data-expiry-end]") || {}).value || ""
+      };
+    }
+
+    function serializeDraft() {
+      return {
+        saved_at: new Date().toISOString(),
+        fields: {
+          payment_method_id: (document.getElementById("payment_method_id") || {}).value || "",
+          pay_now_method_id: (document.getElementById("pay_now_method_id") || {}).value || "",
+          pay_now_amount: (document.getElementById("pay_now_amount") || {}).value || "",
+          warehouse_id: (document.getElementById("warehouse_id") || {}).value || "",
+          supplier: (document.getElementById("supplier") || {}).value || "",
+          supplier_phone: (document.getElementById("supplier_phone") || {}).value || "",
+          purchase_date: (document.getElementById("purchase_date") || {}).value || "",
+          note: (document.getElementById("note") || {}).value || "",
+          supplier_invoice_ref: (document.getElementById("supplier_invoice_ref") || {}).value || ""
+        },
+        lines: Array.prototype.map.call(wrap.querySelectorAll("[data-line]"), serializeLine)
+      };
+    }
+
+    function saveDraftNow() {
+      if (restoringDraft) return;
+      try {
+        localStorage.setItem(draftKey, JSON.stringify(serializeDraft()));
+        setDraftStatus("تم حفظ المسودة تلقائياً " + new Date().toLocaleTimeString("ar-LY"));
+      } catch (e) {
+        setDraftStatus("تعذر حفظ المسودة تلقائياً في هذا المتصفح.");
+      }
+    }
+
+    function scheduleDraftSave() {
+      if (restoringDraft) return;
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = setTimeout(saveDraftNow, 250);
+    }
+
+    function setFieldValue(id, value) {
+      var el = document.getElementById(id);
+      if (el && value !== undefined && value !== null) {
+        el.value = value;
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    }
+
+    function applyLineDraft(line, data) {
+      data = data || {};
+      var kindSel = line.querySelector("[data-line-kind]");
+      if (kindSel) kindSel.value = data.line_kind || "PRODUCT";
+      syncLineKind(line);
+      setProductValue(line, data.product_id || "");
+      var qty = line.querySelector("[data-qty]");
+      var cost = line.querySelector("[data-cost]");
+      var itemName = line.querySelector("[data-item-name]");
+      var itemUnit = line.querySelector("[data-item-unit]");
+      var life = line.querySelector("[data-life]");
+      var salvage = line.querySelector("[data-salvage]");
+      var prod = line.querySelector("[data-expiry-prod]");
+      var end = line.querySelector("[data-expiry-end]");
+      var toggle = line.querySelector("[data-expiry-toggle]");
+      if (qty) qty.value = data.quantity || "1";
+      if (cost) cost.value = data.unit_cost || "0";
+      if (itemName && data.item_name) itemName.value = data.item_name;
+      if (itemUnit && data.item_unit) itemUnit.value = data.item_unit;
+      if (life && data.useful_life_months) life.value = data.useful_life_months;
+      if (salvage && data.salvage_value !== undefined) salvage.value = data.salvage_value;
+      if ((data.line_kind || "PRODUCT") === "PRODUCT") {
+        syncExpiry(line);
+        if (toggle && !toggle.disabled) {
+          toggle.checked = !!data.expiry_enabled;
+          setExpiryFieldsEnabled(line, toggle.checked);
+        }
+        if (prod && data.production_date) prod.value = data.production_date;
+        if (end && data.expiry_date) end.value = data.expiry_date;
+      }
+    }
+
+    function restoreDraft() {
+      var raw = null;
+      try {
+        raw = localStorage.getItem(draftKey);
+      } catch (e) {
+        raw = null;
+      }
+      if (!raw) return;
+      var draft = null;
+      try {
+        draft = JSON.parse(raw);
+      } catch (e) {
+        return;
+      }
+      if (!draft || !draft.fields) return;
+      restoringDraft = true;
+      Object.keys(draft.fields).forEach(function (key) {
+        setFieldValue(key, draft.fields[key]);
+      });
+      var lines = Array.isArray(draft.lines) && draft.lines.length ? draft.lines : [];
+      while (wrap.querySelectorAll("[data-line]").length < lines.length) {
+        var node = tmpl.content.firstElementChild.cloneNode(true);
+        wrap.appendChild(node);
+        bind(node);
+      }
+      wrap.querySelectorAll("[data-line]").forEach(function (line, idx) {
+        applyLineDraft(line, lines[idx] || {});
+      });
+      restoringDraft = false;
+      recalc();
+      setDraftStatus("تمت استعادة مسودة محفوظة. لن تُعتمد الفاتورة إلا عند الضغط على زر الحفظ.");
+    }
+
     function bind(line) {
-      line.querySelector("[data-qty]").addEventListener("input", recalc);
-      line.querySelector("[data-cost]").addEventListener("input", recalc);
+      line.querySelector("[data-qty]").addEventListener("input", function () {
+        recalc();
+        scheduleDraftSave();
+      });
+      line.querySelector("[data-cost]").addEventListener("input", function () {
+        recalc();
+        scheduleDraftSave();
+      });
+      var kindSel = line.querySelector("[data-line-kind]");
+      if (kindSel) {
+        kindSel.addEventListener("change", function () {
+          syncLineKind(line);
+          scheduleDraftSave();
+        });
+      }
+      initProductCombobox(line);
+      var hidden = line.querySelector("[data-product-value]");
+      if (hidden) hidden.addEventListener("change", scheduleDraftSave);
+      ["[data-item-name]", "[data-item-unit]", "[data-life]", "[data-salvage]"].forEach(function (sel) {
+        var el = line.querySelector(sel);
+        if (el) el.addEventListener("input", scheduleDraftSave);
+      });
+      var toggle = line.querySelector("[data-expiry-toggle]");
+      if (toggle) {
+        toggle.addEventListener("change", function () {
+          setExpiryFieldsEnabled(line, toggle.checked);
+          scheduleDraftSave();
+        });
+      }
+      ["[data-expiry-prod]", "[data-expiry-end]"].forEach(function (sel) {
+        var el = line.querySelector(sel);
+        if (el) el.addEventListener("input", scheduleDraftSave);
+      });
+      syncLineKind(line);
       var rm = line.querySelector("[data-remove]");
       if (rm) rm.addEventListener("click", function () {
         if (wrap.querySelectorAll("[data-line]").length > 1) {
           line.remove();
           recalc();
+          syncWarehouseRequired();
+          scheduleDraftSave();
         }
       });
     }
@@ -294,7 +809,37 @@
       wrap.appendChild(node);
       bind(node);
       recalc();
+      scheduleDraftSave();
     });
+    [
+      "payment_method_id",
+      "pay_now_method_id",
+      "pay_now_amount",
+      "warehouse_id",
+      "supplier",
+      "supplier_phone",
+      "purchase_date",
+      "note",
+      "supplier_invoice_ref"
+    ].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener("input", scheduleDraftSave);
+      el.addEventListener("change", scheduleDraftSave);
+    });
+    if (clearDraftBtn) {
+      clearDraftBtn.addEventListener("click", function () {
+        if (!confirm("مسح مسودة فاتورة الشراء الحالية؟")) return;
+        localStorage.removeItem(draftKey);
+        setDraftStatus("تم مسح المسودة من هذا الجهاز.");
+      });
+    }
+    if (form) {
+      form.addEventListener("submit", function () {
+        saveDraftNow();
+      });
+    }
+    restoreDraft();
     recalc();
   })();
 </script>

@@ -1,16 +1,38 @@
 {% extends "base.html" %}
 {% block title %}فئات الأصناف{% endblock %}
 {% block body %}
-<div class="row" style="justify-content: space-between; align-items: center">
+<div class="row" style="justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem">
   <h1 style="margin: 0">فئات الأصناف</h1>
-  <a class="btn" href="/catalog/products">الأصناف</a>
+  <div class="row" style="gap: 0.5rem">
+    <a class="btn" href="/catalog/import-export">استيراد / تصدير CSV</a>
+    <a class="btn" href="/catalog/products">الأصناف</a>
+  </div>
 </div>
 
 {% if error_message %}
 <div class="card" style="border-color: var(--danger, #b91c1c); background: rgba(185, 28, 28, 0.08)">
   <p style="margin: 0">{{ error_message }}</p>
 </div>
+{% elif saved_message %}
+<div class="card" style="border-color: #16a34a; background: rgba(22, 163, 74, 0.08)">
+  <p style="margin: 0">{{ saved_message }} إذا نقلت فئة لفرعية، ابحث عنها <strong>تحت الفئة الرئيسية</strong> التي اخترتها — لن تظهر كقسم رئيسي مستقل.</p>
+</div>
 {% endif %}
+
+<div class="card pos-guide-panel" data-guide-title="ℹ️ ربط تلقائي بأقسام المطبخ" style="background:#f0fdf4;border:1px solid #bbf7d0;margin-bottom:1rem">
+  <h2 style="margin:0 0 0.5rem;font-size:1rem">ربط تلقائي بأقسام المطبخ</h2>
+  <p class="muted" style="margin:0 0 0.5rem;font-size:0.85rem">
+    أي <strong>فئة أو صنف جديد</strong> يُربط تلقائياً حسب الاسم. الفرعية ترث من الرئيسية إن لم يُطابق الاسم قاعدة.
+    اترك «قسم المطبخ» فارغاً للتعيين التلقائي، أو اختر يدوياً لتثبيت قسم مختلف.
+  </p>
+  {% if section_keyword_hints %}
+  <ul style="margin:0;padding-inline-start:1.2rem;font-size:0.82rem">
+    {% for name, code, hints in section_keyword_hints %}
+    <li><strong>{{ name }}</strong> (<code>{{ code }}</code>): {{ hints }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</div>
 
 <div class="card">
   <h2 style="margin-top: 0">إضافة فئة</h2>
@@ -36,15 +58,29 @@
       <label for="add_sort">ترتيب الطباعة</label>
       <input id="add_sort" name="sort_order" type="number" value="0" title="رقم أصغر يظهر أولاً في الفاتورة ونقطة البيع" />
     </div>
+    <div style="align-self: center">
+      <label style="display:flex;align-items:center;gap:0.35rem;cursor:pointer;margin-top:1.1rem">
+        <input type="checkbox" name="show_in_pos" value="on" checked />
+        عرض في جلسة البيع
+      </label>
+    </div>
+    <div style="align-self: center">
+      <label style="display:flex;align-items:center;gap:0.35rem;cursor:pointer;margin-top:1.1rem">
+        <input type="checkbox" name="show_in_shop" value="on" checked />
+        عرض في المتجر الإلكتروني
+      </label>
+    </div>
     <p class="muted" style="margin: 0; width: 100%; max-width: 40rem; font-size: 0.85rem">
-      إن تركت «تندرج تحت» على «فئة رئيسية» أُنشئ قسم جديد في الأعلى. إن اخترت فئة رئيسية من القائمة أُنشئ فرع تحتها فقط.
+      إن تركت «تندرج تحت» على «فئة رئيسية» أُنشئ قسم جديد في الأعلى. إن اخترت فئة رئيسية من القائمة أُنشئ فرع تحتها.
+      يمكنك أيضاً تغيير التسلسل لاحقاً من «حفظ التعديلات» داخل أي فئة.
+      <strong>أزل «عرض في جلسة البيع»</strong> للفئات الإدارية (خضروات، بهارات، مواد خام) — تبقى الأصناف في المخزون دون ظهور في نقطة البيع.
     </p>
     <button class="btn btn-primary" type="submit">إضافة</button>
   </form>
 </div>
 
 {% if can_lock_delete %}
-<p class="muted" style="font-size: 0.9rem; margin: 0.5rem 0">
+<p class="muted pos-guide-intro" data-guide-title="ℹ️ ملاحظة لمدير النظام" style="font-size: 0.9rem; margin: 0.5rem 0">
   <strong>مدير النظام:</strong> يمكنك تفعيل «قفل الحذف» على أي فئة لتعطيل زر الحذف لجميع المستخدمين وتجنب الحذف بالخطأ (يشمل الفئات الفرعية عند حذف الأب).
 </p>
 {% endif %}
@@ -56,6 +92,8 @@
       <h2 style="margin: 0; width: 100%; font-size: 1.1rem">
         <span style="display: inline-block; width: 14px; height: 14px; border-radius: 4px; background: {{ r.color_hex }}; vertical-align: middle"></span>
         قسم رئيسي
+        {% if not r.show_in_pos %}<span class="muted" style="font-size:0.78rem;font-weight:normal"> — مخفية عن جلسة البيع</span>{% endif %}
+        {% if not r.show_in_shop %}<span class="muted" style="font-size:0.78rem;font-weight:normal"> — مخفية عن المتجر</span>{% endif %}
       </h2>
       <div>
         <label for="root_name_{{ r.id }}">الاسم</label>
@@ -69,6 +107,38 @@
         <label for="root_sort_{{ r.id }}">ترتيب الطباعة</label>
         <input id="root_sort_{{ r.id }}" name="sort_order" type="number" value="{{ r.sort_order }}" title="احفظ بعد التعديل" />
       </div>
+      <div>
+        <label for="root_parent_{{ r.id }}">تندرج تحت</label>
+        {% if r.children %}
+        <select id="root_parent_{{ r.id }}" name="parent_root_id" style="min-width: 12rem" disabled title="انقل أو احذف الفروع الفرعية أولاً">
+          <option value="" selected>— فئة رئيسية (لها {{ r.children|length }} فرع) —</option>
+        </select>
+        <small class="muted" style="display:block; max-width:22rem; font-size:0.78rem; margin-top:0.2rem">
+          لجعلها فرعية: أفرغ الفروع تحتها أو انقلها لفئة أخرى أولاً.
+        </small>
+        {% else %}
+        <select id="root_parent_{{ r.id }}" name="parent_root_id" style="min-width: 12rem">
+          <option value="" selected>— فئة رئيسية (بدون أب) —</option>
+          {% for rr in roots %}
+          {% if rr.id != r.id %}
+          <option value="{{ rr.id }}">{{ rr.name_ar }}</option>
+          {% endif %}
+          {% endfor %}
+        </select>
+        {% endif %}
+      </div>
+      <div style="align-self:center">
+        <label style="display:flex;align-items:center;gap:0.35rem;cursor:pointer;margin-top:1.1rem;font-size:0.85rem">
+          <input type="checkbox" name="show_in_pos" value="on" {% if r.show_in_pos %}checked{% endif %} />
+          عرض في جلسة البيع
+        </label>
+      </div>
+      <div style="align-self:center">
+        <label style="display:flex;align-items:center;gap:0.35rem;cursor:pointer;margin-top:1.1rem;font-size:0.85rem">
+          <input type="checkbox" name="show_in_shop" value="on" {% if r.show_in_shop %}checked{% endif %} />
+          عرض في المتجر الإلكتروني
+        </label>
+      </div>
       <div style="width: 100%; padding: 0.5rem 0.6rem; background: #eff6ff; border-radius: 8px; border: 1px dashed #93c5fd">
         <strong style="display:block; margin-bottom:0.4rem; color:#1e3a8a">توجيه طلبات هذا القسم</strong>
         <div class="row" style="gap:0.5rem; align-items:flex-end; flex-wrap: wrap">
@@ -80,8 +150,17 @@
               {% endfor %}
             </select>
           </div>
+          <div>
+            <label for="ks_{{ r.id }}" class="muted" style="font-size:0.78rem">قسم المطبخ (طباعة)</label>
+            <select id="ks_{{ r.id }}" name="kitchen_section_id" style="min-width:10rem">
+              <option value="">—</option>
+              {% for s in section_rows %}
+              <option value="{{ s.id }}" {% if r.kitchen_section_id == s.id %}selected{% endif %}>{{ s.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
           <div style="flex:1; min-width:14rem">
-            <label for="rt_target_{{ r.id }}" class="muted" style="font-size:0.78rem">عنوان التوجيه (لـ WhatsApp ضع رابط webhook، للطباعة اسم الطابعة)</label>
+            <label for="rt_target_{{ r.id }}" class="muted" style="font-size:0.78rem">عنوان التوجيه (WhatsApp webhook)</label>
             <input id="rt_target_{{ r.id }}" name="routing_target" value="{{ r.routing_target or '' }}" placeholder="https://hook.example/..." />
           </div>
         </div>
@@ -132,13 +211,22 @@
             <input id="ch_sort_{{ c.id }}" name="sort_order" type="number" value="{{ c.sort_order }}" />
           </div>
           <div>
-            <label for="ch_parent_{{ c.id }}" class="muted" style="font-size: 0.75rem">تحت الفئة الرئيسية</label>
+            <label for="ch_parent_{{ c.id }}" class="muted" style="font-size: 0.75rem">تندرج تحت</label>
             <select id="ch_parent_{{ c.id }}" name="parent_root_id" style="min-width: 10rem">
+              <option value="">— فئة رئيسية (بدون أب) —</option>
               {% for rr in roots %}
               <option value="{{ rr.id }}" {% if rr.id == c.parent_id %}selected{% endif %}>{{ rr.name_ar }}</option>
               {% endfor %}
             </select>
           </div>
+          <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.78rem;cursor:pointer;margin-bottom:0.35rem">
+            <input type="checkbox" name="show_in_pos" value="on" {% if c.show_in_pos %}checked{% endif %} />
+            عرض في جلسة البيع
+          </label>
+          <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.78rem;cursor:pointer;margin-bottom:0.35rem">
+            <input type="checkbox" name="show_in_shop" value="on" {% if c.show_in_shop %}checked{% endif %} />
+            عرض في المتجر الإلكتروني
+          </label>
           <button class="btn btn-primary" type="submit" style="font-size: 0.85rem">حفظ</button>
         </form>
         {% if can_lock_delete %}

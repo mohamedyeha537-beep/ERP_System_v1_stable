@@ -1,8 +1,8 @@
 {% extends "base.html" %}
-{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button with context %}
 {% block title %}تقرير المصروفات{% endblock %}
 {% block body %}
-<h1>تقرير المصروفات</h1>
+<h1>تقرير المصروفات{% if domain_label %} — {{ domain_label }}{% endif %}</h1>
 {{ reports_nav('expenses') }}
 {{ period_filter('/reports/expenses', period, period_labels, start, end, start_str, end_str) }}
 {{ report_export_format_help() }}
@@ -59,7 +59,7 @@
       {% for p in items %}
       <tr>
         <td>{{ p.id }}</td>
-        <td>{{ p.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td>{{ pos_format_dt(p.created_at, '%Y-%m-%d %H:%M') }}</td>
         <td>{{ p.amount }} د.ل</td>
         <td>{{ p.expense_category or '—' }}</td>
         <td>{{ p.supplier or '—' }}</td>

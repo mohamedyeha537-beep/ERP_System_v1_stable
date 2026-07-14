@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+
+<html lang="ar" dir="rtl">
+
+  <head>
+
+    <meta charset="utf-8" />
+
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+
+    {% set brand = pos_brand(request) %}
+
+    {% set shop = shop_brand if shop_brand is defined else brand %}
+
+    {% include "_public_web_head.html" %}
+    {% if web_mkt is not defined or not web_mkt %}
+    <title>{{ store_name }} — المتجر</title>
+    {% endif %}
+
+    <link rel="stylesheet" href="/static/shop.css?v=16" />
+
+    <style>
+
+      :root {
+
+        --shop-header-from: {{ shop.header_bg_from }};
+
+        --shop-header-to: {{ shop.header_bg_to }};
+
+        --brand-primary: {{ shop.primary_color | default(shop.header_bg_from) }};
+
+        --brand-accent: {{ shop.accent_color | default(shop.header_bg_to) }};
+
+        --shop-header-fg: {{ shop.header_fg }};
+
+      }
+
+    </style>
+
+  </head>
+
+  <body class="shop-page">
+
+    {% set active_nav = 'menu' %}
+    {% include "_shop_header.html" %}
+
+    {% if not enabled %}
+
+    <main class="shop-disabled">
+
+      <p>المتجر غير متاح حالياً. حاول لاحقاً.</p>
+
+      {% if chat_enabled %}<p><a href="/chat">تواصل عبر المحادثة</a></p>{% endif %}
+
+    </main>
+
+    {% else %}
+
+    <main class="shop-main">
+
+      {% if shop.banners and shop.banners|length > 0 %}
+      <section class="shop-hero" id="shop-hero" data-interval="{{ shop.banner_interval or 10 }}" aria-label="عروض">
+        <div class="shop-hero-viewport">
+          <div class="shop-hero-track" id="shop-hero-track">
+            {% for b in shop.banners %}
+            <div class="shop-hero-slide{% if loop.first %} is-active{% endif %}">
+              {% if b.link_url %}
+              <a href="{{ b.link_url }}" class="shop-hero-link">
+                <img src="{{ b.image_url }}" alt="" loading="{% if loop.first %}eager{% else %}lazy{% endif %}" decoding="async" />
+              </a>
+              {% else %}
+              <img src="{{ b.image_url }}" alt="" loading="{% if loop.first %}eager{% else %}lazy{% endif %}" decoding="async" />
+              {% endif %}
+            </div>
+            {% endfor %}
+          </div>
+          {% if shop.banners|length > 1 %}
+          <button type="button" class="shop-hero-nav shop-hero-prev" id="shop-hero-prev" aria-label="السابق">‹</button>
+          <button type="button" class="shop-hero-nav shop-hero-next" id="shop-hero-next" aria-label="التالي">›</button>
+          {% endif %}
+        </div>
+        {% if shop.banners|length > 1 %}
+        <div class="shop-hero-dots" id="shop-hero-dots" role="tablist" aria-label="شرائح العروض">
+          {% for b in shop.banners %}
+          <button type="button" class="shop-hero-dot{% if loop.first %} is-active{% endif %}" data-index="{{ loop.index0 }}" aria-label="بانر {{ loop.index }}"></button>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </section>
+      {% endif %}
+
+      <div class="shop-sections" id="shop-sections" hidden></div>
+
+      <nav class="shop-categories" id="shop-categories" aria-label="الأقسام"></nav>
+
+      <section class="shop-products" id="shop-products" aria-live="polite"></section>
+
+    </main>
+
+
+
+    <aside class="shop-drawer" id="shop-drawer" hidden aria-hidden="true">
+
+      <div class="shop-drawer-backdrop" id="shop-drawer-backdrop"></div>
+
+      <div class="shop-drawer-panel" role="dialog" aria-labelledby="shop-drawer-title">
+
+        <header class="shop-drawer-head">
+
+          <h2 id="shop-drawer-title">السلة</h2>
+
+          <button type="button" id="shop-drawer-close" aria-label="إغلاق">✕</button>
+
+        </header>
+
+        <div class="shop-drawer-body" id="shop-drawer-body"></div>
+
+        <footer class="shop-drawer-foot" id="shop-drawer-foot"></footer>
+
+      </div>
+
+    </aside>
+
+
+
+    <div class="shop-modal" id="shop-rate-modal" hidden aria-hidden="true">
+
+      <div class="shop-modal-backdrop" data-close-modal></div>
+
+      <div class="shop-modal-panel" role="dialog" aria-labelledby="shop-rate-title">
+
+        <header class="shop-modal-head">
+
+          <h3 id="shop-rate-title">تقييم المنتج</h3>
+
+          <button type="button" data-close-modal aria-label="إغلاق">✕</button>
+
+        </header>
+
+        <div class="shop-modal-body">
+
+          <p id="shop-rate-product-name" class="shop-modal-product"></p>
+
+          <div class="shop-stars" id="shop-rate-stars" role="group" aria-label="التقييم">
+
+            <button type="button" data-star="1" aria-label="نجمة واحدة">★</button>
+
+            <button type="button" data-star="2" aria-label="نجمتان">★</button>
+
+            <button type="button" data-star="3" aria-label="3 نجوم">★</button>
+
+            <button type="button" data-star="4" aria-label="4 نجوم">★</button>
+
+            <button type="button" data-star="5" aria-label="5 نجوم">★</button>
+
+          </div>
+
+          <button type="button" class="shop-btn-primary" id="shop-rate-submit">إرسال التقييم</button>
+
+        </div>
+
+      </div>
+
+    </div>
+
+
+
+    <div class="shop-modal" id="shop-share-modal" hidden aria-hidden="true">
+
+      <div class="shop-modal-backdrop" data-close-modal></div>
+
+      <div class="shop-modal-panel" role="dialog" aria-labelledby="shop-share-title">
+
+        <header class="shop-modal-head">
+
+          <h3 id="shop-share-title">مشاركة المنتج</h3>
+
+          <button type="button" data-close-modal aria-label="إغلاق">✕</button>
+
+        </header>
+
+        <div class="shop-modal-body">
+
+          <p id="shop-share-product-name" class="shop-modal-product"></p>
+
+          <div class="shop-field">
+
+            <label for="shop-share-phone">رقم هاتفك (لإرفاق كود الإحالة)</label>
+
+            <input id="shop-share-phone" type="tel" dir="ltr" placeholder="09xxxxxxxx" />
+
+            <p class="shop-share-consent muted">بإدخال رقمك واستخدام «مشاركة» أو «نسخ الرابط» توافق على استلام رسائل العروض والإشعارات من {{ store_name }} عبر واتساب.</p>
+
+          </div>
+
+          <textarea id="shop-share-text" class="shop-share-text" rows="4" readonly></textarea>
+
+          <div class="shop-share-actions">
+
+            <button type="button" class="shop-btn-primary" id="shop-share-copy">نسخ الرابط</button>
+
+            <button type="button" class="shop-btn-secondary" id="shop-share-native" title="اختر واتساب أو تيليجرام أو مشاركة الجهاز">مشاركة</button>
+
+          </div>
+
+          <div class="shop-share-picker" id="shop-share-picker" hidden>
+
+            <p class="shop-share-picker-label muted">اختر وسيلة المشاركة</p>
+
+            <div class="shop-share-picker-grid">
+
+              <button type="button" class="shop-share-picker-btn" id="shop-share-via-system" data-share-via="system" hidden>
+
+                <span class="shop-share-picker-icon" aria-hidden="true">📤</span>
+
+                <span>مشاركة الجهاز</span>
+
+              </button>
+
+              <button type="button" class="shop-share-picker-btn" data-share-via="whatsapp">
+
+                <span class="shop-share-picker-icon" aria-hidden="true">💬</span>
+
+                <span>واتساب</span>
+
+              </button>
+
+              <button type="button" class="shop-share-picker-btn" data-share-via="telegram">
+
+                <span class="shop-share-picker-icon" aria-hidden="true">✈️</span>
+
+                <span>تيليجرام</span>
+
+              </button>
+
+              <button type="button" class="shop-share-picker-btn" data-share-via="copy">
+
+                <span class="shop-share-picker-icon" aria-hidden="true">📋</span>
+
+                <span>نسخ النص</span>
+
+              </button>
+
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+
+
+
+    <div class="shop-toast" id="shop-toast" hidden role="status"></div>
+
+    <script>
+
+      window.__SHOP_PAGE__ = {
+
+        storeName: {{ store_name | tojson }},
+
+        referralFromUrl: new URLSearchParams(location.search).get("ref") || "",
+
+        highlightProduct: new URLSearchParams(location.search).get("product") || ""
+
+      };
+
+    </script>
+
+    <script src="/static/shop.js?v=19"></script>
+
+    {% endif %}
+
+    {% include "_public_web_body.html" %}
+
+  </body>
+
+</html>
+

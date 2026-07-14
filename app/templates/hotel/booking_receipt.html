@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>فاتورة حجز {{ booking.reference }}</title>
+    <style>
+      html, body { font-family: "Segoe UI", "Tahoma", "Arial", system-ui, sans-serif; }
+    </style>
+    <link rel="stylesheet" href="/static/app.css" />
+    <link rel="stylesheet" href="/static/receipt_print.css?v=2" />
+    <style>
+      @page {
+        size: {{ paper_css.size }};
+        margin: {{ paper_css.margin }};
+      }
+      .receipt-page { max-width: {{ paper_css.max_width }}; }
+    </style>
+  </head>
+  <body class="paper-{{ paper }}">
+    <div class="receipt-page paper-{{ paper }}">
+      {% include "_receipt_print_actions.html" %}
+      <div class="receipt-actions no-print" style="margin-top:0.35rem;flex-wrap:wrap">
+        <a class="btn" href="/admin/hotel/bookings/{{ booking.id }}">← الحجز</a>
+        <span class="muted no-print" style="margin-inline-start:auto">المقاس: {{ paper }}</span>
+      </div>
+
+      <div id="receipt-capture-root" class="receipt-capture-root">
+        <header class="receipt-header">
+          {% if hotel_brand.hotel_print_logo_url or hotel_brand.hotel_logo_url %}
+          <div class="receipt-logo-wrap">
+            <img class="receipt-logo" src="{{ hotel_brand.hotel_print_logo_url or hotel_brand.hotel_logo_url }}" alt="logo" />
+          </div>
+          {% endif %}
+          <h1 style="margin:0;font-size:1.15rem">{{ hotel_brand.hotel_name or store_name }}</h1>
+          <p style="margin:0.25rem 0 0;font-size:0.95rem;font-weight:600">فاتورة حجز</p>
+          <p style="margin:0.15rem 0 0;font-size:0.85rem">مرجع: {{ booking.reference }} — {{ pos_format_dt(booking.created_at, '%Y-%m-%d %H:%M') if booking.created_at else '' }}</p>
+          {% if booking.room %}
+          <p style="margin:0.15rem 0 0;font-size:0.95rem;font-weight:700;color:#b45309">الشقة: #{{ booking.room.number }}</p>
+          {% elif booking.room_type %}
+          <p style="margin:0.15rem 0 0;font-size:0.88rem">نوع الشقة: {{ booking.room_type.name_ar }}</p>
+          {% endif %}
+        </header>
+
+        <section class="receipt-section">
+          <h2 class="receipt-section-title">بيانات النزيل</h2>
+          <p style="margin:0.2rem 0;font-size:0.88rem"><strong>{{ booking.guest_name }}</strong></p>
+          {% if guest_phone %}
+          <p class="receipt-delivery-line" style="margin:0.15rem 0">📞 {{ guest_phone }}</p>
+          {% endif %}
+          <p style="margin:0.25rem 0 0;font-size:0.85rem">
+            من {{ booking.check_in }} إلى {{ booking.check_out }}
+            {% if nights %} · {{ nights }} ليلة{% endif %}
+          </p>
+        </section>
+
+        <section class="receipt-section">
+          <h2 class="receipt-section-title">تفاصيل الحساب</h2>
+          <table class="receipt-table">
+            <thead>
+              <tr>
+                <th>البند</th>
+                <th class="num">المبلغ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for line in folio.lines %}
+              <tr>
+                <td>{{ line.description }}</td>
+                <td class="num">{{ pos_money(line.amount) }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </section>
+
+        <hr class="receipt-divider" />
+        <div class="receipt-grand">
+          <span>الإجمالي</span>
+          <span>{{ pos_money(folio.total) }} <span class="money-currency">د.ل</span></span>
+        </div>
+        <div class="receipt-payment">
+          <span>المدفوع:</span>
+          <span><strong>{{ pos_money(folio.paid) }} <span class="money-currency">د.ل</span></strong></span>
+        </div>
+        <div class="receipt-grand receipt-grand-paid">
+          <span>المتبقي</span>
+          <span><strong>{{ pos_money(folio.balance) }} <span class="money-currency">د.ل</span></strong></span>
+        </div>
+
+        {% if booking.payments %}
+        <section class="receipt-section" style="margin-top:0.75rem">
+          <h2 class="receipt-section-title" style="font-size:0.92rem">سجل المدفوعات</h2>
+          {% for p in booking.payments %}
+          <p style="margin:0.15rem 0;font-size:0.82rem">
+            {{ pos_format_dt(p.created_at, '%Y-%m-%d %H:%M') if p.created_at else '—' }} —
+            {{ pos_money(p.amount) }} د.ل
+            {% if p.is_deposit %}(عربون){% endif %}
+          </p>
+          {% endfor %}
+        </section>
+        {% endif %}
+
+        {% if folio.balance <= 0 %}
+        <div class="receipt-paid-stamp" aria-label="خالص">خالص</div>
+        {% endif %}
+        <p class="receipt-thanks">شكراً لاختياركم {{ hotel_brand.hotel_name or store_name }}</p>
+      </div>
+    </div>
+  </body>
+</html>

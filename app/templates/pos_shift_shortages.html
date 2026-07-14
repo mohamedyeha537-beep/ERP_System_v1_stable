@@ -1,0 +1,490 @@
+{% extends "base_pos.html" %}
+{% block title %}سجل عجز الجلسات{% endblock %}
+{% block pos_topbar %}
+{% if not pos_is_kiosk(request) %}
+<a class="pos-topbar-btn" href="/">لوحة التحكم</a>
+{% endif %}
+<a class="pos-topbar-btn primary" href="/pos/shift">إدارة الجلسة</a>
+{% if open_pos_shift is defined and open_pos_shift %}
+<a class="pos-topbar-btn" href="/pos">العودة للكاشير</a>
+{% endif %}
+{% endblock %}
+{% block head_extra %}
+<style>
+  .shortage-kpi {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 0.75rem;
+    margin-top: 1rem;
+  }
+  .shortage-kpi .box {
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 12px;
+    padding: 1rem;
+    background: #fff;
+  }
+  .shortage-kpi .box.total {
+    border-color: #fca5a5;
+    background: #fef2f2;
+  }
+  .shortage-kpi .box .label { font-size: 0.85rem; color: var(--muted, #64748b); }
+  .shortage-kpi .box .value { font-size: 1.35rem; font-weight: 800; color: #b91c1c; margin-top: 0.35rem; }
+  .filter-pills { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.75rem; }
+  .pill-btn {
+    padding: 0.35rem 0.75rem; border-radius: 999px; border: 1px solid var(--border);
+    text-decoration: none; color: inherit; font-size: 0.88rem;
+  }
+  .pill-btn.active { background: #0f172a; color: #fff; border-color: #0f172a; }
+  .badge-kind { display: inline-block; padding: 0.12rem 0.45rem; border-radius: 6px; font-size: 0.78rem; font-weight: 600; }
+  .badge-kind.cash { background: #dcfce7; color: #15803d; }
+  .badge-kind.bank { background: #dbeafe; color: #1d4ed8; }
+  .shortage-table-wrap {
+    overflow-x: auto;
+    overflow-y: visible;
+    margin-top: 1rem;
+  }
+  .shortage-actions {
+    overflow: visible;
+    vertical-align: top;
+    min-width: 200px;
+  }
+  .shortage-action-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.4rem;
+  }
+  .shortage-forgive-dialog {
+    border: none;
+    border-radius: 12px;
+    padding: 0;
+    max-width: min(420px, 92vw);
+    box-shadow: 0 16px 48px rgba(15, 23, 42, 0.22);
+  }
+  .shortage-forgive-dialog::backdrop {
+    background: rgba(15, 23, 42, 0.45);
+  }
+  .shortage-forgive-dialog-inner {
+    padding: 1.1rem 1.25rem 1.25rem;
+  }
+  .shortage-forgive-dialog h3 {
+    margin: 0 0 0.75rem;
+    font-size: 1.05rem;
+  }
+  .shortage-forgive-dialog select {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    margin: 0.35rem 0 0.85rem;
+    cursor: pointer;
+  }
+  .shortage-forgive-dialog-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    justify-content: flex-end;
+  }
+</style>
+{% endblock %}
+{% block body %}
+<h1 style="margin:0 0 0.5rem">سجل عجز إقفال الجلسات</h1>
+<div class="pos-guide-panel" data-guide-title="ℹ️ عن سجل العجز">
+<p class="muted" style="margin:0 0 0.75rem;font-size:0.88rem;line-height:1.55">
+  خصم <strong>نقاط الولاء</strong> لا يُسجَّل هنا كعجز على الكاشير — يُحسب تلقائياً كمصروف تشغيل
+  (<a href="/admin/expenses">نقاط ولاء — تكاليف تشغيل</a>) ويُطرح من الأرباح في التقارير.
+</p>
+<p class="muted" style="margin:0">يُسجّل العجز تلقائياً عند إغلاق الجلسة إذا كان المعدود أقل من المتوقع (كاش أو مصرف).</p>
+<p class="muted" style="margin:0.45rem 0 0;font-size:0.88rem">
+  <strong>خصم من الراتب:</strong> يُسجَّل على الموظف مبلغ مستحق يُخصم من <em>صافي راتبه</em> عند صرف الرواتب (كأنه استلم المبلغ ويُسترد منه لاحقاً) — لا يُضاف نقداً للصندوق.
+  إذا لم تُربط الجلسة بموظف (مثل دخول admin مباشرة)، اختر الموظف من القائمة قبل الخصم.
+  <strong>العفو:</strong> يُسجَّل مصروفاً من المحفظة المختارة.
+</p>
+</div>
+
+{% if request.query_params.get('ok') == 'deduct' %}
+<div class="card" style="margin-top:0.85rem;border-color:#86efac;background:#f0fdf4">
+  <p style="margin:0;color:#166534">
+    تم تسجيل خصم الراتب{% if request.query_params.get('amt') %} بمبلغ {{ request.query_params.get('amt') }} د.ل{% endif %}
+    — سيُطبَّق عند اعتماد وصرف مسير الرواتب.
+  </p>
+</div>
+{% endif %}
+
+{% if request.query_params.get('err') %}
+<div class="alert" style="margin-top:0.85rem;background:#fef2f2;border:1px solid #fecaca;color:#991b1b">
+  {{ request.query_params.get('err') }}
+</div>
+{% endif %}
+
+<div class="shortage-kpi">
+  <div class="box total">
+    <div class="label">إجمالي العجز المسجّل</div>
+    <div class="value">{{ pos_money(summary.total_shortage) }} <span class="money-currency">د.ل</span></div>
+    <div class="muted" style="font-size:0.8rem;margin-top:0.35rem">{{ summary.event_count }} حدث عجز</div>
+  </div>
+  <div class="box">
+    <div class="label">عجز كاش</div>
+    <div class="value" style="color:#15803d;font-size:1.1rem">{{ pos_money(summary.cash_total) }} د.ل</div>
+    <div class="muted" style="font-size:0.8rem">{{ summary.cash_count }} مرة</div>
+  </div>
+  <div class="box">
+    <div class="label">عجز مصرف</div>
+    <div class="value" style="color:#1d4ed8;font-size:1.1rem">{{ pos_money(summary.bank_total) }} د.ل</div>
+    <div class="muted" style="font-size:0.8rem">{{ summary.bank_count }} مرة</div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:1.25rem">
+  <h2 style="margin-top:0">تفاصيل كل عجز</h2>
+  <div class="filter-pills">
+    <a class="pill-btn {% if kind_filter == 'all' %}active{% endif %}" href="?kind=all">الكل</a>
+    <a class="pill-btn {% if kind_filter == 'cash' %}active{% endif %}" href="?kind=cash">كاش فقط</a>
+    <a class="pill-btn {% if kind_filter == 'bank' %}active{% endif %}" href="?kind=bank">مصرف فقط</a>
+  </div>
+  {% if rows %}
+  <div class="shortage-table-wrap">
+  <table style="width:100%">
+    <thead>
+      <tr>
+        <th>التاريخ</th>
+        <th>جلسة</th>
+        <th>النوع</th>
+        <th>متوقع</th>
+        <th>معدود</th>
+        <th>العجز</th>
+        <th>الكاشير / المستخدم</th>
+        <th>ملاحظة</th>
+        <th>إجراء</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>
+          {% if r.closed_at %}{{ pos_format_dt(r.closed_at, '%Y-%m-%d %H:%M') }}{% else %}—{% endif %}
+        </td>
+        <td><strong>#{{ r.shift_id }}</strong></td>
+        <td>
+          {% if r.is_cash %}
+          <span class="badge-kind cash">كاش</span>
+          {% else %}
+          <span class="badge-kind bank">مصرف</span>
+          {% endif %}
+        </td>
+        <td>{{ pos_money(r.expected_amount) }}</td>
+        <td>{{ pos_money(r.counted_amount) }}</td>
+        <td style="font-weight:700;color:#b91c1c">{{ pos_money(r.shortage_amount) }} د.ل</td>
+        <td>
+          {% if r.employee_name %}<strong>{{ r.employee_name }}</strong><br>{% endif %}
+          <span class="muted" style="font-size:0.82rem">{{ r.username }}</span>
+        </td>
+        <td style="max-width:160px;font-size:0.85rem">{{ r.closing_note or '—' }}</td>
+        <td class="shortage-actions">
+          {% if can_deduct_shortage or can_forgive_shortage %}
+          <div class="shortage-action-stack">
+            {% if can_deduct_shortage %}
+            {% if r.employee_id %}
+            <form method="post" action="/pos/shift/shortages/{{ r.id }}/deduct" style="margin:0"
+                  class="shortage-deduct-form"
+                  data-amt="{{ pos_money_plain(r.shortage_amount) }}"
+                  data-kind-ar="{{ r.kind_ar }}"
+                  data-shift-id="{{ r.shift_id }}">
+              <input type="hidden" name="note" value="خصم عجز {{ r.kind_ar }} جلسة #{{ r.shift_id }}" />
+              <input type="hidden" name="employee_id" value="{{ r.employee_id }}" />
+              <button type="submit" class="btn btn-primary" style="width:100%;padding:0.35rem 0.55rem;font-size:0.82rem">
+                خصم من الراتب — {{ r.employee_name }}
+              </button>
+            </form>
+            {% else %}
+            <button type="button" class="btn btn-primary btn-deduct-open" style="width:100%;padding:0.35rem 0.55rem;font-size:0.82rem"
+              data-shortage-id="{{ r.id }}"
+              data-amt="{{ pos_money_plain(r.shortage_amount) }}"
+              data-kind-ar="{{ r.kind_ar }}"
+              data-shift-id="{{ r.shift_id }}"
+              data-note="خصم عجز {{ r.kind_ar }} جلسة #{{ r.shift_id }}">
+              خصم من الراتب (اختر موظفاً)
+            </button>
+            {% endif %}
+            {% endif %}
+
+            {% if can_forgive_shortage %}
+            <button type="button" class="btn btn-forgive-open" style="width:100%;padding:0.35rem 0.55rem;font-size:0.82rem;border-color:#f59e0b;background:#fff7ed;color:#9a3412"
+              data-shortage-id="{{ r.id }}"
+              data-kind-ar="{{ r.kind_ar }}"
+              data-is-cash="{% if r.is_cash %}1{% else %}0{% endif %}"
+              data-shift-id="{{ r.shift_id }}">
+              عفو — {{ r.kind_ar }} (اختر محفظة)
+            </button>
+            {% endif %}
+          </div>
+          {% else %}
+          <span class="muted" style="font-size:0.82rem">—</span>
+          {% endif %}
+        </td>
+        <td>
+          <a class="btn" style="padding:0.2rem 0.45rem;font-size:0.82rem" href="/pos/shift/{{ r.shift_id }}/report" target="_blank">تقرير</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
+  <dialog id="shortage-forgive-dialog" class="shortage-forgive-dialog">
+    <div class="shortage-forgive-dialog-inner">
+      <h3>عفو عن عجز <span id="shortage-forgive-kind-label">—</span></h3>
+      <p class="muted" style="margin:0 0 0.5rem;font-size:0.88rem">
+        جلسة <strong id="shortage-forgive-shift-label">#</strong> — يُسجَّل مصروف «عجز صندوق» من المحفظة المختارة.
+      </p>
+      <label for="shortage-forgive-pm" style="margin:0;font-weight:600;color:inherit">المحفظة</label>
+      <select id="shortage-forgive-pm" name="payment_method_id" required>
+        <option value="">— اختر محفظة —</option>
+      </select>
+      <p id="shortage-forgive-empty" class="muted" style="display:none;margin:0 0 0.75rem;font-size:0.85rem">
+        لا توجد محفظة مفعّلة للصرف من هذا النوع.
+        <a href="/admin/payment-methods" target="_blank">الحسابات المالية</a>
+        — فعّل «صرف وتحويل صادر» للحساب المناسب.
+      </p>
+      <div class="shortage-forgive-dialog-actions">
+        <button type="button" class="btn" id="shortage-forgive-cancel">إلغاء</button>
+        <button type="button" class="btn" style="border-color:#f59e0b;background:#fff7ed;color:#9a3412" id="shortage-forgive-submit">
+          تأكيد العفو
+        </button>
+      </div>
+    </div>
+  </dialog>
+  <form method="post" id="shortage-forgive-form" action="/pos/shift/shortages/0/forgive" style="display:none" aria-hidden="true"></form>
+
+  <dialog id="shortage-deduct-dialog" class="shortage-forgive-dialog">
+    <div class="shortage-forgive-dialog-inner">
+      <h3>خصم عجز <span id="shortage-deduct-kind-label">—</span> من الراتب</h3>
+      <p class="muted" style="margin:0 0 0.5rem;font-size:0.88rem">
+        جلسة <strong id="shortage-deduct-shift-label">#</strong> —
+        مبلغ العجز: <strong id="shortage-deduct-amt-label">0</strong> د.ل
+      </p>
+      <label for="shortage-deduct-employee" style="margin:0;font-weight:600;color:inherit">الموظف</label>
+      <select id="shortage-deduct-employee" name="employee_id" required{% if not employees %} disabled{% endif %}>
+        <option value="">— اختر موظفاً —</option>
+        {% for emp in employees %}
+        <option value="{{ emp.id }}">{{ emp.full_name_ar }}</option>
+        {% endfor %}
+      </select>
+      <p id="shortage-deduct-empty" class="muted" style="margin:0 0 0.75rem;font-size:0.85rem;{% if employees %}display:none;{% endif %}">
+        لا يوجد موظفون في النظام.
+        <a href="/admin/employees" target="_blank">الموارد البشرية → الموظفون</a>
+        — أضف موظفاً أو فعّل حالة «على رأس العمل».
+      </p>
+      <div class="shortage-forgive-dialog-actions">
+        <button type="button" class="btn" id="shortage-deduct-cancel">إلغاء</button>
+        <button type="button" class="btn btn-primary" id="shortage-deduct-submit"{% if not employees %} disabled{% endif %}>تأكيد الخصم</button>
+      </div>
+    </div>
+  </dialog>
+  <form method="post" id="shortage-deduct-form" action="/pos/shift/shortages/0/deduct" style="display:none" aria-hidden="true"></form>
+
+  <script type="application/json" id="shortage-wallets-json">{{ wallets_for_forgive_json | default('{\"cash\":[],\"bank\":[]}') | safe }}</script>
+  <script>
+  (function () {
+    document.querySelectorAll(".shortage-deduct-form").forEach(function (form) {
+      form.addEventListener("submit", function (e) {
+        var amt = form.getAttribute("data-amt") || "0";
+        var kindAr = form.getAttribute("data-kind-ar") || "";
+        var shiftId = form.getAttribute("data-shift-id") || "";
+        var msg =
+          "تسجيل خصم راتب بمبلغ " + amt + " د.ل عن عجز " + kindAr + " (جلسة #" + shiftId + ")?\n\n" +
+          "يُخصم من صافي راتب الموظف عند صرف الرواتب.\n" +
+          "ليس تحصيلاً نقدياً للصندوق.";
+        if (!confirm(msg)) {
+          e.preventDefault();
+        }
+      });
+    });
+  })();
+  (function () {
+    var dlg = document.getElementById("shortage-deduct-dialog");
+    var form = document.getElementById("shortage-deduct-form");
+    var sel = document.getElementById("shortage-deduct-employee");
+    var submitBtn = document.getElementById("shortage-deduct-submit");
+    var kindLabel = document.getElementById("shortage-deduct-kind-label");
+    var shiftLabel = document.getElementById("shortage-deduct-shift-label");
+    var amtLabel = document.getElementById("shortage-deduct-amt-label");
+    var pending = { id: 0, kindAr: "", shiftId: "", amt: "0", note: "" };
+    var hasEmployees = sel && sel.options && sel.options.length > 1;
+
+    document.querySelectorAll(".btn-deduct-open").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        pending.id = btn.getAttribute("data-shortage-id");
+        pending.kindAr = btn.getAttribute("data-kind-ar") || "";
+        pending.shiftId = btn.getAttribute("data-shift-id") || "";
+        pending.amt = btn.getAttribute("data-amt") || "0";
+        pending.note = btn.getAttribute("data-note") || "";
+        kindLabel.textContent = pending.kindAr;
+        shiftLabel.textContent = "#" + pending.shiftId;
+        amtLabel.textContent = pending.amt;
+        if (sel) sel.value = "";
+        form.action = "/pos/shift/shortages/" + pending.id + "/deduct";
+        if (typeof dlg.showModal === "function") {
+          dlg.showModal();
+        } else if (hasEmployees) {
+          var empId = prompt("رقم الموظف (من الموارد البشرية):");
+          if (empId) {
+            var hidEmp = document.createElement("input");
+            hidEmp.type = "hidden";
+            hidEmp.name = "employee_id";
+            hidEmp.value = empId;
+            form.appendChild(hidEmp);
+            var hidNote = document.createElement("input");
+            hidNote.type = "hidden";
+            hidNote.name = "note";
+            hidNote.value = pending.note;
+            form.appendChild(hidNote);
+            form.submit();
+          }
+        } else {
+          alert("لا يوجد موظفون. أضف موظفاً من الموارد البشرية أولاً.");
+        }
+      });
+    });
+
+    document.getElementById("shortage-deduct-cancel").addEventListener("click", function () {
+      dlg.close();
+    });
+
+    submitBtn.addEventListener("click", function (ev) {
+      if (!sel || !sel.value) {
+        ev.preventDefault();
+        alert("اختر الموظف أولاً.");
+        return;
+      }
+      var empName = sel.options[sel.selectedIndex].text;
+      var msg =
+        "تسجيل خصم راتب بمبلغ " + pending.amt + " د.ل عن عجز " + pending.kindAr +
+        " (جلسة #" + pending.shiftId + ")?\n\nالموظف: " + empName + "\n\n" +
+        "يُخصم من صافي راتب الموظف عند صرف الرواتب.\n" +
+        "ليس تحصيلاً نقدياً للصندوق.";
+      if (!confirm(msg)) {
+        ev.preventDefault();
+        return;
+      }
+      ["employee_id", "note"].forEach(function (name) {
+        var existing = form.querySelector('input[name="' + name + '"]');
+        if (existing) existing.remove();
+      });
+      var hidEmp = document.createElement("input");
+      hidEmp.type = "hidden";
+      hidEmp.name = "employee_id";
+      hidEmp.value = sel.value;
+      form.appendChild(hidEmp);
+      var hidNote = document.createElement("input");
+      hidNote.type = "hidden";
+      hidNote.name = "note";
+      hidNote.value = pending.note;
+      form.appendChild(hidNote);
+      form.submit();
+    });
+
+    dlg.addEventListener("close", function () {
+      ["employee_id", "note"].forEach(function (name) {
+        var existing = form.querySelector('input[name="' + name + '"]');
+        if (existing) existing.remove();
+      });
+      if (sel) sel.value = "";
+    });
+  })();
+  (function () {
+    var wallets = { cash: [], bank: [] };
+    try {
+      wallets = JSON.parse(document.getElementById("shortage-wallets-json").textContent || "{}");
+    } catch (e) { /* ignore */ }
+
+    var dlg = document.getElementById("shortage-forgive-dialog");
+    var form = document.getElementById("shortage-forgive-form");
+    var sel = document.getElementById("shortage-forgive-pm");
+    var emptyMsg = document.getElementById("shortage-forgive-empty");
+    var submitBtn = document.getElementById("shortage-forgive-submit");
+    var kindLabel = document.getElementById("shortage-forgive-kind-label");
+    var shiftLabel = document.getElementById("shortage-forgive-shift-label");
+    var pending = { id: 0, kindAr: "", isCash: true };
+
+    function fillWalletSelect(isCash, kindAr) {
+      var list = isCash ? (wallets.cash || []) : (wallets.bank || []);
+      sel.innerHTML = "";
+      var ph = document.createElement("option");
+      ph.value = "";
+      ph.textContent = "— اختر محفظة " + kindAr + " —";
+      sel.appendChild(ph);
+      list.forEach(function (w) {
+        var o = document.createElement("option");
+        o.value = String(w.id);
+        o.textContent = w.name;
+        sel.appendChild(o);
+      });
+      var has = list.length > 0;
+      sel.disabled = !has;
+      sel.required = has;
+      submitBtn.disabled = !has;
+      emptyMsg.style.display = has ? "none" : "block";
+    }
+
+    document.querySelectorAll(".btn-forgive-open").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        pending.id = btn.getAttribute("data-shortage-id");
+        pending.kindAr = btn.getAttribute("data-kind-ar") || "";
+        pending.isCash = btn.getAttribute("data-is-cash") === "1";
+        kindLabel.textContent = pending.kindAr;
+        shiftLabel.textContent = "#" + (btn.getAttribute("data-shift-id") || "");
+        fillWalletSelect(pending.isCash, pending.kindAr);
+        form.action = "/pos/shift/shortages/" + pending.id + "/forgive";
+        if (typeof dlg.showModal === "function") {
+          dlg.showModal();
+        } else {
+          var pm = prompt("رقم المحفظة (من إعدادات الحسابات):");
+          if (pm) {
+            var hid = document.createElement("input");
+            hid.type = "hidden";
+            hid.name = "payment_method_id";
+            hid.value = pm;
+            form.appendChild(hid);
+            form.submit();
+          }
+        }
+      });
+    });
+
+    document.getElementById("shortage-forgive-cancel").addEventListener("click", function () {
+      dlg.close();
+    });
+
+    submitBtn.addEventListener("click", function (ev) {
+      if (!sel.value) {
+        ev.preventDefault();
+        alert("اختر المحفظة أولاً.");
+        return;
+      }
+      if (!confirm("تأكيد عفو عجز " + pending.kindAr + "؟")) {
+        ev.preventDefault();
+        return;
+      }
+      var existing = form.querySelector('input[name="payment_method_id"]');
+      if (existing) existing.remove();
+      var hid = document.createElement("input");
+      hid.type = "hidden";
+      hid.name = "payment_method_id";
+      hid.value = sel.value;
+      form.appendChild(hid);
+      form.submit();
+    });
+
+    dlg.addEventListener("close", function () {
+      var hid = form.querySelector('input[name="payment_method_id"]');
+      if (hid) hid.remove();
+      sel.value = "";
+    });
+  })();
+  </script>
+  {% else %}
+  <p class="muted" style="margin-top:1rem">لا يوجد عجز مسجّل{% if kind_filter != 'all' %} لهذا النوع{% endif %}.</p>
+  {% endif %}
+</div>
+{% endblock %}

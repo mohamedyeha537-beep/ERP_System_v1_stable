@@ -1,0 +1,81 @@
+{% set orders_hub_shift_options = orders_hub_shift_options if orders_hub_shift_options is defined else [] %}
+
+{% set orders_hub_shift_id = orders_hub_shift_id if orders_hub_shift_id is defined else none %}
+
+
+
+<dialog id="pos-all-orders-dialog" class="pos-all-orders-dialog" data-refund-auth-configured="{{ '1' if refund_auth_configured|default(false) else '0' }}">
+
+  <div class="pos-all-orders-dialog-header">
+
+    <div class="pos-all-orders-dialog-head-text">
+
+      <h2 style="margin:0;font-size:1.05rem">جميع الطلبات</h2>
+
+      <p class="muted" style="margin:0.25rem 0 0;font-size:0.82rem">طلبات الجلسة — افتراضياً جلسة اليوم الحالية</p>
+
+    </div>
+
+    <button type="button" class="btn" id="pos-all-orders-dialog-close" aria-label="إغلاق">✕</button>
+
+  </div>
+
+  <div class="pos-all-orders-dialog-toolbar">
+
+    <label for="pos-all-orders-shift-select" class="pos-all-orders-shift-label">الجلسة</label>
+
+    <select id="pos-all-orders-shift-select" class="input pos-all-orders-shift-select">
+
+      {% if orders_hub_shift_options|length == 0 %}
+
+      <option value="">لا توجد جلسات</option>
+
+      {% else %}
+
+      {% set today_opts = orders_hub_shift_options|selectattr('is_today')|list %}
+
+      {% set older_opts = orders_hub_shift_options|rejectattr('is_today')|list %}
+
+      {% if today_opts|length > 0 %}
+
+      <optgroup label="جلسات اليوم">
+
+        {% for opt in today_opts %}
+
+        <option value="{{ opt.shift_id }}"{% if opt.shift_id == orders_hub_shift_id %} selected{% endif %}>{{ opt.label }}</option>
+
+        {% endfor %}
+
+      </optgroup>
+
+      {% endif %}
+
+      {% if older_opts|length > 0 %}
+
+      <optgroup label="جلسات سابقة">
+
+        {% for opt in older_opts %}
+
+        <option value="{{ opt.shift_id }}"{% if opt.shift_id == orders_hub_shift_id %} selected{% endif %}>{{ opt.label }}</option>
+
+        {% endfor %}
+
+      </optgroup>
+
+      {% endif %}
+
+      {% endif %}
+
+    </select>
+
+    <button type="button" class="btn" id="pos-all-orders-refresh-btn" title="تحديث">↻</button>
+
+  </div>
+
+  <div id="pos-all-orders-dialog-body" class="pos-all-orders-dialog-body">
+
+    <p class="muted" style="margin:0;padding:0.5rem 0">جاري التحميل…</p>
+
+  </div>
+
+</dialog>

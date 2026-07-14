@@ -1,0 +1,73 @@
+{# جدول أسبوعي — prefix: emp_day أو shift_day #}
+{% macro week_schedule_grid(prefix, day_map, default_shift=None, week_days=none) %}
+{% set days = week_days if week_days else [] %}
+<div class="week-sched-grid" style="overflow-x:auto;margin-top:0.65rem">
+  <table style="width:100%;font-size:0.85rem;border-collapse:collapse">
+    <thead>
+      <tr style="background:#f8fafc">
+        <th style="padding:0.35rem;text-align:right">اليوم</th>
+        <th style="padding:0.35rem">تخصيص</th>
+        <th style="padding:0.35rem">راحة</th>
+        <th style="padding:0.35rem">بداية</th>
+        <th style="padding:0.35rem">نهاية</th>
+        <th style="padding:0.35rem">ساعات</th>
+        <th style="padding:0.35rem">سماح (د)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for dow, label in days %}
+      {% set row = day_map.get(dow) if day_map else none %}
+      <tr class="week-sched-row" data-dow="{{ dow }}">
+        <td style="padding:0.35rem;font-weight:600">{{ label }}</td>
+        <td style="padding:0.35rem;text-align:center">
+          <input type="checkbox" name="{{ prefix }}_{{ dow }}_override" value="on"
+                 class="week-sched-override" {% if row %}checked{% endif %} />
+        </td>
+        <td style="padding:0.35rem;text-align:center">
+          <input type="checkbox" name="{{ prefix }}_{{ dow }}_rest" value="on"
+                 class="week-sched-rest" {% if row and row.is_rest_day %}checked{% endif %} />
+        </td>
+        <td style="padding:0.35rem">
+          <input type="time" name="{{ prefix }}_{{ dow }}_start" class="week-sched-field"
+                 value="{{ row.start_time if row and row.start_time else (default_shift.start_time if default_shift else '') }}"
+                 style="width:6.5rem;font-size:0.82rem" />
+        </td>
+        <td style="padding:0.35rem">
+          <input type="time" name="{{ prefix }}_{{ dow }}_end" class="week-sched-field"
+                 value="{{ row.end_time if row and row.end_time else (default_shift.end_time if default_shift else '') }}"
+                 style="width:6.5rem;font-size:0.82rem" />
+        </td>
+        <td style="padding:0.35rem">
+          <input type="number" step="0.25" min="0" max="24" name="{{ prefix }}_{{ dow }}_hours"
+                 class="week-sched-field" style="width:4rem;font-size:0.82rem"
+                 value="{{ row.work_hours if row and row.work_hours is not none else (default_shift.work_hours if default_shift else '') }}" />
+        </td>
+        <td style="padding:0.35rem">
+          <input type="number" min="0" max="180" name="{{ prefix }}_{{ dow }}_grace"
+                 class="week-sched-field" style="width:3.5rem;font-size:0.82rem"
+                 value="{{ row.grace_minutes if row and row.grace_minutes is not none else (default_shift.grace_minutes if default_shift else '') }}" />
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<script>
+(function () {
+  function syncRow(row) {
+    var on = row.querySelector('.week-sched-override');
+    var rest = row.querySelector('.week-sched-rest');
+    var fields = row.querySelectorAll('.week-sched-field');
+    var active = on && on.checked;
+    fields.forEach(function (el) { el.disabled = !active || (rest && rest.checked); });
+    if (rest) rest.disabled = !active;
+  }
+  document.querySelectorAll('.week-sched-row').forEach(function (row) {
+    row.querySelectorAll('.week-sched-override, .week-sched-rest').forEach(function (el) {
+      el.addEventListener('change', function () { syncRow(row); });
+    });
+    syncRow(row);
+  });
+})();
+</script>
+{% endmacro %}

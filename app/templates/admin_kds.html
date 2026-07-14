@@ -20,98 +20,527 @@
   .ticket.pending { border-color: #fcd34d; background: #fffbeb; }
   .ticket.in_progress { border-color: #93c5fd; background: #eff6ff; }
   .ticket.ready { border-color: #86efac; background: #f0fdf4; }
+  .ticket.cancelled { border-color: #fecaca; background: #fef2f2; }
   .ticket.served { opacity: 0.7; }
   .ticket-head { display:flex; align-items:center; justify-content:space-between; font-weight: 700; }
   .ticket-head .badge { font-size: 0.72rem; padding: 0.18rem 0.55rem; border-radius: 999px; background: rgba(0,0,0,0.06); }
   .ticket-meta { color: var(--muted); font-size: 0.82rem; display:flex; justify-content: space-between; flex-wrap:wrap; gap:0.25rem;}
   .ticket-table { font-weight: 700; color: #1d4ed8; }
   .ticket-lines { list-style: none; margin: 0; padding: 0; }
-  .ticket-lines li { padding: 0.35rem 0; border-bottom: 1px dashed #e2e8f0; display:flex; justify-content: space-between; }
+  .ticket-lines li { padding: 0.35rem 0; border-bottom: 1px dashed #e2e8f0; display:flex; justify-content: space-between; gap: 0.35rem; }
+  .ticket-line-note { display: block; font-size: 0.78rem; color: #b45309; font-weight: 700; margin-top: 0.1rem; }
   .ticket-actions { display:flex; gap:0.4rem; flex-wrap:wrap; }
   .ticket-actions .btn { padding: 0.35rem 0.7rem; font-size: 0.85rem; }
   .age-old { color: #b91c1c; font-weight: 700; }
+  .kds-tab .tab-badge {
+    display: inline-block;
+    min-width: 1.25rem;
+    padding: 0.05rem 0.35rem;
+    margin-inline-start: 0.25rem;
+    border-radius: 999px;
+    background: #dc2626;
+    color: #fff;
+    font-size: 0.72rem;
+    font-weight: 800;
+    line-height: 1.2;
+  }
+  .kds-summary {
+    margin: 0.65rem 0 0.85rem;
+    padding: 0.75rem 1rem;
+    border-radius: 10px;
+    border: 1px solid #bfdbfe;
+    background: linear-gradient(135deg, #eff6ff, #f8fafc);
+    font-size: 0.9rem;
+    line-height: 1.65;
+  }
+  .kds-summary strong { color: #1e40af; }
+  .kds-pending-flash .ticket.pending {
+    animation: kds-pulse 1s ease-in-out 3;
+    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.35);
+  }
+  @keyframes kds-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.02); }
+  }
+  #kds-new-order-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15, 23, 42, 0.55);
+    padding: 1rem;
+  }
+  #kds-new-order-overlay.is-visible {
+    display: flex;
+    animation: kds-overlay-in 0.25s ease-out;
+  }
+  #kds-new-order-overlay .kds-alert-card {
+    width: min(420px, 96vw);
+    border-radius: 16px;
+    border: 3px solid #dc2626;
+    background: #fffbeb;
+    padding: 1.1rem 1.15rem;
+    box-shadow: 0 20px 50px rgba(220, 38, 38, 0.35);
+    animation: kds-alert-flash 0.85s ease-in-out infinite;
+  }
+  @keyframes kds-alert-flash {
+    0%, 100% { border-color: #dc2626; box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.45); }
+    50% { border-color: #f59e0b; box-shadow: 0 0 0 8px rgba(245, 158, 11, 0.2); }
+  }
+  @keyframes kds-overlay-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  .kds-alert-card h2 {
+    margin: 0 0 0.35rem;
+    color: #b91c1c;
+    font-size: 1.35rem;
+  }
+  .kds-alert-lines {
+    list-style: none;
+    margin: 0.65rem 0 0;
+    padding: 0;
+    max-height: 220px;
+    overflow: auto;
+  }
+  .kds-alert-lines li {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.35rem 0;
+    border-bottom: 1px dashed #fcd34d;
+    font-size: 0.92rem;
+  }
 </style>
-<meta http-equiv="refresh" content="20">
+<script src="/static/kds_alert_sound.js"></script>
+{% set kds_op = order_policy %}
+<script>
+(function () {
+  var pollSec = {{ kds_op.kds_poll_sec if kds_op else 15 }};
+  var soundOn = {{ 'true' if kds_op and kds_op.kds_sound_enabled else 'false' }};
+  var repeatSec = {{ kds_op.kds_sound_repeat_sec if kds_op else 30 }};
+  var soundProfile = {{ (kds_op.kds_sound_profile if kds_op else 'beep')|tojson }};
+  var soundVolume = {{ kds_op.kds_sound_volume if kds_op else 80 }};
+  var lastBeepAt = 0;
+  var reloadTimer = null;
+  var reloadPending = false;
+  var STORAGE_KEY = "pos_kds_last_pending_max_id";
+  var INIT_KEY = "pos_kds_sound_baseline";
+
+  function storedMaxId() {
+    try { return parseInt(sessionStorage.getItem(STORAGE_KEY) || "0", 10) || 0; } catch (e) { return 0; }
+  }
+  function saveMaxId(id) {
+    try { sessionStorage.setItem(STORAGE_KEY, String(id)); } catch (e) {}
+  }
+
+  function playAlert() {
+    if (!window.KdsAlertSound) return;
+    KdsAlertSound.play(soundProfile, soundVolume).catch(function () {});
+  }
+
+  function showKdsAlertPopup(alert) {
+    if (!alert) return;
+    var overlay = document.getElementById("kds-new-order-overlay");
+    if (!overlay) return;
+    var title = document.getElementById("kds-alert-title");
+    var meta = document.getElementById("kds-alert-meta");
+    var lines = document.getElementById("kds-alert-lines");
+    if (title) title.textContent = "طلب جديد #" + (alert.sale_id || "—");
+    var bits = [];
+    if (alert.section) bits.push(alert.section);
+    if (alert.table) bits.push("طاولة " + alert.table);
+    if (meta) meta.textContent = bits.join(" · ") || "—";
+    if (lines) {
+      lines.innerHTML = "";
+      (alert.lines || []).forEach(function (ln) {
+        var li = document.createElement("li");
+        li.innerHTML = "<span>" + (ln.name || "") + "</span><strong>" + (ln.qty || "") + "×</strong>";
+        lines.appendChild(li);
+      });
+    }
+    overlay.classList.add("is-visible");
+    window.clearTimeout(overlay._hideTimer);
+    overlay._hideTimer = window.setTimeout(function () {
+      overlay.classList.remove("is-visible");
+    }, 12000);
+  }
+
+  function bindKdsAlertDismiss() {
+    var overlay = document.getElementById("kds-new-order-overlay");
+    var btn = document.getElementById("kds-alert-dismiss-btn");
+    if (btn && !btn._bound) {
+      btn._bound = true;
+      btn.addEventListener("click", function () {
+        if (overlay) overlay.classList.remove("is-visible");
+      });
+    }
+  }
+
+  function maybeBeep(data) {
+    if (!data || !soundOn) return;
+    if (data.sound_enabled !== undefined) soundOn = !!data.sound_enabled;
+    if (data.sound_repeat_sec !== undefined) repeatSec = data.sound_repeat_sec;
+    if (data.sound_profile) soundProfile = data.sound_profile;
+    if (data.sound_volume !== undefined) soundVolume = data.sound_volume;
+
+    var maxId = data.pending_max_id || 0;
+    var prev = storedMaxId();
+    var now = Date.now();
+
+    if (!sessionStorage.getItem(INIT_KEY)) {
+      try {
+        sessionStorage.setItem(INIT_KEY, "1");
+        saveMaxId(maxId);
+      } catch (e) {}
+      return;
+    }
+
+    if (maxId > prev) {
+      saveMaxId(maxId);
+      playAlert();
+      lastBeepAt = now;
+      document.body.classList.add("kds-pending-flash");
+      setTimeout(function () { document.body.classList.remove("kds-pending-flash"); }, 3200);
+      if (data.alert) showKdsAlertPopup(data.alert);
+      safeReload("new-ticket", 1800);
+      return;
+    }
+    if ((data.pending_count || 0) > 0 && repeatSec > 0 && now - lastBeepAt >= repeatSec * 1000) {
+      playAlert();
+      lastBeepAt = now;
+    }
+  }
+
+  function pollSound() {
+    fetch("/admin/kds/poll.json", { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (data && data.poll_sec) pollSec = data.poll_sec;
+        maybeBeep(data);
+      })
+      .catch(function () {});
+  }
+
+  function hasEditableFocus() {
+    var el = document.activeElement;
+    if (!el) return false;
+    var tag = (el.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "textarea" || tag === "select") return true;
+    if (el.isContentEditable) return true;
+    return false;
+  }
+
+  function safeReload(reason, delayMs) {
+    if (reloadPending) return;
+    reloadPending = true;
+    window.setTimeout(function () {
+      reloadPending = false;
+      if (hasEditableFocus()) {
+        scheduleReload();
+        return;
+      }
+      window.location.reload();
+    }, Math.max(500, delayMs || 500));
+  }
+
+  function scheduleReload() {
+    window.clearTimeout(reloadTimer);
+    reloadTimer = window.setTimeout(function () {
+      if (hasEditableFocus()) {
+        scheduleReload();
+        return;
+      }
+      window.location.reload();
+    }, Math.max(5000, (pollSec || 15) * 1000));
+  }
+
+  function bindTestBtn() {
+    var btn = document.getElementById("kds-test-sound-btn");
+    if (!btn || btn._bound) return;
+    btn._bound = true;
+    btn.addEventListener("click", function () {
+      if (!window.KdsAlertSound) return;
+      KdsAlertSound.unlock().then(function () {
+        var banner = document.getElementById("kds-audio-unlock-banner");
+        if (banner) banner.style.display = "none";
+        return KdsAlertSound.play(soundProfile, soundVolume);
+      });
+    });
+  }
+
+  function bindRejectForms() {
+    document.querySelectorAll(".kds-reject-form").forEach(function (form) {
+      if (form._bound) return;
+      form._bound = true;
+      form.addEventListener("submit", async function (ev) {
+        ev.preventDefault();
+        var reason = window.prompt("سبب رفض الطلب؟ مثال: الصنف تالف أو غير متوفر", "");
+        if (reason === null) {
+          return;
+        }
+        var ok = window.confirm("تأكيد رفض هذه التذكرة؟ ستخرج من شاشة الطلبات المفتوحة.");
+        if (!ok) {
+          return;
+        }
+        var input = form.querySelector("input[name='reason']");
+        if (input) input.value = (reason || "").trim();
+        var btn = form.querySelector("button[type='submit']");
+        if (btn) btn.disabled = true;
+        try {
+          var res = await fetch(form.action, {
+            method: "POST",
+            body: new FormData(form),
+            credentials: "same-origin",
+          });
+          if (res.redirected && res.url.indexOf("/auth/login") !== -1) {
+            window.location.href = res.url;
+            return;
+          }
+          if (!res.ok) {
+            window.alert("تعذّر رفض الطلب — حدّث الصفحة وحاول مرة أخرى.");
+            if (btn) btn.disabled = false;
+            return;
+          }
+          var ticket = form.closest(".ticket");
+          if (ticket) {
+            ticket.style.transition = "opacity 0.2s ease, transform 0.2s ease";
+            ticket.style.opacity = "0";
+            ticket.style.transform = "scale(0.98)";
+            window.setTimeout(function () { ticket.remove(); }, 220);
+          } else {
+            window.location.reload();
+          }
+        } catch (e) {
+          window.alert("تعذّر الاتصال بالسيرفر لرفض الطلب.");
+          if (btn) btn.disabled = false;
+        }
+      });
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    document.body.addEventListener("click", function () {
+      if (window.KdsAlertSound) KdsAlertSound.unlock();
+    }, { once: true, capture: true });
+    bindTestBtn();
+    bindRejectForms();
+    bindKdsAlertDismiss();
+    pollSound();
+    setInterval(pollSound, 4000);
+    scheduleReload();
+  });
+})();
+</script>
 {% endblock %}
 {% block body %}
+{% if kds_error %}
+<div class="card" style="border-color:#fecaca;background:#fef2f2;margin-bottom:1rem">
+  <p style="margin:0 0 0.5rem;font-weight:700;color:#b91c1c">تعذّر فتح شاشة المطبخ</p>
+  <p class="muted" style="margin:0">{{ kds_error }}</p>
+  <p style="margin:0.75rem 0 0">
+    <a class="btn btn-primary" href="/admin/kds">إعادة المحاولة</a>
+    <a class="btn" href="/">الرئيسية</a>
+  </p>
+</div>
+{% else %}
+<div id="kds-new-order-overlay" aria-live="assertive" role="alertdialog" aria-labelledby="kds-alert-title">
+  <div class="kds-alert-card">
+    <h2 id="kds-alert-title">طلب جديد</h2>
+    <p id="kds-alert-meta" class="muted" style="margin:0;font-size:0.88rem"></p>
+    <ul id="kds-alert-lines" class="kds-alert-lines"></ul>
+    <div style="margin-top:0.85rem;display:flex;gap:0.5rem;justify-content:flex-end">
+      <button type="button" class="btn btn-primary" id="kds-alert-dismiss-btn">تم — فتح الشاشة</button>
+    </div>
+  </div>
+</div>
 <div style="display:flex; align-items:center; justify-content:space-between; gap:0.6rem; flex-wrap:wrap;">
   <h1 style="margin:0">شاشة المطبخ (KDS)</h1>
   <div style="display:flex; gap:0.4rem;flex-wrap:wrap">
+    <button type="button" class="btn btn-primary" id="kds-test-sound-btn">🔊 تجربة الصوت</button>
     <a class="btn" href="/admin/kitchen-departments">أقسام المطبخ</a>
+    <a class="btn" href="/admin/printing">الطباعة والوكيل</a>
     <a class="btn" href="/admin/tables">الطاولات</a>
     <a class="btn" href="/catalog/categories">فئات POS (قديم)</a>
   </div>
+</div>
+<div id="kds-audio-unlock-banner" class="card" style="border-color:#fcd34d;background:#fffbeb;margin:0.5rem 0;padding:0.55rem 0.85rem;font-size:0.88rem">
+  <strong>تفعيل الصوت:</strong> اضغط «تجربة الصوت» أو أي مكان في الصفحة — المتصفح لا يشغّل التنبيه تلقائياً قبل أول نقرة.
+  {% if kds_op and kds_op.kds_sound_enabled %}
+  النغمة الحالية: <strong>{{ kds_sound_profiles.get(kds_op.kds_sound_profile, kds_op.kds_sound_profile) if kds_sound_profiles is defined else kds_op.kds_sound_profile }}</strong> — مستوى {{ kds_op.kds_sound_volume }}%.
+  {% else %}
+  <span style="color:#b45309">التنبيه الصوتي معطّل من <a href="/admin/settings#order-policy-section">إعدادات مسار الطلب</a>.</span>
+  {% endif %}
 </div>
 <p class="muted">
   كل قسم تجهيز (شواء، معجنات…) له شاشة وتذكرة منفصلة. استخدم <strong>ورقة التجميع</strong> لجمع كل الأصناف للطاولة.
 </p>
 
-{% if not departments and not legacy_roots %}
+{% if not limited_kds_worker %}
+{% if archive_saved %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4;margin-bottom:0.75rem">
+  تم أرشفة {{ archive_saved }} تذكرة منفذة.
+</div>
+{% endif %}
+<div class="card" style="margin-bottom:0.75rem;background:#f8fafc">
+  <form method="post" action="/admin/kds/archive" style="display:flex;gap:0.5rem;align-items:end;flex-wrap:wrap;margin:0">
+    <div>
+      <label class="muted" style="font-size:0.82rem;display:block">أرشفة الطلبات المنفذة</label>
+      <select name="period">
+        <option value="last_month">الشهر الماضي وما قبله</option>
+        <option value="last_year">السنة الماضية وما قبلها</option>
+        <option value="custom">حتى تاريخ مخصص</option>
+      </select>
+    </div>
+    <div>
+      <label class="muted" style="font-size:0.82rem;display:block">التاريخ المخصص</label>
+      <input type="date" name="custom_date" />
+    </div>
+    <button class="btn" type="submit" onclick="return confirm('أرشفة التذاكر المنفذة ضمن الفترة؟ لن يتم حذفها ويمكن عرضها لاحقاً.')">أرشفة</button>
+    {% if archived_count and archived_count > 0 %}
+    <a class="btn" href="/admin/kds?section=all&show=archived">عرض المؤرشف ({{ archived_count }})</a>
+    {% endif %}
+  </form>
+</div>
+{% endif %}
+
+{% if open_total and open_total > 0 %}
+<div class="kds-summary">
+  <strong>كيف ينقص العداد على الرئيسية؟</strong>
+  على كل تذكرة: <strong>قيد التحضير</strong> ← <strong>جاهز</strong>.
+  عند «جاهز» تُعتبر التذكرة منجزة ويُنقص العدد (<strong>{{ open_total }}</strong>).
+  تسليم طلبات <strong>التوصيل الخارجي</strong> للسائق يُسجَّل من نقطة البيع وليس من شاشة المطبخ.
+  {% if section_kind != 'all' and open_total > section_open %}
+  <br>
+  <span style="color:#92400e">
+    هذا التبويب فيه {{ section_open }} مفتوحة — جرّب تبويب <a href="/admin/kds?section=all">«الكل»</a>
+    أو تبويباً آخر عليه رقم أحمر.
+  </span>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if not kitchen_sections and not departments and not legacy_roots %}
 <div class="card" style="border-color:#fecaca; background:#fef2f2">
   <p style="margin:0">
     لا توجد أقسام مطبخ بعد. أنشئ أقساماً من
-    <a href="/admin/kitchen-departments">إدارة أقسام المطبخ</a>
-    واربط كل صنف بقسمه من صفحة المنتج.
+    <a href="/admin/printing/sections">أقسام المطبخ والطابعات</a>
+    واربط كل صنف أو فئة بقسمه.
   </p>
 </div>
 {% else %}
 <div class="kds-tabs">
+  {% if open_total > 0 %}
+  <a class="kds-tab {% if show_all_sections %}active{% endif %}"
+     href="/admin/kds?section=all">
+    الكل
+    <span class="tab-badge">{{ open_total }}</span>
+  </a>
+  {% endif %}
+  {% for s in kitchen_sections %}
+  {% set n = open_by_section.get(s.id, 0) %}
+  <a class="kds-tab {% if section_kind == 'sec' and section_id == s.id %}active{% endif %}"
+     href="/admin/kds?section=sec:{{ s.id }}">{{ s.name }}
+    {% if s.printer %}<small>🖨</small>{% endif %}
+    {% if n > 0 %}<span class="tab-badge">{{ n }}</span>{% endif %}</a>
+  {% endfor %}
   {% for d in departments %}
+  {% set n = open_by_dept.get(d.id, 0) %}
   <a class="kds-tab {% if section_kind == 'dept' and section_id == d.id %}active{% endif %}"
      href="/admin/kds?section=dept:{{ d.id }}">{{ d.name_ar }}
-    <small>({{ d.routing_mode.value }})</small></a>
+    <small>({{ d.routing_mode|enum_val }})</small>
+    {% if n > 0 %}<span class="tab-badge">{{ n }}</span>{% endif %}</a>
   {% endfor %}
   {% for s in legacy_roots %}
+  {% set n = open_by_cat.get(s.id, 0) %}
   <a class="kds-tab {% if section_kind == 'cat' and section_id == s.id %}active{% endif %}"
      href="/admin/kds?section=cat:{{ s.id }}">{{ s.name_ar }}
-    <small class="muted">فئة POS</small></a>
+    <small class="muted">فئة POS</small>
+    {% if n > 0 %}<span class="tab-badge">{{ n }}</span>{% endif %}</a>
   {% endfor %}
-  <a class="kds-tab {% if not only_open %}active{% endif %}"
-     href="/admin/kds?section={% if section_kind == 'dept' %}dept:{{ section_id }}{% elif section_kind == 'cat' %}cat:{{ section_id }}{% endif %}&show={% if only_open %}all{% else %}open{% endif %}">
-    {% if only_open %}عرض المنفّذة{% else %}إخفاء المنفّذة{% endif %}
+  <a class="kds-tab {% if not only_open and not show_rejected %}active{% endif %}"
+     href="/admin/kds?section={% if section_kind == 'sec' %}sec:{{ section_id }}{% elif section_kind == 'dept' %}dept:{{ section_id }}{% elif section_kind == 'cat' %}cat:{{ section_id }}{% elif show_all_sections %}all{% endif %}{% if only_open %}&show=all{% else %}&show=open{% endif %}">
+    {% if show_archived or show_rejected %}العودة للشاشة{% elif only_open %}عرض المنفّذة{% else %}إخفاء المنفّذة{% endif %}
   </a>
+  {% if not limited_kds_worker %}
+  <a class="kds-tab {% if show_rejected %}active{% endif %}"
+     href="/admin/kds?section=all&show=rejected">
+    الطلبات المرفوضة
+    {% if rejected_count > 0 %}<span class="tab-badge">{{ rejected_count }}</span>{% endif %}
+  </a>
+  {% endif %}
 </div>
 
 {% if tickets %}
 <div class="kds-grid">
   {% for tv in tickets %}
   {% set t = tv.ticket %}
-  <div class="ticket {{ t.status.value|lower }}">
+  {% set st = t.status|enum_val %}
+  <div class="ticket {{ st|lower }}">
     <div class="ticket-head">
       <span>#{{ t.sale_id }} — {{ tv.section_label }}</span>
-      <span class="badge">{{ {'PENDING':'جديدة','IN_PROGRESS':'تجهيز','READY':'جاهزة','SERVED':'مُسلَّمة'}.get(t.status.value, t.status.value) }}</span>
+      <span class="badge">{{ {'PENDING':'جديدة','IN_PROGRESS':'تجهيز','READY':'جاهزة','SERVED':'مُسلَّمة','CANCELLED':'مرفوض'}.get(st, st) }}</span>
     </div>
     <div class="ticket-meta">
-      <span>{{ t.created_at.strftime('%H:%M') }}</span>
+      <span>{{ pos_format_dt(t.created_at, '%H:%M') }}</span>
       {% if tv.table_label %}<span class="ticket-table">طاولة: {{ tv.table_label }}</span>{% endif %}
       <span class="{% if tv.age_minutes >= 10 %}age-old{% endif %}">منذ {{ tv.age_minutes }} د</span>
     </div>
     <ul class="ticket-lines">
       {% for ln in tv.lines %}
-      <li><span>{{ ln.name_ar }}</span><strong>× {{ ln.qty }}</strong></li>
+      <li>
+        <span>{{ ln.name_ar }}{% if ln.notes %}<span class="ticket-line-note">↳ {{ ln.notes }}</span>{% endif %}</span>
+        <strong>× {{ pos_qty(ln.qty) }}</strong>
+      </li>
       {% endfor %}
     </ul>
+    {% if st == 'CANCELLED' and t.delivery_info %}
+    <p class="muted" style="margin:0;color:#b91c1c;font-weight:700;font-size:0.82rem">
+      {{ t.delivery_info }}
+    </p>
+    {% endif %}
     <div class="ticket-actions">
-      {% if t.status.value != 'SERVED' %}
-      <form method="post" action="/admin/kds/{{ t.id }}/advance?section={% if section_kind == 'dept' %}dept:{{ section_id }}{% elif section_kind == 'cat' %}cat:{{ section_id }}{% endif %}" style="display:inline">
+      {% if st not in ['SERVED', 'CANCELLED'] %}
+      <form method="post" action="/admin/kds/{{ t.id }}/advance?section={% if section_kind == 'sec' %}sec:{{ section_id }}{% elif section_kind == 'dept' %}dept:{{ section_id }}{% elif section_kind == 'cat' %}cat:{{ section_id }}{% elif show_all_sections %}all{% endif %}" style="display:inline">
         <button class="btn btn-primary" type="submit">
-          {% if t.status.value == 'PENDING' %}بدء{% elif t.status.value == 'IN_PROGRESS' %}جاهزة{% else %}تسليم{% endif %}
+          {% if st == 'PENDING' %}استلام الطلب / تنفيذ{% elif st == 'IN_PROGRESS' %}جاهز{% else %}إنهاء{% endif %}
         </button>
       </form>
+      <form method="post" action="/admin/kds/{{ t.id }}/reject?section={% if section_kind == 'sec' %}sec:{{ section_id }}{% elif section_kind == 'dept' %}dept:{{ section_id }}{% elif section_kind == 'cat' %}cat:{{ section_id }}{% elif show_all_sections %}all{% endif %}" style="display:inline" class="kds-reject-form">
+        <input type="hidden" name="reason" value="">
+        <button class="btn" type="submit" style="border-color:#fecaca;color:#b91c1c;background:#fff1f2">رفض</button>
+      </form>
       {% endif %}
-      <form method="post" action="/admin/kds/{{ t.id }}/reset?section={% if section_kind == 'dept' %}dept:{{ section_id }}{% elif section_kind == 'cat' %}cat:{{ section_id }}{% endif %}" style="display:inline">
+      {% if not limited_kds_worker %}
+      <form method="post" action="/admin/kds/{{ t.id }}/reset?section={% if section_kind == 'sec' %}sec:{{ section_id }}{% elif section_kind == 'dept' %}dept:{{ section_id }}{% elif section_kind == 'cat' %}cat:{{ section_id }}{% endif %}" style="display:inline">
         <button class="btn" type="submit">إعادة</button>
       </form>
       <a class="btn" href="/admin/kds/print-sale/{{ t.sale_id }}?autoprint=0" target="_blank">تجميع</a>
       {% if t.routing_mode == 'PRINT' %}
       <a class="btn" href="/admin/kds/print/{{ t.id }}?autoprint=1" target="_blank">طباعة القسم</a>
       {% endif %}
+      {% endif %}
     </div>
   </div>
   {% endfor %}
 </div>
 {% else %}
-<div class="card"><p class="muted" style="margin:0;text-align:center">لا توجد طلبات لهذا القسم.</p></div>
+<div class="card">
+  <p class="muted" style="margin:0;text-align:center">
+    {% if only_open and open_total > 0 %}
+    لا توجد طلبات مفتوحة في هذا التبويب — لكن يوجد <strong>{{ open_total }}</strong> تذكرة في أقسام أخرى.
+    <a href="/admin/kds?section=all">افتح تبويب «الكل»</a>
+    أو اختر تبويباً عليه رقم أحمر.
+    {% elif show_rejected %}
+    لا توجد طلبات مرفوضة في هذا التبويب.
+    {% else %}
+    لا توجد طلبات لهذا القسم.
+    {% endif %}
+  </p>
+</div>
+{% endif %}
 {% endif %}
 {% endif %}
 {% endblock %}

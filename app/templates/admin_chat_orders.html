@@ -1,0 +1,256 @@
+{% extends "base.html" %}
+
+{% from "_messaging_admin_nav.html" import messaging_admin_nav %}
+
+{% block title %}طلبات الشات{% endblock %}
+
+{% block body %}
+
+<h1>🛒 طلبات محادثة الويب</h1>
+
+<p class="muted">
+
+  طلبات الزوار من صفحة <a href="/chat" target="_blank" rel="noopener">/chat</a> —
+
+  يُفضّل تنفيذها من <strong>جلسة الكاشير (POS)</strong>؛ الإشعار يختفي عند الإرسال للمطبخ.
+
+</p>
+
+
+
+{% set _inbox_unread = inbox_unread_conversations if inbox_unread_conversations is defined else 0 %}
+
+{% set _chat_pending = pending_chat_orders if pending_chat_orders is defined else (orders|length if orders is defined else 0) %}
+
+{% set _failed = failed if failed is defined else 0 %}
+
+{{ messaging_admin_nav('chat-orders', _inbox_unread, _chat_pending, _failed) }}
+
+
+
+{% if saved == 'cancelled' %}
+
+<p class="flash ok">تم إلغاء {{ request.query_params.get('n', '0') }} طلب معلّق.</p>
+
+{% elif saved %}
+
+<p class="flash ok">تم التحديث.</p>
+
+{% endif %}
+
+{% if err %}
+
+<p class="flash err">{{ err }}</p>
+
+{% endif %}
+
+
+
+{% set stats = chat_stats if chat_stats is defined else none %}
+
+{% if stats %}
+
+<div class="row" style="gap:0.75rem;margin:0 0 1rem;flex-wrap:wrap">
+
+  <div class="card" style="flex:1;min-width:9rem;margin:0;border-color:#fed7aa;background:#fff7ed">
+
+    <div class="muted" style="font-size:0.8rem">بانتظار الكاشير</div>
+
+    <strong style="font-size:1.35rem;color:#c2410c">{{ stats.pending_count }}</strong>
+
+  </div>
+
+  <div class="card" style="flex:1;min-width:9rem;margin:0;border-color:#93c5fd;background:#eff6ff">
+
+    <div class="muted" style="font-size:0.8rem">قيد التنفيذ في POS</div>
+
+    <strong style="font-size:1.35rem;color:#1d4ed8">{{ stats.in_pos_count }}</strong>
+
+  </div>
+
+  <div class="card" style="flex:1;min-width:9rem;margin:0;border-color:#86efac;background:#f0fdf4">
+
+    <div class="muted" style="font-size:0.8rem">مكتملة اليوم</div>
+
+    <strong style="font-size:1.35rem;color:#15803d">{{ stats.completed_today_count }}</strong>
+
+  </div>
+
+</div>
+
+{% endif %}
+
+
+
+<div class="card">
+
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem">
+    <h2 style="margin:0;font-size:1rem">⏳ بانتظار مراجعة الكاشير</h2>
+    {% if orders %}
+    <form method="post" action="/admin/messaging/chat-orders/cancel-all-pending" onsubmit="return confirm('إلغاء {{ orders|length }} طلب معلّق؟');">
+      <button type="submit" class="btn danger">✕ إلغاء الكل ({{ orders|length }})</button>
+    </form>
+    {% endif %}
+  </div>
+
+  {% if not orders %}
+
+  <p class="muted" style="margin:0">لا توجد طلبات جديدة بانتظار المراجعة.</p>
+
+  {% else %}
+
+  <table class="data-table" style="width:100%">
+
+    <thead>
+
+      <tr>
+
+        <th>#</th>
+
+        <th>الزبون</th>
+
+        <th>الأصناف</th>
+
+        <th>المبلغ</th>
+
+        <th>التسليم</th>
+
+        <th>الدفع</th>
+
+        <th>إيصال</th>
+
+        <th>إجراءات</th>
+
+      </tr>
+
+    </thead>
+
+    <tbody>
+
+      {% for o in orders %}
+
+      <tr>
+
+        <td><strong>#{{ o.sale_id }}</strong></td>
+
+        <td>
+
+          {{ o.guest_name or '—' }}<br>
+
+          <span class="muted" dir="ltr">{{ o.guest_phone or '—' }}</span>
+
+        </td>
+
+        <td>{{ o.cart_preview }}</td>
+
+        <td>{{ o.sale_total }} د.ل</td>
+
+        <td>{{ 'توصيل' if o.fulfillment == 'DELIVERY' else 'استلام' }}</td>
+
+        <td>{{ o.payment_kind or '—' }}</td>
+
+        <td>{% if o.has_proof %}✓{% else %}—{% endif %}</td>
+
+        <td style="white-space:nowrap">
+
+          <form method="post" action="/pos/open-order/{{ o.sale_id }}" style="display:inline">
+
+            <button type="submit" class="btn primary">فتح في POS</button>
+
+          </form>
+
+          <form method="post" action="/admin/messaging/chat-orders/{{ o.sale_id }}/confirm" style="display:inline">
+
+            <button type="submit" class="btn">تأكيد + مطبخ</button>
+
+          </form>
+
+          <form method="post" action="/admin/messaging/chat-orders/{{ o.sale_id }}/cancel" style="display:inline" onsubmit="return confirm('إلغاء الطلب؟');">
+
+            <button type="submit" class="btn danger">إلغاء</button>
+
+          </form>
+
+        </td>
+
+      </tr>
+
+      {% endfor %}
+
+    </tbody>
+
+  </table>
+
+  {% endif %}
+
+</div>
+
+
+
+{% set in_progress_orders = in_progress_orders if in_progress_orders is defined else [] %}
+
+{% if in_progress_orders|length > 0 %}
+
+<div class="card" style="margin-top:1rem">
+
+  <h2 style="margin:0 0 0.75rem;font-size:1rem">👨‍🍳 قيد التنفيذ في POS (أُرسل للمطبخ)</h2>
+
+  <table class="data-table" style="width:100%">
+
+    <thead>
+
+      <tr>
+
+        <th>#</th>
+
+        <th>الزبون</th>
+
+        <th>الأصناف</th>
+
+        <th>المبلغ</th>
+
+        <th>الحالة</th>
+
+      </tr>
+
+    </thead>
+
+    <tbody>
+
+      {% for o in in_progress_orders %}
+
+      <tr>
+
+        <td><strong>#{{ o.sale_id }}</strong></td>
+
+        <td>{{ o.guest_name or '—' }}<br><span class="muted" dir="ltr">{{ o.guest_phone or '' }}</span></td>
+
+        <td>{{ o.cart_preview }}</td>
+
+        <td>{{ o.sale_total }} د.ل</td>
+
+        <td class="muted">بانتظار التحصيل في POS</td>
+
+      </tr>
+
+      {% endfor %}
+
+    </tbody>
+
+  </table>
+
+</div>
+
+{% endif %}
+
+
+
+<p class="muted" style="margin-top:1rem;font-size:0.88rem">
+
+  <strong>المسار الموصى به:</strong> افتح الطلب في POS → أرسل للمطبخ → عند التحصيل يُبلّغ الزبون تلقائياً ويُطلب تقييمه.
+
+  زر «تأكيد + مطبخ» هنا للطوارئ فقط (بدون جلسة كاشير).
+
+</p>
+
+{% endblock %}

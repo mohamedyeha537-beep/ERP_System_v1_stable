@@ -14,10 +14,16 @@
 
 body {
   margin: 0;
-  font-family: "Noto Sans Arabic", system-ui, sans-serif;
+  font-family: "IBM Plex Sans Arabic", "Segoe UI", "Tahoma", system-ui, sans-serif;
   background: var(--bg);
   color: var(--text);
   line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 {
+  font-family: "Cairo", "IBM Plex Sans Arabic", "Segoe UI", sans-serif;
+  letter-spacing: -0.01em;
 }
 
 a {
@@ -116,7 +122,254 @@ label {
   margin-bottom: 0.75rem;
 }
 
+.alert.good {
+  background: #ecfdf5;
+  border-color: #6ee7b7;
+  color: #047857;
+}
+
 .muted {
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+/* ===== Collapsible page guides (pos_guides.js) ===== */
+.pos-guide {
+  margin-bottom: 1rem;
+  border-radius: 10px;
+  border: 1px solid var(--border, #e2e8f0);
+  background: #f8fafc;
+  overflow: hidden;
+}
+
+.pos-guide > .pos-guide__summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 0.65rem 1rem;
+  font-weight: 600;
+  font-size: 0.92rem;
+  color: #1e40af;
+  background: linear-gradient(180deg, #f0f9ff 0%, #eef2ff 100%);
+  border-bottom: 1px solid transparent;
+  user-select: none;
+}
+
+.pos-guide > .pos-guide__summary::-webkit-details-marker {
+  display: none;
+}
+
+.pos-guide > .pos-guide__summary::before {
+  content: "\25B8 ";
+  display: inline-block;
+  transition: transform 0.15s ease;
+  opacity: 0.7;
+}
+
+.pos-guide[open] > .pos-guide__summary::before {
+  transform: rotate(90deg);
+}
+
+.pos-guide[open] > .pos-guide__summary {
+  border-bottom-color: var(--border, #e2e8f0);
+}
+
+.pos-guide > .pos-guide__summary::after {
+  content: " \u2014 \u0627\u0636\u063A\u0637 \u0644\u0644\u0639\u0631\u0636";
+  font-weight: 400;
+  opacity: 0.65;
+  font-size: 0.88em;
+}
+
+.pos-guide[open] > .pos-guide__summary::after {
+  content: " \u2014 \u0627\u0636\u063A\u0637 \u0644\u0644\u0625\u062E\u0641\u0627\u0621";
+}
+
+.pos-guide__body {
+  padding: 0.75rem 1rem;
+}
+
+.pos-guide__body > .help,
+.pos-guide__body > .help-card,
+.pos-guide__body > .card,
+.pos-guide__body > p.pos-guide-intro,
+.pos-guide__body > div.pos-guide-panel {
+  margin-bottom: 0;
+}
+
+.pos-guide__title-hidden {
+  display: none !important;
+}
+
+.num-frac {
+  font-size: 0.62em;
+  opacity: 0.85;
+  vertical-align: baseline;
+}
+
+.money-currency {
+  font-size: 0.72em;
+  color: var(--muted);
+  margin-inline-start: 0.14rem;
+}
+
+/* أرقام وأسعار — LTR حتى تظهر العلامة العشرية بشكل صحيح (0.005 لا 005.) */
+input[type="number"].input-num-ltr,
+input[type="number"][data-cost],
+input[type="number"][data-qty],
+input[type="number"][name="unit_cost"],
+input[type="number"][name^="unit_cost_"],
+input[type="number"][name="pay_now_amount"],
+input[type="number"][name="amount"],
+input[type="number"][name="bom_markup_pct"],
+input[type="number"][name="sell_price"] {
+  direction: ltr;
+  text-align: right;
+}
+
+/* إخفاء أسهم الزيادة/النقصان — إدخال الأرقام يدوياً */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.pl-total,
+[data-total],
+#grand-total {
+  direction: ltr;
+  text-align: right;
+  unicode-bidi: embed;
+}
+
+/* قائمة منسدلة قابلة للبحث — تركيبة المنتج */
+.bom-combobox {
+  position: relative;
+  width: 100%;
+}
+.bom-combobox-field {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+.bom-combobox-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  padding: 0.45rem 0.65rem;
+  font: inherit;
+  background: transparent;
+}
+.bom-combobox-input:focus {
+  outline: none;
+}
+.bom-combobox-field:focus-within {
+  border-color: var(--primary, #2563eb);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+.bom-combobox-toggle {
+  border: 0;
+  border-inline-start: 1px solid #cbd5e1;
+  background: #f8fafc;
+  padding: 0 0.65rem;
+  cursor: pointer;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+.bom-combobox-menu {
+  position: absolute;
+  z-index: 50;
+  inset-inline: 0;
+  top: calc(100% + 4px);
+  max-height: 14rem;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  padding: 0.25rem 0;
+}
+.bom-combobox-option {
+  display: block;
+  width: 100%;
+  text-align: start;
+  border: 0;
+  background: transparent;
+  padding: 0.45rem 0.65rem;
+  font: inherit;
+  cursor: pointer;
+}
+.bom-combobox-option:hover,
+.bom-combobox-option.is-active {
+  background: #eff6ff;
+}
+.bom-combobox-option[hidden] {
+  display: none;
+}
+.bom-combobox-empty {
+  margin: 0;
+  padding: 0.55rem 0.65rem;
+  font-size: 0.85rem;
+}
+
+/* ── شريط الرجوع / الرئيسية ── */
+.page-trail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+  margin: 0 0 0.85rem;
+  padding: 0.45rem 0.65rem;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.page-trail__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+.page-trail__back {
+  font-weight: 600;
+}
+.page-trail__home {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+.page-trail__crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.page-trail__crumbs li:not(:last-child)::after {
+  content: "›";
+  margin-inline: 0.35rem;
+  opacity: 0.55;
+}
+.page-trail__crumbs a {
+  color: var(--muted);
+}
+.page-trail__crumbs a:hover {
+  color: var(--primary);
+}
+.pos-page-trail-wrap {
+  max-width: 100%;
+  padding: 0 0.15rem 0.35rem;
+}
+.pos-page-trail-wrap .page-trail {
+  margin-bottom: 0.5rem;
 }

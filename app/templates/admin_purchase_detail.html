@@ -1,22 +1,40 @@
 {% extends "base.html" %}
 {% block title %}فاتورة شراء #{{ purchase.id }}{% endblock %}
 {% block body %}
-<div class="row" style="justify-content: space-between; align-items: center">
+<div class="row" style="justify-content: space-between; align-items: center; flex-wrap: wrap">
   <h1 style="margin: 0">فاتورة شراء #{{ purchase.id }}</h1>
-  <a class="btn" href="/admin/purchases">رجوع للقائمة</a>
+  <div class="row" style="gap: 0.5rem">
+    {% if not is_cost_reference %}
+    <a class="btn btn-primary" href="/admin/purchases/{{ purchase.id }}/edit">تعديل</a>
+    {% endif %}
+    <a class="btn" href="/admin/purchases">رجوع للقائمة</a>
+  </div>
 </div>
 
 <div class="card">
   <h2 style="margin-top: 0">بيانات الفاتورة</h2>
-  <p><strong>التاريخ:</strong> {{ purchase.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+  <p><strong>التاريخ:</strong> {{ pos_format_dt(purchase.created_at, '%Y-%m-%d %H:%M') }}</p>
   <p><strong>المورّد:</strong> {{ purchase.supplier or '—' }}</p>
+  <p><strong>هاتف المورّد:</strong>
+    {% if purchase.supplier_phone %}
+    <a href="tel:{{ purchase.supplier_phone }}" dir="ltr">{{ purchase.supplier_phone }}</a>
+    {% else %}—{% endif %}
+  </p>
   <p><strong>رقم فاتورة المورّد / المرجع:</strong> {{ purchase.supplier_invoice_ref or '—' }}</p>
+  <p><strong>رقم استلام المخزون:</strong> <code>{{ purchase.receipt_batch_no or ('GR-%06d'|format(purchase.id)) }}</code></p>
   <p><strong>طريقة السداد (الفاتورة):</strong> {% if purchase.method %}{{ purchase.method.name_ar }}{% else %}—{% endif %}</p>
+  {% if is_cost_reference %}
+  <p class="muted" style="margin:0.35rem 0;font-size:0.88rem;background:#eff6ff;padding:0.5rem 0.65rem;border-radius:8px;border:1px solid #bfdbfe">
+    <strong>مرجع تكلفة</strong> — لاحتساب سعر التركيبة فقط، بدون استلام مخزون وبدون ذمة مورد.
+  </p>
+  {% endif %}
   <p><strong>المدفوع للمورد:</strong> <span style="color:#16a34a">{{ paid_total }} د.ل</span></p>
   <p><strong>المتبقي (دين للمورد):</strong>
     <span style="font-weight:700;{% if outstanding > 0 %}color:#b91c1c{% else %}color:#15803d{% endif %}">{{ outstanding }} د.ل</span>
   </p>
   {% if saved_pay %}<div class="alert good">تم تسجيل الدفعة بنجاح.</div>{% endif %}
+  {% if saved_edit %}<div class="alert good">تم حفظ تعديل الفاتورة.</div>{% endif %}
+  {% if cost_saved %}<div class="alert good">تم حفظ تعديل التكلفة.</div>{% endif %}
   {% if error %}<div class="alert">{{ error }}</div>{% endif %}
   <p><strong>المخزن:</strong> {% if purchase.warehouse %}{{ purchase.warehouse.name_ar }}{% else %}—{% endif %}</p>
   {% if purchase.invoice_image_filename %}
@@ -42,11 +60,17 @@
 
 <div class="card">
   <h2 style="margin-top: 0">البنود</h2>
+  {% if is_cost_reference %}
+  <form method="post" action="/admin/purchases/{{ purchase.id }}/edit-cost-reference">
+  {% endif %}
   <table>
     <thead>
       <tr>
         <th>#</th>
-        <th>الصنف</th>
+        <th>النوع</th>
+        <th>الصنف / البند</th>
+        <th>رقم الدفعة</th>
+        <th>الصلاحية</th>
         <th>الكمية</th>
         <th>سعر الوحدة</th>
         <th>الإجمالي</th>
@@ -54,21 +78,51 @@
     </thead>
     <tbody>
       {% for ln in purchase.lines %}
-      {% set p = products_by_id.get(ln.product_id) %}
+      {% set p = products_by_id.get(ln.product_id) if ln.product_id else none %}
+      {% set lk = ln.resolved_line_kind if ln.resolved_line_kind is defined else (ln.line_kind or 'PRODUCT') %}
       <tr>
         <td>{{ loop.index }}</td>
-        <td>{% if p %}{{ p.name_ar }}{% if p.unit %} ({{ p.unit }}){% endif %}{% else %}#{{ ln.product_id }}{% endif %}</td>
-        <td>{{ ln.quantity }}</td>
-        <td>{{ ln.unit_cost }}</td>
-        <td>{{ ln.line_total }} د.ل</td>
+        <td>
+          {% if lk == 'FIXED_ASSET' %}أصل ثابت
+          {% elif lk == 'CONSUMABLE' %}استهلاك
+          {% else %}منتج{% endif %}
+        </td>
+        <td>
+          {% if p %}{{ p.name_ar }}{% if p.unit %} ({{ p.unit }}){% endif %}
+          {% elif ln.item_name %}{{ ln.item_name }}{% if ln.unit %} ({{ ln.unit }}){% endif %}
+          {% if lk == 'FIXED_ASSET' %}<div class="muted" style="font-size:0.78rem">عمر {{ ln.useful_life_months }} شهر</div>{% endif %}
+          {% else %}#{{ ln.product_id or '?' }}{% endif %}
+        </td>
+        <td>{% if ln.lot_code %}<code>{{ ln.lot_code }}</code>{% else %}—{% endif %}</td>
+        <td>
+          {% if ln.expiry_date %}
+          {{ ln.expiry_date.isoformat() }}
+          {% if ln.production_date %}<div class="muted" style="font-size:0.78rem">إنتاج {{ ln.production_date.isoformat() }}</div>{% endif %}
+          {% else %}—{% endif %}
+        </td>
+        <td>{{ pos_qty(ln.quantity) }}</td>
+        <td>
+          {% if is_cost_reference %}
+          <input name="unit_cost_{{ ln.id }}" type="number" step="0.001" min="0" value="{{ ln.unit_cost }}" required style="width:6.5rem" />
+          {% else %}
+          {{ pos_money(ln.unit_cost) }}
+          {% endif %}
+        </td>
+        <td>{{ pos_money(ln.line_total) }} <span class="money-currency">د.ل</span></td>
       </tr>
       {% endfor %}
       <tr style="background: #f8fafc; font-weight: 700">
-        <td colspan="4" style="text-align: end">الإجمالي</td>
-        <td>{{ purchase.amount }} د.ل</td>
+        <td colspan="7" style="text-align: end">الإجمالي</td>
+        <td>{{ pos_money(display_total) }} <span class="money-currency">د.ل</span></td>
       </tr>
     </tbody>
   </table>
+  {% if is_cost_reference %}
+  <div class="row" style="margin-top:0.75rem">
+    <button class="btn btn-primary" type="submit">حفظ تعديل التكلفة</button>
+  </div>
+  </form>
+  {% endif %}
 </div>
 
 {% if purchase.payments %}
@@ -79,7 +133,7 @@
     <tbody>
       {% for pp in purchase.payments %}
       <tr>
-        <td>{{ pp.created_at.strftime('%Y-%m-%d %H:%M') if pp.created_at else '—' }}</td>
+        <td>{{ pos_format_dt(pp.created_at, '%Y-%m-%d %H:%M') if pp.created_at else '—' }}</td>
         <td>{% if pp.method %}{{ pp.method.name_ar }}{% endif %}</td>
         <td style="color:#16a34a">{{ pp.amount }} د.ل</td>
         <td>{{ pp.note or '—' }}</td>
@@ -97,7 +151,7 @@
     <div>
       <label>المحفظة</label>
       <select name="payment_method_id" required>
-        {% for m in pay_methods %}
+        {% for m in pay_methods if pos_is_main_treasury_wallet(m) %}
         <option value="{{ m.id }}">{{ m.name_ar }}</option>
         {% endfor %}
       </select>
@@ -119,7 +173,7 @@
 </div>
 {% endif %}
 
-<form method="post" action="/admin/purchases/{{ purchase.id }}/delete" onsubmit="return confirm('حذف هذه الفاتورة؟ سيُخصم البنود من المخزون.');" style="margin-top: 1rem">
+<form method="post" action="/admin/purchases/{{ purchase.id }}/delete" onsubmit="return confirm('{% if is_cost_reference %}حذف مرجع التكلفة هذا؟{% else %}حذف هذه الفاتورة؟ سيُخصم البنود من المخزون.{% endif %}');" style="margin-top: 1rem">
   <button class="btn btn-danger" type="submit">حذف الفاتورة</button>
 </form>
 {% endblock %}

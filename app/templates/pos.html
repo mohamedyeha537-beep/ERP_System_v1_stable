@@ -1,33 +1,67 @@
-{% extends "base.html" %}
+{% extends "base_pos.html" %}
 {% set brand = pos_brand(request) %}
 {% block title %}{{ brand.pos_label }}{% endblock %}
 {% block head_extra %}
-<link rel="stylesheet" href="/static/pos.css" />
+<link rel="stylesheet" href="/static/pos.css?v=6" />
+<script src="/static/kds_alert_sound.js" defer></script>
+<script src="/static/pos_web_chat_alert.js" defer></script>
+<script src="/static/pos_checkout.js?v=4" defer></script>
+<script src="/static/pos_receipt_print.js?v=7" defer></script>
+<script src="/static/receipt_whatsapp.js?v=3" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" crossorigin="anonymous" defer></script>
+{% endblock %}
+{% block pos_topbar %}
+{% if open_pos_shift is defined and open_pos_shift %}
+<span class="pos-shift-meta">#{{ open_pos_shift.id }}</span>
+<button type="button" class="pos-topbar-btn" data-shift-expense-open data-next-url="/pos">💸 مصروف</button>
+<button type="button" class="pos-topbar-btn primary" id="pos-all-orders-open-btn">📋 جميع الطلبات</button>
+<a class="pos-topbar-btn" href="/">لوحة التحكم</a>
+<a class="pos-topbar-btn" href="/pos/shift">إدارة وإغلاق الجلسة</a>
+<a class="pos-topbar-btn" href="/pos/shift/{{ open_pos_shift.id }}/report" target="_blank">تقرير الجلسة</a>
+{% endif %}
 {% endblock %}
 {% block body %}
-<div class="container pos-shell">
-  <h1 style="margin-top: 0">{{ brand.pos_label }}</h1>
-  {% if open_pos_shift %}
-  <div class="card" style="margin-bottom:0.75rem;border-color:#3b82f6;background:#eff6ff;display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:0.75rem">
-    <div>
-      <strong>جلسة بيع #{{ open_pos_shift.id }}</strong>
-      <span class="muted" style="font-size:0.9rem">— مفتوحة منذ {% if open_pos_shift.opened_at %}{{ open_pos_shift.opened_at.strftime('%H:%M') }}{% endif %}</span>
-    </div>
-    <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
-      <a class="btn btn-primary" href="/pos/shift">إدارة الجلسة / الإغلاق</a>
-      <a class="btn" href="/pos/shift/{{ open_pos_shift.id }}/report" target="_blank">تقرير الجلسة</a>
-    </div>
-  </div>
+<div class="pos-shell">
+  {% set ctx_err_msg = request.query_params.get('ctx_err') %}
+  {% set sale_ctx = sale.context_type.value if sale and sale.context_type else 'TABLE' %}
+  {% set show_ctx_err = ctx_err_msg and not (
+    sale_ctx == 'TABLE' and ('خارجي' in ctx_err_msg or 'هاتف' in ctx_err_msg)
+  ) %}
+  {% if show_ctx_err %}
+  {% set alert_msg = ctx_err_msg %}
+  {% set alert_tone = 'warn' if request.query_params.get('pending_sale') else 'error' %}
+  {% set alert_clear_ctx_err = true %}
+  {% set alert_collect_url = none %}
+  {% set alert_open_url = none %}
+  {% set pending_sid = request.query_params.get('pending_sale') %}
+  {% if pending_sid %}
+  {% set alert_open_url = '/pos/open-order/' ~ pending_sid %}
+    {% elif sale and ('بانتظار التحصيل' in ctx_err_msg or 'بانتظار الإتمام' in ctx_err_msg) %}
+    {% if sale_ctx == 'ROOM' %}
+      {% set alert_collect_url = '#charge-room-form' %}
+      {% set alert_collect_label = 'إتمام قيد الشقة' %}
+    {% else %}
+      {% set alert_checkout_modal = sale.id %}
+      {% set alert_collect_label = 'التحصيل وإتمام الفاتورة' %}
+    {% endif %}
   {% endif %}
-  {% if request.query_params.get('ctx_err') %}
-  <div class="alert" style="background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;padding:0.6rem 1rem;border-radius:8px;margin-bottom:0.75rem">
-    ⚠️ {{ request.query_params.get('ctx_err') }}
-  </div>
+  {% include "pos_dismissible_alert.html" %}
+  {% elif ctx_err_msg and sale_ctx == 'TABLE' %}
+  {% set alert_msg = 'الطلب الحالي على طاولة — اختر الطاولة من العمود الأيسر. لطلب توصيل أو استلام اضغط القسم المناسب.' %}
+  {% set alert_tone = 'info' %}
+  {% set alert_clear_ctx_err = true %}
+  {% include "pos_dismissible_alert.html" %}
   {% endif %}
   {% if request.query_params.get('new') and sale %}
   <div class="alert" style="background:#eff6ff;border:1px solid #93c5fd;color:#1d4ed8;padding:0.55rem 1rem;border-radius:8px;margin-bottom:0.75rem">
-    تم فتح <strong>طلب جديد #{{ sale.id }}</strong> — اختر الطاولة/السياق ثم أضف الأصناف.
+    تم فتح <strong>طلب جديد #{{ sale.id }}</strong> — اختر الطاولة/السياق أو «خارجي» ثم أضف الأصناف.
   </div>
+  {% endif %}
+  {% if pending_order_banner %}
+  {% set alert_msg = 'الطلب #' ~ pending_order_banner.id ~ ' ما زال مفتوحاً (' ~ pending_order_banner.hint ~ '). يمكنك متابعة الطلب الجديد أو فتح السابق.' %}
+  {% set alert_tone = 'info' %}
+  {% set alert_open_url = '/pos/open-order/' ~ pending_order_banner.id %}
+  {% include "pos_dismissible_alert.html" %}
   {% endif %}
   {% if request.query_params.get('ok') %}
   <div class="card" style="border-color: {% if request.query_params.get('room') %}#fcd34d{% else %}#86efac{% endif %}; background: {% if request.query_params.get('room') %}#fffbeb{% else %}#f0fdf4{% endif %}">
@@ -35,56 +69,581 @@
     <p style="margin: 0 0 0.5rem; color:#92400e; font-weight:600">
       🏨 تم قيد الفاتورة على حساب الشقة بنجاح — لم يتم التحصيل (ينتظر تسوية الاستقبال).
     </p>
+    {% elif request.query_params.get('kitchen_sent') %}
+    {% set _ksid = request.query_params.get('kitchen_sent') %}
+    <p style="margin: 0 0 0.5rem; color:#15803d; font-weight:600">
+      تم إرسال الطلب <strong>#{{ _ksid }}</strong> للمطبخ — تُطبع ورقة منفصلة لكل قسم (مشويات / مشروبات) على طابعاته.
+    </p>
+    <p class="muted" style="margin:0;font-size:0.85rem">
+      فاتورة الكاشير الكاملة: من <a href="/pos/prebill/{{ _ksid }}" target="_blank">أمر التجهيز #{{ _ksid }}</a> عند الحاجة.
+    </p>
     {% else %}
     <p style="margin: 0 0 0.5rem">تم إتمام البيع بنجاح.</p>
     {% endif %}
     {% if request.query_params.get('receipt') %}
     <div class="pos-success-actions">
-      <a class="btn btn-primary" href="/pos/receipt/{{ request.query_params.get('receipt') }}?autoprint=1" target="_blank">
+      <button type="button" class="btn btn-primary pos-auto-receipt-print-btn" data-sale-id="{{ request.query_params.get('receipt') }}">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <polyline points="6 9 6 2 18 2 18 9"></polyline>
           <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
           <rect x="6" y="14" width="12" height="8"></rect>
         </svg>
         طباعة الفاتورة
-      </a>
-      <a class="btn" href="/pos/receipt/{{ request.query_params.get('receipt') }}" target="_blank">
+      </button>
+      <button type="button" class="btn pos-auto-receipt-preview-btn" data-sale-id="{{ request.query_params.get('receipt') }}">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"></path>
           <circle cx="12" cy="12" r="3"></circle>
         </svg>
         معاينة بدون طباعة
-      </a>
+      </button>
     </div>
+    {% if checkout_whatsapp_sale_id %}
+    {% with wa_sale_id=checkout_whatsapp_sale_id, wa_send_url='/pos/receipt/' ~ checkout_whatsapp_sale_id ~ '/send-whatsapp', wa_phone=checkout_whatsapp_phone|default('') %}
+    {% include "_receipt_whatsapp_block.html" %}
+    {% endwith %}
+    {% endif %}
     <p class="muted" style="margin: 0.5rem 0 0; font-size: 0.88rem">
-      تُرتَّب البنود حسب الفئة الرئيسية ثم الفرعية ثم اسم الصنف. مقاس الطباعة الافتراضي يتحكم به الأدمن من «إعدادات النظام».
+      {% if request.query_params.get('room') %}
+      تُطبَع الفاتورة النهائية للنزيل مع خانة الاسم والتوقيع — أمر التجهيز للمطبخ بدون توقيع.
+      {% else %}
+      تُطبَع الفاتورة تلقائياً بنفس مقاس أمر التجهيز على الطابعة الحرارية.
+      {% endif %}
     </p>
     {% endif %}
   </div>
   {% endif %}
-  {% if error %}
-  <div class="alert" style="background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;padding:0.75rem 1rem;border-radius:8px;margin-bottom:0.75rem;font-weight:500;display:flex;align-items:center;gap:0.5rem">
-    <span style="font-size:1.2rem">⚠️</span>
-    <span>{{ error }}</span>
+  {% if sale and sale_sent_kitchen and not request.query_params.get('kitchen_sent') and not request.query_params.get('receipt') %}
+  <div class="card" style="border-color:#86efac;background:#f0fdf4;margin-bottom:0.75rem">
+    <p style="margin:0 0 0.35rem;color:#15803d;font-weight:700">
+      ✓ تم إرسال الطلب <strong>#{{ sale.id }}</strong> للتجهيز.
+    </p>
+    <p class="muted" style="margin:0;font-size:0.85rem">
+      الطلب موجود الآن في شاشة المطبخ/المقهى، ويمكن إعادة طباعة أمر التجهيز من زر «طباعة».
+    </p>
   </div>
+  {% endif %}
+  {% set kitchen_unsent = kitchen_unsent_orders if kitchen_unsent_orders is defined else [] %}
+  {% for warn in kitchen_unsent %}
+  {% set alert_msg = 'الطلب #' ~ warn.id ~ ((' (' ~ warn.label ~ ')') if warn.label else '') ~ ' لم يُرسل للتنفيذ — افتحه لإرساله للمطبخ أو إضافة أصناف' %}
+  {% set alert_tone = 'warn' %}
+  {% set alert_open_url = '/pos/open-order/' ~ warn.id %}
+  {% set alert_cancel_url = '/pos/cancel-open-order/' ~ warn.id %}
+  {% include "pos_dismissible_alert.html" %}
+  {% endfor %}
+
+  {% if error %}
+  {% set alert_msg = error %}
+  {% set alert_tone = 'error' %}
+  {% include "pos_dismissible_alert.html" %}
   {% endif %}
 
   <div class="pos-layout">
-    <aside class="pos-sidebar card" id="pos-sidebar-live">
+    <aside class="pos-sidebar card" id="pos-sidebar-live"
+      data-live-poll-sec="{{ order_policy.kds_poll_sec|default(15) }}"
+      hx-get="/pos/live"
+      hx-trigger="pos-live-refresh from:body"
+      hx-swap="innerHTML">
       {% include "pos_sidebar.html" %}
     </aside>
 
-    <main class="pos-main card">
-      {% include "pos_panel.html" %}
-    </main>
+    <div class="pos-workspace">
+      {% include "pos_order_status_strip.html" %}
+      <div class="pos-workspace-row">
+        <main class="pos-main card">
+          <div class="pos-main-catalog">
+            {% include "pos_panel.html" %}
+          </div>
+        </main>
+
+        <aside class="pos-context-rail card" id="pos-context-rail">
+          <div id="pos-order-hub" class="pos-order-hub-wrap" data-current-ctx="{{ sale.context_type.value if sale and sale.context_type else 'TABLE' }}" data-current-sale-id="{{ sale.id if sale else '' }}" data-refund-sale-prompt="{{ refund_sale_prompt|default('') }}" data-orders-modal="{{ '1' if orders_modal|default(false) else '0' }}" data-refund-auth-configured="{{ '1' if refund_auth_configured|default(false) else '0' }}">
+            {% include "pos_order_hub.html" %}
+          </div>
+        </aside>
+      </div>
+    </div>
   </div>
 </div>
+
+{% include "pos_all_orders_modal.html" %}
+
+<dialog id="pos-refund-code-dialog" class="pos-refund-code-dialog">
+  <form method="post" action="/pos/refund-auth" class="pos-refund-code-dialog-inner">
+    <h3 style="margin:0 0 0.5rem">كود تفويض الاسترداد</h3>
+    <p class="muted" style="margin:0 0 0.75rem;font-size:0.88rem">
+      أدخل الكود الخاص — فقط من يملكه يمكن تنفيذ الاسترداد.
+    </p>
+    <input type="hidden" name="sale_id" id="pos-refund-code-sale-id" value="" />
+    <label for="pos-refund-code-input" style="font-weight:600;margin:0 0 0.35rem;display:block">الكود</label>
+    <input id="pos-refund-code-input" name="refund_code" type="password" autocomplete="off" required
+      style="width:100%;max-width:none;letter-spacing:0.15em" placeholder="••••" />
+    <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;flex-wrap:wrap">
+      <button type="button" class="btn" id="pos-refund-code-cancel">إلغاء</button>
+      <button type="submit" class="btn btn-primary">متابعة الاسترداد</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="pos-payfix-dialog" class="pos-refund-code-dialog">
+  <form method="post" action="/pos/order/0/change-payment" id="pos-payfix-form" class="pos-refund-code-dialog-inner">
+    <h3 style="margin:0 0 0.5rem">تصحيح وسيلة الدفع</h3>
+    <p class="muted" style="margin:0 0 0.35rem;font-size:0.88rem">
+      للفاتورة <strong id="pos-payfix-sale-label">#</strong>
+    </p>
+    <p class="muted" style="margin:0 0 0.75rem;font-size:0.88rem;line-height:1.5">
+      الخزينة الحالية (المسجّلة على الفاتورة): <strong id="pos-payfix-current-method" style="color:#0f172a">—</strong>
+      <br />
+      <span style="font-size:0.82rem">يُنقل المبلغ من هذه الخزينة إلى الخزينة الجديدة التي تختارها أدناه.</span>
+    </p>
+    <label for="pos-payfix-method">الخزينة / وسيلة الدفع الجديدة</label>
+    <select id="pos-payfix-method" name="payment_method_id" required class="input" style="width:100%">
+      <option value="">اختر…</option>
+      {% for m in treasury_pay_methods|default([]) %}
+      <option value="{{ m.id }}">{{ m.name_ar }}</option>
+      {% endfor %}
+    </select>
+    <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;flex-wrap:wrap">
+      <button type="button" class="btn" id="pos-payfix-cancel">إلغاء</button>
+      <button type="submit" class="btn btn-primary">تأكيد التصحيح</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="pos-line-modal" class="pos-line-modal" hidden aria-hidden="true">
+  {% include "pos_line_note_modal.html" %}
+</div>
+
+<div id="pos-void-modal" class="pos-line-modal" hidden aria-hidden="true">
+  {% include "pos_void_modal.html" %}
+</div>
+
+<div id="pos-confirm-modal" class="pos-confirm-modal" hidden aria-hidden="true">
+  <div class="pos-confirm-modal__backdrop" data-pos-confirm-cancel tabindex="-1"></div>
+  <div class="pos-confirm-modal__dialog" role="alertdialog" aria-modal="true" aria-labelledby="pos-confirm-title" aria-describedby="pos-confirm-body">
+    <div class="pos-confirm-modal__icon" aria-hidden="true">🍳</div>
+    <h3 id="pos-confirm-title" class="pos-confirm-modal__title">تأكيد</h3>
+    <p id="pos-confirm-body" class="pos-confirm-modal__body"></p>
+    <p id="pos-confirm-detail" class="pos-confirm-modal__detail" hidden></p>
+    <div class="pos-confirm-modal__actions">
+      <button type="button" class="btn pos-confirm-modal__cancel" data-pos-confirm-cancel>إلغاء</button>
+      <button type="button" class="btn pos-confirm-modal__ok" id="pos-confirm-ok">تأكيد</button>
+    </div>
+  </div>
+</div>
+
+<dialog id="pos-checkout-dialog" class="pos-checkout-dialog">
+  <div class="pos-checkout-dialog-header">
+    <h2 style="margin:0;font-size:1.05rem">إتمام البيع — اختيار طريقة الدفع</h2>
+    <button type="button" class="btn" id="pos-checkout-dialog-close" aria-label="إغلاق">✕</button>
+  </div>
+  <div id="pos-checkout-dialog-body" class="pos-checkout-dialog-body">
+    <p class="muted" style="margin:0;padding:1rem">جاري التحميل…</p>
+  </div>
+</dialog>
+
+<dialog id="pos-status-driver-dialog" class="pos-refund-code-dialog">
+  <form method="post" action="/pos/order/0/assign-driver" id="pos-status-driver-form" class="pos-refund-code-dialog-inner" hx-target="#pos-sidebar-live" hx-swap="innerHTML" hx-on::after-request="if(event.detail.successful){document.getElementById('pos-status-driver-dialog').close();}">
+    <input type="hidden" name="return_to" value="pos" />
+    <h3 style="margin:0 0 0.5rem">تسليم السائق</h3>
+    <p class="muted" style="margin:0 0 0.75rem;font-size:0.88rem">اختر سائقاً سابقاً أو أدخل بيانات سائق جديد.</p>
+    {% if saved_drivers %}
+    <label style="font-size:0.82rem" for="pos-status-driver-pick">سائق سابق</label>
+    <select id="pos-status-driver-pick" class="input" style="width:100%;margin-bottom:0.65rem">
+      <option value="">— اختر —</option>
+      {% for d in saved_drivers %}
+      <option value="{{ d.id }}" data-name="{{ d.name }}" data-phone="{{ d.phone }}">{{ d.name }} — {{ d.phone }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+    <label for="pos-status-driver-name">اسم السائق</label>
+    <input id="pos-status-driver-name" name="driver_name" required class="input" style="width:100%" />
+    <label for="pos-status-driver-phone" style="margin-top:0.5rem">رقم الهاتف</label>
+    <input id="pos-status-driver-phone" name="driver_phone" required class="input" dir="ltr" style="width:100%" autocomplete="off" />
+    <label for="pos-status-driver-note" style="margin-top:0.5rem">ملاحظة (اختياري)</label>
+    <input id="pos-status-driver-note" name="driver_note" class="input" style="width:100%" />
+    <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;flex-wrap:wrap">
+      <button type="button" class="btn" id="pos-status-driver-cancel">إلغاء</button>
+      <button type="submit" class="btn btn-primary">تسليم السائق</button>
+    </div>
+  </form>
+</dialog>
+
+<form id="pos-direct-add-form" hx-post="/pos/add-line" hx-target="#pos-sidebar-live" hx-swap="innerHTML" hidden>
+  <input type="hidden" name="product_id" id="pos-direct-add-pid" value="" />
+  <input type="hidden" name="quantity" value="1" />
+  <input type="hidden" name="direct_add" value="1" />
+  <input type="hidden" name="line_id" value="" />
+</form>
+
 <script>
+  function posParseProductModifiers(btn) {
+    if (!btn) return [];
+    var raw = btn.getAttribute("data-product-modifiers");
+    if (!raw) return [];
+    try {
+      var data = JSON.parse(raw);
+      return Array.isArray(data) ? data : [];
+    } catch (err) {
+      return [];
+    }
+  }
+
+  function posOrderState() {
+    var el = document.getElementById("pos-order-state");
+    if (!el) return { sentToKitchen: false, saleId: "", label: "", sendConfirm: false, sendConfirmMin: 0, saleTotal: 0 };
+    return {
+      sentToKitchen: el.getAttribute("data-sent-kitchen") === "1",
+      saleId: el.getAttribute("data-sale-id") || "",
+      label: el.getAttribute("data-order-label") || "",
+      sendConfirm: el.getAttribute("data-send-confirm") === "1",
+      sendConfirmMin: parseFloat(el.getAttribute("data-send-confirm-min") || "0") || 0,
+      saleTotal: parseFloat(el.getAttribute("data-sale-total") || "0") || 0
+    };
+  }
+
+  function posAskConfirm(opts) {
+    opts = opts || {};
+    return new Promise(function (resolve) {
+      var modal = document.getElementById("pos-confirm-modal");
+      if (!modal) {
+        var fallback = (opts.message || "") + (opts.detail ? "\n\n" + opts.detail : "");
+        resolve(window.confirm(fallback));
+        return;
+      }
+      var titleEl = document.getElementById("pos-confirm-title");
+      var bodyEl = document.getElementById("pos-confirm-body");
+      var detailEl = document.getElementById("pos-confirm-detail");
+      var okBtn = document.getElementById("pos-confirm-ok");
+      if (!titleEl || !bodyEl || !detailEl || !okBtn) {
+        resolve(window.confirm(opts.message || ""));
+        return;
+      }
+      titleEl.textContent = opts.title || "تأكيد";
+      bodyEl.textContent = opts.message || "";
+      if (opts.detail) {
+        detailEl.textContent = opts.detail;
+        detailEl.hidden = false;
+      } else {
+        detailEl.textContent = "";
+        detailEl.hidden = true;
+      }
+      okBtn.textContent = opts.confirmLabel || "تأكيد";
+      okBtn.className = "btn pos-confirm-modal__ok" + (opts.confirmClass ? " " + opts.confirmClass : "");
+
+      function close(result) {
+        modal.hidden = true;
+        modal.setAttribute("aria-hidden", "true");
+        document.removeEventListener("keydown", onKey);
+        resolve(result);
+      }
+      function onKey(ev) {
+        if (ev.key === "Escape") close(false);
+      }
+
+      okBtn.onclick = function () { close(true); };
+      modal.querySelectorAll("[data-pos-confirm-cancel]").forEach(function (btn) {
+        btn.onclick = function () { close(false); };
+      });
+
+      modal.hidden = false;
+      modal.removeAttribute("aria-hidden");
+      document.addEventListener("keydown", onKey);
+      okBtn.focus();
+    });
+  }
+
+  function posConfirmAddToOpenOrder(itemLabel) {
+    var st = posOrderState();
+    if (!st.sentToKitchen) return true;
+    var who = st.label || ("طلب #" + st.saleId);
+    var item = (itemLabel || "صنف").trim() || "صنف";
+    return window.confirm(
+      who + " أُرسل للمطبخ مسبقاً.\n\n" +
+      "هل تريد إضافة «" + item + "» إلى نفس الطلب؟\n" +
+      "سيُطبَع أمر تكميل للمطبخ.\n\n" +
+      "إذا قصدت طلباً جديداً: اضغط «إلغاء» ثم «+ طلب جديد»."
+    );
+  }
+</script>
+<script>
+  document.body.addEventListener("htmx:beforeSwap", function (ev) {
+    var xhr = ev.detail && ev.detail.xhr;
+    if (!xhr || xhr.status < 400 || xhr.status >= 500) return;
+    var tgt = ev.detail.target;
+    if (!tgt || tgt.id !== "pos-sidebar-live") return;
+    ev.detail.shouldSwap = true;
+    ev.detail.isError = false;
+  });
+
+  document.body.addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-pos-alert-dismiss]");
+    if (!btn) return;
+    var box = btn.closest("[data-pos-alert]");
+    if (!box) return;
+    if (box.hasAttribute("data-clear-ctx-err")) {
+      try {
+        var u = new URL(window.location.href);
+        u.searchParams.delete("ctx_err");
+        u.searchParams.delete("pending_sale");
+        var qs = u.searchParams.toString();
+        history.replaceState({}, "", u.pathname + (qs ? "?" + qs : "") + u.hash);
+      } catch (err) {}
+    }
+    box.remove();
+  });
+
+  document.body.addEventListener("click", function (e) {
+    var link = e.target.closest("[data-pos-alert-goto]");
+    if (!link) return;
+    e.preventDefault();
+    var sel = link.getAttribute("data-pos-alert-goto");
+    if (!sel || sel.charAt(0) !== "#") return;
+    var el = document.querySelector(sel);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      var focus = el.querySelector("input:not([type=hidden]), select, button[type=submit]");
+      if (focus) focus.focus({ preventScroll: true });
+    }
+    var box = link.closest("[data-pos-alert]");
+    if (box && box.hasAttribute("data-clear-ctx-err")) {
+      try {
+        var u = new URL(window.location.href);
+        u.searchParams.delete("ctx_err");
+        u.searchParams.delete("pending_sale");
+        var qs = u.searchParams.toString();
+        history.replaceState({}, "", u.pathname + (qs ? "?" + qs : "") + u.hash);
+      } catch (err) {}
+      box.remove();
+    }
+  });
+
+  (function () {
+    var modal = document.getElementById("pos-line-modal");
+    if (!modal) return;
+    var form = document.getElementById("pos-line-add-form");
+    var titleEl = document.getElementById("pos-line-modal-product");
+    var pidIn = document.getElementById("pos-line-product-id");
+    var lidIn = document.getElementById("pos-line-edit-id");
+    var extraIn = document.getElementById("pos-line-extra-note");
+    var submitBtn = document.getElementById("pos-line-submit-btn");
+    var directBtn = document.getElementById("pos-line-direct-btn");
+    var presetWrap = document.getElementById("pos-line-preset-wrap");
+    var presetChips = document.getElementById("pos-line-preset-chips");
+    var directAddForm = document.getElementById("pos-direct-add-form");
+    var directAddPid = document.getElementById("pos-direct-add-pid");
+    var addConfirmedForModal = false;
+    var currentPresets = [];
+
+    function renderModifierPresets(presets, selectedParts) {
+      currentPresets = presets || [];
+      if (!presetWrap || !presetChips) return;
+      presetChips.innerHTML = "";
+      if (!currentPresets.length) {
+        presetWrap.hidden = true;
+        return;
+      }
+      presetWrap.hidden = false;
+      var selected = selectedParts || [];
+      currentPresets.forEach(function (label) {
+        var wrap = document.createElement("label");
+        wrap.className = "pos-line-preset-chip";
+        var cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.name = "preset";
+        cb.value = label;
+        cb.checked = selected.indexOf(label) >= 0;
+        var span = document.createElement("span");
+        span.textContent = label;
+        wrap.appendChild(cb);
+        wrap.appendChild(span);
+        presetChips.appendChild(wrap);
+      });
+    }
+
+    function posDirectAdd(productId) {
+      if (!directAddForm || !directAddPid) return;
+      directAddPid.value = productId || "";
+      if (window.htmx) htmx.trigger(directAddForm, "submit");
+    }
+
+    function closeModal() {
+      modal.hidden = true;
+      modal.setAttribute("aria-hidden", "true");
+      addConfirmedForModal = false;
+    }
+
+    function openModal(opts) {
+      opts = opts || {};
+      addConfirmedForModal = false;
+      if (pidIn) pidIn.value = opts.productId || "";
+      if (lidIn) lidIn.value = opts.lineId || "";
+      if (titleEl) titleEl.textContent = opts.productName || "";
+      var presets = opts.presets || [];
+      var note = (opts.lineNote || "").trim();
+      var parts = note ? note.split(" · ").map(function (s) { return s.trim(); }).filter(Boolean) : [];
+      renderModifierPresets(presets, parts);
+      var extraParts = parts.filter(function (p) { return presets.indexOf(p) < 0; });
+      if (extraIn) extraIn.value = extraParts.join(" · ");
+      var editing = !!(opts.lineId && String(opts.lineId).trim());
+      if (submitBtn) submitBtn.textContent = editing ? "حفظ الملاحظة" : "إضافة للسلة";
+      if (directBtn) directBtn.style.display = (editing || !presets.length) ? "none" : "";
+      modal.hidden = false;
+      modal.removeAttribute("aria-hidden");
+      if (extraIn) extraIn.focus();
+    }
+
+    document.body.addEventListener("click", function (e) {
+      var openBtn = e.target.closest("[data-pos-open-line-modal]");
+      if (openBtn) {
+        e.preventDefault();
+        var lineId = openBtn.getAttribute("data-line-id") || "";
+        var isEditNote = !!(lineId && String(lineId).trim());
+        var productName = openBtn.getAttribute("data-product-name") || "";
+        var presets = posParseProductModifiers(openBtn);
+        if (!isEditNote && !presets.length) {
+          if (!posConfirmAddToOpenOrder(productName)) return;
+          addConfirmedForModal = true;
+          posDirectAdd(openBtn.getAttribute("data-product-id"));
+          return;
+        }
+        if (!isEditNote) {
+          if (!posConfirmAddToOpenOrder(productName)) return;
+          addConfirmedForModal = true;
+        }
+        openModal({
+          productId: openBtn.getAttribute("data-product-id"),
+          productName: productName,
+          lineId: lineId,
+          lineNote: openBtn.getAttribute("data-line-note") || "",
+          presets: presets
+        });
+        return;
+      }
+      if (e.target.closest("[data-pos-line-close]")) {
+        e.preventDefault();
+        closeModal();
+      }
+    });
+
+    if (form) {
+      form.addEventListener("submit", function (e) {
+        var editing = lidIn && lidIn.value && String(lidIn.value).trim();
+        if (editing) return;
+        if (addConfirmedForModal) return;
+        var productName = titleEl ? titleEl.textContent : "";
+        if (!posConfirmAddToOpenOrder(productName)) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      }, true);
+    }
+
+    document.body.addEventListener("htmx:beforeRequest", function (ev) {
+      var elt = ev.detail && ev.detail.elt;
+      if (!elt || !elt.closest) return;
+      var form = elt.closest("form");
+      if (!form) return;
+      var action = form.getAttribute("hx-post") || "";
+      if (action.indexOf("/pos/adjust-line/") !== -1) {
+        var deltaInput = form.querySelector('input[name="delta"]');
+        if (deltaInput && deltaInput.value === "1") {
+          if (!posConfirmAddToOpenOrder("زيادة الكمية")) ev.preventDefault();
+        }
+        return;
+      }
+      if (action.indexOf("/pos/add-line") !== -1) {
+        var editing = lidIn && lidIn.value && String(lidIn.value).trim();
+        if (editing || addConfirmedForModal) return;
+        if (form.id === "pos-direct-add-form") {
+          if (addConfirmedForModal) return;
+          if (!posConfirmAddToOpenOrder("صنف")) ev.preventDefault();
+          return;
+        }
+        var productName = titleEl ? titleEl.textContent : "";
+        if (!posConfirmAddToOpenOrder(productName)) ev.preventDefault();
+      }
+    });
+
+    document.body.addEventListener("htmx:afterSwap", function (ev) {
+      if (ev.detail && ev.detail.target && ev.detail.target.id === "pos-sidebar-live") {
+        closeModal();
+      }
+    });
+  })();
+
+  (function () {
+    var modal = document.getElementById("pos-void-modal");
+    if (!modal) return;
+    var form = document.getElementById("pos-void-form");
+    var descEl = document.getElementById("pos-void-modal-desc");
+    var reasonIn = document.getElementById("pos-void-reason");
+    var pinIn = document.getElementById("pos-void-pin");
+    var submitBtn = document.getElementById("pos-void-submit");
+
+    function closeVoidModal() {
+      modal.hidden = true;
+      modal.setAttribute("aria-hidden", "true");
+      if (form) {
+        form.removeAttribute("hx-post");
+        form.action = "";
+      }
+    }
+
+    function openVoidModal(opts) {
+      opts = opts || {};
+      if (form) {
+        form.setAttribute("hx-post", opts.action || "");
+        form.action = opts.action || "";
+      }
+      if (descEl) descEl.textContent = opts.description || "";
+      if (reasonIn) reasonIn.value = "";
+      if (pinIn) pinIn.value = "";
+      if (submitBtn) submitBtn.textContent = opts.submitLabel || "تأكيد";
+      modal.hidden = false;
+      modal.removeAttribute("aria-hidden");
+      if (reasonIn) reasonIn.focus();
+    }
+
+    document.body.addEventListener("click", function (e) {
+      if (e.target.closest("[data-pos-void-close]")) {
+        e.preventDefault();
+        closeVoidModal();
+        return;
+      }
+      var lineBtn = e.target.closest(".pos-void-line-btn");
+      if (lineBtn && !lineBtn.disabled) {
+        e.preventDefault();
+        var lineId = lineBtn.getAttribute("data-line-id") || "";
+        var productName = lineBtn.getAttribute("data-product-name") || "";
+        openVoidModal({
+          action: "/pos/void-line/" + lineId,
+          description: "مسح «" + productName + "» من الفاتورة بعد إرساله للمطبخ. يُعاد المخزون وتُطبَع تذكرة إلغاء.",
+          submitLabel: "مسح الصنف"
+        });
+        return;
+      }
+      var saleBtn = e.target.closest(".pos-void-sale-btn");
+      if (saleBtn) {
+        e.preventDefault();
+        openVoidModal({
+          action: "/pos/void-sale",
+          description: "إلغاء الفاتورة بالكامل بعد الإرسال للمطبخ. يُعاد المخزون وتُبلَّغ المطبخ.",
+          submitLabel: "إلغاء الفاتورة"
+        });
+      }
+    });
+
+    document.body.addEventListener("htmx:afterSwap", function (ev) {
+      if (ev.detail && ev.detail.target && ev.detail.target.id === "pos-sidebar-live") {
+        closeVoidModal();
+      }
+    });
+  })();
+
   document.body.addEventListener("input", function (e) {
     if (e.target.id !== "product-search") return;
-    var panel = e.target.closest("#pos-panel");
-    if (!panel) return;
-    var grid = panel.querySelector("#pos-product-grid");
+    var grid = document.getElementById("pos-product-grid");
     if (!grid) return;
     var q = (e.target.value || "").trim().toLowerCase();
     grid.querySelectorAll(".pos-card").forEach(function (c) {
@@ -93,4 +652,974 @@
     });
   });
 </script>
+<script>
+(function () {
+  var hubRoot = document.getElementById("pos-order-hub");
+  if (!hubRoot) return;
+
+  function initPosOrderHub() {
+    var hub = document.getElementById("pos-order-hub");
+    if (!hub) return;
+
+    initPosRailAccordion(hub);
+
+    function bindChangeCustomer(btnId, chipId, fieldsId) {
+      var btn = document.getElementById(btnId);
+      if (!btn || btn._posBound) return;
+      btn._posBound = true;
+      btn.addEventListener("click", function () {
+        posClearCustomerDraft();
+      });
+    }
+
+    bindChangeCustomer(
+      "change-delivery-customer-btn",
+      "delivery-customer-chip",
+      "delivery-customer-fields"
+    );
+    bindChangeCustomer(
+      "change-pickup-customer-btn",
+      "pickup-customer-chip",
+      "pickup-customer-fields"
+    );
+
+    initPosCustomerDraftInputs(hub);
+
+    var deliveryForm = document.getElementById("delivery-rail-form");
+    if (deliveryForm) {
+      var zoneWrap = document.getElementById("delivery-zone-wrap");
+      var changeZoneBtn = document.getElementById("change-delivery-zone-btn");
+      if (changeZoneBtn && !changeZoneBtn._posHubBound) {
+        changeZoneBtn._posHubBound = true;
+        changeZoneBtn.addEventListener("click", function () {
+          var chip = hub.querySelector(".pos-zone-selected");
+          if (chip) chip.style.display = "none";
+          if (zoneWrap) zoneWrap.style.display = "";
+        });
+      }
+    }
+
+    var extForm = document.getElementById("external-ctx-form");
+    if (extForm) {
+      var zoneWrapLegacy = document.getElementById("delivery-zone-wrap");
+      var changeZoneBtnLegacy = document.getElementById("change-delivery-zone-btn");
+      if (changeZoneBtnLegacy && !changeZoneBtnLegacy._posHubBound) {
+        changeZoneBtnLegacy._posHubBound = true;
+        changeZoneBtnLegacy.addEventListener("click", function () {
+          var chip = hub.querySelector(".pos-zone-selected");
+          if (chip) chip.style.display = "none";
+          if (zoneWrapLegacy) zoneWrapLegacy.style.display = "";
+        });
+      }
+    }
+  }
+
+  var POS_RAIL_STORAGE_KEY = "pos-rail-open-sections";
+
+  function initPosRailAccordion(hub) {
+    if (!hub) return;
+
+    function readOpenIds() {
+      try {
+        var raw = sessionStorage.getItem(POS_RAIL_STORAGE_KEY);
+        return raw ? JSON.parse(raw) : [];
+      } catch (e) {
+        return [];
+      }
+    }
+
+    function writeOpenIds(ids) {
+      try {
+        sessionStorage.setItem(POS_RAIL_STORAGE_KEY, JSON.stringify(ids));
+      } catch (e) { /* ignore */ }
+    }
+
+    function applyOpenState() {
+      var openIds = readOpenIds();
+      var hasStored = sessionStorage.getItem(POS_RAIL_STORAGE_KEY) !== null;
+      if (!hasStored) {
+        openIds = ["tables"];
+        writeOpenIds(openIds);
+      }
+      hub.querySelectorAll(".pos-rail-section[data-rail-id]").forEach(function (section) {
+        var id = section.getAttribute("data-rail-id");
+        var btn = section.querySelector("[data-pos-rail-toggle]");
+        var isOpen = openIds.indexOf(id) !== -1;
+        section.classList.toggle("is-open", isOpen);
+        if (btn) btn.setAttribute("aria-expanded", isOpen ? "true" : "false");
+      });
+    }
+
+    applyOpenState();
+
+    hub.querySelectorAll("[data-pos-rail-toggle]").forEach(function (btn) {
+      if (btn._posRailAccBound) return;
+      btn._posRailAccBound = true;
+      btn.addEventListener("click", function () {
+        var section = btn.closest(".pos-rail-section");
+        if (!section) return;
+        var id = section.getAttribute("data-rail-id");
+        if (!id) return;
+        var willOpen = !section.classList.contains("is-open");
+        section.classList.toggle("is-open", willOpen);
+        btn.setAttribute("aria-expanded", willOpen ? "true" : "false");
+        var openIds = readOpenIds();
+        if (willOpen) {
+          if (openIds.indexOf(id) === -1) openIds.push(id);
+        } else {
+          openIds = openIds.filter(function (x) { return x !== id; });
+        }
+        writeOpenIds(openIds);
+      });
+    });
+  }
+
+  function posRefundAuthConfigured() {
+    var hub = document.getElementById("pos-order-hub");
+    if (hub && hub.getAttribute("data-refund-auth-configured") === "1") return true;
+    var ordersDlg = document.getElementById("pos-all-orders-dialog");
+    if (ordersDlg && ordersDlg.getAttribute("data-refund-auth-configured") === "1") return true;
+    return false;
+  }
+
+  function initPosRefundCodeDialog() {
+    var dlg = document.getElementById("pos-refund-code-dialog");
+    var saleIn = document.getElementById("pos-refund-code-sale-id");
+    var codeIn = document.getElementById("pos-refund-code-input");
+    var cancelBtn = document.getElementById("pos-refund-code-cancel");
+    if (!dlg || !saleIn) return;
+
+    function openRefundDialog(saleId) {
+      if (!posRefundAuthConfigured()) {
+        posAskConfirm({
+          title: "كود الاسترداد غير مُضبط",
+          message: "يجب ضبط «كود تفويض الاسترداد» من إعدادات النظام قبل تنفيذ أي استرداد.",
+          detail: "من: الإعدادات → كود تفويض الاسترداد (4–12 حرفاً).",
+          confirmLabel: "فتح الإعدادات",
+          cancelLabel: "إغلاق"
+        }).then(function (ok) {
+          if (ok) window.open("/admin/settings", "_blank", "noopener");
+        });
+        return;
+      }
+      var ordersDlg = document.getElementById("pos-all-orders-dialog");
+      if (ordersDlg && ordersDlg.open && typeof ordersDlg.close === "function") {
+        ordersDlg.close();
+      }
+      saleIn.value = saleId || "";
+      if (codeIn) {
+        codeIn.value = "";
+      }
+      if (typeof dlg.showModal === "function") {
+        dlg.showModal();
+        if (codeIn) codeIn.focus();
+      } else {
+        alert("المتصفح لا يدعم نافذة كود الاسترداد — حدّث المتصفح.");
+      }
+    }
+    window.openPosRefundDialog = openRefundDialog;
+
+    if (!document.body._posRefundDelegate) {
+      document.body._posRefundDelegate = true;
+      document.body.addEventListener("click", function (ev) {
+        var btn = ev.target.closest(".btn-refund-start");
+        if (!btn) return;
+        ev.preventDefault();
+        openRefundDialog(btn.getAttribute("data-sale-id"));
+      });
+    }
+
+    if (cancelBtn && !cancelBtn._posRefundBound) {
+      cancelBtn._posRefundBound = true;
+      cancelBtn.addEventListener("click", function () { dlg.close(); });
+    }
+
+    var hub = document.getElementById("pos-order-hub");
+    var promptSale = hub ? hub.getAttribute("data-refund-sale-prompt") : "";
+    var openOrders = hub && hub.getAttribute("data-orders-modal") === "1";
+    if (promptSale && /^\d+$/.test(promptSale) && !openOrders) {
+      openRefundDialog(promptSale);
+    }
+  }
+
+  function initPosPayfixDialog() {
+    var payDlg = document.getElementById("pos-payfix-dialog");
+    var payForm = document.getElementById("pos-payfix-form");
+    if (!payDlg || !payForm) return;
+
+    function openPayfix(saleId, label, currentPayment, currentPaymentId) {
+      payForm.action = "/pos/order/" + saleId + "/change-payment";
+      var lbl = document.getElementById("pos-payfix-sale-label");
+      if (lbl) lbl.textContent = label || ("#" + saleId);
+      var cur = document.getElementById("pos-payfix-current-method");
+      if (cur) cur.textContent = currentPayment || "—";
+      var sel = document.getElementById("pos-payfix-method");
+      if (sel) {
+        sel.value = "";
+        Array.prototype.forEach.call(sel.options, function (opt) {
+          opt.disabled = false;
+          if (currentPaymentId && opt.value === String(currentPaymentId)) {
+            opt.disabled = true;
+          }
+        });
+      }
+      if (typeof payDlg.showModal === "function") payDlg.showModal();
+    }
+
+    if (!document.body._posPayfixDelegate) {
+      document.body._posPayfixDelegate = true;
+      document.body.addEventListener("click", function (ev) {
+        var btn = ev.target.closest(".pos-payfix-btn");
+        if (!btn) return;
+        openPayfix(
+          btn.getAttribute("data-sale-id"),
+          btn.getAttribute("data-sale-label"),
+          btn.getAttribute("data-current-payment"),
+          btn.getAttribute("data-current-payment-id")
+        );
+      });
+    }
+
+    var cancelBtn = document.getElementById("pos-payfix-cancel");
+    if (cancelBtn && !cancelBtn._posPayfixBound) {
+      cancelBtn._posPayfixBound = true;
+      cancelBtn.addEventListener("click", function () { payDlg.close(); });
+    }
+  }
+
+  function initPosAllOrdersModal() {
+    var dlg = document.getElementById("pos-all-orders-dialog");
+    var body = document.getElementById("pos-all-orders-dialog-body");
+    var shiftSel = document.getElementById("pos-all-orders-shift-select");
+    var openBtn = document.getElementById("pos-all-orders-open-btn");
+    var closeBtn = document.getElementById("pos-all-orders-dialog-close");
+    var refreshBtn = document.getElementById("pos-all-orders-refresh-btn");
+    if (!dlg || !body) return;
+
+    function selectedShiftId() {
+      if (!shiftSel || !shiftSel.value) return "";
+      return shiftSel.value;
+    }
+
+    function loadOrdersPanel() {
+      var sid = selectedShiftId();
+      if (!sid) {
+        body.innerHTML = '<p class="muted" style="margin:0">لا توجد جلسة محددة.</p>';
+        return;
+      }
+      body.innerHTML = '<p class="muted" style="margin:0;padding:0.5rem 0">جاري التحميل…</p>';
+      fetch("/pos/orders-hub?shift_id=" + encodeURIComponent(sid), { credentials: "same-origin" })
+        .then(function (r) { return r.text(); })
+        .then(function (html) {
+          body.innerHTML = html;
+        })
+        .catch(function () {
+          body.innerHTML = '<div class="alert">تعذّر تحميل قائمة الطلبات.</div>';
+        });
+    }
+
+    function openOrdersModal() {
+      if (typeof dlg.showModal === "function") dlg.showModal();
+      loadOrdersPanel();
+    }
+    window.openPosAllOrdersModal = openOrdersModal;
+
+    if (openBtn && !openBtn._posOrdersModalBound) {
+      openBtn._posOrdersModalBound = true;
+      openBtn.addEventListener("click", openOrdersModal);
+    }
+    if (closeBtn && !closeBtn._posOrdersModalBound) {
+      closeBtn._posOrdersModalBound = true;
+      closeBtn.addEventListener("click", function () { dlg.close(); });
+    }
+    if (refreshBtn && !refreshBtn._posOrdersModalBound) {
+      refreshBtn._posOrdersModalBound = true;
+      refreshBtn.addEventListener("click", loadOrdersPanel);
+    }
+    if (shiftSel && !shiftSel._posOrdersModalBound) {
+      shiftSel._posOrdersModalBound = true;
+      shiftSel.addEventListener("change", loadOrdersPanel);
+    }
+
+    var hub = document.getElementById("pos-order-hub");
+    if (hub && hub.getAttribute("data-orders-modal") === "1") {
+      hub.setAttribute("data-orders-modal", "0");
+      var promptSale = hub.getAttribute("data-refund-sale-prompt") || "";
+      openOrdersModal();
+      if (promptSale && /^\d+$/.test(promptSale) && typeof window.openPosRefundDialog === "function") {
+        setTimeout(function () {
+          window.openPosRefundDialog(promptSale);
+        }, 350);
+      }
+    }
+  }
+
+  function initPosHubPrint() {
+    if (document.body._posHubPrintDelegate) return;
+    document.body._posHubPrintDelegate = true;
+    document.body.addEventListener("click", function (ev) {
+      var btn = ev.target.closest(".pos-hub-print-btn");
+      if (!btn || btn.disabled) return;
+      ev.preventDefault();
+      var saleId = btn.getAttribute("data-sale-id");
+      if (!saleId || typeof window.posReceiptPrint !== "function") return;
+      btn.disabled = true;
+      window.posReceiptPrint(saleId, true, "receipt").finally(function () {
+        btn.disabled = false;
+      });
+    });
+  }
+
+  function initPosKdsRejectedAlert() {
+    if (document.body._posKdsRejectedAlertBound) return;
+    document.body._posKdsRejectedAlertBound = true;
+    var inFlight = false;
+    var snoozeUntil = 0;
+
+    function formatRejectedMessage(item) {
+      var parts = ["رفض المطبخ الطلب #" + item.sale_id + "."];
+      if (item.label) parts.push("الطلب: " + item.label);
+      if (item.table) parts.push("الطاولة: " + item.table);
+      if (item.sections && item.sections.length) parts.push("القسم: " + item.sections.join("، "));
+      if (item.reasons && item.reasons.length) parts.push("السبب: " + item.reasons.join(" | "));
+      parts.push("اضغط موافق لإلغاء الطلب وإرجاع أثره من الكاشير.");
+      return parts.join("\n");
+    }
+
+    function pollRejected() {
+      if (inFlight || Date.now() < snoozeUntil) return;
+      inFlight = true;
+      fetch("/pos/kds-rejected.json", { credentials: "same-origin" })
+        .then(function (res) {
+          if (!res.ok) return null;
+          return res.json();
+        })
+        .then(function (data) {
+          if (!data || !data.ok || !data.items || !data.items.length) return;
+          var item = data.items[0];
+          var ok = window.confirm(formatRejectedMessage(item));
+          if (!ok) {
+            snoozeUntil = Date.now() + 30000;
+            return;
+          }
+          return fetch("/pos/kds-rejected/" + encodeURIComponent(item.sale_id) + "/cancel", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "X-Requested-With": "fetch" }
+          })
+            .then(function (res) { return res.json().catch(function () { return { ok: false }; }); })
+            .then(function (out) {
+              if (!out || !out.ok) {
+                window.alert((out && out.error) || "تعذّر إلغاء الطلب المرفوض.");
+                snoozeUntil = Date.now() + 15000;
+                return;
+              }
+              window.alert("تم إلغاء الطلب المرفوض من المطبخ.");
+              window.location.href = "/pos?ok=1";
+            });
+        })
+        .catch(function () {})
+        .finally(function () {
+          inFlight = false;
+        });
+    }
+
+    setTimeout(pollRejected, 1500);
+    setInterval(pollRejected, 10000);
+  }
+
+  initPosOrderHub();
+  initPosRefundCodeDialog();
+  initPosPayfixDialog();
+  initPosHubPrint();
+  initPosAllOrdersModal();
+  initPosKdsRejectedAlert();
+
+  function posCustomerDraftInputs(root) {
+    root = root || document.getElementById("pos-order-hub");
+    if (!root) return [];
+    return Array.prototype.slice.call(
+      root.querySelectorAll(".pos-customer-draft-input, [name='customer_phone'], [name='customer_name']")
+    ).filter(function (el) {
+      return el && el.type !== "hidden" && !el.disabled;
+    });
+  }
+
+  function posCustomerDraftActive() {
+    var inputs = posCustomerDraftInputs();
+    for (var i = 0; i < inputs.length; i++) {
+      var el = inputs[i];
+      if (el.closest && el.closest("[hidden]")) continue;
+      if (document.activeElement === el) return true;
+      if (el.getAttribute("data-pos-draft-dirty") === "1") return true;
+    }
+    return false;
+  }
+
+  function posClearCustomerDraft() {
+    document.body._posCustomerDraft = null;
+    posCustomerDraftInputs().forEach(function (el) {
+      el.removeAttribute("data-pos-draft-dirty");
+      el._posAutoLookupSent = false;
+    });
+  }
+
+  function posIsCustomerLinkedInHub() {
+    var hub = document.getElementById("pos-order-hub");
+    if (!hub) return false;
+    var section = hub.querySelector(".pos-rail-section.is-context");
+    if (section) {
+      var box = section.querySelector(".pos-ext-hub-phone");
+      return !!(box && box.getAttribute("data-customer-linked") === "1");
+    }
+    return !!hub.querySelector('.pos-ext-hub-phone[data-customer-linked="1"]');
+  }
+
+  function posSyncCustomerLinkedUI() {
+    var hub = document.getElementById("pos-order-hub");
+    if (!hub) return;
+    hub.querySelectorAll(".pos-ext-hub-phone").forEach(function (box) {
+      var linked = box.getAttribute("data-customer-linked") === "1";
+      var chip = box.querySelector(".pos-customer-selected");
+      var fields = box.querySelector(".pos-customer-fields");
+      if (!fields) return;
+      if (linked) {
+        fields.hidden = true;
+        if (chip) chip.hidden = false;
+        posClearCustomerDraft();
+      }
+    });
+  }
+
+  function posSaveCustomerDraft() {
+    var draft = { values: {}, focusId: null, openRail: null };
+    posCustomerDraftInputs().forEach(function (el) {
+      if (el.id) draft.values[el.id] = el.value;
+    });
+    if (document.activeElement && document.activeElement.id) {
+      draft.focusId = document.activeElement.id;
+    }
+    var ae = document.activeElement;
+    if (ae && ae.closest) {
+      var sec = ae.closest(".pos-rail-section[data-rail-id]");
+      if (sec) draft.openRail = sec.getAttribute("data-rail-id");
+    }
+    document.body._posCustomerDraft = draft;
+  }
+
+  function posRestoreCustomerDraft() {
+    if (posIsCustomerLinkedInHub()) {
+      posClearCustomerDraft();
+      return;
+    }
+    var draft = document.body._posCustomerDraft;
+    if (!draft) return;
+    Object.keys(draft.values || {}).forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      var fieldsWrap = el.closest(".pos-customer-fields");
+      if (fieldsWrap && fieldsWrap.hidden) {
+        fieldsWrap.hidden = false;
+        var chip = fieldsWrap.parentElement
+          ? fieldsWrap.parentElement.querySelector(".pos-customer-selected")
+          : null;
+        if (chip) chip.hidden = true;
+      }
+      el.value = draft.values[id];
+      if (draft.values[id]) el.setAttribute("data-pos-draft-dirty", "1");
+    });
+    if (draft.openRail) {
+      var hub = document.getElementById("pos-order-hub");
+      if (hub) {
+        var section = hub.querySelector('.pos-rail-section[data-rail-id="' + draft.openRail + '"]');
+        if (section) {
+          section.classList.add("is-open");
+          var btn = section.querySelector("[data-pos-rail-toggle]");
+          if (btn) btn.setAttribute("aria-expanded", "true");
+        }
+      }
+    }
+    if (draft.focusId) {
+      var focusEl = document.getElementById(draft.focusId);
+      if (focusEl) {
+        try {
+          focusEl.focus();
+          var len = (focusEl.value || "").length;
+          if (typeof focusEl.setSelectionRange === "function") {
+            focusEl.setSelectionRange(len, len);
+          }
+        } catch (e) { /* ignore */ }
+      }
+    }
+  }
+
+  function initPosCustomerDraftInputs(root) {
+    posCustomerDraftInputs(root).forEach(function (el) {
+      if (el._posDraftBound) return;
+      el._posDraftBound = true;
+      el.classList.add("pos-customer-draft-input");
+      el.addEventListener("input", function () {
+        el.setAttribute("data-pos-draft-dirty", "1");
+        if (el.getAttribute("data-pos-auto-lookup") !== "1" || !window.htmx) return;
+        var digits = String(el.value || "").replace(/\D/g, "");
+        clearTimeout(el._posPhoneLookupTimer);
+        if (digits.length === 10 && !el._posAutoLookupSent) {
+          el._posPhoneLookupTimer = setTimeout(function () {
+            if (String(el.value || "").replace(/\D/g, "").length !== 10) return;
+            el._posAutoLookupSent = true;
+            htmx.trigger(el, "pos-auto-save");
+          }, 550);
+        } else if (digits.length !== 10) {
+          el._posAutoLookupSent = false;
+        }
+      });
+      el.addEventListener("blur", function () {
+        window.setTimeout(function () {
+          if (document.activeElement !== el) {
+            el.removeAttribute("data-pos-draft-dirty");
+          }
+        }, 200);
+      });
+    });
+    root.querySelectorAll(".pos-customer-save-btn").forEach(function (btn) {
+      if (btn._posSaveBound) return;
+      btn._posSaveBound = true;
+      btn.addEventListener("click", function () {
+        var form = btn.closest("form");
+        if (!form) return;
+        var phone = form.querySelector("[name='customer_phone']");
+        var name = form.querySelector("[name='customer_name']");
+        var digits = phone ? String(phone.value || "").replace(/\D/g, "") : "";
+        if (digits.length > 0 && digits.length < 10) {
+          window.alert("رقم الهاتف يجب أن يكون 10 أرقام (مثل 0917122552).");
+          if (phone) phone.focus();
+          return;
+        }
+        if (digits.length === 10 && name && !(name.value || "").trim()) {
+          window.alert("أدخل اسم العميل للعملاء الجدد ثم احفظ.");
+          name.focus();
+        }
+      });
+    });
+  }
+
+  if (!document.body._posCustomerDraftGuardBound) {
+    document.body._posCustomerDraftGuardBound = true;
+    document.body.addEventListener("htmx:responseError", function (ev) {
+      var tgt = ev.detail && ev.detail.target;
+      if (tgt && (tgt.id === "pos-sidebar-live" || tgt.id === "pos-order-hub")) {
+        ev.preventDefault();
+        window.alert("تعذّر تحديث الشاشة. أعد تحميل الصفحة أو شغّل restart-server.bat.");
+      }
+    });
+    document.body.addEventListener("htmx:beforeRequest", function (ev) {
+      var path = ev.detail && ev.detail.pathInfo && ev.detail.pathInfo.requestPath;
+      if (!path) return;
+      if (path.indexOf("/pos/live") !== -1 && posCustomerDraftActive()) {
+        ev.preventDefault();
+        return;
+      }
+      if (path.indexOf("/pos/lookup-phone") === -1) return;
+      var elt = ev.detail.elt;
+      if (!elt) return;
+      var form = elt.closest("form");
+      var phoneEl = elt.name === "customer_phone"
+        ? elt
+        : (form ? form.querySelector("[name='customer_phone']") : null);
+      if (!phoneEl) return;
+      var digits = String(phoneEl.value || "").replace(/\D/g, "");
+      if (digits.length > 0 && digits.length < 10) {
+        ev.preventDefault();
+        return;
+      }
+      var isSave = elt.classList && elt.classList.contains("pos-customer-save-btn");
+      if (isSave) {
+        var nameEl = form ? form.querySelector("[name='customer_name']") : null;
+        if (digits.length === 10 && nameEl && !(nameEl.value || "").trim()) {
+          ev.preventDefault();
+          window.alert("أدخل اسم العميل للعملاء الجدد ثم احفظ.");
+          nameEl.focus();
+        }
+      }
+    });
+    document.body.addEventListener("htmx:beforeSwap", function (ev) {
+      if (posCustomerDraftActive()) posSaveCustomerDraft();
+    });
+  }
+
+  function initPosSendKitchenConfirm() {
+    document.querySelectorAll("#send-kitchen-form").forEach(function (form) {
+      if (form._posSendBound) return;
+      form._posSendBound = true;
+      form.addEventListener("submit", function (e) {
+        if (form._posSendConfirmed) {
+          form._posSendConfirmed = false;
+          return;
+        }
+        var st = posOrderState();
+        if (!st.sendConfirm) return;
+        if (st.saleTotal < st.sendConfirmMin) return;
+        e.preventDefault();
+        var who = st.label || ("طلب #" + st.saleId);
+        posAskConfirm({
+          title: "إرسال للتجهيز",
+          message: "تأكيد إرسال «" + who + "» للتجهيز وطباعة أوامر المطبخ؟",
+          detail: "الإجمالي: " + st.saleTotal.toFixed(3) + " د.ل",
+          confirmLabel: "إرسال للتجهيز وطباعة"
+        }).then(function (ok) {
+          if (!ok) return;
+          form._posSendConfirmed = true;
+          if (typeof form.requestSubmit === "function") form.requestSubmit();
+          else form.submit();
+        });
+      });
+    });
+  }
+
+  function initPosUnsentReminder() {
+    var op = {{ order_policy|tojson if order_policy is defined else '{}' }};
+    var sec = op.unsent_reminder_sec || 0;
+    if (!sec || sec <= 0) return;
+    setInterval(function () {
+      var unsent = {{ (kitchen_unsent_orders|length) if kitchen_unsent_orders is defined else 0 }};
+      if (unsent > 0 && !document.querySelector(".pos-unsent-reminder-shown")) {
+        var box = document.createElement("div");
+        box.className = "pos-unsent-reminder-shown";
+        box.setAttribute("role", "alert");
+        box.style.cssText = "position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);z-index:9999;background:#fff7ed;border:1px solid #fdba74;padding:0.65rem 1rem;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.12);font-size:0.88rem;max-width:90vw";
+        box.textContent = "تذكير: يوجد طلب/طلبات لم تُرسَل للتجهيز بعد.";
+        document.body.appendChild(box);
+        setTimeout(function () { box.remove(); }, 8000);
+      }
+    }, sec * 1000);
+  }
+
+  initPosSendKitchenConfirm();
+  initPosUnsentReminder();
+
+  function initPosReceiptPrintButtons() {
+    document.querySelectorAll(".pos-receipt-print-btn").forEach(function (btn) {
+      if (btn._posPrintBound) return;
+      btn._posPrintBound = true;
+      btn.addEventListener("click", function () {
+        var sid = btn.getAttribute("data-sale-id");
+        var kind = btn.getAttribute("data-doc-kind") || "prebill";
+        if (sid && window.posReceiptPrint) window.posReceiptPrint(sid, true, kind);
+      });
+    });
+    document.querySelectorAll(".pos-receipt-preview-btn").forEach(function (btn) {
+      if (btn._posPreviewBound) return;
+      btn._posPreviewBound = true;
+      btn.addEventListener("click", function () {
+        var sid = btn.getAttribute("data-sale-id");
+        var kind = btn.getAttribute("data-doc-kind") || "prebill";
+        if (sid && window.posReceiptPreview) window.posReceiptPreview(sid, kind);
+      });
+    });
+    document.querySelectorAll(".pos-receipt-whatsapp-btn").forEach(function (btn) {
+      if (btn._posWaBound) return;
+      btn._posWaBound = true;
+      btn.addEventListener("click", function () {
+        var sid = btn.getAttribute("data-sale-id");
+        var phone = window.receiptWhatsAppResolvePhone
+          ? window.receiptWhatsAppResolvePhone(btn)
+          : (btn.getAttribute("data-phone") || "").trim();
+        if (sid && window.posReceiptWhatsApp) window.posReceiptWhatsApp(sid, phone);
+      });
+    });
+    if (window.initReceiptWhatsAppButtons) window.initReceiptWhatsAppButtons(document);
+  }
+
+  function initPosKitchenSentPrint() {
+    try {
+      var u = new URL(window.location.href);
+      var ks = u.searchParams.get("kitchen_sent");
+      if (!ks || !/^\d+$/.test(ks)) return;
+      var key = "pos-kitchen-print-" + ks;
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, "1");
+      if (window.posReceiptPrint) {
+        setTimeout(function () {
+          window.posReceiptPrint(ks, true);
+        }, 400);
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  function initPosCheckoutReceiptPrint() {
+    try {
+      var u = new URL(window.location.href);
+      var rid = u.searchParams.get("receipt");
+      var ok = u.searchParams.get("ok");
+      if (!ok || !rid || !/^\d+$/.test(rid)) return;
+      var key = "pos-auto-receipt-" + rid;
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, "1");
+      if (window.posReceiptPrint) {
+        setTimeout(function () {
+          window.posReceiptPrint(parseInt(rid, 10), true, "receipt");
+        }, 450);
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  function initPosAutoReceiptButtons() {
+    document.querySelectorAll(".pos-auto-receipt-print-btn").forEach(function (btn) {
+      if (btn._posAutoPrintBound) return;
+      btn._posAutoPrintBound = true;
+      btn.addEventListener("click", function () {
+        var sid = btn.getAttribute("data-sale-id");
+        if (sid && window.posReceiptPrint) window.posReceiptPrint(sid, true, "receipt");
+      });
+    });
+    document.querySelectorAll(".pos-auto-receipt-preview-btn").forEach(function (btn) {
+      if (btn._posAutoPreviewBound) return;
+      btn._posAutoPreviewBound = true;
+      btn.addEventListener("click", function () {
+        var sid = btn.getAttribute("data-sale-id");
+        if (sid && window.posReceiptPreview) window.posReceiptPreview(sid, "receipt");
+      });
+    });
+  }
+
+  initPosReceiptPrintButtons();
+  initPosKitchenSentPrint();
+  initPosCheckoutReceiptPrint();
+  initPosAutoReceiptButtons();
+
+  function initPosLivePoll() {
+    var sidebar = document.getElementById("pos-sidebar-live");
+    if (!sidebar || !window.htmx) return;
+    var sec = Math.max(5, parseInt(sidebar.getAttribute("data-live-poll-sec"), 10) || 15);
+
+    function shouldPausePoll() {
+      if (document.hidden) return true;
+      if (document.querySelector("#pos-sidebar-live.htmx-request")) return true;
+      var chkDlg = document.getElementById("pos-checkout-dialog");
+      if (chkDlg && chkDlg.open) return true;
+      var lineModal = document.getElementById("pos-line-modal");
+      if (lineModal && !lineModal.hidden) return true;
+      var voidModal = document.getElementById("pos-void-modal");
+      if (voidModal && !voidModal.hidden) return true;
+      var confModal = document.getElementById("pos-confirm-modal");
+      if (confModal && !confModal.hidden) return true;
+      var ae = document.activeElement;
+      if (ae && ae.closest && ae.closest(
+        "#pos-sidebar-live input, #pos-sidebar-live textarea, #pos-sidebar-live select, "
+        + "#pos-order-hub input, #pos-order-hub textarea, #pos-order-hub select"
+      )) {
+        return true;
+      }
+      if (posCustomerDraftActive()) return true;
+      return false;
+    }
+
+    function tick() {
+      if (shouldPausePoll()) return;
+      htmx.trigger(document.body, "pos-live-refresh");
+    }
+
+    if (!document.body._posLivePollConfig) {
+      document.body._posLivePollConfig = true;
+    }
+
+    tick();
+    setInterval(tick, sec * 1000);
+  }
+
+  initPosLivePoll();
+
+  document.body.addEventListener("htmx:afterSwap", function (ev) {
+    var t = ev.detail && ev.detail.target;
+    if (t && (t.id === "pos-sidebar-live" || t.id === "pos-order-hub" || t.id === "pos-order-status-strip")) {
+      initPosOrderHub();
+      posSyncCustomerLinkedUI();
+      if (!posIsCustomerLinkedInHub()) posRestoreCustomerDraft();
+      initPosRefundCodeDialog();
+      initPosPayfixDialog();
+      initPosAllOrdersModal();
+      initPosSendKitchenConfirm();
+      initPosReceiptPrintButtons();
+      if (window.initPosCheckoutModal) window.initPosCheckoutModal();
+      if (window.initPosStatusDriverDialog) window.initPosStatusDriverDialog();
+      if (window.initPosOpenOrderLinks) window.initPosOpenOrderLinks();
+    }
+    if (t && (t.id === "checkout-customer-fields" || t.id === "checkout-loyalty-redeem")) {
+      var root = document.getElementById("pos-checkout-dialog-body");
+      if (root && window.initPosCheckoutForm) window.initPosCheckoutForm(root);
+    }
+  });
+})();
+</script>
+<script>
+(function () {
+  function initPosCheckoutModal() {
+    var dlg = document.getElementById("pos-checkout-dialog");
+    var body = document.getElementById("pos-checkout-dialog-body");
+    var closeBtn = document.getElementById("pos-checkout-dialog-close");
+    if (!dlg || !body) return;
+
+    function openCheckoutModal(saleId, opts) {
+      opts = opts || {};
+      if (!saleId) return;
+      body.innerHTML = '<p class="muted" style="margin:0;padding:1rem">جاري التحميل…</p>';
+      if (typeof dlg.showModal === "function") dlg.showModal();
+      var url = "/pos/checkout/modal?sale_id=" + encodeURIComponent(saleId);
+      if (opts.error) url += "&error=" + encodeURIComponent(opts.error);
+      if (opts.ok) url += "&ok=" + encodeURIComponent(opts.ok);
+      fetch(url, { credentials: "same-origin" })
+        .then(function (r) { return r.text(); })
+        .then(function (html) {
+          body.innerHTML = html;
+          if (window.htmx) htmx.process(body);
+          if (window.initPosCheckoutForm) window.initPosCheckoutForm(body);
+        })
+        .catch(function () {
+          body.innerHTML = '<div class="alert">تعذّر تحميل شاشة الدفع.</div>';
+        });
+    }
+    window.openPosCheckoutModal = openCheckoutModal;
+
+    document.querySelectorAll(".pos-checkout-modal-btn").forEach(function (btn) {
+      if (btn._posCheckoutModalBound) return;
+      btn._posCheckoutModalBound = true;
+      btn.addEventListener("click", function (e) {
+        e.preventDefault();
+        var sid = btn.getAttribute("data-sale-id");
+        if (!sid) {
+          var hub = document.getElementById("pos-order-hub");
+          sid = hub ? hub.getAttribute("data-current-sale-id") : "";
+        }
+        openCheckoutModal(sid);
+      });
+    });
+
+    if (closeBtn && !closeBtn._posCheckoutModalBound) {
+      closeBtn._posCheckoutModalBound = true;
+      closeBtn.addEventListener("click", function () { dlg.close(); });
+    }
+
+    try {
+      var u = new URL(window.location.href);
+      var openId = u.searchParams.get("open_checkout");
+      if (openId && /^\d+$/.test(openId)) {
+        openCheckoutModal(openId, {
+          error: u.searchParams.get("checkout_error") || "",
+          ok: u.searchParams.get("checkout_ok") || "",
+        });
+        u.searchParams.delete("open_checkout");
+        u.searchParams.delete("checkout_error");
+        u.searchParams.delete("checkout_ok");
+        var qs = u.searchParams.toString();
+        history.replaceState({}, "", u.pathname + (qs ? "?" + qs : "") + u.hash);
+      }
+    } catch (err) {}
+  }
+
+  function initPosStatusDriverDialog() {
+    var dlg = document.getElementById("pos-status-driver-dialog");
+    var form = document.getElementById("pos-status-driver-form");
+    var cancelBtn = document.getElementById("pos-status-driver-cancel");
+    var driverPick = document.getElementById("pos-status-driver-pick");
+    var driverName = document.getElementById("pos-status-driver-name");
+    var driverPhone = document.getElementById("pos-status-driver-phone");
+    if (!dlg || !form) return;
+
+    function normPhone(v) {
+      return (v || "").replace(/\D/g, "");
+    }
+
+    function lookupDriverByPhone() {
+      if (!driverPhone || !driverName || !driverPick) return;
+      var ph = normPhone(driverPhone.value);
+      if (ph.length < 9) return;
+      var matched = false;
+      Array.prototype.forEach.call(driverPick.options, function (opt) {
+        if (!opt.dataset || !opt.dataset.phone) return;
+        if (normPhone(opt.dataset.phone) === ph) {
+          driverName.value = opt.dataset.name || "";
+          driverPick.value = opt.value || "";
+          matched = true;
+        }
+      });
+      return matched;
+    }
+
+    if (driverPick && !driverPick._posDriverBound) {
+      driverPick._posDriverBound = true;
+      driverPick.addEventListener("change", function () {
+        var opt = driverPick.options[driverPick.selectedIndex];
+        if (!opt || !opt.dataset.name) return;
+        if (driverName) driverName.value = opt.dataset.name || "";
+        if (driverPhone) driverPhone.value = opt.dataset.phone || "";
+      });
+    }
+
+    if (driverPhone && !driverPhone._posDriverBound) {
+      driverPhone._posDriverBound = true;
+      driverPhone.addEventListener("input", function () {
+        lookupDriverByPhone();
+      });
+      driverPhone.addEventListener("blur", function () {
+        lookupDriverByPhone();
+      });
+    }
+
+    document.querySelectorAll(".pos-driver-btn").forEach(function (btn) {
+      if (btn._posDriverBound) return;
+      btn._posDriverBound = true;
+      btn.addEventListener("click", function () {
+        var sid = btn.getAttribute("data-sale-id");
+        if (!sid) return;
+        var url = "/pos/order/" + sid + "/assign-driver";
+        form.action = url;
+        form.setAttribute("hx-post", url);
+        if (driverPick) driverPick.value = "";
+        if (driverName) driverName.value = "";
+        if (driverPhone) driverPhone.value = "";
+        if (typeof dlg.showModal === "function") dlg.showModal();
+      });
+    });
+
+    if (cancelBtn && !cancelBtn._posDriverBound) {
+      cancelBtn._posDriverBound = true;
+      cancelBtn.addEventListener("click", function () { dlg.close(); });
+    }
+  }
+
+  function initPosOpenOrderLinks() {
+    document.querySelectorAll("[data-open-order]").forEach(function (link) {
+      if (link._posOpenBound) return;
+      link._posOpenBound = true;
+      link.addEventListener("click", function (e) {
+        e.preventDefault();
+        var sid = link.getAttribute("data-open-order");
+        if (!sid) return;
+        var f = document.createElement("form");
+        f.method = "post";
+        f.action = "/pos/open-order/" + sid;
+        document.body.appendChild(f);
+        f.submit();
+      });
+    });
+  }
+
+  window.initPosCheckoutModal = initPosCheckoutModal;
+  window.initPosStatusDriverDialog = initPosStatusDriverDialog;
+  window.initPosOpenOrderLinks = initPosOpenOrderLinks;
+
+  document.addEventListener("DOMContentLoaded", function () {
+    initPosCheckoutModal();
+    initPosStatusDriverDialog();
+    initPosOpenOrderLinks();
+  });
+})();
+</script>
+{% include "pos_shift_expense_modal.html" %}
+{% if request.query_params.get('expense_ok') %}
+<div class="no-print" style="position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);background:#f0fdf4;border:1px solid #86efac;padding:0.5rem 1rem;border-radius:8px;z-index:9000;font-size:0.88rem;color:#15803d">
+  ✓ تم تسجيل المصروف
+</div>
+<script>setTimeout(function(){var el=document.querySelector('[style*="f0fdf4"]');if(el)el.remove();},4000);</script>
+{% endif %}
 {% endblock %}

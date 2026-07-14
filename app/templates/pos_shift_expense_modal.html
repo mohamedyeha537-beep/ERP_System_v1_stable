@@ -1,0 +1,76 @@
+{# نافذة تسجيل مصروف الجلسة — تُضمَّن في pos.html و pos_shift.html #}
+{% if open_pos_shift is defined and open_pos_shift %}
+<div class="pos-line-modal" id="pos-shift-expense-modal" hidden>
+  <div class="pos-line-modal__backdrop" data-shift-expense-close></div>
+  <div class="pos-line-modal__dialog" role="dialog" aria-labelledby="pos-shift-expense-title">
+    <h3 id="pos-shift-expense-title" style="margin:0 0 0.35rem;font-size:1.05rem">تسجيل مصروف من الجلسة</h3>
+    <p class="muted" style="margin:0 0 0.75rem;font-size:0.85rem">
+      سجّل أي مبلغ صرفته من الدرج الآن — يُخصم من المتوقع عند الإغلاق ويقلّل العجز.
+      <strong>جلسة #{{ open_pos_shift.id }}</strong>
+    </p>
+    <form method="post" action="/pos/shift/expense" id="pos-shift-expense-form">
+      <input type="hidden" name="next_url" id="pos-shift-expense-next" value="{{ request.url.path }}" />
+
+      <label class="muted" style="font-size:0.78rem;display:block;margin:0 0 0.2rem">المبلغ (د.ل) *</label>
+      <input class="input" type="number" name="amount" id="pos-shift-expense-amount" step="0.001" min="0.001" required
+        placeholder="0.000" style="width:100%;padding:0.45rem 0.5rem;margin-bottom:0.55rem" />
+
+      <label class="muted" style="font-size:0.78rem;display:block;margin:0 0 0.2rem">التصنيف</label>
+      <select name="category" required style="width:100%;padding:0.45rem 0.5rem;margin-bottom:0.55rem;border-radius:8px;border:1px solid var(--border)">
+        {% for key, label in shift_expense_categories %}
+        <option value="{{ key }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+
+      {% if shift_expense_single_wallet %}
+      <input type="hidden" name="payment_method_id" value="{{ shift_expense_single_wallet.id }}" />
+      <p class="muted" style="margin:0 0 0.55rem;font-size:0.85rem">
+        من: <strong>{{ shift_expense_single_wallet.kind_label }} — {{ shift_expense_single_wallet.name_ar }}</strong>
+      </p>
+      {% elif shift_expense_wallet_options and shift_expense_wallet_options|length > 0 %}
+      <label class="muted" style="font-size:0.78rem;display:block;margin:0 0 0.2rem">من أي محفظة؟</label>
+      <select name="payment_method_id" required style="width:100%;padding:0.45rem 0.5rem;margin-bottom:0.55rem;border-radius:8px;border:1px solid var(--border)">
+        {% for w in shift_expense_wallet_options %}
+        <option value="{{ w.id }}">{{ w.kind_label }} — {{ w.name_ar }}</option>
+        {% endfor %}
+      </select>
+      {% else %}
+      <p class="muted" style="color:#b91c1c;margin:0 0 0.55rem;font-size:0.85rem">لا توجد محفظة كاشير — راجع إعدادات الدفع.</p>
+      {% endif %}
+
+      <label class="muted" style="font-size:0.78rem;display:block;margin:0 0 0.2rem">الوصف *</label>
+      <input class="input" type="text" name="note" required maxlength="240"
+        placeholder="مثال: شراء خضار للمطبخ / سلفة للمندوب"
+        style="width:100%;padding:0.45rem 0.5rem;margin-bottom:0.65rem" />
+
+      <div class="pos-line-modal__actions">
+        <button type="submit" class="btn btn-primary" {% if not shift_expense_single_wallet and not shift_expense_wallet_options %}disabled{% endif %}>حفظ المصروف</button>
+        <button type="button" class="btn" data-shift-expense-close>إلغاء</button>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+(function () {
+  var modal = document.getElementById("pos-shift-expense-modal");
+  if (!modal) return;
+  function openModal(nextUrl) {
+    var next = document.getElementById("pos-shift-expense-next");
+    if (next && nextUrl) next.value = nextUrl;
+    modal.hidden = false;
+    var amt = document.getElementById("pos-shift-expense-amount");
+    if (amt) { amt.focus(); amt.select && amt.select(); }
+  }
+  function closeModal() { modal.hidden = true; }
+  window.posOpenShiftExpenseModal = openModal;
+  document.querySelectorAll("[data-shift-expense-open]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      openModal(btn.getAttribute("data-next-url") || window.location.pathname + window.location.search);
+    });
+  });
+  modal.querySelectorAll("[data-shift-expense-close]").forEach(function (el) {
+    el.addEventListener("click", closeModal);
+  });
+})();
+</script>
+{% endif %}

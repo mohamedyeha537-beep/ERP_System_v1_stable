@@ -57,3 +57,51 @@ class DeliveryCashSettlement(Base):
     sale = relationship("Sale", lazy="selectin")
     cash_method = relationship("PaymentMethod", foreign_keys=[cash_method_id], lazy="selectin")
     zone = relationship("DeliveryZone", foreign_keys=[zone_id], lazy="selectin")
+
+
+class DeliveryDriver(Base):
+    """سائق توصيل — يُحفظ الاسم والهاتف لإعادة الاستخدام."""
+
+    __tablename__ = "delivery_drivers"
+    __table_args__ = (UniqueConstraint("phone", name="uq_delivery_drivers_phone"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(120))
+    phone: Mapped[str] = mapped_column(String(40), index=True)
+    use_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class DeliveryHandoff(Base):
+    """تسليم طلب توصيل لسائق — للمراجعة عند الشكاوى."""
+
+    __tablename__ = "delivery_handoffs"
+    __table_args__ = (UniqueConstraint("sale_id", name="uq_delivery_handoffs_sale_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    sale_id: Mapped[int] = mapped_column(
+        ForeignKey("sales.id", ondelete="CASCADE"), index=True
+    )
+    driver_id: Mapped[int | None] = mapped_column(
+        ForeignKey("delivery_drivers.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    driver_name: Mapped[str] = mapped_column(String(120))
+    driver_phone: Mapped[str] = mapped_column(String(40))
+    handed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        index=True,
+    )
+    created_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    driver = relationship("DeliveryDriver", foreign_keys=[driver_id])
+    sale = relationship("Sale", foreign_keys=[sale_id])

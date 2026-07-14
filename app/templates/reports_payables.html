@@ -1,8 +1,8 @@
 {% extends "base.html" %}
-{% from "_reports_macros.html" import reports_nav %}
+{% from "_reports_macros.html" import reports_nav with context %}
 {% block title %}الذمم الدائنة — ديون الموردين{% endblock %}
 {% block body %}
-<h1>الذمم الدائنة (ديون الموردين)</h1>
+<h1>الذمم الدائنة (ديون الموردين){% if domain_label %} — {{ domain_label }}{% endif %}</h1>
 {{ reports_nav('payables') }}
 
 <div class="card">
@@ -67,7 +67,7 @@
       {% for r in rows %}
       <tr>
         <td>{{ r.purchase_id }}</td>
-        <td>{{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '—' }}</td>
+        <td>{{ pos_format_dt(r.created_at, '%Y-%m-%d %H:%M') if r.created_at else '—' }}</td>
         <td>{{ r.supplier_label }}</td>
         <td>{{ r.invoice_total }} د.ل</td>
         <td style="color:#16a34a">{{ r.paid_total }} د.ل</td>

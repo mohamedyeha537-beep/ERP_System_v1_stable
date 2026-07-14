@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ room.name_ar or room.number }} — {{ store_name }}</title>
+  <link rel="stylesheet" href="/static/shop.css?v=16" />
+  <link rel="stylesheet" href="/static/hotel_store.css?v=1" />
+</head>
+<body class="shop-page hotel-store-page">
+  <header class="hs-header">
+    <div class="hs-header__inner">
+      <a href="/suites" class="hs-logo">← {{ store_name }}</a>
+    </div>
+  </header>
+
+  <main class="hs-main hs-room">
+    {% if saved %}
+    <div class="hs-alert hs-alert--ok">
+      تم استلام طلب الحجز بنجاح{% if request.query_params.get('booking_ref') %} ({{ request.query_params.get('booking_ref') }}){% endif %}.
+      سيتواصل معك موظف الاستقبال قريباً لإتمام الحجز والدفع.
+    </div>
+    {% endif %}
+    {% if error %}<div class="hs-alert hs-alert--err">{{ error }}</div>{% endif %}
+
+    <div class="hs-room-layout">
+      <section class="hs-gallery card">
+        {% if gallery %}
+        <div class="hs-gallery__main" id="hs-gallery-main">
+          {% set first = gallery[0] %}
+          {% if first.kind == 'VIDEO' %}
+          <video src="{{ first.url }}" controls playsinline style="width:100%;border-radius:12px"></video>
+          {% else %}
+          <img src="{{ first.url }}" alt="" id="hs-gallery-img" style="width:100%;border-radius:12px" />
+          {% endif %}
+        </div>
+        {% if gallery|length > 1 %}
+        <div class="hs-gallery__thumbs">
+          {% for item in gallery %}
+          <button type="button" class="hs-thumb" data-url="{{ item.url }}" data-kind="{{ item.kind }}">
+            {% if item.kind == 'VIDEO' %}<span>▶ فيديو</span>{% else %}<img src="{{ item.url }}" alt="" />{% endif %}
+          </button>
+          {% endfor %}
+        </div>
+        {% endif %}
+        {% else %}
+        <div class="hs-card__placeholder" style="min-height:220px">🏠</div>
+        {% endif %}
+      </section>
+
+      <section class="hs-book card">
+        <h1 style="margin:0 0 0.35rem">{{ room.name_ar or ('شقة ' ~ room.number) }}</h1>
+        {% if room.room_type %}<p class="muted">{{ room.room_type.name_ar }}{% if room.floor %} · طابق {{ room.floor }}{% endif %}</p>{% endif %}
+        {% if room.online_description %}
+        <div class="hs-desc">{{ room.online_description }}</div>
+        {% elif room.notes %}<div class="hs-desc muted">{{ room.notes }}</div>{% endif %}
+
+        <form method="post" action="/suites/room/{{ room.id }}/book" id="hs-book-form">
+          <div class="hs-dates">
+            <label>الوصول *<input type="date" name="check_in" id="hs-check-in" required value="{{ check_in.isoformat() if check_in else '' }}" min="{{ today.isoformat() }}" /></label>
+            <label>المغادرة *<input type="date" name="check_out" id="hs-check-out" required value="{{ check_out.isoformat() if check_out else '' }}" min="{{ today.isoformat() }}" /></label>
+          </div>
+          <div class="hs-quote" id="hs-quote">
+            {% if quote %}
+            <div><span class="muted">الليالي:</span> <strong>{{ quote.nights }}</strong></div>
+            <div><span class="muted">سعر الليلة:</span> <strong>{{ '%.3f'|format(quote.nightly_rate) }}</strong> د.ل</div>
+            <div class="hs-quote__total">الإجمالي: <strong>{{ '%.3f'|format(quote.total) }}</strong> د.ل</div>
+            {% else %}
+            <p class="muted">اختر التواريخ لحساب السعر</p>
+            {% endif %}
+          </div>
+
+          <h3 style="margin:1rem 0 0.45rem;font-size:0.95rem">جهة الحجز</h3>
+          <div class="hs-guest-type">
+            <label><input type="radio" name="guest_type" value="INDIVIDUAL" checked /> فرد</label>
+            <label><input type="radio" name="guest_type" value="COMPANY" /> شركة</label>
+          </div>
+          <div id="hs-panel-ind" class="hs-fields">
+            <label>الاسم *<input name="guest_name" required /></label>
+            <label>الهاتف *<input name="guest_phone" required dir="ltr" maxlength="10" pattern="09[0-9]{8}" /></label>
+            <label>البريد<input name="guest_email" type="email" /></label>
+          </div>
+          <div id="hs-panel-co" class="hs-fields" hidden>
+            <label>اسم الشركة *<input name="company_name" /></label>
+            <label>مسؤول الحجز *<input name="company_contact_name" /></label>
+            <label>هاتف الشركة<input name="company_contact_phone" dir="ltr" /></label>
+            <label>بريد<input name="company_contact_email" type="email" /></label>
+          </div>
+
+          <h3 style="margin:1rem 0 0.45rem;font-size:0.95rem;color:#9a3412">النزلاء في الشقة *</h3>
+          <p class="muted" style="font-size:0.82rem;margin:0 0 0.5rem">أدخل اسم كل نزيل سيقيم في الشقة.</p>
+          <div id="hs-staying-list"></div>
+          <button type="button" class="btn" id="hs-add-guest">+ نزيل</button>
+
+          <label style="margin-top:0.75rem">ملاحظات<textarea name="notes" rows="2" placeholder="طلبات خاصة..."></textarea></label>
+
+          <button type="submit" class="btn btn-primary" style="width:100%;margin-top:0.85rem;font-size:1.05rem">إرسال طلب الحجز</button>
+          <p class="muted" style="font-size:0.8rem;margin:0.55rem 0 0;text-align:center">لا يُؤكَّد الحجز تلقائياً — سيتواصل معك الموظف لإتمام الدفع.</p>
+        </form>
+      </section>
+    </div>
+  </main>
+
+  <template id="hs-staying-tpl">
+    <div class="hs-staying-row">
+      <input name="staying_guest_name" required placeholder="اسم النزيل *" />
+      <input name="staying_guest_id_number" placeholder="رقم الهوية" dir="ltr" />
+      <select name="staying_guest_id_type">
+        <option value="">نوع الوثيقة</option>
+        {% for t in guest_id_types %}
+        <option value="{{ t }}">{{ t }}</option>
+        {% endfor %}
+      </select>
+      <input name="staying_guest_nationality" list="hs-nationalities" value="{{ default_nationality }}" placeholder="الجنسية" />
+    </div>
+  </template>
+  <datalist id="hs-nationalities">
+    {% for nat in nationalities %}
+    <option value="{{ nat }}"></option>
+    {% endfor %}
+  </datalist>
+
+  <script>
+  (function () {
+    var roomId = {{ room.id }};
+    var ci = document.getElementById('hs-check-in');
+    var co = document.getElementById('hs-check-out');
+    var quoteEl = document.getElementById('hs-quote');
+    function refreshQuote() {
+      if (!ci.value || !co.value) return;
+      fetch('/api/suites/quote?room_id=' + roomId + '&check_in=' + encodeURIComponent(ci.value) + '&check_out=' + encodeURIComponent(co.value))
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (d.error) { quoteEl.innerHTML = '<p class="muted" style="color:#b91c1c">' + d.error + '</p>'; return; }
+          quoteEl.innerHTML = '<div><span class="muted">الليالي:</span> <strong>' + d.nights + '</strong></div>'
+            + '<div><span class="muted">سعر الليلة:</span> <strong>' + d.nightly_rate + '</strong> د.ل</div>'
+            + '<div class="hs-quote__total">الإجمالي: <strong>' + d.total + '</strong> د.ل</div>';
+        }).catch(function () {});
+    }
+    if (ci) ci.addEventListener('change', refreshQuote);
+    if (co) co.addEventListener('change', refreshQuote);
+
+    document.querySelectorAll('input[name="guest_type"]').forEach(function (r) {
+      r.addEventListener('change', function () {
+        var co = r.value === 'COMPANY';
+        document.getElementById('hs-panel-ind').hidden = co;
+        document.getElementById('hs-panel-co').hidden = !co;
+      });
+    });
+
+    var list = document.getElementById('hs-staying-list');
+    var tpl = document.getElementById('hs-staying-tpl');
+    function addGuest() {
+      list.appendChild(tpl.content.cloneNode(true));
+    }
+    document.getElementById('hs-add-guest').addEventListener('click', addGuest);
+    addGuest();
+
+    document.querySelectorAll('.hs-thumb').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var url = btn.getAttribute('data-url');
+        var kind = btn.getAttribute('data-kind');
+        var main = document.getElementById('hs-gallery-main');
+        if (kind === 'VIDEO') main.innerHTML = '<video src="' + url + '" controls playsinline style="width:100%;border-radius:12px"></video>';
+        else main.innerHTML = '<img src="' + url + '" alt="" style="width:100%;border-radius:12px" />';
+      });
+    });
+  })();
+  </script>
+</body>
+</html>

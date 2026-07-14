@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}وكلاء الطباعة{% endblock %}
+{% block body %}
+<h1>وكلاء الطباعة المحلية</h1>
+<a class="btn" href="/admin/printing">رجوع</a>
+{% if new_token %}
+<div class="alert" style="margin:1rem 0;background:#ecfdf5;border-color:#6ee7b7">
+  <strong>احفظ الرمز الآن — لن يُعرض مرة أخرى:</strong>
+  <code style="display:block;margin-top:0.5rem;word-break:break-all">{{ new_token }}</code>
+  <p class="muted" style="margin:0.5rem 0 0">ضعه في <code>config.json</code> للوكيل تحت <code>agent_token</code>.</p>
+</div>
+{% endif %}
+<div class="card" style="margin-top:1rem">
+  <h2>وكيل جديد</h2>
+  <form method="post" action="/admin/printing/agents/new" class="row" style="gap:0.5rem;align-items:flex-end">
+    <div style="flex:1">
+      <label for="name">الاسم</label>
+      <input id="name" name="name" required placeholder="مطبخ الفرع الرئيسي" />
+    </div>
+    <button type="submit" class="btn btn-primary">إنشاء + رمز</button>
+  </form>
+</div>
+<table class="table" style="margin-top:1.5rem">
+  <thead><tr><th>#</th><th>الاسم</th><th>آخر اتصال</th><th>نشط</th><th></th></tr></thead>
+  <tbody>
+  {% for a in agents %}
+  <tr>
+    <td>{{ a.id }}</td>
+    <td>{{ a.name }}</td>
+    <td>{{ a.last_seen_at or '—' }}</td>
+    <td>{{ 'نعم' if a.is_active else 'لا' }}</td>
+    <td>
+      <form method="post" action="/admin/printing/agents/{{ a.id }}/toggle" style="display:inline">
+        <button type="submit" class="btn">{{ 'تعطيل' if a.is_active else 'تفعيل' }}</button>
+      </form>
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="5" class="muted">لا وكلاء بعد.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

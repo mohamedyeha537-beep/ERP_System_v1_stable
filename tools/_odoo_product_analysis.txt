@@ -1,0 +1,26 @@
+total=577
+price_empty=0 price_zero=9 price_pos=568
+refs=0 no_ref=577
+units top 20:
+  321	Units
+  225	g
+  29	L
+  2	cm
+tags top 30:
+  577	(empty)
+samples:
+{'Name': ' آيس تي خوخ', 'Internal Reference': '', 'Sales Price': '20.0', 'Unit of Measure': 'Units', 'Tags': '(empty)', 'Cost': '0.0'}
+{'Name': ' آيس تي ليمون بالنعناع', 'Internal Reference': '', 'Sales Price': '20.0', 'Unit of Measure': 'Units', 'Tags': '(empty)', 'Cost': '0.0'}
+{'Name': ' البرغر التركي الحار ', 'Internal Reference': '', 'Sales Price': '30.0', 'Unit of Measure': 'Units', 'Tags': '(empty)', 'Cost': '0.0'}
+{'Name': ' برجر هجوم القرمشه ', 'Internal Reference': '', 'Sales Price': '30.0', 'Unit of Measure': 'Units', 'Tags': '(empty)', 'Cost': '0.0'}
+{'Name': ' كركم مطحون بالة', 'Internal Reference': '', 'Sales Price': '1.0', 'Unit of Measure': 'g', 'Tags': '(empty)', 'Cost': '0.0'}
+{'Name': '101', 'Internal Reference': '', 'Sales Price': '1.0', 'Unit of Measure': 'Units', 'Tags': '(empty)', 'Cost': '0.0'}
+{'Name': '103', 'Internal Reference': '', 'Sales Price': '1.0', 'Unit of Measure': 'Units', 'Tags': '(empty)', 'Cost': '0.0'}
+{'Name': 'Hasan Ozgal', 'Internal Reference': '', 'Sales Price': '0.0', 'Unit of Measure': 'Units', 'Tags': '(empty)', 'Cost': '0.0'}
+{'Name': 'classy mega roll', 'Internal Reference': '', 'Sales Price': '1.0', 'Unit of Measure': 'Units', 'Tags': '(empty)', 'Cost': '0.0'}
+{'Name': 'آيس أمريكان', 'Internal Reference': '', 'Sales Price': '15.0', 'Unit of Measure': 'Units', 'Tags': '(empty)', 'Cost': '0.0'}
+{'Name': 'آيس بومبا', 'Internal Reference': '', 'Sales Price': '20.0', 'Unit of Measure': 'Units', 'Tags': '(empty)', 'Cost': '0.0'}
+{'Name': 'آيس كراميل', 'Internal Reference': '', 'Sales Price': '20.0', 'Unit of Measure': 'Units', 'Tags': '(empty)', 'Cost': '0.0'}
+{'Name': 'آيس لاتيه', 'Internal Reference': '', 'Sales Price': '15.0', 'Unit of Measure': 'Units', 'Tags': '(empty)', 'Cost': '0.0'}
+{'Name': 'آيس موكا', 'Internal Reference': '', 'Sales Price': '20.0', 'Unit of Measure': 'Units', 'Tags': '(empty)', 'Cost': '0.0'}
+{'Name': 'آيس وايت كراميل ', 'Internal Reference': '', 'Sales Price': '20.0', 'Unit of Measure': 'Units', 'Tags': '(empty)', 'Cost': '0.0'}

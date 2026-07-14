@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% from "_messaging_admin_nav.html" import messaging_admin_nav %}
+
+{% block title %}أحداث المراسلات{% endblock %}
+
+{% block body %}
+
+<h1>أحداث المراسلات</h1>
+
+<a class="btn" href="/admin/messaging">رجوع</a>
+<a class="btn" href="/admin/messaging/templates">القوالب ←</a>
+<a class="btn" href="/admin/messaging/rules">القواعد ←</a>
+
+{% if saved == '1' %}
+<p class="muted" style="color:#047857;margin:0.75rem 0">تم حفظ التعديلات.</p>
+{% elif saved == 'hooks' %}
+<p class="muted" style="color:#047857;margin:0.75rem 0">تم حفظ ربط نقاط التشغيل.</p>
+{% elif saved == 'test' %}
+<p class="muted" style="color:#047857;margin:0.75rem 0">تم إطلاق الحدث للاختبار — راجع سجل الإرسال.</p>
+{% endif %}
+
+{% if err %}
+<div class="alert">{{ err }}</div>
+{% endif %}
+
+<div class="card pos-guide-panel" style="margin-top:1rem;background:#eff6ff;border-color:#93c5fd">
+  <p style="margin:0;font-size:0.9rem">
+    <strong>كيف يعمل؟</strong><br>
+    1) أنشئ <strong>حدثاً</strong> (رمز + اسم) — مثل <code>shop.welcome_share</code><br>
+    2) اربط <strong>نقطة تشغيل</strong> (متى يحدث في النظام) → بالحدث الذي أنشأته<br>
+    3) من <a href="/admin/messaging/templates">القوالب</a> + <a href="/admin/messaging/rules">القواعد</a> اختر الحدث واربطه برسالة<br>
+    <span class="muted">للسوق متعدد المتاجر لاحقاً: كل تاجر يملك أحداثه وقواعده — البنية جاهزة للتوسع.</span>
+  </p>
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <h2>حدث تلقائي جديد</h2>
+  <form method="post" action="/admin/messaging/events/save">
+    <label>الرمز (إنجليزي — لا يُغيّر لاحقاً)</label>
+    <input name="code" required placeholder="shop.welcome_share" dir="ltr" pattern="[a-z][a-z0-9._-]{2,63}" />
+    <label>الاسم (عربي)</label>
+    <input name="name_ar" required placeholder="ترحيب مشاركة منتج" />
+    <label>الوصف (اختياري)</label>
+    <input name="description" placeholder="يُرسل عند…" />
+    <div style="margin-top:0.5rem"><button type="submit" class="btn btn-primary">إضافة حدث</button></div>
+  </form>
+</div>
+
+<table class="table" style="margin-top:1rem">
+  <thead>
+    <tr>
+      <th>الرمز</th>
+      <th>الاسم</th>
+      <th>النوع</th>
+      <th>نشط</th>
+      <th>اختبار</th>
+      <th>تعديل</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for e in events %}
+  <tr>
+    <td><code dir="ltr">{{ e.code }}</code></td>
+    <td>{{ e.name_ar }}</td>
+    <td>{% if e.is_system %}<span class="muted">نظامي</span>{% else %}مخصص{% endif %}</td>
+    <td>{{ 'نعم' if e.is_active else 'لا' }}</td>
+    <td>
+      <form method="post" action="/admin/messaging/events/test" style="display:flex;gap:0.35rem;align-items:center;margin:0">
+        <input type="hidden" name="event_type" value="{{ e.code }}" />
+        <button type="submit" class="btn" style="font-size:0.82rem;padding:0.15rem 0.45rem">▶</button>
+      </form>
+    </td>
+    <td>
+      <details>
+        <summary style="cursor:pointer;font-size:0.88rem">تعديل</summary>
+        <form method="post" action="/admin/messaging/events/save" style="margin-top:0.5rem;min-width:14rem">
+          <input type="hidden" name="event_id" value="{{ e.id }}" />
+          {% if not e.is_system %}
+          <label style="font-size:0.78rem">الرمز</label>
+          <input name="code" value="{{ e.code }}" readonly dir="ltr" style="width:100%;opacity:0.7" />
+          {% endif %}
+          <label style="font-size:0.78rem">الاسم</label>
+          <input name="name_ar" value="{{ e.name_ar }}" required style="width:100%" />
+          <label style="font-size:0.78rem">الوصف</label>
+          <input name="description" value="{{ e.description or '' }}" style="width:100%" />
+          <label style="display:inline-flex;gap:0.3rem;margin-top:0.35rem;font-size:0.82rem">
+            <input type="checkbox" name="is_active" {% if e.is_active %}checked{% endif %} style="width:auto" /> نشط
+          </label>
+          <div style="margin-top:0.4rem"><button type="submit" class="btn">حفظ</button></div>
+        </form>
+        {% if not e.is_system %}
+        <form method="post" action="/admin/messaging/events/delete" style="margin-top:0.35rem" onsubmit="return confirm('حذف الحدث؟');">
+          <input type="hidden" name="event_id" value="{{ e.id }}" />
+          <button type="submit" class="btn btn-danger" style="font-size:0.82rem">حذف</button>
+        </form>
+        {% endif %}
+      </details>
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h2 style="margin-top:1.5rem">نقاط التشغيل — متى يُطلَق الحدث؟</h2>
+<p class="muted" style="font-size:0.88rem">اختر حدثاً واحداً أو أكثر لكل لحظة في النظام. عند حدوث اللحظة → تُطلَق الأحداث → تُطبَّق القواعد المرتبطة.</p>
+
+{% for h in hooks %}
+<div class="card" style="margin-top:0.75rem">
+  <h3 style="margin:0 0 0.35rem;font-size:1rem">{{ h.label_ar }}</h3>
+  <p class="muted" style="margin:0 0 0.5rem;font-size:0.82rem">
+    <code dir="ltr">{{ h.hook_code }}</code> — جمهور: {{ h.audience }}
+  </p>
+  <form method="post" action="/admin/messaging/hooks/save">
+    <input type="hidden" name="hook_code" value="{{ h.hook_code }}" />
+    <div style="display:flex;flex-wrap:wrap;gap:0.5rem 1rem">
+      {% for code, label in automatic_events %}
+      <label style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.88rem;cursor:pointer">
+        <input type="checkbox" name="event_types" value="{{ code }}"
+          {% if code in h.event_types %}checked{% endif %} style="width:auto" />
+        {{ label }} <span class="muted">(<code dir="ltr">{{ code }}</code>)</span>
+      </label>
+      {% endfor %}
+    </div>
+    <div style="margin-top:0.5rem"><button type="submit" class="btn">حفظ الربط</button></div>
+  </form>
+</div>
+{% endfor %}
+
+{% endblock %}

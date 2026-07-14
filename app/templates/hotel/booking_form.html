@@ -1,0 +1,406 @@
+﻿{% extends "base.html" %}
+{% set is_quotation = form_mode == 'quotation' %}
+{% block title %}{% if is_quotation %}عرض سعر جديد{% else %}حجز جديد{% endif %}{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/hotel_dashboard.css?v=12" />
+<script src="/static/searchable_combobox.js?v=3"></script>
+<style>
+  .guest-type-tabs { display:flex; gap:0.5rem; margin-bottom:0.85rem; }
+  .guest-type-tabs label {
+    flex:1; text-align:center; padding:0.65rem; border:2px solid #cbd5e1; border-radius:10px;
+    cursor:pointer; font-weight:700; background:#fff; transition:0.15s;
+  }
+  .guest-type-tabs input { position:absolute; opacity:0; pointer-events:none; }
+  .guest-type-tabs input:checked + span { display:block; }
+  .guest-type-tabs label:has(input:checked) { border-color:#2563eb; background:#eff6ff; color:#1d4ed8; }
+  .guest-panel { display:none; }
+  .guest-panel.active { display:contents; }
+</style>
+{% endblock %}
+{% block body %}
+<h1 style="margin-top:0">
+  {% if is_quotation %}📄 عرض سعر جديد{% else %}حجز جديد{% endif %}
+  {% if pre_room %} — {{ pre_room.name_ar or pre_room.number }}{% endif %}
+</h1>
+{% set active = 'quotations' if is_quotation else 'bookings' %}
+{% include "_hotel_nav.html" %}
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+{% set prep_pct = prepayment_percent | default(100) %}
+{% set d = form_draft or {} %}
+{% set require_staying_guest_full = not is_quotation %}
+{% set draft_guest_type = d.get('guest_type', 'COMPANY' if is_quotation else 'INDIVIDUAL') %}
+
+<form method="post" enctype="multipart/form-data" action="{% if is_quotation %}/admin/hotel/quotations/save{% else %}/admin/hotel/bookings/save{% endif %}" class="card" id="booking-form">
+
+  <h2 style="margin:0 0 0.65rem;font-size:1rem">جهة الحجز (من يحجز)</h2>
+  <p class="muted" style="margin:0 0 0.65rem;font-size:0.84rem;line-height:1.55">
+    هذا القسم لبيانات من يُجرى الحجز باسمه (فرد أو شركة) — <strong>ليس بالضرورة كل من سيقيم في الشقة</strong>.
+  </p>
+  <div class="guest-type-tabs">
+    <label><input type="radio" name="guest_type" value="INDIVIDUAL" {% if draft_guest_type == 'INDIVIDUAL' %}checked{% endif %} /><span>👤 فرد</span></label>
+    <label><input type="radio" name="guest_type" value="COMPANY" {% if draft_guest_type == 'COMPANY' %}checked{% endif %} /><span>🏢 شركة</span></label>
+  </div>
+
+  <div id="panel-individual" class="guest-panel{% if draft_guest_type == 'INDIVIDUAL' %} active{% endif %}" style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
+    <div><label>اسم من يحجز *</label><input name="guest_name" id="guest_name" value="{{ d.get('guest_name', '') }}" {% if not is_quotation %}required{% endif %} placeholder="جهة الاتصال / الحاجز" /></div>
+    <div><label>الهاتف *</label><input name="guest_phone" id="guest_phone" value="{{ d.get('guest_phone', '') }}" {% if not is_quotation %}required{% endif %} /></div>
+    <div><label>البريد</label><input name="guest_email" type="email" value="{{ d.get('guest_email', '') }}" /></div>
+  </div>
+
+  <div id="panel-company" class="guest-panel{% if draft_guest_type == 'COMPANY' %} active{% endif %}" style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
+    <div style="grid-column:1/-1"><label>اسم الشركة *</label><input name="company_name" id="company_name" value="{{ d.get('company_name', '') }}" {% if is_quotation %}required{% endif %} /></div>
+    <div><label>السجل / الرقم الضريبي</label><input name="company_tax_id" value="{{ d.get('company_tax_id', '') }}" placeholder="اختياري" /></div>
+    <div><label>هاتف الشركة</label><input name="company_contact_phone" value="{{ d.get('company_contact_phone', '') }}" /></div>
+    <div><label>مسؤول التواصل / الحاجز *</label><input name="company_contact_name" id="company_contact_name" value="{{ d.get('company_contact_name', '') }}" placeholder="من يحجز باسم الشركة" /></div>
+    <div><label>بريد الشركة / المسؤول</label><input name="company_contact_email" type="email" value="{{ d.get('company_contact_email', '') }}" /></div>
+    <div style="grid-column:1/-1"><label>عنوان الشركة</label><input name="company_address" value="{{ d.get('company_address', '') }}" /></div>
+  </div>
+
+  <div class="card" style="margin:0.85rem 0 0;background:#fff7ed;border-color:#fed7aa">
+    <h3 style="margin:0 0 0.45rem;color:#9a3412">النزلاء المقيمون في الشقة *</h3>
+    <p class="muted" style="margin:0 0 0.65rem;font-size:0.84rem;line-height:1.55">
+      ⚠️ <strong>التقرير الأمني يطبع أسماء النزلاء المقيمين هنا فقط</strong> — وليس اسم جهة الحجز أو الشركة وحدها.
+      أدخل كل شخص سيقيم في الشقة (اسم، نوع الوثيقة، جنسية، وإرفاق صورة/مسح الهوية).
+    </p>
+    <div id="staying-guests-list" style="display:flex;flex-direction:column;gap:0.65rem"></div>
+    <button type="button" class="btn" id="add-staying-guest" style="margin-top:0.55rem">+ إضافة نزيل</button>
+  </div>
+
+  <template id="staying-guest-row-tpl">
+    <div class="staying-guest-row card" style="margin:0;padding:0.65rem;background:#fff;border-color:#e2e8f0">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.45rem">
+        <strong class="staying-guest-label">نزيل 1</strong>
+        <button type="button" class="btn staying-guest-remove" style="padding:0.2rem 0.45rem;color:#b91c1c" title="حذف">✕</button>
+      </div>
+      {% include "_hotel_staying_guest_fields.html" %}
+    </div>
+  </template>
+
+  <hr style="margin:1rem 0;border:none;border-top:1px solid #e2e8f0" />
+
+  <div class="grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
+    <div><label>الشقة *</label>
+      <select name="room_id" id="room_id" required>
+        {% for r in rooms %}
+        <option value="{{ r.id }}"{% if (d.get('room_id') and d.get('room_id')|string == r.id|string) or (not d.get('room_id') and pre_room and pre_room.id == r.id) %} selected{% endif %}>{{ r.name_ar or ('شقة ' ~ r.number) }} (#{{ r.number }})</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div><label>بالغون</label><input name="adults" type="number" value="{{ d.get('adults', 1) }}" min="1" /></div>
+    <div><label>وصول *</label><input name="check_in" id="check_in" type="date" required min="{{ today.isoformat() if today is defined else '' }}" value="{{ d.get('check_in') or (today.isoformat() if today is defined else '') }}" /></div>
+    <div><label>مغادرة *</label><input name="check_out" id="check_out" type="date" required min="{{ today.isoformat() if today is defined else '' }}" value="{{ d.get('check_out') or (today.isoformat() if today is defined else '') }}" /></div>
+    <div><label>نوع الغرفة</label>
+      <div id="room-type-info" class="booking-room-type-info" aria-live="polite">
+        {% if pre_room and pre_room.room_type %}
+        {{ pre_room.room_type.name_ar }} — {{ '%.3f'|format(pre_room.room_type.base_price) }} د.ل/ليلة
+        {% else %}<span class="muted">—</span>{% endif %}
+      </div>
+    </div>
+    {% if is_quotation %}
+    <div><label>صلاحية العرض حتى</label><input name="quotation_valid_until" type="date" value="{{ d.get('quotation_valid_until', '') }}" /></div>
+    <div style="grid-column:1/-1"><label>ملاحظات العرض (للشركة)</label><textarea name="quotation_notes" placeholder="شروط، خصم، ملاحظات..." style="width:100%">{{ d.get('quotation_notes', '') }}</textarea></div>
+    {% else %}
+    <div id="payment-fields" style="grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:0.75rem"{% if prep_pct == 0 %} hidden{% endif %}>
+      <div><label>المبلغ المدفوع{% if prep_pct > 0 %} *{% endif %}</label><input name="deposit" id="deposit" type="number" step="0.001" min="0" value="{{ d.get('deposit', '') }}" {% if prep_pct > 0 %}required{% endif %} /></div>
+      <div><label>وسيلة الدفع{% if prep_pct > 0 %} *{% endif %}</label>
+        <select name="pay_method_id" id="pay_method_id" {% if prep_pct > 0 %}required{% endif %}>
+          <option value="">— اختر وسيلة الدفع —</option>
+          {% for m in methods %}<option value="{{ m.id }}"{% if d.get('pay_method_id') and d.get('pay_method_id')|string == m.id|string %} selected{% elif not d.get('pay_method_id') and loop.first %} selected{% endif %}>{{ m.name_ar }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="card" style="margin:0.85rem 0 0;background:#f8fafc;border-color:#cbd5e1">
+    <h3 style="margin:0 0 0.5rem;color:#1e40af">ملخص تكلفة الإقامة</h3>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:0.65rem">
+      <div><div class="muted" style="font-size:0.82rem">عدد الليالي</div><div id="booking-nights" style="font-weight:800;font-size:1.15rem">0 ليلة</div></div>
+      <div><div class="muted" style="font-size:0.82rem">سعر الليلة</div><div><strong id="booking-nightly-rate">0</strong> <span class="money-currency">د.ل</span></div></div>
+      <div><div class="muted" style="font-size:0.82rem">إجمالي الإقامة</div><div style="font-weight:800;color:#047857;font-size:1.15rem"><span id="booking-total">0</span> <span class="money-currency">د.ل</span></div></div>
+      {% if not is_quotation %}
+      <div><div class="muted" style="font-size:0.82rem">الحد الأدنى للدفع</div><div style="font-weight:800;color:#b45309;font-size:1.05rem"><span id="booking-required">0</span> <span class="money-currency">د.ل</span></div></div>
+      {% endif %}
+    </div>
+    {% if is_quotation %}
+    <p class="muted" style="margin:0.55rem 0 0;font-size:0.82rem">عرض السعر لا يحجز الشقة ولا يتطلب دفعاً — يُتابَع حتى موافقة الشركة ثم يُحوَّل إلى حجز.</p>
+    {% else %}
+    <p class="muted" id="prepayment-note" style="margin:0.55rem 0 0;font-size:0.82rem">{{ prepayment_percent_label | default('100% — دفع كامل') }}</p>
+    <p class="muted" style="margin:0.25rem 0 0;font-size:0.82rem">
+      💡 الحجز المستقبلي لا يُغلق الشقة قبل يوم الوصول — يمكن إيجارها في الأيام السابقة إذا لا يوجد تداخل في التواريخ.
+    </p>
+    <p class="muted" style="margin:0.25rem 0 0;font-size:0.82rem">
+      يمكنك دفع أكثر من المطلوب — الفائض يُحفظ كرصيد للزبون (ما له) ويُستخدم عند تسوية وجبات الغرفة.
+      <a href="/admin/hotel/settings">تغيير سياسة العربون</a>
+    </p>
+    {% endif %}
+  </div>
+
+  {% if not is_quotation %}
+  <label style="display:block;margin-top:0.5rem"><input type="checkbox" name="auto_confirm" {% if d.get('auto_confirm', True) %}checked{% endif %} /> تأكيد فوري</label>
+  {% endif %}
+  <textarea name="internal_notes" placeholder="ملاحظات داخلية" style="width:100%;margin-top:0.5rem">{{ d.get('internal_notes', '') }}</textarea>
+  <button class="btn btn-primary" type="submit" style="margin-top:0.75rem">
+    {% if is_quotation %}حفظ عرض السعر{% else %}حفظ الحجز{% endif %}
+  </button>
+</form>
+
+<script>
+(function () {
+  var map = {{ rooms_type_map | tojson }};
+  var isQuotation = {{ 'true' if is_quotation else 'false' }};
+  var prepPct = {{ prep_pct }};
+  var stayingDraft = {{ d.get('staying_guests', []) | tojson }};
+  var hasDepositDraft = {{ 'true' if d.get('deposit') else 'false' }};
+  var depositUserEdited = hasDepositDraft;
+  var sel = document.getElementById('room_id');
+  var info = document.getElementById('room-type-info');
+  var checkIn = document.getElementById('check_in');
+  var checkOut = document.getElementById('check_out');
+  var nightsEl = document.getElementById('booking-nights');
+  var rateEl = document.getElementById('booking-nightly-rate');
+  var totalEl = document.getElementById('booking-total');
+  var requiredEl = document.getElementById('booking-required');
+  var depositEl = document.getElementById('deposit');
+  var payFields = document.getElementById('payment-fields');
+  var payMethod = document.getElementById('pay_method_id');
+  var form = document.getElementById('booking-form');
+  var panelInd = document.getElementById('panel-individual');
+  var panelCo = document.getElementById('panel-company');
+  var typeRadios = form.querySelectorAll('input[name="guest_type"]');
+
+  function money(n) {
+    n = Number(n || 0);
+    if (!isFinite(n)) n = 0;
+    return n.toFixed(3).replace(/\.?0+$/, '');
+  }
+
+  function requiredAmount(total) {
+    if (prepPct <= 0) return 0;
+    return total * prepPct / 100;
+  }
+
+  function syncGuestPanels() {
+    var t = 'INDIVIDUAL';
+    typeRadios.forEach(function (r) { if (r.checked) t = r.value; });
+    var isCo = t === 'COMPANY';
+    panelInd.style.display = isCo ? 'none' : 'grid';
+    panelCo.style.display = isCo ? 'grid' : 'none';
+    var gn = document.getElementById('guest_name');
+    var gp = document.getElementById('guest_phone');
+    var cn = document.getElementById('company_name');
+    if (gn) gn.required = !isQuotation && !isCo;
+    if (gp) gp.required = !isQuotation && !isCo;
+    if (cn) cn.required = isCo;
+  }
+
+  typeRadios.forEach(function (r) { r.addEventListener('change', syncGuestPanels); });
+  syncGuestPanels();
+
+  var guestsList = document.getElementById('staying-guests-list');
+  var guestTpl = document.getElementById('staying-guest-row-tpl');
+  var addGuestBtn = document.getElementById('add-staying-guest');
+
+  function renumberStayingGuests() {
+    if (!guestsList) return;
+    var rows = guestsList.querySelectorAll('.staying-guest-row');
+    rows.forEach(function (row, i) {
+      var lbl = row.querySelector('.staying-guest-label');
+      if (lbl) lbl.textContent = 'نزيل ' + (i + 1);
+      var rm = row.querySelector('.staying-guest-remove');
+      if (rm) rm.hidden = rows.length <= 1;
+    });
+  }
+
+  function fillStayingGuestRow(row, guest) {
+    if (!row || !guest) return;
+    var nameInp = row.querySelector('input[name="staying_guest_name"]');
+    var idInp = row.querySelector('input[name="staying_guest_id_number"]');
+    var typeSel = row.querySelector('select[name="staying_guest_id_type"]');
+    var phoneInp = row.querySelector('input[name="staying_guest_phone"]');
+    var addrInp = row.querySelector('input[name="staying_guest_address"]');
+    if (nameInp) nameInp.value = guest.name || '';
+    if (idInp) idInp.value = guest.id_number || '';
+    if (typeSel && guest.id_type) typeSel.value = guest.id_type;
+    if (phoneInp) phoneInp.value = guest.phone || '';
+    if (addrInp) addrInp.value = guest.address || '';
+    var natHidden = row.querySelector('[data-combobox-value]');
+    var natInput = row.querySelector('[data-combobox-input]');
+    var nat = guest.nationality || '';
+    if (natHidden) natHidden.value = nat;
+    if (natInput) natInput.value = nat;
+  }
+
+  function addStayingGuestRow(guest) {
+    if (!guestTpl || !guestsList) return;
+    var node = guestTpl.content.cloneNode(true);
+    guestsList.appendChild(node);
+    var row = guestsList.lastElementChild;
+    if (row && window.initSearchableCombobox) {
+      row.querySelectorAll("[data-searchable-combobox]").forEach(function (el) {
+        el._comboboxInit = false;
+        window.initSearchableCombobox(el, { submitOnSelect: false });
+      });
+    }
+    renumberStayingGuests();
+    if (guest) fillStayingGuestRow(row, guest);
+    if (!isQuotation && row && guestsList.querySelectorAll('.staying-guest-row').length > 1) {
+      row.querySelectorAll('[required]').forEach(function (el) { el.removeAttribute('required'); });
+    }
+  }
+
+  if (addGuestBtn) addGuestBtn.addEventListener('click', function () { addStayingGuestRow(); });
+  if (guestsList) {
+    guestsList.addEventListener('click', function (e) {
+      var btn = e.target.closest('.staying-guest-remove');
+      if (!btn) return;
+      var row = btn.closest('.staying-guest-row');
+      if (!row || guestsList.querySelectorAll('.staying-guest-row').length <= 1) return;
+      row.remove();
+      renumberStayingGuests();
+    });
+    if (stayingDraft && stayingDraft.length) {
+      stayingDraft.forEach(function (g) { addStayingGuestRow(g); });
+    } else {
+      addStayingGuestRow();
+    }
+    document.querySelectorAll("#staying-guests-list [data-searchable-combobox]").forEach(function (el) {
+      if (window.initSearchableCombobox) {
+        window.initSearchableCombobox(el, { submitOnSelect: false });
+      }
+    });
+  }
+
+  function selectedRoomRate() {
+    var rt = map[sel.value];
+    if (!rt || !rt.type_id) return 0;
+    var n = parseFloat(rt.price || '0');
+    return isFinite(n) && n > 0 ? n : 0;
+  }
+
+  function selectedNights() {
+    if (!checkIn || !checkOut || !checkIn.value || !checkOut.value) return 0;
+    var start = new Date(checkIn.value + 'T12:00:00');
+    var end = new Date(checkOut.value + 'T12:00:00');
+    var ms = end.getTime() - start.getTime();
+    if (!isFinite(ms) || ms <= 0) return 0;
+    return Math.round(ms / 86400000);
+  }
+
+  function syncStaySummary(skipDepositAutofill) {
+    var nights = selectedNights();
+    var rate = selectedRoomRate();
+    var total = rate * nights;
+    var req = requiredAmount(total);
+    if (nightsEl) nightsEl.textContent = nights + (nights === 1 ? ' ليلة' : ' ليالٍ');
+    if (rateEl) rateEl.textContent = money(rate);
+    if (totalEl) totalEl.textContent = money(total);
+    if (requiredEl) requiredEl.textContent = money(req);
+    if (!skipDepositAutofill && depositEl && nights > 0 && rate > 0 && prepPct > 0 && !depositUserEdited) {
+      depositEl.value = money(req);
+      depositEl.min = money(req);
+      depositEl.required = true;
+    }
+    if (payFields) payFields.hidden = prepPct <= 0;
+    if (depositEl) depositEl.required = prepPct > 0;
+    if (payMethod) payMethod.required = prepPct > 0;
+  }
+
+  if (depositEl) {
+    depositEl.addEventListener('input', function () { depositUserEdited = true; });
+    depositEl.addEventListener('change', function () { depositUserEdited = true; });
+  }
+
+  function syncRoomType(skipDepositAutofill) {
+    var rt = map[sel.value];
+    if (!rt || !rt.type_id) {
+      info.innerHTML = '<span style="color:#b91c1c">بدون نوع — <a href="/admin/hotel/rooms">إعداد الشقق</a></span>';
+      syncStaySummary(skipDepositAutofill);
+      return false;
+    }
+    info.textContent = rt.type_name + ' — ' + rt.price + ' د.ل/ليلة' + (rt.has_room_price ? ' (سعر خاص)' : '');
+    syncStaySummary(skipDepositAutofill);
+    return true;
+  }
+
+  if (sel) sel.addEventListener('change', syncRoomType);
+  if (checkIn) checkIn.addEventListener('change', syncStaySummary);
+  if (checkOut) checkOut.addEventListener('change', syncStaySummary);
+  syncRoomType();
+
+  function validateStayingGuests() {
+    if (!guestsList) return true;
+    var rows = guestsList.querySelectorAll('.staying-guest-row');
+    var count = 0;
+    for (var ri = 0; ri < rows.length; ri++) {
+      var row = rows[ri];
+      var name = ((row.querySelector('input[name="staying_guest_name"]') || {}).value || '').trim();
+      var idNum = ((row.querySelector('input[name="staying_guest_id_number"]') || {}).value || '').trim();
+      var idType = ((row.querySelector('select[name="staying_guest_id_type"]') || {}).value || '').trim();
+      var nat = ((row.querySelector('input[name="staying_guest_nationality"]') || {}).value || '').trim();
+      var phone = ((row.querySelector('input[name="staying_guest_phone"]') || {}).value || '').trim();
+      var addr = ((row.querySelector('input[name="staying_guest_address"]') || {}).value || '').trim();
+      var fileInp = row.querySelector('input[name="staying_guest_id_document"]');
+      var hasFile = fileInp && fileInp.files && fileInp.files.length > 0;
+      var hasAny = name || idNum || idType || nat || phone || addr || hasFile;
+      if (!hasAny) continue;
+      count++;
+      var label = 'نزيل ' + count;
+      if (!name) { alert(label + ': الاسم الكامل مطلوب.'); return false; }
+      if (!idNum) { alert(label + ' (' + name + '): رقم الهوية / الجواز مطلوب.'); return false; }
+      if (!idType) { alert(label + ' (' + name + '): نوع الوثيقة مطلوب.'); return false; }
+      if (!nat) { alert(label + ' (' + name + '): الجنسية مطلوبة.'); return false; }
+      if (!phone) { alert(label + ' (' + name + '): الهاتف مطلوب.'); return false; }
+      if (!addr) { alert(label + ' (' + name + '): العنوان مطلوب.'); return false; }
+      if (!hasFile) { alert(label + ' (' + name + '): إرفاق صورة/مسح الوثيقة مطلوب.'); return false; }
+    }
+    if (!count) {
+      alert('أدخل نزيلاً واحداً على الأقل في الشقة مع بياناته كاملة.');
+      return false;
+    }
+    return true;
+  }
+
+  form.addEventListener('submit', function (e) {
+    if (!syncRoomType(true)) {
+      e.preventDefault();
+      alert('الشقة بدون نوع غرفة.');
+      return;
+    }
+    var nights = selectedNights();
+    if (!nights) {
+      e.preventDefault();
+      alert('تحقق من التواريخ.');
+      return;
+    }
+    var guestNames = form.querySelectorAll('input[name="staying_guest_name"]');
+    var hasGuest = false;
+    guestNames.forEach(function (inp) {
+      if ((inp.value || '').trim()) hasGuest = true;
+    });
+    if (!isQuotation && !validateStayingGuests()) {
+      e.preventDefault();
+      return;
+    }
+    if (!hasGuest && isQuotation) {
+      e.preventDefault();
+      alert('أدخل اسم نزيل واحد على الأقل في الشقة (قسم النزلاء المقيمون).');
+      return;
+    }
+    if (!isQuotation && prepPct > 0) {
+      var due = requiredAmount(selectedRoomRate() * nights);
+      var paid = parseFloat((depositEl && depositEl.value) || '0');
+      if (!paid || paid + 0.001 < due) {
+        e.preventDefault();
+        alert('يجب دفع ' + money(due) + ' د.ل على الأقل (' + prepPct + '%).');
+        return;
+      }
+      if (payMethod && !payMethod.value) {
+        e.preventDefault();
+        alert('اختر وسيلة الدفع.');
+      }
+    }
+  });
+})();
+</script>
+{% endblock %}

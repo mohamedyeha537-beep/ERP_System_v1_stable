@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}صندوق الوارد{% endblock %}
+{% block body %}
+<h1>💬 صندوق الوارد</h1>
+<p class="muted">محادثات العملاء الواردة عبر واتساب — ردّ من هنا أو عيّن المحادثة لموظف.</p>
+
+{% if err %}
+<div class="alert" style="margin-bottom:0.75rem">{{ err }}</div>
+{% endif %}
+{% if ok == 'dismissed' %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4;margin-bottom:0.75rem"><p style="margin:0">تم إغلاق {{ request.query_params.get('n', '0') }} محادثة معلّقة.</p></div>
+{% elif ok %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4;margin-bottom:0.75rem"><p style="margin:0">تم التحديث.</p></div>
+{% endif %}
+
+<div class="row" style="gap:0.45rem;margin:0.75rem 0;flex-wrap:wrap">
+  <a class="btn {% if filter == 'open' %}btn-primary{% endif %}" href="/admin/messaging/inbox?filter=open">مفتوحة</a>
+  <a class="btn {% if filter == 'unread' %}btn-primary{% endif %}" href="/admin/messaging/inbox?filter=unread">غير مقروء ({{ unread_total }})</a>
+  <a class="btn {% if mine %}btn-primary{% endif %}" href="/admin/messaging/inbox?filter=open&mine=1">محادثاتي</a>
+  <a class="btn {% if filter == 'closed' %}btn-primary{% endif %}" href="/admin/messaging/inbox?filter=closed">مغلقة</a>
+  <a class="btn {% if filter == 'all' %}btn-primary{% endif %}" href="/admin/messaging/inbox?filter=all">الكل</a>
+  {% if pending_response|default(0) > 0 %}
+  <form method="post" action="/admin/messaging/inbox/dismiss-pending" style="margin-inline-start:auto" onsubmit="return confirm('إغلاق {{ pending_response }} محادثة بانتظار الرد؟');">
+    <button type="submit" class="btn" style="border-color:#fca5a5;color:#b91c1c">✕ إغلاق المعلّقة ({{ pending_response }})</button>
+  </form>
+  {% endif %}
+  <a class="btn" href="/admin/notifications/delivery" {% if not (pending_response|default(0) > 0) %}style="margin-inline-start:auto"{% endif %}>إعدادات الإرسال</a>
+</div>
+
+{% if not enabled %}
+<div class="alert">فعّل الإرسال من <a href="/admin/notifications/delivery">إعدادات WhatsApp</a> أولاً.</div>
+{% endif %}
+
+<div class="card">
+  {% if not conversations %}
+  <p class="muted" style="margin:0">لا توجد محادثات بعد. عند تفعيل <strong>استقبال الرسائل الواردة</strong> وربط n8n، ستظهر رسائل العملاء هنا.</p>
+  {% else %}
+  <table>
+    <thead>
+      <tr>
+        <th>العميل / الهاتف</th>
+        <th>آخر رسالة</th>
+        <th>الموظف</th>
+        <th>الحالة</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in conversations %}
+      <tr style="{% if c.unread_count > 0 %}font-weight:600{% endif %}">
+        <td>
+          {% if c.customer %}
+          <a href="/admin/customers/{{ c.customer.id }}">{{ c.customer.name or c.customer.phone }}</a>
+          {% else %}
+          {{ c.phone }}
+          {% endif %}
+          {% if c.unread_count > 0 %}
+          <span style="background:#dc2626;color:#fff;border-radius:999px;padding:0.1rem 0.45rem;font-size:0.75rem;margin-inline-start:0.35rem">{{ c.unread_count }}</span>
+          {% endif %}
+        </td>
+        <td style="max-width:320px;font-size:0.88rem;color:var(--muted)">
+          {{ c.last_preview or '—' }}
+          {% if c.last_message_at %}
+          <div style="font-size:0.78rem;margin-top:0.15rem">{{ pos_format_dt(c.last_message_at) }}</div>
+          {% endif %}
+        </td>
+        <td>{{ c.assigned_user.username if c.assigned_user else '—' }}</td>
+        <td>{{ 'مفتوحة' if c.status == 'open' else 'مغلقة' }}</td>
+        <td><a class="btn btn-primary" style="padding:0.25rem 0.55rem;font-size:0.85rem" href="/admin/messaging/inbox/{{ c.id }}">فتح</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+{% endblock %}

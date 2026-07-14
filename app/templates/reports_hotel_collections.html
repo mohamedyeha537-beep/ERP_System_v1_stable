@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button with context %}
+{% block title %}تحصيلات الفندق{% endblock %}
+{% block body %}
+<h1>تحصيلات الفندق{% if domain_label %} — {{ domain_label }}{% endif %}</h1>
+{{ reports_nav('hotel_collections') }}
+{{ period_filter('/reports/hotel-collections', period, period_labels, start, end, start_str, end_str) }}
+{{ report_export_format_help() }}
+<div class="export-bar">
+  <span class="label">Excel (.csv):</span>
+  {{ export_button('/reports/export/hotel-collections.csv?period=' ~ period, 'سجل التحصيلات') }}
+  <span class="label no-print" style="margin-inline-start:0.75rem">PDF:</span>
+  {{ pdf_export_button() }}
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">ملخص الفترة</h2>
+  <div class="stat-grid">
+    <div class="stat-card"><div class="label">عدد التحصيلات</div><div class="value">{{ summary.payment_count }}</div></div>
+    <div class="stat-card good"><div class="label">إجمالي التحصيل</div><div class="value">{{ summary.collected_total }} د.ل</div></div>
+    <div class="stat-card bad"><div class="label">مرتجعات التحصيل</div><div class="value">{{ summary.refunded_total }} د.ل</div></div>
+    <div class="stat-card good"><div class="label">صافي التحصيل</div><div class="value">{{ summary.net_total }} د.ل</div></div>
+    <div class="stat-card"><div class="label">عربونات (عدد)</div><div class="value">{{ summary.deposit_count }}</div></div>
+    <div class="stat-card"><div class="label">إجمالي العربونات</div><div class="value">{{ summary.deposit_total }} د.ل</div></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">حسب طريقة الدفع</h2>
+  {% if sales_by_pm %}
+  <table>
+    <thead>
+      <tr><th>طريقة الدفع</th><th>عمليات التحصيل</th><th>التحصيل</th><th>عمليات الرد</th><th>رد المبالغ</th><th>الصافي</th></tr>
+    </thead>
+    <tbody>
+      {% for name, sales_cnt, sales_total, refund_cnt, refund_total, net_total in sales_by_pm %}
+      <tr>
+        <td><strong>{{ name }}</strong></td>
+        <td>{{ sales_cnt }}</td>
+        <td style="color:#16a34a">+{{ sales_total }} د.ل</td>
+        <td>{{ refund_cnt }}</td>
+        <td style="color:#b91c1c">−{{ refund_total }} د.ل</td>
+        <td style="font-weight:700">{{ net_total }} د.ل</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">لا توجد حركات في هذه الفترة.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">سجل الحركات</h2>
+  {% if rows %}
+  <table>
+    <thead>
+      <tr>
+        <th>النوع</th>
+        <th>التاريخ</th>
+        <th>مرجع الحجز</th>
+        <th>النزيل</th>
+        <th>المبلغ</th>
+        <th>طريقة الدفع</th>
+        <th>عربون</th>
+        <th>المستلم</th>
+        <th>ملاحظة</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>{% if r.movement_type == 'مرتجع' %}<span style="color:#b91c1c">{{ r.movement_type }}</span>{% else %}<span style="color:#16a34a">{{ r.movement_type }}</span>{% endif %}</td>
+        <td>{{ pos_format_dt(r.created_at, '%Y-%m-%d %H:%M') }}</td>
+        <td><a href="/admin/hotel/bookings/{{ r.booking_id }}">{{ r.booking_ref }}</a></td>
+        <td>{{ r.guest_name }}</td>
+        <td style="font-weight:700">{% if r.movement_type == 'مرتجع' %}−{% endif %}{{ r.amount }} د.ل</td>
+        <td>{{ r.payment_method }}</td>
+        <td>{% if r.is_deposit %}نعم{% else %}—{% endif %}</td>
+        <td>{{ r.received_by }}</td>
+        <td>{{ r.note or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">لا توجد تحصيلات أو مرتجعات في هذه الفترة.</p>
+  {% endif %}
+</div>
+{% endblock %}

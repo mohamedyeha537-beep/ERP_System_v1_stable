@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}تقويم الحجوزات{% endblock %}
+{% block body %}
+<h1 style="margin-top:0">تقويم الحجوزات</h1>
+<p><a class="btn" href="/admin/hotel/bookings">← قائمة الحجوزات</a> · {{ start }} → {{ end }}</p>
+<div class="card" style="overflow-x:auto">
+  <table>
+    <thead><tr><th>الغرفة</th>{% for d in date_cols %}<th>{{ d }}</th>{% endfor %}</tr></thead>
+    <tbody>
+    {% for room in rooms %}
+    <tr>
+      <td><strong>#{{ room.number }}</strong></td>
+      {% for d in date_cols %}
+      <td style="min-width:70px;padding:0.25rem">
+        {% for b in bookings %}
+        {% if b.room_id == room.id and b.check_in <= d and b.check_out > d %}
+        <a href="/admin/hotel/bookings/{{ b.id }}" style="display:block;background:#dbeafe;padding:0.2rem;border-radius:4px;font-size:0.78rem">{{ b.reference }}</a>
+        {% endif %}
+        {% endfor %}
+      </td>
+      {% endfor %}
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

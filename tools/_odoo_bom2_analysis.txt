@@ -1,0 +1,11 @@
+sheets: Sheet1
+R1 (6 cols): ['BoM Type', 'Company', 'Product', 'Reference', 'Sequence', 'BoM Lines']
+R2 (6 cols): ['Kit', 'بيتك للشقق الفندقية', ' آيس تي خوخ', None, 0, 'خوخ']
+R3 (6 cols): ['Kit', 'بيتك للشقق الفندقية', 'شوربة ماشروم', None, 0, 'كريم طبخ ايطالي halt ']
+R4 (6 cols): [None, None, None, None, None, 'مشروم']
+R5 (6 cols): [None, None, None, None, None, 'ثوم صيني']
+R6 (6 cols): [None, None, None, None, None, 'بصل']
+R7 (6 cols): [None, None, None, None, None, 'زبدة حيوانية']
+R8 (6 cols): [None, None, None, None, None, 'ملح']
+data_rows=253
+dimension=A1:F254

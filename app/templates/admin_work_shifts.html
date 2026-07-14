@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% from "_week_schedule_grid.html" import week_schedule_grid %}
+{% block title %}ورديات العمل{% endblock %}
+{% block head_extra %}
+<style>
+  .hr-nav { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 1rem;
+            border-bottom: 1px solid var(--border); padding-bottom: 0.6rem; }
+  .hr-nav a { padding: 0.45rem 0.85rem; border-radius: 8px; border: 1px solid var(--border);
+              background: #fff; color: inherit; text-decoration: none; font-weight: 600; }
+  .hr-nav a.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem; }
+  @media (max-width: 760px) { .grid-3 { grid-template-columns: 1fr; } }
+</style>
+{% endblock %}
+{% block body %}
+<h1 style="margin-top:0">ورديات العمل</h1>
+
+<nav class="hr-nav">
+  <a href="/admin/employees">الموظفون</a>
+  <a href="/admin/departments">الأقسام</a>
+  <a href="/admin/work-shifts" class="active">الورديات</a>
+  <a href="/admin/attendance">الحضور والانصراف</a>
+  <a href="/admin/payroll">الرواتب</a>
+</nav>
+
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+{% if saved %}<div class="alert" style="background:#ecfdf5;border-color:#10b981;color:#065f46">تم الحفظ ✓</div>{% endif %}
+
+<div class="card pos-guide-panel" data-guide-title="ℹ️ كيف تُحسب الورديات" style="background:#f0f9ff;border:1px solid #bae6fd">
+  <p class="muted" style="margin:0;line-height:1.7">
+    كل وردية تحدد <strong>وقت البداية</strong> و<strong>وقت النهاية</strong> و<strong>ساعات العمل</strong> (الافتراضي لكل الأسبوع).
+    يمكنك تخصيص <strong>يوم معيّن</strong> (مثل الجمعة) في جدول الأسبوع أدناه.
+    في ملف الموظف يمكن تجاوز ذلك لموظف بعينه.
+  </p>
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <h2 id="form-title" style="margin-top:0">وردية جديدة</h2>
+  <form method="post" action="/admin/work-shifts/save" id="shift-form">
+    <input type="hidden" name="shift_id" id="shift_id" value="" />
+    <div class="grid-3">
+      <div>
+        <label for="name_ar">اسم الوردية *</label>
+        <input id="name_ar" name="name_ar" required placeholder="مثال: صباحي" />
+      </div>
+      <div>
+        <label for="code">رمز (اختياري)</label>
+        <input id="code" name="code" placeholder="MORNING" />
+      </div>
+      <div>
+        <label for="work_hours">ساعات العمل</label>
+        <input id="work_hours" name="work_hours" type="number" step="0.25" min="0.25" max="24" value="8" />
+      </div>
+      <div>
+        <label for="start_time">بداية الوردية</label>
+        <input id="start_time" name="start_time" type="time" value="08:00" required />
+      </div>
+      <div>
+        <label for="end_time">نهاية الوردية</label>
+        <input id="end_time" name="end_time" type="time" value="16:00" required />
+      </div>
+      <div>
+        <label for="grace_minutes">سماح التأخير (دقيقة)</label>
+        <input id="grace_minutes" name="grace_minutes" type="number" min="0" max="180" value="15" />
+      </div>
+    </div>
+    <div style="margin-top:0.65rem">
+      <label for="notes">ملاحظات</label>
+      <input id="notes" name="notes" placeholder="اختياري" style="width:100%" />
+    </div>
+    <label style="display:block;margin-top:0.65rem">
+      <input type="checkbox" name="is_active" id="is_active" value="on" checked /> نشطة
+    </label>
+    <button type="submit" class="btn btn-primary" style="margin-top:0.75rem">حفظ الوردية</button>
+    <button type="button" class="btn" id="reset-form" style="margin-top:0.75rem">إلغاء التعديل</button>
+
+    <h3 style="margin:1rem 0 0.35rem;font-size:1rem">جدول الأسبوع (اختياري)</h3>
+    <p class="muted" style="margin:0 0 0.35rem;font-size:0.85rem">
+      الافتراضي أعلاه يُطبَّق على كل الأيام. فعّل «تخصيص» ليوم (مثل الجمعة) لساعات أو توقيت مختلف.
+    </p>
+    <div id="shift-week-grid">
+      {{ week_schedule_grid("shift_day", {}, none, week_days) }}
+    </div>
+  </form>
+</div>
+
+<table class="table" style="margin-top:1.5rem">
+  <thead>
+    <tr>
+      <th>الاسم</th>
+      <th>التوقيت</th>
+      <th>ساعات</th>
+      <th>سماح</th>
+      <th>موظفون</th>
+      <th>نشطة</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for s in shifts %}
+  <tr>
+    <td><strong>{{ s.name_ar }}</strong>{% if s.code %} <code>{{ s.code }}</code>{% endif %}</td>
+    <td>{{ s.start_time }} – {{ s.end_time }}</td>
+    <td>{{ s.work_hours }} س</td>
+    <td>{{ s.grace_minutes }} د</td>
+    <td>{{ emp_counts.get(s.id, 0) }}</td>
+    <td>{{ 'نعم' if s.is_active else 'لا' }}</td>
+    <td>
+      <button type="button" class="btn btn-edit-shift"
+        data-id="{{ s.id }}"
+        data-name="{{ s.name_ar|e }}"
+        data-code="{{ s.code or ''|e }}"
+        data-start="{{ s.start_time }}"
+        data-end="{{ s.end_time }}"
+        data-hours="{{ s.work_hours }}"
+        data-grace="{{ s.grace_minutes }}"
+        data-notes="{{ (s.notes or '')|e }}"
+        data-active="{{ '1' if s.is_active else '0' }}"
+      >تعديل</button>
+      {% if emp_counts.get(s.id, 0) == 0 %}
+      <form method="post" action="/admin/work-shifts/{{ s.id }}/delete" style="display:inline" onsubmit="return confirm('حذف الوردية؟')">
+        <button class="btn" type="submit" style="color:#b91c1c">حذف</button>
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="7" class="muted">لا توجد ورديات — أنشئ وردية صباحية ومسائية على الأقل.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<script>
+(function () {
+  var SHIFT_DAYS = {{ shift_day_schedules | tojson }};
+
+  function loadShiftWeekGrid(shiftId, defaults) {
+    var map = SHIFT_DAYS[String(shiftId)] || SHIFT_DAYS[shiftId] || {};
+    document.querySelectorAll('#shift-week-grid .week-sched-row').forEach(function (row) {
+      var dow = row.getAttribute('data-dow');
+      var rowData = map[dow] || map[parseInt(dow, 10)];
+      var ov = row.querySelector('.week-sched-override');
+      var rest = row.querySelector('.week-sched-rest');
+      if (ov) ov.checked = !!rowData;
+      if (rest) rest.checked = !!(rowData && rowData.is_rest_day);
+      var set = function (name, val) {
+        var el = row.querySelector('[name="shift_day_' + dow + '_' + name + '"]');
+        if (el) el.value = val || '';
+      };
+      if (rowData) {
+        set('start', rowData.start_time || (defaults && defaults.start) || '');
+        set('end', rowData.end_time || (defaults && defaults.end) || '');
+        set('hours', rowData.work_hours != null ? rowData.work_hours : (defaults && defaults.hours) || '');
+        set('grace', rowData.grace_minutes != null ? rowData.grace_minutes : (defaults && defaults.grace) || '');
+      } else {
+        set('start', defaults && defaults.start || '');
+        set('end', defaults && defaults.end || '');
+        set('hours', defaults && defaults.hours || '');
+        set('grace', defaults && defaults.grace || '');
+      }
+      row.querySelectorAll('.week-sched-override, .week-sched-rest').forEach(function (el) {
+        el.dispatchEvent(new Event('change'));
+      });
+    });
+  }
+
+  function resetForm() {
+    document.getElementById('form-title').textContent = 'وردية جديدة';
+    document.getElementById('shift_id').value = '';
+    document.getElementById('shift-form').reset();
+    document.getElementById('is_active').checked = true;
+    document.getElementById('work_hours').value = '8';
+    document.getElementById('start_time').value = '08:00';
+    document.getElementById('end_time').value = '16:00';
+    document.getElementById('grace_minutes').value = '15';
+    loadShiftWeekGrid(0, { start: '08:00', end: '16:00', hours: '8', grace: '15' });
+  }
+  document.getElementById('reset-form').addEventListener('click', resetForm);
+  document.querySelectorAll('.btn-edit-shift').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var d = btn.dataset;
+      document.getElementById('form-title').textContent = 'تعديل وردية';
+      document.getElementById('shift_id').value = d.id;
+      document.getElementById('name_ar').value = d.name || '';
+      document.getElementById('code').value = d.code || '';
+      document.getElementById('start_time').value = d.start || '08:00';
+      document.getElementById('end_time').value = d.end || '16:00';
+      document.getElementById('work_hours').value = d.hours || '8';
+      document.getElementById('grace_minutes').value = d.grace || '0';
+      document.getElementById('notes').value = d.notes || '';
+      document.getElementById('is_active').checked = d.active === '1';
+      loadShiftWeekGrid(d.id, { start: d.start, end: d.end, hours: d.hours, grace: d.grace });
+      document.getElementById('shift-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+  loadShiftWeekGrid(0, { start: '08:00', end: '16:00', hours: '8', grace: '15' });
+})();
+</script>
+{% endblock %}

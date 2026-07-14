@@ -1,0 +1,90 @@
+{# كرت شقة — مشترك بين لوحة التوفر وصفحة الإعداد #}
+<article class="hotel-room-card hotel-room-card--{% if c.is_available and c.is_active %}available{% else %}unavailable{% endif %}{% if not c.is_active %} hotel-room-card--inactive{% endif %}">
+  <div class="hotel-room-card__inner">
+    <div class="hotel-room-card__media">
+      {% if c.image_url %}
+      <img class="hotel-room-card__thumb" src="{{ c.image_url }}" alt="{{ c.display_name }}" loading="lazy" />
+      {% else %}
+      <div class="hotel-room-card__thumb hotel-room-card__thumb--placeholder" aria-hidden="true">
+        <span class="hotel-room-card__ph-icon">🏠</span>
+      </div>
+      {% endif %}
+    </div>
+    <div class="hotel-room-card__content">
+      <div class="hotel-room-card__head">
+        <h2 class="hotel-room-card__title">{{ c.display_name }}</h2>
+        {% if c.is_available and c.is_active %}
+        <span class="hotel-room-badge hotel-room-badge--available">متاحة</span>
+        {% else %}
+        <span class="hotel-room-badge hotel-room-badge--occupied">غير متاحة</span>
+        {% endif %}
+      </div>
+      <p class="hotel-room-card__price">
+        <strong>{{ '%.3f'|format(c.nightly_price) }}</strong> د.ل / ليلة
+      </p>
+      <p class="hotel-room-card__property">{{ c.property_name }}</p>
+      {% if not c.is_available or not c.is_active %}
+      <p class="hotel-room-card__reason">{{ c.status_label }}{% if c.guest_name %} · {{ c.guest_name }}{% endif %}</p>
+      {% elif c.room_type_name %}
+      <p class="hotel-room-card__reason">{{ c.room_type_name }}{% if c.floor %} · ط{{ c.floor }}{% endif %}</p>
+      {% endif %}
+      <div class="hotel-room-card__caps">
+        <span class="hotel-room-cap" title="بالغون">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+          {{ c.capacity_adults }}
+        </span>
+        {% if c.capacity_children %}
+        <span class="hotel-room-cap" title="أطفال">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><path d="M12 2a3 3 0 1 1 0 6 3 3 0 0 1 0-6zm-4 8c-1.1 0-2 .9-2 2v6h2v4h8v-4h2v-6c0-1.1-.9-2-2-2H8z"/></svg>
+          {{ c.capacity_children }}
+        </span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="hotel-room-card__actions">
+    {% if card_mode == 'setup' %}
+    <a class="btn btn-outline" href="/admin/hotel/bookings?room_id={{ c.room_id }}">الحجوزات</a>
+    <button class="btn btn-book" type="button" onclick="this.closest('.hotel-room-card').querySelector('details').open=true">تعديل</button>
+    {% else %}
+    <a class="btn btn-outline" href="/admin/hotel/bookings?room_id={{ c.room_id }}">عرض الحجوزات</a>
+    {% if c.is_available and c.is_active %}
+    <a class="btn btn-book" href="/admin/hotel/bookings/new?room_id={{ c.room_id }}">احجز الآن</a>
+    {% elif c.booking_id %}
+    <a class="btn btn-book btn-book--muted" href="/admin/hotel/bookings/{{ c.booking_id }}">تفاصيل الإقامة</a>
+    {% else %}
+    <span class="btn btn-book btn-book--disabled" aria-disabled="true">احجز الآن</span>
+    {% endif %}
+    {% endif %}
+  </div>
+  {% if card_mode == 'setup' %}
+  <details class="hotel-room-card__edit">
+    <summary style="display:none">تعديل</summary>
+    {% set r = setup_rooms.get(c.room_id) %}
+    {% if r %}
+    <form method="post" action="/admin/hotel/rooms/{{ r.id }}/edit" enctype="multipart/form-data" class="hotel-room-card__edit-form">
+      <input name="name_ar" value="{{ r.name_ar or '' }}" placeholder="اسم الشقة" />
+      <input name="number" value="{{ r.number }}" required placeholder="الرقم" />
+      <input name="nightly_price" type="number" step="0.001" min="0" value="{{ r.nightly_price if r.nightly_price else '' }}" placeholder="سعر الليلة" />
+      <select name="room_type_id">
+        <option value="">— نوع الغرفة —</option>
+        {% for t in room_types %}
+        <option value="{{ t.id }}"{% if r.room_type_id == t.id %} selected{% endif %}>{{ t.name_ar }}</option>
+        {% endfor %}
+      </select>
+      <input name="floor" value="{{ r.floor or '' }}" placeholder="الطابق" />
+      <input name="notes" value="{{ r.notes or '' }}" placeholder="ملاحظة" />
+      <label class="hotel-room-card__file">صورة جديدة<input name="image" type="file" accept="image/jpeg,image/png,image/webp" /></label>
+      <label class="hotel-room-card__check"><input type="checkbox" name="is_active" {% if r.is_active %}checked{% endif %} /> نشطة</label>
+      <div class="hotel-room-card__edit-actions">
+        <button class="btn btn-primary" type="submit">حفظ</button>
+        <button class="btn" type="button" onclick="this.closest('details').open=false">إلغاء</button>
+      </div>
+    </form>
+    <form method="post" action="/admin/hotel/rooms/{{ r.id }}/delete" onsubmit="return confirm('حذف {{ r.name_ar or r.number }}؟');">
+      <button class="btn hotel-room-card__delete" type="submit">حذف الشقة</button>
+    </form>
+    {% endif %}
+  </details>
+  {% endif %}
+</article>

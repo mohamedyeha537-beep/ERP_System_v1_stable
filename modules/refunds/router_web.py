@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import logging
 from decimal import Decimal, InvalidOperation
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -8,7 +10,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app.deps import DBSession, require_permission
 from app.jinja_env import templates
 from modules.authz.models import User
-from modules.authz.permissions import SALES_REFUND, SALES_REFUND_OVERRIDE
+from modules.authz.permissions import SALES_REFUND, SALES_REFUND_OVERRIDE, SALES_EDIT_INVOICE
 from modules.authz.service import user_has_permission
 from modules.payments.service import list_payment_methods
 from modules.refunds.service import (
@@ -23,6 +25,7 @@ from modules.refunds.service import (
 
 router = APIRouter(prefix="/refunds", tags=["refunds"])
 _refund_perm = require_permission(SALES_REFUND)
+log = logging.getLogger("refunds.web")
 
 
 def _parse_decimal(raw: str | None) -> Decimal:
@@ -30,6 +33,13 @@ def _parse_decimal(raw: str | None) -> Decimal:
         return Decimal(str(raw or "").strip() or "0")
     except (InvalidOperation, TypeError, ValueError):
         return Decimal("0")
+
+
+def _sale_error_redirect(sale_id: int, message: object) -> RedirectResponse:
+    return RedirectResponse(
+        f"/refunds/sale/{sale_id}?error={quote(str(message))}",
+        status_code=302,
+    )
 
 
 @router.get("", response_class=HTMLResponse)
@@ -57,6 +67,7 @@ def refunds_index(
             "q": q,
             "user": user,
             "error": request.query_params.get("error"),
+            "can_edit_invoice": user_has_permission(user, SALES_EDIT_INVOICE),
         },
     )
 
@@ -71,9 +82,17 @@ def refunds_sale_detail(
     try:
         summary = get_refundable_sale_summary(db, sale_id)
     except RefundsError as exc:
-        return RedirectResponse(f"/refunds?error={exc}", status_code=302)
+        return RedirectResponse(f"/refunds?error={quote(str(exc))}", status_code=302)
+    except Exception:
+        log.exception("refund sale detail failed for sale_id=%s", sale_id)
+        return RedirectResponse(
+            "/refunds?error="
+            + quote("تعذّر فتح صفحة الاسترداد لهذه الفاتورة. راجع سجل الأخطاء."),
+            status_code=302,
+        )
     methods = list_payment_methods(db, only_active=True)
     can_override = user_has_permission(user, SALES_REFUND_OVERRIDE)
+    can_edit_invoice = user_has_permission(user, SALES_EDIT_INVOICE)
     return templates.TemplateResponse(
         "refunds_sale_detail.html",
         {
@@ -81,6 +100,7 @@ def refunds_sale_detail(
             "summary": summary,
             "methods": methods,
             "can_override": can_override,
+            "can_edit_invoice": can_edit_invoice,
             "saved_return_id": request.query_params.get("saved"),
             "error": request.query_params.get("error"),
         },
@@ -117,10 +137,7 @@ async def refunds_create(
         refund_method_raw = str(form.get("refund_payment_method_id") or "").strip()
         refund_method_id = int(refund_method_raw) if refund_method_raw else None
     except ValueError:
-        return RedirectResponse(
-            f"/refunds/sale/{sale_id}?error=أسلوب رد المبلغ غير صالح.",
-            status_code=302,
-        )
+        return _sale_error_redirect(sale_id, "أسلوب رد المبلغ غير صالح.")
 
     try:
         sale_return = create_sale_return(
@@ -140,9 +157,13 @@ async def refunds_create(
         db.commit()
     except RefundsError as exc:
         db.rollback()
-        return RedirectResponse(
-            f"/refunds/sale/{sale_id}?error={exc}",
-            status_code=302,
+        return _sale_error_redirect(sale_id, exc)
+    except Exception:
+        db.rollback()
+        log.exception("refund create failed for sale_id=%s", sale_id)
+        return _sale_error_redirect(
+            sale_id,
+            "تعذّر تسجيل الاسترداد بسبب خطأ غير متوقع. لم يتم حفظ العملية، حاول مرة أخرى أو راجع سجل الأخطاء.",
         )
 
     return RedirectResponse(

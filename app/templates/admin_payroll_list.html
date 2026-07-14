@@ -18,11 +18,13 @@
 {% endblock %}
 {% block body %}
 <div class="row" style="justify-content: space-between; align-items: center">
-  <h1 style="margin: 0">دفعات الرواتب الشهرية</h1>
+  <h1 style="margin: 0">دفعات الرواتب الشهرية{% if domain_label %} — {{ domain_label }}{% endif %}</h1>
 </div>
 
 <nav class="hr-nav">
   <a href="/admin/employees">الموظفون</a>
+  <a href="/admin/departments">الأقسام</a>
+  <a href="/admin/work-shifts">الورديات</a>
   <a href="/admin/attendance">الحضور والانصراف</a>
   <a href="/admin/payroll" class="active">الرواتب الشهرية</a>
   <a href="/admin/advances">السلف</a>
@@ -56,6 +58,16 @@
         {% endfor %}
       </select>
     </div>
+    {% if not finance_domain_filter %}
+    <div>
+      <label for="pd">المجال</label>
+      <select id="pd" name="business_domain" required>
+        {% for val, lbl in employee_domain_choices %}
+        <option value="{{ val }}">{{ lbl }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
     <button class="btn btn-primary" type="submit">+ إنشاء دفعة</button>
   </form>
 </div>
@@ -67,6 +79,7 @@
     <thead>
       <tr>
         <th>الشهر</th>
+        <th>المجال</th>
         <th>عدد الموظفين</th>
         <th>إجمالي قبل الاستقطاعات</th>
         <th>صافي الراتب</th>
@@ -79,6 +92,7 @@
       {% for r in runs %}
       <tr>
         <td><strong>{{ r.label }}</strong></td>
+        <td>{{ 'مطعم' if r.business_domain == 'restaurant' else 'فندق' }}</td>
         <td>{{ r.entries|length }}</td>
         <td>{{ r.total_gross }}</td>
         <td style="font-weight:800">{{ r.total_net }} د.ل</td>
@@ -86,9 +100,9 @@
           <span class="pill {{ r.status.value|lower }}">{{ status_labels[r.status.value] }}</span>
         </td>
         <td class="muted" style="font-size: 0.82rem">
-          أُنشئت: {{ r.created_at.strftime('%Y-%m-%d') }}
-          {% if r.posted_at %}<br>اعتُمدت: {{ r.posted_at.strftime('%Y-%m-%d') }}{% endif %}
-          {% if r.paid_at %}<br>دُفعت: {{ r.paid_at.strftime('%Y-%m-%d') }}{% endif %}
+          أُنشئت: {{ pos_format_dt(r.created_at, '%Y-%m-%d') }}
+          {% if r.posted_at %}<br>اعتُمدت: {{ pos_format_dt(r.posted_at, '%Y-%m-%d') }}{% endif %}
+          {% if r.paid_at %}<br>دُفعت: {{ pos_format_dt(r.paid_at, '%Y-%m-%d') }}{% endif %}
         </td>
         <td class="row" style="gap:0.3rem; margin:0">
           <a class="btn" href="/admin/payroll/{{ r.id }}" style="padding:0.2rem 0.55rem; font-size:0.85rem">عرض/تعديل</a>

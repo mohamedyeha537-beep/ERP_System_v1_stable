@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ store_name }} — حجز الشقق</title>
+  <link rel="stylesheet" href="/static/shop.css?v=16" />
+  <link rel="stylesheet" href="/static/hotel_store.css?v=1" />
+  <style>
+    :root {
+      --shop-header-from: {{ brand.header_bg_from }};
+      --shop-header-to: {{ brand.header_bg_to }};
+      --brand-primary: {{ brand.primary_color | default(brand.header_bg_from) }};
+    }
+  </style>
+</head>
+<body class="shop-page hotel-store-page">
+  <header class="hs-header">
+    <div class="hs-header__inner">
+      {% if brand.logo_url %}
+      <a href="/suites" class="hs-logo hs-logo--with-img">
+        <img src="{{ brand.logo_url }}" alt="{{ store_name }}" class="hs-logo__img" />
+        <span>{{ store_name }}</span>
+      </a>
+      {% else %}
+      <a href="/suites" class="hs-logo">{{ store_name }}</a>
+      {% endif %}
+      <span class="hs-tag">{{ brand.header_tagline or 'حجز الشقق أونلاين' }}</span>
+    </div>
+  </header>
+
+  {% if banners and banners|length > 0 %}
+  <section class="shop-hero" id="shop-hero" data-interval="{{ banner_interval }}" aria-label="عروض">
+    <div class="shop-hero-viewport">
+      <div class="shop-hero-track" id="shop-hero-track">
+        {% for b in banners %}
+        <div class="shop-hero-slide{% if loop.first %} is-active{% endif %}">
+          {% if b.link_url %}<a href="{{ b.link_url }}" class="shop-hero-link"><img src="{{ b.image_url }}" alt="" /></a>
+          {% else %}<img src="{{ b.image_url }}" alt="" />{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+  {% endif %}
+
+  <main class="hs-main">
+    {% if error %}<div class="hs-alert hs-alert--err">{{ error }}</div>{% endif %}
+
+    <form method="get" action="/suites" class="hs-search card">
+      <h2 style="margin:0 0 0.65rem">ابحث عن شقة متاحة</h2>
+      <div class="hs-search__grid">
+        <label>تاريخ الوصول <input type="date" name="check_in" value="{{ check_in.isoformat() if check_in else '' }}" min="{{ today.isoformat() }}" /></label>
+        <label>تاريخ المغادرة <input type="date" name="check_out" value="{{ check_out.isoformat() if check_out else '' }}" min="{{ today.isoformat() }}" /></label>
+        <button type="submit" class="btn btn-primary">بحث</button>
+      </div>
+    </form>
+
+    <section class="hs-grid">
+      {% for card in cards %}
+      <a class="hs-card" href="/suites/room/{{ card.room.id }}{% if check_in and check_out %}?check_in={{ check_in }}&check_out={{ check_out }}{% endif %}">
+        <div class="hs-card__img">
+          {% if card.cover_url %}<img src="{{ card.cover_url }}" alt="" loading="lazy" />
+          {% else %}<div class="hs-card__placeholder">🏠</div>{% endif %}
+        </div>
+        <div class="hs-card__body">
+          <h3>{{ card.room.name_ar or ('شقة ' ~ card.room.number) }}</h3>
+          {% if card.room.room_type %}<p class="muted">{{ card.room.room_type.name_ar }}</p>{% endif %}
+          <p class="hs-card__price">من <strong>{{ '%.3f'|format(card.nightly_rate) }}</strong> د.ل / ليلة</p>
+          {% if card.media_count > 1 %}<span class="hs-badge">{{ card.media_count }} صور/فيديو</span>{% endif %}
+        </div>
+      </a>
+      {% else %}
+      <p class="muted" style="grid-column:1/-1;text-align:center;padding:2rem">لا توجد شقق معروضة أونلاين حالياً.</p>
+      {% endfor %}
+    </section>
+  </main>
+  <script src="/static/shop.js?v=16" defer></script>
+</body>
+</html>

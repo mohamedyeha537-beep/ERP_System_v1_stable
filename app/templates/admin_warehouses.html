@@ -5,6 +5,8 @@
   <h1 style="margin:0">المخازن</h1>
   <div class="row" style="gap:0.4rem">
     <a class="btn" href="/admin/warehouses/transfer">صرف للفرعي</a>
+    <a class="btn" href="/admin/warehouses/transfers">مستندات الصرف</a>
+    <a class="btn" href="/inventory/transfers/inbox">استلام الصرف</a>
     <a class="btn" href="/inventory">عرض المخزون</a>
   </div>
 </div>
@@ -16,7 +18,22 @@
 
 <div class="card">
   <h2 style="margin-top:0">المخزن الرئيسي</h2>
-  <p><strong>{{ main_warehouse.name_ar }}</strong></p>
+  <form method="post" action="/admin/warehouses/{{ main_warehouse.id }}/edit" class="row" style="gap:0.5rem;align-items:flex-end;flex-wrap:wrap">
+    <input type="hidden" name="is_active" value="1" />
+    <div>
+      <label for="main_name_ar">اسم المخزن</label>
+      <input id="main_name_ar" name="name_ar" value="{{ main_warehouse.name_ar }}" required />
+    </div>
+    <div>
+      <label for="main_deduct_sales_enabled">الخصم عند البيع</label>
+      <select id="main_deduct_sales_enabled" name="deduct_sales_enabled">
+        <option value="1" {% if main_warehouse.deduct_sales_enabled %}selected{% endif %}>مفعّل للبيع</option>
+        <option value="0" {% if not main_warehouse.deduct_sales_enabled %}selected{% endif %}>غير مستخدم للبيع</option>
+      </select>
+    </div>
+    <input type="hidden" name="notes" value="{{ main_warehouse.notes or '' }}" />
+    <button class="btn btn-primary" type="submit">حفظ</button>
+  </form>
 </div>
 
 <div class="card">
@@ -38,7 +55,7 @@
   <h2 style="margin-top:0">المخازن الفرعية</h2>
   {% if branches %}
   <table>
-    <thead><tr><th>الاسم</th><th>الحالة</th><th>ملاحظة</th><th>إجراءات</th></tr></thead>
+    <thead><tr><th>الاسم</th><th>الحالة</th><th>الخصم عند البيع</th><th>ملاحظة</th><th>إجراءات</th></tr></thead>
     <tbody>
       {% for b in branches %}
       <tr>
@@ -50,6 +67,12 @@
             <select name="is_active">
               <option value="1" {% if b.is_active %}selected{% endif %}>مفعّل</option>
               <option value="0" {% if not b.is_active %}selected{% endif %}>معطّل</option>
+            </select>
+        </td>
+        <td>
+            <select name="deduct_sales_enabled">
+              <option value="1" {% if b.deduct_sales_enabled %}selected{% endif %}>مفعّل للبيع</option>
+              <option value="0" {% if not b.deduct_sales_enabled %}selected{% endif %}>غير مستخدم للبيع</option>
             </select>
         </td>
         <td>

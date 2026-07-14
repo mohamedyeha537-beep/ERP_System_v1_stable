@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "base_pos.html" %}
 {% block title %}اختيار طريقة الدفع{% endblock %}
 {% block head_extra %}
 <link rel="stylesheet" href="/static/pos.css" />
@@ -45,6 +45,15 @@
     color: var(--muted);
   }
   .pay-tile svg {
+    color: var(--primary);
+  }
+  .pay-tile-icon-img {
+    width: 40px;
+    height: 40px;
+    object-fit: contain;
+    border-radius: 8px;
+  }
+  .pay-tile-icon-svg {
     color: var(--primary);
   }
   .checkout-summary {
@@ -114,280 +123,11 @@
 {% if error %}
 <div class="alert">{{ error }}</div>
 {% endif %}
-
-<!-- شريط معلومات السياق -->
-{% if ctx == 'ROOM' and pre_room %}
-<div class="card" style="background:linear-gradient(135deg,#fef3c7,#fde68a); border-color:#f59e0b">
-  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem">
-    <div>
-      <div style="color:#92400e;font-size:0.9rem">السياق</div>
-      <div style="font-size:1.4rem;font-weight:700;color:#78350f">🏨 على حساب الشقة #{{ pre_room.number }}</div>
-    </div>
-    <div style="color:#92400e;font-size:0.9rem;text-align:end">
-      ⚠️ لن يتم التحصيل الآن.<br>
-      ستُسوّى لاحقاً عند خروج النزيل.
-    </div>
-  </div>
-</div>
-{% elif ctx == 'EXTERNAL' and customer %}
-<div class="card" style="background:linear-gradient(135deg,#dcfce7,#bbf7d0); border-color:#16a34a">
-  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem">
-    <div>
-      <div style="color:#15803d;font-size:0.9rem">
-        {% if sale.external_order_type.value == 'DELIVERY' %}طلب توصيل خارجي{% else %}طلب استلام خارجي{% endif %}
-      </div>
-      <div style="font-size:1.3rem;font-weight:700;color:#14532d">📞 {{ customer.phone }}{% if customer.name %} — {{ customer.name }}{% endif %}</div>
-      {% if sale.external_order_type.value == 'DELIVERY' %}
-      <div style="margin-top:0.3rem;font-size:0.88rem;color:#166534">
-        🚚 {{ sale.delivery_zone_name or 'منطقة توصيل' }} · أجرة التوصيل {{ pos_money(sale.delivery_fee) }} <span class="money-currency">د.ل</span>
-      </div>
-      {% endif %}
-    </div>
-    <div style="color:#15803d;font-size:0.9rem;text-align:end">
-      {% if customer.points_balance and customer.points_balance > 0 %}⭐ رصيد نقاط: {{ '%.0f' % customer.points_balance }}<br>{% endif %}
-      سيُمنح نقاط ولاء بعد الدفع.
-    </div>
-  </div>
-</div>
-{% elif ctx == 'EXTERNAL' %}
-<div class="card" style="background:#f1f5f9;border-color:#cbd5e1">
-  <p style="margin:0">
-    📞 {% if sale.external_order_type.value == 'DELIVERY' %}طلب توصيل خارجي{% else %}طلب خارجي بدون عميل مسجَّل{% endif %}
-    {% if sale.external_order_type.value == 'DELIVERY' %}
-      — {{ sale.delivery_zone_name or 'منطقة غير محددة' }} — أجرة التوصيل {{ pos_money(sale.delivery_fee) }} <span class="money-currency">د.ل</span>
-    {% else %}
-      (لن تُمنح نقاط ولاء).
-    {% endif %}
-  </p>
-</div>
+{% if ok %}
+<div class="alert" style="border-color:#86efac;background:#f0fdf4;color:#166534">{{ ok }}</div>
 {% endif %}
 
-<div class="card">
-  <h2 style="margin-top: 0">ملخص الفاتورة #{{ sale.id }}</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>الصنف</th>
-        <th>الكمية</th>
-        <th>السعر</th>
-        <th>الإجمالي</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for line in cart_lines %}
-      <tr>
-        <td>{{ line.product.name_ar }}</td>
-        <td>{{ pos_qty(line.quantity) }}</td>
-        <td>{{ pos_money(line.unit_price) }}</td>
-        <td>{{ pos_money(line.line_total) }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  <div class="checkout-summary" style="margin-top: 0.75rem">
-    <span>{% if ctx == 'EXTERNAL' and sale.external_order_type.value == 'DELIVERY' %}قيمة الطلب للمطعم{% else %}المبلغ المستحق{% endif %}</span>
-    <span>{{ pos_money(sale.total) }} <span class="money-currency">د.ل</span></span>
-  </div>
-  {% if ctx == 'EXTERNAL' and sale.external_order_type.value == 'DELIVERY' %}
-  <div style="margin-top:0.7rem;border:1px dashed #f59e0b;border-radius:10px;padding:0.8rem 1rem;background:#fff7ed">
-    <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap">
-      <div>
-        <div style="font-weight:700;color:#9a3412">أجرة التوصيل نقداً للسائق</div>
-        <div style="font-size:0.88rem;color:#7c2d12">
-          ستُخصم تلقائياً من محفظة الكاش{% if delivery_cash_method %} ({{ delivery_cash_method.name_ar }}){% endif %} ولن تُحتسب مبيعاً للمطعم.
-        </div>
-      </div>
-      <div style="font-weight:800;color:#9a3412">{{ pos_money(sale.delivery_fee) }} <span class="money-currency">د.ل</span></div>
-    </div>
-    <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-top:0.65rem;padding-top:0.65rem;border-top:1px solid #fdba74">
-      <div style="font-weight:700">إجمالي ما سيدفعه الزبون</div>
-      <div style="font-weight:800">{{ pos_money(sale.total + sale.delivery_fee) }} <span class="money-currency">د.ل</span></div>
-    </div>
-  </div>
-  {% endif %}
-</div>
-
-<div class="card">
-  <h2 style="margin-top: 0">طريقة التحصيل</h2>
-
-  <form method="post" action="/pos/checkout" id="pay-form">
-    {% set force_room = (ctx == 'ROOM' and pre_room) %}
-    {% if force_room %}
-      <input type="hidden" name="pay_mode" value="room" />
-      <input type="hidden" name="hotel_room_id" value="{{ pre_room.id }}" />
-    {% elif can_charge_room and hotel_rooms %}
-    <div class="mode-tabs">
-      <div class="mode-tab active" data-mode-tab="now">💳 دفع الآن</div>
-      <div class="mode-tab" data-mode-tab="room">🏨 على حساب شقة فندق</div>
-    </div>
-    <input type="hidden" name="pay_mode" id="pay_mode_input" value="now" />
-    {% else %}
-    <input type="hidden" name="pay_mode" value="now" />
-    {% endif %}
-
-    <!-- لوحة الدفع الفوري -->
-    <div class="mode-panel {% if not force_room %}active{% endif %}" data-mode-panel="now">
-      {% if ctx == 'EXTERNAL' and sale.external_order_type.value == 'DELIVERY' %}
-      <div style="background:#eff6ff;border:1px solid #93c5fd;border-radius:10px;padding:0.75rem 1rem;margin-bottom:0.75rem;color:#1d4ed8;font-size:0.92rem">
-        اختر هنا <strong>طريقة دفع قيمة الطلب فقط</strong>. أمّا <strong>أجرة التوصيل</strong> فستُسجّل كخصم كاش مستقل للسائق.
-      </div>
-      {% endif %}
-      {% if methods %}
-      <div class="pay-grid">
-        {% for m in methods %}
-        <label class="pay-tile{% if loop.first %} checked{% endif %}" data-pay-tile>
-          <input type="radio" name="payment_method_id" value="{{ m.id }}" {% if loop.first %}checked{% endif %} />
-          {% if m.kind.value == 'CASH' %}
-          <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <rect x="2" y="6" width="20" height="12" rx="2"></rect>
-            <circle cx="12" cy="12" r="3"></circle>
-            <path d="M6 10h.01M18 14h.01"></path>
-          </svg>
-          {% elif m.kind.value == 'BANK' %}
-          <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M3 21h18"></path>
-            <path d="M3 10h18"></path>
-            <path d="M5 6l7-3 7 3"></path>
-            <path d="M4 10v11"></path>
-            <path d="M20 10v11"></path>
-            <path d="M8 14v4"></path>
-            <path d="M12 14v4"></path>
-            <path d="M16 14v4"></path>
-          </svg>
-          {% else %}
-          <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <rect x="2" y="4" width="20" height="16" rx="3"></rect>
-            <path d="M2 10h20"></path>
-          </svg>
-          {% endif %}
-          <span class="pay-tile-name">{{ m.name_ar }}</span>
-          <span class="pay-tile-kind">{{ {'CASH': 'كاش', 'BANK': 'مصرف', 'OTHER': 'أخرى'}.get(m.kind.value, '') }}</span>
-        </label>
-        {% endfor %}
-      </div>
-      {% else %}
-      <div class="alert">
-        لا توجد أساليب دفع مفعّلة. على الأدمن إضافة أسلوب واحد على الأقل من
-        <a href="/admin/payment-methods">إدارة أساليب الدفع</a>.
-      </div>
-      {% endif %}
-      {% if ctx == 'EXTERNAL' and sale.external_order_type.value == 'DELIVERY' and not delivery_cash_method %}
-      <div class="alert" style="margin-top:0.75rem">
-        لا توجد محفظة <strong>كاش</strong> مفعّلة لخصم أجرة التوصيل منها. فعّل وسيلة دفع كاش واحدة على الأقل قبل إتمام هذا الطلب.
-      </div>
-      {% endif %}
-    </div>
-
-    {% if force_room or (can_charge_room and hotel_rooms) %}
-    <!-- لوحة حساب الغرفة -->
-    <div class="mode-panel {% if force_room %}active{% endif %}" data-mode-panel="room">
-      <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:10px;padding:0.75rem 1rem;margin-bottom:0.75rem;color:#92400e;font-size:0.92rem">
-        ⚠️ سيتم تجهيز الفاتورة وإرسالها للمطبخ، لكن <strong>بدون تحصيل الآن</strong>.
-        ستُحوَّل إلى موظف الاستقبال للتسوية لاحقاً مع حساب الشقة.
-      </div>
-
-      {% if not force_room %}
-      <label style="display:block;font-weight:600;margin-bottom:0.4rem">اختر الشقة:</label>
-      <div class="room-pick-grid">
-        {% for r in hotel_rooms %}
-        <label class="room-tile" data-room-tile>
-          <input type="radio" name="hotel_room_id" value="{{ r.id }}" />
-          <div class="room-num">#{{ r.number }}</div>
-        </label>
-        {% endfor %}
-      </div>
-      {% endif %}
-
-      <div class="row" style="margin-top:1rem;gap:0.75rem;flex-wrap:wrap">
-        <div style="flex:1;min-width:240px">
-          <label style="display:block;font-size:0.88rem;color:#92400e;margin-bottom:0.25rem;font-weight:600">
-            اسم النزيل/العميل <span style="color:#dc2626">*</span>
-            <span style="color:var(--muted);font-weight:400">— مطلوب لكل طلب</span>
-          </label>
-          <input class="input" type="text" name="hotel_guest_name" id="hotel_guest_name_input"
-                 value="{{ pre_room_guest or '' }}" placeholder="مثلاً: السيد أحمد محمد" />
-        </div>
-        <div style="flex:1;min-width:200px">
-          <label style="display:block;font-size:0.88rem;color:var(--muted);margin-bottom:0.25rem">ملاحظة (اختياري)</label>
-          <input class="input" type="text" name="hotel_note" placeholder="مثلاً: عشاء، إفطار، طلب خاص..." />
-        </div>
-      </div>
-    </div>
-    {% endif %}
-
-    <div class="row" style="margin-top: 1rem; gap: 0.5rem">
-      <button class="btn btn-primary pos-pay" type="submit">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align: -3px; margin-inline-end: 0.3rem">
-          <polyline points="20 6 9 17 4 12"></polyline>
-        </svg>
-        تأكيد البيع وطباعة الفاتورة
-      </button>
-      <a class="btn" href="/pos">إلغاء والعودة للسلة</a>
-    </div>
-  </form>
-
-  <script>
-    (function () {
-      var form = document.getElementById("pay-form");
-      if (!form) return;
-
-      form.addEventListener("change", function (e) {
-        var t = e.target;
-        if (!t) return;
-        if (t.name === "payment_method_id") {
-          form.querySelectorAll("[data-pay-tile]").forEach(function (tile) {
-            var input = tile.querySelector('input[type="radio"]');
-            tile.classList.toggle("checked", input && input.checked);
-          });
-        }
-        if (t.name === "hotel_room_id") {
-          form.querySelectorAll("[data-room-tile]").forEach(function (tile) {
-            var input = tile.querySelector('input[type="radio"]');
-            tile.classList.toggle("checked", input && input.checked);
-          });
-        }
-      });
-
-      var modeInput = document.getElementById("pay_mode_input");
-      var tabs = form.querySelectorAll("[data-mode-tab]");
-      var panels = form.querySelectorAll("[data-mode-panel]");
-      tabs.forEach(function (tab) {
-        tab.addEventListener("click", function () {
-          var mode = tab.getAttribute("data-mode-tab");
-          if (modeInput) modeInput.value = mode;
-          tabs.forEach(function (x) {
-            x.classList.toggle("active", x === tab);
-          });
-          panels.forEach(function (p) {
-            p.classList.toggle(
-              "active",
-              p.getAttribute("data-mode-panel") === mode
-            );
-          });
-        });
-      });
-
-      // تحقق قبل الإرسال: في وضع الغرفة يجب اختيار غرفة وإدخال اسم نزيل
-      form.addEventListener("submit", function (e) {
-        var mode = modeInput ? modeInput.value : "now";
-        if (mode !== "room") return;
-        var roomChecked = form.querySelector(
-          'input[name="hotel_room_id"]:checked'
-        );
-        if (!roomChecked) {
-          e.preventDefault();
-          alert("اختر الغرفة أولاً.");
-          return;
-        }
-        var guestEl = document.getElementById("hotel_guest_name_input");
-        var name = guestEl ? guestEl.value.trim() : "";
-        if (!name) {
-          e.preventDefault();
-          alert("اكتب اسم النزيل/العميل (مطلوب).");
-          if (guestEl) guestEl.focus();
-        }
-      });
-    })();
-  </script>
-</div>
+{% include "_pos_checkout_body.html" %}
+<script src="/static/pos_checkout.js?v=4"></script>
+<script>document.addEventListener("DOMContentLoaded", function () { window.initPosCheckoutForm(document); });</script>
 {% endblock %}

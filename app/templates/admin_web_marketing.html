@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% block title %}SEO والتحليلات — الويب{% endblock %}
+{% block body %}
+<h1 style="margin-top:0">SEO والتحليلات — الويب العام</h1>
+<p class="muted" style="margin-bottom:1rem">
+  إعدادات منفصلة لـ <strong>متجر المطعم</strong> (<a href="/shop" target="_blank" rel="noopener">/shop</a>)
+  و<strong>متجر الشقق</strong> (<a href="/suites" target="_blank" rel="noopener">/suites</a>).
+  أدخل معرّفات Google Analytics / GTM وFacebook Pixel وMicrosoft Clarity من لوحاتها الرسمية.
+</p>
+
+{% if saved %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4;margin-bottom:1rem">
+  <p style="margin:0">تم حفظ الإعدادات.</p>
+</div>
+{% endif %}
+{% if error %}
+<div class="card" style="border-color:#fecaca;background:#fef2f2;margin-bottom:1rem">
+  <p style="margin:0;color:#b91c1c">{{ error }}</p>
+</div>
+{% endif %}
+
+<div style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap">
+  <a class="btn{% if tab == 'restaurant' %} btn-primary{% endif %}" href="/admin/web-marketing?tab=restaurant&days={{ stats_days }}">🍽️ متجر المطعم</a>
+  <a class="btn{% if tab == 'hotel' %} btn-primary{% endif %}" href="/admin/web-marketing?tab=hotel&days={{ stats_days }}">🏨 بوابة الفندق</a>
+  <a class="btn" href="/admin/branding">🎨 الهوية البصرية</a>
+</div>
+
+{% if stats %}
+<div class="card" style="margin-bottom:1.25rem;max-width:920px">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem">
+    <h2 style="margin:0">📊 إحصائيات الزيارات — {{ stats.label_ar }}</h2>
+    <div style="display:flex;gap:0.35rem">
+      {% for d in [7, 30, 90] %}
+      <a class="btn{% if stats_days == d %} btn-primary{% endif %}" href="/admin/web-marketing?tab={{ tab }}&days={{ d }}">{{ d }} يوم</a>
+      {% endfor %}
+    </div>
+  </div>
+  <p class="muted" style="font-size:0.9rem;margin:0.5rem 0 1rem">
+    عدّاد داخلي + أحداث التحليلات (GA4 / Facebook / TikTok عبر <code>web_analytics.js</code>).
+  </p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.75rem;margin-bottom:1rem">
+    <div class="card" style="padding:0.75rem;margin:0;background:#f8fafc">
+      <div class="muted" style="font-size:0.8rem">زيارات الصفحات</div>
+      <strong style="font-size:1.4rem">{{ stats.pageviews }}</strong>
+    </div>
+    <div class="card" style="padding:0.75rem;margin:0;background:#f8fafc">
+      <div class="muted" style="font-size:0.8rem">زوار فريدون</div>
+      <strong style="font-size:1.4rem">{{ stats.unique_visitors }}</strong>
+    </div>
+    <div class="card" style="padding:0.75rem;margin:0;background:#f8fafc">
+      <div class="muted" style="font-size:0.8rem">تحويلات (طلب/حجز)</div>
+      <strong style="font-size:1.4rem">{{ stats.conversions }}</strong>
+    </div>
+    <div class="card" style="padding:0.75rem;margin:0;background:#f8fafc">
+      <div class="muted" style="font-size:0.8rem">معدل التحويل</div>
+      <strong style="font-size:1.4rem">{{ stats.conversion_rate_pct }}%</strong>
+    </div>
+  </div>
+  {% if stats.daily_series %}
+  <h3 style="margin:0 0 0.5rem;font-size:1rem">الزيارات اليومية</h3>
+  <div style="display:flex;align-items:flex-end;gap:2px;height:72px;margin-bottom:1rem;overflow-x:auto">
+    {% set max_v = namespace(v=1) %}
+    {% for row in stats.daily_series %}
+      {% if row.views > max_v.v %}{% set max_v.v = row.views %}{% endif %}
+    {% endfor %}
+    {% for row in stats.daily_series %}
+    <div title="{{ row.date }}: {{ row.views }}" style="flex:1;min-width:4px;max-width:12px;background:#0ea5e9;border-radius:2px 2px 0 0;height:{{ (row.views / max_v.v * 100) if max_v.v else 0 }}%;opacity:{{ 0.35 + (row.views / max_v.v * 0.65) if max_v.v else 0.35 }}"></div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1rem">
+    <div>
+      <h3 style="margin:0 0 0.5rem;font-size:1rem">أحداث حسب النوع</h3>
+      <table class="table" style="font-size:0.9rem">
+        <thead><tr><th>الحدث</th><th>العدد</th></tr></thead>
+        <tbody>
+        {% for row in stats.events_by_type %}
+          <tr>
+            <td>{{ stats.event_labels.get(row.event, row.event) }}</td>
+            <td>{{ row.count }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="2" class="muted">لا بيانات بعد</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <h3 style="margin:0 0 0.5rem;font-size:1rem">أكثر الصفحات زيارة</h3>
+      <table class="table" style="font-size:0.9rem">
+        <thead><tr><th>المسار</th><th>زيارات</th></tr></thead>
+        <tbody>
+        {% for row in stats.top_pages %}
+          <tr><td dir="ltr" style="font-size:0.85rem">{{ row.path }}</td><td>{{ row.views }}</td></tr>
+        {% else %}
+          <tr><td colspan="2" class="muted">لا بيانات بعد</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% macro marketing_form(cfg, save_url) %}
+<form method="post" action="{{ save_url }}" enctype="multipart/form-data" class="card" style="max-width:920px">
+  <h2 style="margin-top:0">{{ cfg.label_ar }}</h2>
+  <p class="muted">معاينة: <a href="{{ cfg.preview_url }}" target="_blank" rel="noopener">{{ cfg.preview_url }}</a></p>
+
+  <label style="display:flex;align-items:center;gap:0.5rem;margin:0.75rem 0">
+    <input type="checkbox" name="enabled" {% if cfg.enabled == '1' %}checked{% endif %} />
+    تفعيل أكواد التتبع (Analytics / Pixel)
+  </label>
+
+  <h3>SEO — محركات البحث</h3>
+  <label>عنوان الصفحة (Title)</label>
+  <input class="input" name="meta_title" value="{{ cfg.meta_title }}" maxlength="160" placeholder="مثال: مطعم روف — طلب أونلاين" />
+  <label>الوصف (Meta Description)</label>
+  <textarea class="input" name="meta_description" rows="3" maxlength="320" placeholder="وصف قصير يظهر في Google">{{ cfg.meta_description }}</textarea>
+  <label>كلمات مفتاحية (اختياري)</label>
+  <input class="input" name="meta_keywords" value="{{ cfg.meta_keywords }}" maxlength="240" />
+  <label>فهرسة Google (Robots)</label>
+  <select class="input" name="robots">
+    <option value="index,follow" {% if cfg.robots == 'index,follow' %}selected{% endif %}>index, follow — ظهور طبيعي</option>
+    <option value="noindex,nofollow" {% if cfg.robots == 'noindex,nofollow' %}selected{% endif %}>noindex — إخفاء من البحث</option>
+    <option value="noindex,follow" {% if cfg.robots == 'noindex,follow' %}selected{% endif %}>noindex, follow</option>
+  </select>
+  <label>صورة المشاركة (Open Graph) — PNG/JPG</label>
+  {% if cfg.og_image_url %}
+  <p><img src="{{ cfg.og_image_url }}" alt="" style="max-height:80px;border-radius:8px" /></p>
+  {% endif %}
+  <input type="file" name="og_image" accept="image/png,image/jpeg,image/webp" />
+  <label>Google Search Console — meta verification</label>
+  <input class="input" name="google_site_verification" value="{{ cfg.google_site_verification }}" dir="ltr" placeholder="content=..." />
+
+  <h3 style="margin-top:1.25rem">التحليلات والبكسل</h3>
+  <p class="muted" style="font-size:0.9rem">
+    إذا استخدمت <strong>GTM</strong> ضع معرّف الحاوية فقط — GA4 وFacebook يمكن ربطهما من داخل GTM.
+    بدون GTM: استخدم معرّف GA4 مباشرة (<code dir="ltr">G-XXXX</code>).
+  </p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:0.75rem">
+    <div>
+      <label>Google Tag Manager</label>
+      <input class="input" name="google_tag_manager_id" value="{{ cfg.google_tag_manager_id }}" dir="ltr" placeholder="GTM-XXXXXXX" />
+    </div>
+    <div>
+      <label>Google Analytics 4</label>
+      <input class="input" name="google_analytics_id" value="{{ cfg.google_analytics_id }}" dir="ltr" placeholder="G-XXXXXXXXXX" />
+    </div>
+    <div>
+      <label>Facebook Pixel</label>
+      <input class="input" name="facebook_pixel_id" value="{{ cfg.facebook_pixel_id }}" dir="ltr" placeholder="1234567890" />
+    </div>
+    <div>
+      <label>Microsoft Clarity</label>
+      <input class="input" name="microsoft_clarity_id" value="{{ cfg.microsoft_clarity_id }}" dir="ltr" placeholder="project id" />
+    </div>
+    <div>
+      <label>TikTok Pixel</label>
+      <input class="input" name="tiktok_pixel_id" value="{{ cfg.tiktok_pixel_id }}" dir="ltr" placeholder="CXXXXXXX" />
+    </div>
+  </div>
+
+  {% if cfg.public_base_url and cfg.public_base_url.startswith('http') %}
+  <p class="muted" style="margin-top:0.75rem;font-size:0.85rem">الرابط العام: {{ cfg.public_base_url }}</p>
+  {% else %}
+  <p class="muted" style="margin-top:0.75rem;font-size:0.85rem;color:#b45309">
+    ⚠️ اضبط <strong>public_base_url</strong> في إعدادات النظام لتفعيل canonical وog:url الكامل.
+  </p>
+  {% endif %}
+
+  <button type="submit" class="btn btn-primary" style="margin-top:1rem">حفظ {{ cfg.label_ar }}</button>
+</form>
+{% endmacro %}
+
+{% if tab == 'hotel' %}
+{{ marketing_form(hotel, '/admin/web-marketing/save-hotel') }}
+{% else %}
+{{ marketing_form(restaurant, '/admin/web-marketing/save-restaurant') }}
+{% endif %}
+{% endblock %}

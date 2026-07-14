@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}ربط الأصول والإهلاك — GL{% endblock %}
+{% block body %}
+<div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem">
+  <div>
+    <h1 style="margin:0">أين تُسجَّل الأصول في شجرة الحسابات؟</h1>
+    {% if domain_label %}<p class="muted" style="margin:0.35rem 0 0">حسابات المجال: <strong>{{ domain_label }}</strong></p>{% endif %}
+  </div>
+  <a class="btn" href="/admin/gl">← إعدادات GL</a>
+</div>
+
+{% if saved %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4"><p style="margin:0">تم حفظ الربط.</p></div>
+{% endif %}
+{% if err_msg %}
+<div class="card" style="border-color:#fca5a5;background:#fef2f2"><p style="margin:0">{{ err_msg }}</p></div>
+{% endif %}
+
+<div class="card" style="border-color:#0ea5e9;background:#f0f9ff">
+  <p style="margin:0;line-height:1.65">
+    <strong>مصدر واحد للحقيقة:</strong> عند تسجيل فاتورة أصول من
+    <a href="/admin/assets/new">صفحة الأصول</a>، يُرحَّل تلقائياً إلى الحسابات التي تختارها هنا —
+    وليس إلى تقرير منفصل. تقرير <a href="/reports/assets">الأصول</a> يبقى «سجل تشغيلي» (عمر إنتاجي، خردة)،
+    أما الأرقام المحاسبية فمن <a href="/admin/gl/reports">تقارير GL</a>.
+  </p>
+</div>
+
+{% for r in roles %}
+<div class="card">
+  <h2 style="margin-top:0;font-size:1.05rem">{{ r.desc }}</h2>
+  <p class="muted" style="margin:0 0 0.75rem;font-size:0.88rem">الدور: <code>{{ r.key }}</code> — افتراضي <code>{{ r.default_code }}</code></p>
+  <form method="post" action="/admin/gl/role-maps" class="row" style="flex-wrap:wrap;gap:0.75rem;align-items:flex-end">
+    <input type="hidden" name="role_key" value="{{ r.key }}" />
+    <div>
+      <label class="muted" style="font-size:0.8rem;display:block">حساب GL</label>
+      <select name="gl_account_id" required>
+        {% if r.account_type == 'ASSET' %}
+          {% for acc in asset_accounts %}
+          <option value="{{ acc.id }}" {% if r.map and r.map.gl_account_id == acc.id %}selected{% elif not r.map and acc.code == r.default_code %}selected{% endif %}>{{ acc.code }} — {{ acc.name_ar }}</option>
+          {% endfor %}
+        {% else %}
+          {% for acc in expense_accounts %}
+          <option value="{{ acc.id }}" {% if r.map and r.map.gl_account_id == acc.id %}selected{% elif not r.map and acc.code == r.default_code %}selected{% endif %}>{{ acc.code }} — {{ acc.name_ar }}</option>
+          {% endfor %}
+        {% endif %}
+      </select>
+    </div>
+    <button class="btn btn-primary" type="submit">حفظ</button>
+    {% if r.map and r.map.gl_account %}
+    <a class="btn" href="/admin/gl/accounts/{{ r.map.gl_account.id }}">عرض الحركة</a>
+    {% endif %}
+  </form>
+</div>
+{% endfor %}
+
+<div class="card">
+  <h2 style="margin-top:0">ترحيل إهلاك الفترة إلى GL</h2>
+  <p class="muted" style="margin:0 0 0.75rem;line-height:1.65">
+    بعد تسجيل الأصول الثابتة، اضغط مرة للفترة المطلوبة لإنشاء قيد: مدين «مصروف إهلاك» / دائن «مجمع إهلاك».
+    آمن للتكرار — لا يكرر القيود.
+  </p>
+  <form method="post" action="/admin/gl/post-depreciation" class="row" style="flex-wrap:wrap;gap:0.75rem;align-items:flex-end">
+    <input type="hidden" name="redirect_to" value="/admin/gl/role-maps?saved=1" />
+    <div>
+      <label class="muted" style="font-size:0.8rem;display:block">من</label>
+      <input type="date" name="start" required />
+    </div>
+    <div>
+      <label class="muted" style="font-size:0.8rem;display:block">إلى</label>
+      <input type="date" name="end" required />
+    </div>
+    <button class="btn btn-primary" type="submit">ترحيل إهلاك الفترة</button>
+  </form>
+</div>
+{% endblock %}

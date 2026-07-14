@@ -1,0 +1,4 @@
+{% set status_rows = order_status_rows if order_status_rows is defined else [] %}
+<div id="pos-order-status-strip" class="pos-order-status-strip card{% if status_rows|length > 0 %} has-rows{% endif %}">
+  {% include "pos_order_status_strip_body.html" %}
+</div>

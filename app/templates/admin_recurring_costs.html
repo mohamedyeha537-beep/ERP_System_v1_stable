@@ -31,20 +31,43 @@
   }
   .be-progress > div { height: 100%; background: linear-gradient(90deg, #22d3ee, #f59e0b, #ef4444); }
   .form-row {
-    display: grid; grid-template-columns: 2fr 1.4fr 1fr 0.7fr 1fr auto;
+    display: grid;
+    grid-template-columns: 2fr 1.4fr 1fr 0.9fr 0.7fr 1fr auto;
     gap: 0.45rem; align-items: end; padding: 0.4rem 0;
     border-bottom: 1px dashed var(--border);
+  }
+  @media (max-width: 1100px) {
+    .form-row { grid-template-columns: 1fr 1fr; }
   }
   .help-card {
     background: #fef3c7; border-right: 4px solid #f59e0b;
     padding: 0.7rem 1rem; border-radius: 8px; color: #78350f; margin-bottom: 1rem; line-height: 1.7;
   }
   .help-card code { background: #fff; padding: 0 0.3rem; border-radius: 4px; direction: ltr; display: inline-block; }
+  .domain-badge {
+    display: inline-block;
+    background: #dbeafe;
+    color: #1e40af;
+    padding: 0.25rem 0.65rem;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
 </style>
 {% endblock %}
 {% block body %}
-<div class="row" style="justify-content: space-between; align-items: center">
-  <h1 style="margin: 0">التكاليف الشهرية الثابتة (الإيجار/الكهرباء/الاشتراكات...)</h1>
+<div class="row" style="justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem">
+  <div>
+    <h1 style="margin: 0">التكاليف الشهرية الثابتة (الإيجار/الكهرباء/الاشتراكات...)</h1>
+    <p class="muted" style="margin: 0.35rem 0 0">
+      عرض: <span class="domain-badge">{{ domain_label }}</span>
+      {% if finance_domain_filter %}
+      — تُعرض بنود <strong>{{ domain_label }}</strong> والبنود <strong>المشتركة</strong> فقط.
+      {% else %}
+      — وضع عام: تُعرض كل البنود. عيّن «المجال» لكل تكلفة عند الإضافة.
+      {% endif %}
+    </p>
+  </div>
   <div class="row" style="gap: 0.4rem">
     <a class="btn" href="/admin/employees" style="background:#0d9488; color:#fff; border-color:#0f766e">الموظفون والرواتب</a>
     <a class="btn" href="/reports/break-even">تقرير التعادل التفصيلي</a>
@@ -62,10 +85,13 @@
   <br>
   المعادلة: <code>عتبة التعادل اليومية = العبء اليومي ÷ نسبة هامش المساهمة</code>
   حيث <code>نسبة هامش المساهمة = (الإيراد − تكلفة المباع) ÷ الإيراد</code> من آخر 30 يوماً.
+  {% if finance_domain_filter and finance_domain_filter.value == 'hotel' %}
+  <br><strong>وضع الفندق:</strong> إيراد اليوم ونسبة هامش المساهمة ما زالا من مبيعات نقطة البيع (المطعم) حتى يُربط إيراد الفندق — العتبة تعكس تكاليف الفندق فقط.
+  {% endif %}
 </div>
 
 <div class="be-hero">
-  <h2>تحليل التعادل اليومي — اللوحة الحيّة</h2>
+  <h2>تحليل التعادل اليومي — {{ domain_label }}</h2>
   <p style="margin: 0; opacity: 0.95">
     العبء اليومي = (إجمالي التكاليف الشهرية الثابتة + الإهلاك الشهري) ÷ {{ burden.operating_days_per_month }} يوماً.
     العتبة اليومية = العبء اليومي ÷ نسبة هامش المساهمة.
@@ -120,7 +146,7 @@
     <div class="form-row" style="border: none">
       <div>
         <label for="rc-name">اسم التكلفة</label>
-        <input id="rc-name" name="name_ar" required placeholder="مثال: راتب شيف" />
+        <input id="rc-name" name="name_ar" required placeholder="مثال: إيجار المبنى" />
       </div>
       <div>
         <label for="rc-cat">الفئة</label>
@@ -134,6 +160,18 @@
         <label for="rc-amt">المبلغ الشهري (د.ل)</label>
         <input id="rc-amt" name="monthly_amount" type="number" step="0.001" min="0" required value="0" />
       </div>
+      {% if not finance_domain_filter %}
+      <div>
+        <label for="rc-domain">المجال</label>
+        <select id="rc-domain" name="business_domain">
+          {% for code, label in domain_choices %}
+          <option value="{{ code }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% else %}
+      <input type="hidden" name="business_domain" id="rc-domain" value="{{ finance_domain_filter.value }}" />
+      {% endif %}
       <div>
         <label for="rc-active">فعّال؟</label>
         <select id="rc-active" name="is_active">
@@ -156,6 +194,7 @@
   <table>
     <thead>
       <tr>
+        <th>المجال</th>
         <th>الفئة</th>
         <th>الاسم</th>
         <th>الشهري (د.ل)</th>
@@ -168,6 +207,7 @@
     <tbody>
       {% for rc in items %}
       <tr {% if not rc.is_active %}style="opacity:0.55"{% endif %}>
+        <td>{{ pos_domain_label(rc.business_domain.value if rc.business_domain else 'restaurant') }}</td>
         <td><span style="background:#e0e7ff; color:#1e40af; padding:0.15rem 0.5rem; border-radius:999px; font-size:0.78rem">{{ category_label(rc.category) }}</span></td>
         <td><strong>{{ rc.name_ar }}</strong></td>
         <td style="font-weight:700">{{ rc.monthly_amount }}</td>
@@ -175,7 +215,7 @@
         <td>{% if rc.is_active %}<span style="color:#16a34a">نشط</span>{% else %}<span class="muted">معطّل</span>{% endif %}</td>
         <td class="muted">{{ rc.notes or '—' }}</td>
         <td class="row" style="gap:0.3rem; margin:0">
-          <button type="button" class="btn" style="padding: 0.2rem 0.55rem; font-size: 0.85rem" onclick="loadRow({{ rc.id }}, '{{ rc.name_ar|e }}', '{{ rc.category.value if rc.category.value else rc.category }}', '{{ rc.monthly_amount }}', {{ '1' if rc.is_active else '0' }}, '{{ (rc.notes or '')|e }}')">تحرير</button>
+          <button type="button" class="btn" style="padding: 0.2rem 0.55rem; font-size: 0.85rem" onclick="loadRow({{ rc.id }}, '{{ rc.name_ar|e }}', '{{ rc.category.value if rc.category.value else rc.category }}', '{{ rc.monthly_amount }}', {{ '1' if rc.is_active else '0' }}, '{{ (rc.notes or '')|e }}', '{{ rc.business_domain.value if rc.business_domain else 'restaurant' }}')">تحرير</button>
           <form method="post" action="/admin/recurring-costs/{{ rc.id }}/delete" style="display:inline" onsubmit="return confirm('حذف؟')">
             <button class="btn" type="submit" style="padding:0.2rem 0.55rem; font-size:0.85rem; color:#b91c1c; border-color:#fecaca">حذف</button>
           </form>
@@ -185,19 +225,19 @@
     </tbody>
     <tfoot>
       <tr style="background:#eff6ff; font-weight:700">
-        <td colspan="2">إجمالي التكاليف الثابتة (نشطة)</td>
+        <td colspan="3">إجمالي التكاليف الثابتة (نشطة)</td>
         <td>{{ burden.fixed_monthly_total }}</td>
         <td>{{ burden.fixed_daily_total }}</td>
         <td colspan="3"></td>
       </tr>
       <tr style="background:#fef3c7">
-        <td colspan="2">+ إهلاك الأصول الثابتة الشهري</td>
+        <td colspan="3">+ إهلاك الأصول الثابتة الشهري</td>
         <td>{{ burden.depreciation_monthly }}</td>
         <td>{{ burden.depreciation_daily }}</td>
-        <td colspan="3" class="muted">من <a href="/reports/fixed-assets">سجل الأصول الثابتة</a></td>
+        <td colspan="3" class="muted">{% if finance_domain_filter and finance_domain_filter.value == 'hotel' %}—{% else %}من <a href="/reports/fixed-assets">سجل الأصول الثابتة</a>{% endif %}</td>
       </tr>
       <tr style="background:#dbeafe; font-weight:800; font-size:1.05rem">
-        <td colspan="2">العبء الكلي (شهري / يومي)</td>
+        <td colspan="3">العبء الكلي (شهري / يومي)</td>
         <td>{{ burden.grand_monthly }}</td>
         <td>{{ burden.grand_daily }}</td>
         <td colspan="3"></td>
@@ -206,22 +246,24 @@
   </table>
   {% else %}
   <div style="text-align: center; padding: 1.5rem">
-    <p class="muted">لم تُعرَّف أي تكاليف شهرية بعد.</p>
+    <p class="muted">لم تُعرَّف أي تكاليف شهرية بعد{% if finance_domain_filter %} لمجال {{ domain_label }}{% endif %}.</p>
     <p class="muted" style="font-size: 0.9rem">
-      ابدأ بإضافة الإيجار، الرواتب، فاتورة الكهرباء/الإنترنت/الاشتراكات... حتى يحسب النظام عتبة التعادل بدقة.
+      ابدأ بإضافة الإيجار، فاتورة الكهرباء/الإنترنت/الاشتراكات... حتى يحسب النظام عتبة التعادل بدقة.
     </p>
   </div>
   {% endif %}
 </div>
 
 <script>
-function loadRow(id, name, category, amount, isActive, notes) {
+function loadRow(id, name, category, amount, isActive, notes, domain) {
   document.getElementById('rc-id').value = id;
   document.getElementById('rc-name').value = name;
   document.getElementById('rc-cat').value = category;
   document.getElementById('rc-amt').value = amount;
   document.getElementById('rc-active').value = String(isActive);
   document.getElementById('rc-notes').value = notes;
+  var domEl = document.getElementById('rc-domain');
+  if (domEl && domEl.tagName === 'SELECT') domEl.value = domain || 'restaurant';
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 </script>

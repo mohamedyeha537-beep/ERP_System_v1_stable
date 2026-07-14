@@ -1,0 +1,729 @@
+﻿{% extends "base.html" %}
+{% set is_quotation = booking.record_kind.value == 'QUOTATION' %}
+{% block title %}{% if is_quotation %}عرض {{ booking.reference }}{% else %}حجز {{ booking.reference }}{% endif %}{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/hotel_dashboard.css?v=12" />
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" crossorigin="anonymous" defer></script>
+<script src="/static/receipt_whatsapp.js?v=3" defer></script>
+{% endblock %}
+{% block body %}
+<div class="booking-detail-page">
+  <header class="booking-detail-hero card">
+    <div class="booking-detail-hero__top">
+      <div class="booking-detail-hero__nav">
+        {% if is_quotation %}
+        <a class="btn btn-sm" href="/admin/hotel/quotations">← عروض الشركات</a>
+        {% else %}
+        <a class="btn btn-sm" href="/admin/hotel/bookings">← القائمة</a>
+        {% endif %}
+        <a class="btn btn-sm" href="/hotel/settle">تسوية الغرف</a>
+        {% if booking.room_id and room_charges %}
+        <a class="btn btn-sm btn-primary" href="/hotel/settle/room/{{ booking.room_id }}">تسوية الشقة</a>
+        {% endif %}
+      </div>
+      {% if not is_quotation %}
+      <div class="booking-detail-hero__actions">
+        <a class="btn btn-primary booking-detail-btn-print" href="/admin/hotel/bookings/{{ booking.id }}/receipt" target="_blank" rel="noopener">🖨 طباعة الفاتورة</a>
+        {% if hotel_whatsapp_send_url|default('') %}
+        {% with wa_booking_id=booking.id, wa_send_url=hotel_whatsapp_send_url, wa_phone=hotel_whatsapp_receipt_phone|default(''), wa_layout='toolbar' %}
+        {% include "_receipt_whatsapp_block.html" %}
+        {% endwith %}
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+    <div class="booking-detail-hero__title-row">
+      <div>
+        <h1 class="booking-detail-hero__title">
+          {% if is_quotation %}عرض سعر{% else %}حجز{% endif %}
+          <span dir="ltr">{{ booking.reference }}</span>
+        </h1>
+        <div class="booking-detail-badges">
+          {% if is_quotation %}
+          <span class="booking-detail-badge booking-detail-badge--quote">{{ quotation_status_label(booking.quotation_status) if booking.quotation_status else 'عرض' }}</span>
+          {% else %}
+          {% set st = booking.booking_status.value %}
+          <span class="booking-detail-badge booking-detail-badge--{{ st|lower }}">
+            {% if st == 'PENDING' %}معلّق{% elif st == 'CONFIRMED' %}مؤكّد{% elif st == 'CHECKED_IN' %}مسكّن{% elif st == 'CHECKED_OUT' %}مغادر{% elif st == 'CANCELLED' %}ملغى{% else %}{{ st }}{% endif %}
+          </span>
+          <span class="booking-detail-badge booking-detail-badge--pay">{{ booking.payment_status.value }}</span>
+          {% endif %}
+          {% if booking.room %}
+          <span class="booking-detail-badge booking-detail-badge--room">شقة #{{ booking.room.number }}</span>
+          {% endif %}
+          <span class="booking-detail-badge booking-detail-badge--dates">{{ booking.check_in }} → {{ booking.check_out }} · {{ booking.nights }} ليلة</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  {% if error %}<div class="alert booking-detail-alert">{{ error }}</div>{% endif %}
+
+  {% set ns = namespace(success_msg='') %}
+  {% if saved == 'checkout' %}{% set ns.success_msg = 'تم تسجيل المغادرة' %}
+  {% elif saved == 'debt_collected' %}{% set ns.success_msg = 'تم تحصيل الدين' %}
+  {% elif saved == 'debt_written_off' %}{% set ns.success_msg = 'تم شطب الدين' %}
+  {% elif saved == 'refunded' %}{% set ns.success_msg = 'تم الاسترداد' %}
+  {% elif saved %}{% set ns.success_msg = 'تم' %}
+  {% endif %}
+  {% if ns.success_msg %}
+  <div class="booking-detail-success" role="status">
+    <div class="booking-detail-success__box">
+      <span class="booking-detail-success__icon">✓</span>
+      <span class="booking-detail-success__text">{{ ns.success_msg }}</span>
+      {% if saved == 'checkout' and request.query_params.get('settlement') %}
+      <a class="booking-detail-success__link" href="/admin/hotel/bookings/{{ booking.id }}/departure-settlement?actual_departure={{ booking.check_out }}" target="_blank" rel="noopener">طباعة تقرير التسوية</a>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+  {% if converted %}
+  <div class="booking-detail-success" role="status">
+    <div class="booking-detail-success__box booking-detail-success__box--info">
+      <span class="booking-detail-success__text">تم تحويل العرض إلى حجز</span>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if not is_quotation %}
+  <div class="booking-detail-kpis">
+    <div class="booking-detail-kpi">
+      <span class="booking-detail-kpi__label">إجمالي الحساب</span>
+      <span class="booking-detail-kpi__value">{{ folio.total }} <small>د.ل</small></span>
+    </div>
+    <div class="booking-detail-kpi booking-detail-kpi--paid">
+      <span class="booking-detail-kpi__label">مدفوع</span>
+      <span class="booking-detail-kpi__value">{{ folio.paid }} <small>د.ل</small></span>
+    </div>
+    {% if guest_account.amount_credit > 0 %}
+    <div class="booking-detail-kpi booking-detail-kpi--credit">
+      <span class="booking-detail-kpi__label">رصيد للزبون (ما له)</span>
+      <span class="booking-detail-kpi__value">{{ guest_account.amount_credit }} <small>د.ل</small></span>
+    </div>
+    {% elif guest_account.amount_due > 0 %}
+    <div class="booking-detail-kpi booking-detail-kpi--due">
+      <span class="booking-detail-kpi__label">متبقٍ (ما عليه)</span>
+      <span class="booking-detail-kpi__value">{{ guest_account.amount_due }} <small>د.ل</small></span>
+    </div>
+    {% else %}
+    <div class="booking-detail-kpi booking-detail-kpi--ok">
+      <span class="booking-detail-kpi__label">الحساب</span>
+      <span class="booking-detail-kpi__value">مُسوّى ✓</span>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+{% if is_quotation and booking.quotation_status %}
+{% set qcode = booking.quotation_status.value %}
+{% set qcolor = quotation_colors.get(qcode, '#64748b') %}
+<div class="card" style="margin-bottom:1rem;border:2px solid {{ qcolor }};background:linear-gradient(180deg,#f8fafc,#fff)">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap">
+    <div>
+      <h2 style="margin:0;font-size:1.05rem">متابعة عرض السعر</h2>
+      <p style="margin:0.35rem 0 0">
+        الحالة: <strong style="color:{{ qcolor }}">{{ quotation_status_label(booking.quotation_status) }}</strong>
+        {% if booking.quotation_valid_until %} · صالح حتى: <strong>{{ booking.quotation_valid_until }}</strong>{% endif %}
+      </p>
+      {% if booking.quotation_notes %}<p class="muted" style="margin:0.35rem 0 0">{{ booking.quotation_notes }}</p>{% endif %}
+    </div>
+    <div class="row" style="gap:0.4rem;flex-wrap:wrap;align-items:center">
+      {% set next_opts = quotation_next.get(booking.quotation_status, []) %}
+      {% for st in next_opts %}
+      {% if st.value != 'CONVERTED' %}
+      <form method="post" action="/admin/hotel/bookings/{{ booking.id }}/quotation-status">
+        <input type="hidden" name="new_status" value="{{ st.value }}" />
+        <button class="btn" type="submit">{{ quotation_labels.get(st.value, st.value) }}</button>
+      </form>
+      {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+  {% if booking.quotation_status.value in ('ACCEPTED','UNDER_REVIEW','SENT') %}
+  <hr style="margin:1rem 0;border:none;border-top:1px solid #e2e8f0" />
+  <h3 style="margin:0 0 0.5rem;font-size:0.95rem">تحويل إلى حجز فعلي</h3>
+  <p class="muted" style="margin:0 0 0.65rem;font-size:0.85rem">{{ prepayment_percent_label }} — سجّل الدفع المطلوب ليصبح حجزاً مؤكداً.</p>
+  <form method="post" action="/admin/hotel/bookings/{{ booking.id }}/convert-quotation" class="row" style="gap:0.5rem;align-items:flex-end;flex-wrap:wrap" id="convert-quotation-form">
+    {% set prep_pct = prepayment_percent | default(100) %}
+    {% set due_total = booking.accommodation_total - (booking.discount_amount or 0) %}
+    {% set req_pay = (due_total * prep_pct / 100) if prep_pct > 0 else 0 %}
+    <div id="convert-payment-fields"{% if prep_pct == 0 %} hidden{% endif %}>
+      <label style="font-size:0.88rem">المبلغ المدفوع{% if prep_pct > 0 %} *{% endif %}
+        <input name="deposit" id="convert-deposit" type="number" step="0.001" min="0" value="{{ req_pay if prep_pct > 0 else 0 }}" {% if prep_pct > 0 %}required{% endif %} style="display:block;margin-top:0.15rem" />
+      </label>
+      <label style="font-size:0.88rem">وسيلة الدفع{% if prep_pct > 0 %} *{% endif %}
+        <select name="pay_method_id" id="convert-pay-method" {% if prep_pct > 0 %}required{% endif %} style="display:block;margin-top:0.15rem">
+          <option value="">— اختر —</option>
+          {% for m in methods %}<option value="{{ m.id }}">{{ m.name_ar }}</option>{% endfor %}
+        </select>
+      </label>
+    </div>
+    <label style="font-size:0.88rem"><input type="checkbox" name="auto_confirm" checked /> تأكيد فوري</label>
+    <button class="btn btn-primary" type="submit">تحويل إلى حجز</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if not is_quotation and booking.booking_status.value in ('PENDING','CONFIRMED','CHECKED_IN') %}
+<div class="card booking-detail-actions-card">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap">
+    <div>
+      <h2 style="margin:0;font-size:1.05rem">إجراءات الحجز</h2>
+      {% if booking.room %}
+      <p class="muted" style="margin:0.35rem 0 0;font-size:0.88rem">الشقة المحددة: <strong>#{{ booking.room.number }}</strong></p>
+      {% endif %}
+    </div>
+    <div class="row" style="gap:0.5rem;flex-wrap:wrap;align-items:center">
+      {% if booking.booking_status.value == 'PENDING' %}
+      <form method="post" action="/admin/hotel/bookings/{{ booking.id }}/confirm"><button class="btn btn-primary">تأكيد الحجز</button></form>
+      {% endif %}
+      {% if booking.booking_status.value in ('CONFIRMED','PENDING') %}
+      <form method="post" action="/admin/hotel/bookings/{{ booking.id }}/check-in" class="row" style="gap:0.4rem;align-items:flex-end;flex-wrap:wrap">
+        {% if booking.room_id %}
+        <input type="hidden" name="room_id" value="{{ booking.room_id }}" />
+        {% else %}
+        <label style="display:flex;flex-direction:column;gap:0.15rem;font-size:0.82rem">
+          تعيين شقة
+          <select name="room_id" required>{% for r in rooms %}<option value="{{ r.id }}">#{{ r.number }}</option>{% endfor %}</select>
+        </label>
+        {% endif %}
+        {% if today < booking.check_in %}
+        <label style="display:flex;flex-direction:column;gap:0.15rem;font-size:0.82rem">
+          وصول مبكر — التاريخ الفعلي *
+          <input type="date" name="actual_arrival" required
+                 min="{{ today }}" max="{{ booking.check_out }}" value="{{ today }}" />
+        </label>
+        <span class="muted" style="font-size:0.78rem;max-width:220px;line-height:1.45">الموعد المجدول: {{ booking.check_in }} — يُعاد حساب الليالي والمبلغ.</span>
+        {% endif %}
+        <button class="btn btn-primary" style="font-size:1rem;padding:0.55rem 1.1rem">تسكين (Check-in)</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% if booking.booking_status.value == 'CHECKED_IN' %}
+  <div class="card" style="margin-bottom:1rem;background:#f0fdf4;border-color:#86efac" id="departure-settlement-card">
+    <h2 style="margin:0 0 0.5rem;font-size:1.05rem">تسوية المغادرة</h2>
+    <p class="muted" style="margin:0 0 0.75rem;font-size:0.86rem;line-height:1.55">
+      إذا غادر النزيل قبل الموعد المجدول ({{ booking.planned_check_out }}) يُحسب عدد الليالي الفعلية والملغاة تلقائياً.
+      {% if booking.scheduled_check_out and booking.scheduled_check_out != booking.check_out %}
+      <br>الموعد الأصلي المحجوز: <strong>{{ booking.scheduled_check_out }}</strong>
+      {% endif %}
+    </p>
+    <form method="post" action="/admin/hotel/bookings/{{ booking.id }}/check-out" id="checkout-form">
+      <div class="row" style="gap:0.75rem;flex-wrap:wrap;align-items:flex-end">
+        <label style="display:flex;flex-direction:column;gap:0.15rem;font-size:0.82rem">
+          تاريخ المغادرة الفعلي
+          <input type="date" name="actual_departure" id="actual_departure"
+                 min="{{ booking.check_in }}" max="{{ booking.planned_check_out }}"
+                 value="{% if today < booking.check_out %}{{ today }}{% endif %}" />
+        </label>
+        <button type="button" class="btn" id="preview-departure-btn">معاينة التسوية</button>
+        <a class="btn" id="print-settlement-link" href="#" target="_blank" rel="noopener" style="display:none">طباعة تقرير التسوية</a>
+        <button class="btn btn-primary" type="submit">تسجيل المغادرة</button>
+      </div>
+      <div id="departure-preview" class="card" style="margin-top:0.75rem;display:none;background:#fff;border-color:#cbd5e1"></div>
+      {% if can_checkout_with_balance %}
+      <div style="margin-top:0.75rem;padding:0.65rem;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px">
+        <div style="font-weight:700;margin-bottom:0.35rem;color:#9a3412">إذا بقي مبلغ على النزيل ولم يستطع التسديد</div>
+        <label style="display:block;font-size:0.86rem;margin-bottom:0.35rem">
+          <input type="radio" name="balance_mode" value="block" checked /> يجب تسديد المتبقي قبل المغادرة (افتراضي)
+        </label>
+        <label style="display:block;font-size:0.86rem;margin-bottom:0.35rem">
+          <input type="radio" name="balance_mode" value="debt" /> ترحيل المتبقي إلى <strong>حساب الديون</strong> للتحصيل لاحقاً
+        </label>
+        <label style="display:block;font-size:0.86rem;margin-bottom:0.45rem">
+          <input type="radio" name="balance_mode" value="allow" /> مغادرة مع متبقٍ (مشرف — بدون سجل دين رسمي)
+        </label>
+        <input type="hidden" name="post_as_debt" id="post_as_debt" value="" />
+        <input type="hidden" name="allow_balance" id="allow_balance" value="" />
+        <label style="display:flex;flex-direction:column;gap:0.15rem;font-size:0.82rem;max-width:420px">
+          ملاحظة الدين (اختياري)
+          <input name="debt_note" placeholder="مثال: وعد بالدفع لاحقاً" />
+        </label>
+      </div>
+      {% endif %}
+    </form>
+  </div>
+  <script>
+  (function () {
+    var bookingId = {{ booking.id }};
+    var depInp = document.getElementById('actual_departure');
+    var previewBox = document.getElementById('departure-preview');
+    var printLink = document.getElementById('print-settlement-link');
+    var form = document.getElementById('checkout-form');
+    function money(v) { return Number(v || 0).toFixed(3); }
+    async function loadPreview() {
+      if (!depInp || !depInp.value) return;
+      previewBox.style.display = 'block';
+      previewBox.innerHTML = '<p class="muted">جاري الحساب…</p>';
+      printLink.style.display = 'inline-block';
+      printLink.href = '/admin/hotel/bookings/' + bookingId + '/departure-settlement?actual_departure=' + encodeURIComponent(depInp.value);
+      try {
+        var res = await fetch('/admin/hotel/bookings/' + bookingId + '/departure-preview?actual_departure=' + encodeURIComponent(depInp.value));
+        var data = await res.json();
+        if (!data.ok) {
+          previewBox.innerHTML = '<p style="color:#b91c1c">' + (data.error || 'خطأ') + '</p>';
+          return;
+        }
+        var p = data.preview;
+        previewBox.innerHTML =
+          '<table style="width:100%;font-size:0.9rem">' +
+          '<tr><td>ليالي محجوزة</td><td><strong>' + p.booked_nights + '</strong> (حتى ' + p.scheduled_check_out + ')</td></tr>' +
+          '<tr><td>ليالي فعلية</td><td><strong>' + p.stayed_nights + '</strong> (حتى ' + p.actual_departure + ')</td></tr>' +
+          '<tr><td>ليالي ملغاة</td><td><strong style="color:#16a34a">' + p.cancelled_nights + '</strong></td></tr>' +
+          '<tr><td>إقامة (محجوز)</td><td>' + money(p.accommodation_booked) + ' د.ل</td></tr>' +
+          '<tr><td>إقامة (فعلي)</td><td>' + money(p.accommodation_actual) + ' د.ل</td></tr>' +
+          '<tr><td>فرق الإقامة</td><td style="color:#16a34a">− ' + money(p.accommodation_saved) + ' د.ل</td></tr>' +
+          '<tr><td>إجمالي الحساب (فعلي)</td><td><strong>' + money(p.folio_total_actual) + ' د.ل</strong></td></tr>' +
+          '<tr><td>مدفوع</td><td>' + money(p.paid_amount) + ' د.ل</td></tr>' +
+          (Number(p.refund_due) > 0
+            ? '<tr><td><strong>يسترد للنزيل</strong></td><td><strong style="color:#16a34a">' + money(p.refund_due) + ' د.ل</strong></td></tr>'
+            : '<tr><td><strong>متبقٍ على النزيل</strong></td><td><strong style="color:#b45309">' + money(p.balance_due) + ' د.ل</strong></td></tr>') +
+          '</table>';
+      } catch (e) {
+        previewBox.innerHTML = '<p style="color:#b91c1c">تعذّر تحميل المعاينة.</p>';
+      }
+    }
+    var btn = document.getElementById('preview-departure-btn');
+    if (btn) btn.addEventListener('click', loadPreview);
+    if (depInp) depInp.addEventListener('change', function () { if (previewBox.style.display !== 'none') loadPreview(); });
+    if (form) form.addEventListener('submit', function () {
+      var mode = (form.querySelector('input[name="balance_mode"]:checked') || {}).value || 'block';
+      var debtFld = document.getElementById('post_as_debt');
+      var allowFld = document.getElementById('allow_balance');
+      if (debtFld) debtFld.value = mode === 'debt' ? 'on' : '';
+      if (allowFld) allowFld.value = mode === 'allow' ? 'on' : '';
+    });
+    if (depInp && depInp.value) loadPreview();
+  })();
+  </script>
+{% endif %}
+{% endif %}
+
+<div class="booking-detail-split">
+  <div class="card booking-detail-card booking-detail-card--data">
+    <h2 style="margin-top:0">البيانات</h2>
+    <p><span class="muted">جهة الحجز:</span> <strong>{{ guest_type_label(booking.guest_type) }}</strong></p>
+    {% if booking.guest_type.value == 'COMPANY' %}
+    <p><strong>{{ booking.company_name or booking.guest_name }}</strong> <span class="muted">(شركة)</span></p>
+    <p class="muted" style="margin:0.25rem 0">مسؤول الحجز: {{ booking.company_contact_name or '—' }} · {{ booking.company_contact_phone or booking.guest_phone or '' }}</p>
+    <p class="muted">سجل/ضريبي: {{ booking.company_tax_id or '—' }} · {{ booking.company_contact_email or booking.guest_email or '' }}</p>
+    <p class="muted">عنوان الشركة: {{ booking.company_address or '—' }}</p>
+    {% else %}
+    <p><strong>{{ booking.guest_name }}</strong> <span class="muted">(فرد — جهة الحجز)</span><br>{{ booking.guest_phone or '' }} · {{ booking.guest_email or '' }}</p>
+    {% endif %}
+    <div style="margin:0.65rem 0;padding:0.55rem 0.65rem;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px">
+      <div style="font-weight:700;color:#9a3412;margin-bottom:0.35rem">النزلاء المقيمون في الشقة</div>
+      <p class="muted" style="margin:0 0 0.45rem;font-size:0.82rem">هذه الأسماء هي المطبوعة في التقرير الأمني — وليس اسم جهة الحجز فقط.</p>
+      {% if booking.guests %}
+      <table style="width:100%;font-size:0.88rem">
+        <thead>
+          <tr>
+            <th style="text-align:right">الاسم</th>
+            <th>الهوية</th>
+            <th>الجنسية</th>
+            <th>الهاتف</th>
+            <th>الوثيقة</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for g in booking.guests %}
+          <tr>
+            <td><strong>{{ g.full_name }}</strong>{% if g.is_primary %} <span class="muted">(رئيسي)</span>{% endif %}</td>
+            <td>{{ g.id_number or '—' }}{% if g.id_type %} · {{ g.id_type }}{% endif %}</td>
+            <td>{{ g.nationality or '—' }}</td>
+            <td>{{ g.phone or '—' }}</td>
+            <td>{% if g.id_document_filename %}<a href="{{ guest_id_document_url(g.id_document_filename) }}" target="_blank" rel="noopener">عرض 📎</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="muted" style="margin:0">لا توجد أسماء نزلاء مسجّلة — يُستخدم اسم جهة الحجز كاحتياط.</p>
+      {% endif %}
+    </div>
+    <p>{{ booking.check_in }} → {{ booking.check_out }} ({{ booking.nights }} ليلة{% if booking.scheduled_check_out and booking.scheduled_check_out != booking.check_out %} — كان محجوزاً حتى {{ booking.scheduled_check_out }}{% endif %})</p>
+    <p>النوع: {{ booking.room_type.name_ar if booking.room_type else '—' }} · الغرفة: {% if booking.room %}#{{ booking.room.number }}{% else %}—{% endif %}</p>
+    {% if not is_quotation and booking.room_id and booking.check_in > today and booking.booking_status.value in ('PENDING','CONFIRMED') %}
+    <p class="muted" style="margin:0.35rem 0 0;font-size:0.86rem;background:#eff6ff;padding:0.45rem 0.55rem;border-radius:8px">
+      📅 الشقة تبقى <strong>متاحة للإيجار</strong> حتى يوم الوصول ({{ booking.check_in }}) — يمكن حجزها لتواريخ أخرى لا تتداخل مع هذا الحجز.
+    </p>
+    {% endif %}
+    {% if not is_quotation %}
+    <p>
+      الهوية: {{ booking.guest_id_number or '—' }}
+      · النوع: {{ booking.guest_id_type or '—' }}
+      · الجنسية: {{ booking.guest_nationality or '—' }}
+    </p>
+    <p>العنوان: {{ booking.guest_address or '—' }}</p>
+    {% endif %}
+    <p>الحالة: <strong>{% if is_quotation %}{{ quotation_status_label(booking.quotation_status) }}{% else %}{{ booking.booking_status.value }}{% endif %}</strong> · الدفع: {{ booking.payment_status.value }}</p>
+  </div>
+  <div class="booking-detail-finance-stack">
+  <div class="card booking-detail-card booking-detail-card--account">
+    <h2 style="margin-top:0">حساب الزبون</h2>
+    <table class="booking-detail-table">
+      <tr><td>إجمالي المستحقات</td><td style="text-align:left">{{ guest_account.total_charges }} د.ل</td></tr>
+      <tr><td>إجمالي المدفوعات</td><td style="text-align:left;color:#16a34a">{{ guest_account.total_paid }} د.ل</td></tr>
+      <tr><td>عربون / مدفوعات مقدّمة</td><td style="text-align:left">{{ guest_account.deposit }} د.ل</td></tr>
+      <tr>
+        <td><strong>ما عليه (مدين)</strong></td>
+        <td style="text-align:left;font-weight:700;color:{% if guest_account.amount_due > 0 %}#b45309{% else %}#6b7280{% endif %}">
+          {{ guest_account.amount_due }} د.ل
+        </td>
+      </tr>
+      <tr>
+        <td><strong>ما له (دائن / رصيد)</strong></td>
+        <td style="text-align:left;font-weight:700;color:{% if guest_account.amount_credit > 0 %}#16a34a{% else %}#6b7280{% endif %}">
+          {{ guest_account.amount_credit }} د.ل
+        </td>
+      </tr>
+    </table>
+    {% if guest_account.amount_credit > 0 %}
+    <p class="muted" style="margin-bottom:0;font-size:0.88rem">الزبون دفع أكثر من مستحقاته — يُسترد أو يُحتفظ به كرصيد.</p>
+    {% elif guest_account.amount_due > 0 %}
+    <p class="muted" style="margin-bottom:0;font-size:0.88rem">المبلغ المطلوب على حساب الغرفة قبل المغادرة.</p>
+    {% endif %}
+  </div>
+  <div class="card booking-detail-card booking-detail-card--folio">
+    <h2 style="margin-top:0">كشف الحساب (Folio)</h2>
+    <table class="booking-detail-table">
+      {% for line in folio.lines %}
+      <tr><td>{{ line.description }}</td><td style="text-align:left">{{ line.amount }} د.ل</td></tr>
+      {% endfor %}
+      <tr><th>الإجمالي</th><th style="text-align:left">{{ folio.total }} د.ل</th></tr>
+      <tr><td>مدفوع</td><td style="text-align:left;color:#16a34a">{{ folio.paid }} د.ل</td></tr>
+      {% if guest_account.amount_credit > 0 %}
+      <tr><td><strong>رصيد للزبون (دفع زائد)</strong></td><td style="text-align:left"><strong style="color:#16a34a">{{ guest_account.amount_credit }} د.ل</strong></td></tr>
+      {% else %}
+      <tr><td><strong>متبقٍ</strong></td><td style="text-align:left"><strong style="color:#b45309">{{ folio.balance }} د.ل</strong></td></tr>
+      {% endif %}
+    </table>
+  </div>
+  </div>
+</div>
+
+{% if not is_quotation and booking_debts %}
+<div class="card" style="margin-top:1rem;background:#fff7ed;border-color:#fed7aa">
+  <h2 style="margin-top:0">ديون الحجز</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>المبلغ</th>
+        <th>الحالة</th>
+        <th>السبب</th>
+        <th>التاريخ</th>
+        <th>إجراء</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for d in booking_debts %}
+      <tr>
+        <td><strong>{{ d.amount }} د.ل</strong></td>
+        <td>
+          {% if d.status.value == 'OPEN' %}<span style="color:#b45309;font-weight:700">مفتوح — لم يُحصَّل</span>
+          {% elif d.status.value == 'COLLECTED' %}<span style="color:#16a34a">مُحصَّل</span>
+          {% else %}<span style="color:#6b7280">مُشطوب (خسارة)</span>{% endif %}
+        </td>
+        <td>{{ d.reason or '—' }}{% if d.write_off_reason %}<br><span class="muted">{{ d.write_off_reason }}</span>{% endif %}</td>
+        <td style="font-size:0.85rem">{{ pos_format_dt(d.created_at, '%Y-%m-%d %H:%M') }}</td>
+        <td>
+          {% if d.status.value == 'OPEN' %}
+          <form method="post" action="/admin/hotel/bookings/{{ booking.id }}/debts/{{ d.id }}/collect" class="row" style="gap:0.35rem;align-items:flex-end;flex-wrap:wrap;margin-bottom:0.35rem">
+            <select name="payment_method_id" required>
+              {% for m in methods %}<option value="{{ m.id }}">{{ m.name_ar }}</option>{% endfor %}
+            </select>
+            <button class="btn btn-primary" type="submit">تحصيل</button>
+          </form>
+          <form method="post" action="/admin/hotel/bookings/{{ booking.id }}/debts/{{ d.id }}/write-off" class="row" style="gap:0.35rem;align-items:flex-end;flex-wrap:wrap" onsubmit="return confirm('شطب الدين كخسارة (عجز)؟');">
+            <input name="reason" placeholder="سبب الشطب" style="min-width:140px" />
+            <button class="btn" type="submit" style="color:#b91c1c">شطب كخسارة</button>
+          </form>
+          {% else %}—{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if not is_quotation and guest_account.amount_credit > 0 and booking.payments %}
+<div class="card" style="margin-top:1rem;background:#f0fdf4;border-color:#86efac">
+  <h2 style="margin-top:0">استرداد للنزيل (بعد مغادرة مبكرة أو دفع زائد)</h2>
+  <p class="muted" style="margin-top:0">الرصيد المتاح للاسترداد: <strong>{{ guest_account.amount_credit }} د.ل</strong></p>
+  <form method="post" action="/admin/hotel/bookings/{{ booking.id }}/refund-credit" class="row" style="gap:0.5rem;align-items:flex-end;flex-wrap:wrap">
+    <label style="display:flex;flex-direction:column;gap:0.15rem;font-size:0.82rem">
+      من دفعة
+      <select name="payment_id" required>
+        {% for p in booking.payments if not p.is_refunded %}
+        <option value="{{ p.id }}">#{{ p.id }} — {{ p.amount }} د.ل ({{ pos_format_dt(p.created_at, '%Y-%m-%d') }})</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label style="display:flex;flex-direction:column;gap:0.15rem;font-size:0.82rem">
+      المبلغ
+      <input name="amount" type="number" step="0.001" min="0.001" max="{{ guest_account.amount_credit }}" value="{{ guest_account.amount_credit }}" required />
+    </label>
+    <label style="display:flex;flex-direction:column;gap:0.15rem;font-size:0.82rem">
+      السبب
+      <input name="reason" placeholder="استرداد ليالي ملغاة" />
+    </label>
+    <button class="btn btn-primary" type="submit">تسجيل الاسترداد</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="card" style="margin-top:1rem">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap">
+    <h2 style="margin:0">طلبات المطعم على هذا الحجز</h2>
+    {% if booking.room_id and room_charges %}
+    <a class="btn" href="/hotel/settle/room/{{ booking.room_id }}">تسوية هذه الطلبات</a>
+    {% endif %}
+  </div>
+  {% if room_charges %}
+  <table style="margin-top:0.75rem">
+    <thead>
+      <tr>
+        <th>#الفاتورة</th>
+        <th>التاريخ</th>
+        <th>الأصناف</th>
+        <th>ملاحظة</th>
+        <th>الإجمالي</th>
+        <th>مدفوع</th>
+        <th>متبقي</th>
+        <th>الحالة</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in room_charges %}
+      <tr>
+        <td>#{{ c.sale_id }}</td>
+        <td style="font-size:0.88rem">{{ pos_format_dt(c.created_at, '%Y-%m-%d %H:%M') }}</td>
+        <td style="max-width:320px;font-size:0.9rem">
+          {% if c.sale %}
+            {% for line in c.sale.lines %}
+            <span style="display:inline-block;background:#f3f4f6;padding:0.1rem 0.4rem;border-radius:5px;margin:0.1rem">
+              {{ (line.product.name_ar if line.product else ('منتج محذوف #' ~ line.product_id)) }} × {{ pos_qty(line.quantity) }}
+            </span>
+            {% endfor %}
+          {% else %}
+          —
+          {% endif %}
+        </td>
+        <td style="max-width:160px;font-size:0.85rem">{{ c.note or '' }}</td>
+        <td>{{ '%.3f' % charge_totals.get(c.id, 0) }} د.ل</td>
+        <td style="color:#16a34a">{{ '%.3f' % charge_paid.get(c.id, 0) }} د.ل</td>
+        <td style="font-weight:700;color:#7c2d12">{{ '%.3f' % charge_due.get(c.id, 0) }} د.ل</td>
+        <td>{% if c.is_settled %}تمت التسوية{% else %}مفتوحة{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted" style="margin-bottom:0">لا توجد طلبات مطعم مسجلة على هذا الحجز حتى الآن.</p>
+  {% endif %}
+</div>
+
+{% if not is_quotation and booking.booking_status.value not in ('CHECKED_OUT','CANCELLED','NO_SHOW') %}
+<div class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0">إلغاء أو عدم حضور</h2>
+  <p class="muted" style="margin-top:0;font-size:0.88rem;line-height:1.6">
+    استخدم هذه الخيارات فقط إذا لم يسكن النزيل أو أُلغي الحجز قبل الوصول.
+  </p>
+  <div class="row" style="gap:0.75rem;flex-wrap:wrap;align-items:flex-end">
+    {% if booking.booking_status.value not in ('CHECKED_OUT','CANCELLED','NO_SHOW') %}
+    <form method="post" action="/admin/hotel/bookings/{{ booking.id }}/cancel" class="row" style="gap:0.4rem;align-items:flex-end">
+      <label style="display:flex;flex-direction:column;gap:0.15rem;font-size:0.88rem">
+        سبب الإلغاء
+        <input name="reason" placeholder="مثال: طلب الزبون" style="min-width:200px" />
+      </label>
+      <button class="btn">إلغاء الحجز</button>
+    </form>
+    {% if booking.booking_status.value == 'CONFIRMED' %}
+    <form method="post" action="/admin/hotel/bookings/{{ booking.id }}/no-show" style="display:flex;flex-direction:column;gap:0.25rem">
+      <button class="btn" onclick="return confirm('تسجيل أن النزيل لم يحضر؟ قد تُفرض رسوم حسب سياسة الإلغاء.')">لم يحضر (No-show)</button>
+      <span class="muted" style="font-size:0.8rem;max-width:260px;line-height:1.5">إذا تأخر النزيل ولم يصل — تُحرّر الشقة وقد تُحسب ليلة أو أكثر على حسابه.</span>
+    </form>
+    {% endif %}
+    {% else %}
+    <p class="muted" style="margin:0">لا توجد إجراءات إلغاء متاحة لهذا الحجز.</p>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{% if not is_quotation and booking.booking_status.value in ('PENDING','CONFIRMED') %}
+<div class="card" style="margin-top:1rem;background:#fffbeb;border-color:#fcd34d">
+  <h2 style="margin-top:0">تعديل مواعيد الإقامة</h2>
+  <p class="muted" style="margin-top:0;font-size:0.88rem;line-height:1.6">
+    قبل التسكين — لتعديل <strong>الوصول المبكر</strong> أو <strong>المغادرة المبكرة</strong> مع إعادة حساب المبلغ والتحقق من توفر الشقة.
+  </p>
+  <form method="post" action="/admin/hotel/bookings/{{ booking.id }}/adjust-stay" class="row" style="gap:0.65rem;align-items:flex-end;flex-wrap:wrap">
+    <label style="display:flex;flex-direction:column;gap:0.15rem;font-size:0.82rem">
+      وصول أبكر (اختياري)
+      <input type="date" name="new_check_in" max="{{ booking.check_in }}" value="" />
+    </label>
+    <label style="display:flex;flex-direction:column;gap:0.15rem;font-size:0.82rem">
+      مغادرة أبكر (اختياري)
+      <input type="date" name="new_check_out" min="{{ booking.check_in }}" max="{{ booking.check_out }}" value="" />
+    </label>
+    <button class="btn" type="submit">تطبيق التعديل</button>
+  </form>
+  <p class="muted" style="margin:0.65rem 0 0;font-size:0.8rem">المواعيد الحالية: {{ booking.check_in }} → {{ booking.check_out }} ({{ booking.nights }} ليلة)</p>
+</div>
+{% endif %}
+
+{% if not is_quotation and booking.booking_status.value in ('CONFIRMED','CHECKED_IN') and booking.room_id %}
+<div class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0">تبديل الشقة</h2>
+  <p class="muted" style="margin-top:0">نقل النزيل إلى شقة أخرى — إن كان السعر متساوياً يُنقل فقط، وإن وُجد فرق يُسجَّل على حساب الغرفة.</p>
+  {% if change_rooms %}
+  <form method="post" action="/admin/hotel/bookings/{{ booking.id }}/change-room" class="row" style="gap:0.4rem;align-items:flex-end;flex-wrap:wrap">
+    <label style="display:flex;flex-direction:column;gap:0.15rem;font-size:0.88rem">
+      الشقة الجديدة
+      <select name="new_room_id" required>
+        <option value="">— اختر —</option>
+        {% for r in change_rooms %}
+        <option value="{{ r.id }}">#{{ r.number }}{% if r.room_type %} — {{ r.room_type.name_ar }}{% endif %}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% if booking.booking_status.value == 'CHECKED_IN' %}
+    <label style="display:flex;flex-direction:column;gap:0.15rem;font-size:0.88rem">
+      تاريخ النقل
+      <input type="date" name="transfer_date" min="{{ booking.check_in }}" max="{{ booking.check_out }}" />
+    </label>
+    {% endif %}
+    <label style="display:flex;flex-direction:column;gap:0.15rem;font-size:0.88rem;flex:1;min-width:180px">
+      السبب
+      <input name="reason" placeholder="مثال: عيب في الشقة" />
+    </label>
+    <button class="btn btn-primary">تبديل الشقة</button>
+  </form>
+  {% else %}
+  <p class="muted" style="margin-bottom:0">لا توجد شقق متاحة للنقل في نفس فترة الحجز.</p>
+  {% endif %}
+
+  {% if room_assignments %}
+  <h3 style="margin:1rem 0 0.5rem;font-size:1rem">سجل التنقلات</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>التاريخ</th>
+        <th>من</th>
+        <th>إلى</th>
+        <th>فرق السعر</th>
+        <th>السبب</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in room_assignments %}
+      <tr>
+        <td style="font-size:0.88rem">{{ a.effective_date or (pos_format_dt(a.created_at, '%Y-%m-%d') if a.created_at else '—') }}</td>
+        <td>{% if a.from_room %}#{{ a.from_room.number }}{% elif a.from_room_id %}#{{ a.from_room_id }}{% else %}—{% endif %}</td>
+        <td>{% if a.to_room %}#{{ a.to_room.number }}{% else %}#{{ a.to_room_id }}{% endif %}</td>
+        <td style="font-weight:700;color:{% if a.price_delta > 0 %}#b45309{% elif a.price_delta < 0 %}#16a34a{% else %}#6b7280{% endif %}">
+          {% if a.price_delta > 0 %}+{% endif %}{{ a.price_delta }} د.ل
+        </td>
+        <td style="font-size:0.88rem">{{ a.reason or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if booking.payments %}
+<div class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0">سجل المدفوعات</h2>
+  <table>
+    <thead>
+      <tr><th>التاريخ</th><th>المبلغ</th><th>نوع</th><th>ملاحظة</th></tr>
+    </thead>
+    <tbody>
+      {% for p in booking.payments %}
+      <tr>
+        <td style="font-size:0.88rem">{{ pos_format_dt(p.created_at, '%Y-%m-%d %H:%M') if p.created_at else '—' }}</td>
+        <td style="color:#16a34a">{{ p.amount }} د.ل</td>
+        <td>{% if p.is_deposit %}عربون{% else %}دفعة{% endif %}</td>
+        <td style="font-size:0.88rem">{{ p.note or '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if not is_quotation %}
+<div class="card booking-detail-action-card" style="margin-top:1rem">
+  <h2 style="margin-top:0">تسجيل دفعة</h2>
+  <p class="muted booking-detail-action-card__hint">يمكنك دفع أكثر من المستحق — الفائض يظهر في «ما له (دائن / رصيد)» ويُستخدم عند تسوية وجبات الغرفة.</p>
+  <form method="post" action="/admin/hotel/bookings/{{ booking.id }}/payment" class="booking-detail-inline-form">
+    <label class="booking-detail-inline-form__field booking-detail-inline-form__field--amount">
+      <span class="booking-detail-inline-form__label">المبلغ</span>
+      <input name="amount" type="number" step="0.001" placeholder="0" required />
+    </label>
+    <label class="booking-detail-inline-form__field booking-detail-inline-form__field--grow">
+      <span class="booking-detail-inline-form__label">وسيلة الدفع</span>
+      <select name="payment_method_id" required>
+        {% for m in methods %}<option value="{{ m.id }}">{{ m.name_ar }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="booking-detail-inline-form__field booking-detail-inline-form__field--check">
+      <span class="booking-detail-inline-form__label" aria-hidden="true">&#8203;</span>
+      <span class="booking-detail-inline-form__check"><input type="checkbox" name="is_deposit" /> عربون</span>
+    </label>
+    <button class="btn btn-primary booking-detail-inline-form__btn" type="submit">تسجيل</button>
+  </form>
+</div>
+
+<div class="card booking-detail-action-card" style="margin-top:1rem">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.35rem">
+    <h2 style="margin:0">خدمة إضافية</h2>
+    <a class="btn btn-sm" href="/admin/hotel/settings#hotel-extra-services">⚙ إدارة الخدمات</a>
+  </div>
+  {% if service_catalog %}
+  <form method="post" action="/admin/hotel/bookings/{{ booking.id }}/service" class="booking-detail-inline-form" id="booking-add-service-form">
+    <label class="booking-detail-inline-form__field booking-detail-inline-form__field--grow">
+      <span class="booking-detail-inline-form__label">الخدمة</span>
+      <select name="catalog_service_id" id="booking-service-select" required>
+        <option value="">— اختر الخدمة —</option>
+        {% for s in service_catalog %}
+        <option value="{{ s.id }}" data-price="{{ s.default_price }}">{{ s.name_ar }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="booking-detail-inline-form__field booking-detail-inline-form__field--qty">
+      <span class="booking-detail-inline-form__label">الكمية</span>
+      <input name="quantity" id="booking-service-qty" type="number" step="0.01" min="0.01" value="1" required />
+    </label>
+    <label class="booking-detail-inline-form__field booking-detail-inline-form__field--price">
+      <span class="booking-detail-inline-form__label">السعر</span>
+      <input name="unit_price" id="booking-service-price" type="number" step="0.001" min="0" placeholder="0" required />
+    </label>
+    <button class="btn btn-primary booking-detail-inline-form__btn" type="submit">إضافة</button>
+  </form>
+  <script>
+  (function () {
+    var sel = document.getElementById('booking-service-select');
+    var price = document.getElementById('booking-service-price');
+    if (!sel || !price) return;
+    function fillPrice() {
+      var opt = sel.options[sel.selectedIndex];
+      var p = opt && opt.getAttribute('data-price');
+      if (p) price.value = p;
+    }
+    sel.addEventListener('change', fillPrice);
+  })();
+  </script>
+  {% else %}
+  <p class="muted" style="margin:0">لا توجد خدمات مسجّلة — <a href="/admin/hotel/settings#hotel-extra-services">أضف خدمات من الإعدادات</a>.</p>
+  {% endif %}
+</div>
+{% endif %}
+</div>{# booking-detail-page #}
+{% endblock %}

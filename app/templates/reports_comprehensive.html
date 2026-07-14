@@ -1,156 +1,432 @@
 {% extends "base.html" %}
-{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button %}
+
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button with context %}
+
 {% block title %}التقرير الشامل{% endblock %}
+
 {% block body %}
-<h1>التقرير الشامل</h1>
+
+<h1>التقرير الشامل{% if domain_label %} — {{ domain_label }}{% endif %}</h1>
+
+{% if revenue_source == 'hotel' %}
+
+<p class="muted" style="margin-top:0;font-size:0.88rem">الإيراد من تحصيلات الحجز (فندق) — بدون مخزون POS.</p>
+
+{% elif revenue_source == 'combined' %}
+
+<p class="muted" style="margin-top:0;font-size:0.88rem">إيراد مجمّع: POS + الفندق.</p>
+
+{% elif revenue_source == 'pos' %}
+<p class="muted" style="margin-top:0;font-size:0.88rem">إيراد نقطة البيع (مطعم) — بدون أقسام الفندق.</p>
+{% endif %}
+
 {{ reports_nav('comprehensive') }}
+
 {{ period_filter('/reports/comprehensive', period, period_labels, start, end, start_str, end_str) }}
+
 {{ report_export_format_help() }}
+
 <div class="export-bar">
+
   <span class="label">Excel (.csv):</span>
+
   {{ export_button('/reports/export/comprehensive.csv?period=' ~ period, 'التقرير الشامل') }}
+
+  {% if show_product_profit != false %}
+
   {{ export_button('/reports/export/sales-detailed.csv?period=' ~ period, 'مبيعات تفصيلية') }}
+
   {{ export_button('/reports/export/profit-by-product.csv?period=' ~ period, 'الربح بكل صنف') }}
+
+  {% endif %}
+
   <span class="label no-print" style="margin-inline-start:0.75rem">PDF:</span>
+
   {{ pdf_export_button() }}
+
 </div>
 
 
+
+
+
 <div class="card">
+
   <h2 style="margin-top: 0">المؤشرات الرئيسية</h2>
+
   <div class="stat-grid">
-    <div class="stat-card good"><div class="label">إجمالي المبيعات</div><div class="value">{{ sales_sum.gross_revenue }} د.ل</div><div class="muted" style="font-size: 0.78rem">{{ sales_sum.invoice_count }} فاتورة</div></div>
+
+    <div class="stat-card good"><div class="label">{% if revenue_source == 'hotel' %}صافي التحصيل{% else %}إجمالي المبيعات{% endif %}</div><div class="value">{{ sales_sum.gross_revenue }} د.ل</div><div class="muted" style="font-size: 0.78rem">{% if revenue_source == 'hotel' %}{{ sales_sum.invoice_count }} عملية{% else %}{{ sales_sum.invoice_count }} فاتورة{% endif %}</div></div>
+
+    {% if revenue_source != 'hotel' %}
+
     <div class="stat-card bad"><div class="label">المرتجعات</div><div class="value">{{ sales_sum.returns_total }} د.ل</div><div class="muted" style="font-size: 0.78rem">{{ sales_sum.return_count }} سند</div></div>
+
     <div class="stat-card good"><div class="label">صافي المبيعات</div><div class="value">{{ sales_sum.net_revenue }} د.ل</div></div>
-    <div class="stat-card bad"><div class="label">تكلفة المباع</div><div class="value">{{ cogs }} د.ل</div></div>
+
+    {% endif %}
+
+    <div class="stat-card bad"><div class="label">{% if revenue_source == 'hotel' %}تكلفة متغيّرة{% else %}تكلفة المباع{% endif %}</div><div class="value">{{ cogs }} د.ل</div></div>
+
     <div class="stat-card bad"><div class="label">المصاريف اليومية</div><div class="value">{{ expenses.total }} د.ل</div></div>
+
     <div class="stat-card bad"><div class="label">رواتب وإيجار وثابتة</div><div class="value">{{ rec_period_share }} د.ل</div><div class="muted" style="font-size: 0.78rem">من {{ rec_monthly_total }} د.ل/شهر</div></div>
+
+    {% if show_pos_sections %}
+
     <div class="stat-card bad"><div class="label">مستلزمات استهلاكية</div><div class="value">{{ consumables_period }} د.ل</div></div>
+
     <div class="stat-card bad"><div class="label">إهلاك أصول ثابتة</div><div class="value">{{ depreciation_period }} د.ل</div></div>
+
+    {% if loyalty_redeem is defined and loyalty_redeem.dinar_cost > 0 %}
+
+    <div class="stat-card bad"><div class="label">نقاط ولاء مُصرفة</div><div class="value">{{ loyalty_redeem.dinar_cost }} د.ل</div><div class="muted" style="font-size: 0.78rem">{{ loyalty_redeem.redeem_count }} عملية</div></div>
+
+    {% endif %}
+
+    {% endif %}
+
     <div class="stat-card bad"><div class="label">فواتير الشراء (مخزون)</div><div class="value">{{ inv_purch.total }} د.ل</div></div>
+
     <div class="stat-card bad"><div class="label">صرف أصول كاملاً (نقد)</div><div class="value">{{ assets.total }} د.ل</div></div>
+
+    {% if show_pos_sections %}
+
     <div class="stat-card bad"><div class="label">أجرة التوصيل الخارجة</div><div class="value">{{ delivery_cash_out }} د.ل</div><div class="muted" style="font-size: 0.78rem">خصم كاش للسائق</div></div>
-    <div class="stat-card {% if gross_profit >= 0 %}good{% else %}bad{% endif %}"><div class="label">حسبة (١) إجمالي الربح</div><div class="value">{{ gross_profit }} د.ل</div><div class="muted" style="font-size: 0.78rem">إيراد − تكلفة المباع</div></div>
-    <div class="stat-card {% if net_profit >= 0 %}good{% else %}bad{% endif %}"><div class="label">حسبة (٢) صافي الربح</div><div class="value">{{ net_profit }} د.ل</div><div class="muted" style="font-size: 0.78rem">إجمالي − مصاريف − رواتب − مستلزمات − إهلاك</div></div>
-    <div class="stat-card {% if cashflow >= 0 %}good{% else %}bad{% endif %}"><div class="label">صافي التدفق النقدي</div><div class="value">{{ cashflow }} د.ل</div><div class="muted" style="font-size: 0.78rem">تحصيل − رد مبالغ − أجرة توصيل − شراء − مصروف − أصول</div></div>
+
+    {% endif %}
+
+    <div class="stat-card {% if gross_profit >= 0 %}good{% else %}bad{% endif %}"><div class="label">حسبة (١) إجمالي الربح</div><div class="value">{{ gross_profit }} د.ل</div><div class="muted" style="font-size: 0.78rem">إيراد − تكلفة متغيّرة</div></div>
+
+    <div class="stat-card {% if net_profit >= 0 %}good{% else %}bad{% endif %}"><div class="label">حسبة (٢) صافي الربح</div><div class="value">{{ net_profit }} د.ل</div></div>
+
+    <div class="stat-card {% if cashflow >= 0 %}good{% else %}bad{% endif %}"><div class="label">صافي التدفق النقدي</div><div class="value">{{ cashflow }} د.ل</div></div>
+
+    {% if show_pos_sections %}
+
     <div class="stat-card"><div class="label">قيمة المخزون</div><div class="value">{{ inv_value }} د.ل</div></div>
+
+    {% endif %}
+
   </div>
+
 </div>
 
+
+
+{% if show_hotel_sections and hotel_open_summary is defined %}
+
+<div class="card" style="border-color:#c4b5fd">
+
+  <h2 style="margin-top: 0">الفندق — ذمم وإقفال</h2>
+
+  <div class="stat-grid">
+
+    <div class="stat-card bad"><div class="label">ذمم الحجز</div><div class="value">{{ hotel_open_summary.booking_count }} · {{ hotel_open_summary.balance_total }} د.ل</div></div>
+
+    {% if hotel_close_summary is defined %}
+
+    <div class="stat-card"><div class="label">أيام مُقفلة / الفترة</div><div class="value">{{ hotel_close_summary.closed_days }} / {{ hotel_close_summary.day_count }}</div></div>
+
+    <div class="stat-card"><div class="label">متوسط إشغال</div><div class="value">{{ hotel_close_summary.avg_occupancy }}٪</div></div>
+
+    {% endif %}
+
+    <a class="stat-card" href="/reports/hotel-balances" style="text-decoration:none;color:inherit"><div class="label">تفاصيل الذمم</div><div class="value" style="font-size:1rem">←</div></a>
+
+    <a class="stat-card" href="/reports/hotel-daily-close?period={{ period }}" style="text-decoration:none;color:inherit"><div class="label">الإقفال اليومي</div><div class="value" style="font-size:1rem">←</div></a>
+
+  </div>
+
+</div>
+
+{% endif %}
+
+
+
+{% if show_hotel_sections and hotel_gl_recon is defined and hotel_gl_recon %}
+
+<div class="card" style="border-color:#6ee7b7;background:linear-gradient(180deg,#ecfdf5 0%,#fff 55%)">
+
+  <h2 style="margin-top: 0">مطابقة GL — حساب {{ hotel_gl_recon.account_code }}</h2>
+
+  <p class="muted" style="margin-top:0;font-size:0.85rem">{{ hotel_gl_recon.account_name }} · {{ hotel_gl_recon.from_date }} → {{ hotel_gl_recon.to_date }}</p>
+
+  <div class="stat-grid">
+
+    <div class="stat-card good"><div class="label">تحصيل تشغيلي</div><div class="value">{{ hotel_gl_recon.operational_net }} د.ل</div></div>
+
+    <div class="stat-card"><div class="label">صافي دائن GL (4150)</div><div class="value">{{ hotel_gl_recon.gl_revenue_net }} د.ل</div></div>
+
+    <div class="stat-card {% if hotel_gl_recon.gap == 0 %}good{% else %}bad{% endif %}"><div class="label">الفارق</div><div class="value">{{ hotel_gl_recon.gap }} د.ل</div></div>
+
+  </div>
+
+  {% if hotel_gl_recon.account_id %}
+
+  <p style="margin:0.65rem 0 0;font-size:0.88rem"><a href="/admin/gl/accounts/{{ hotel_gl_recon.account_id }}/ledger">دفتر حساب 4150 ←</a> · <a href="/reports/financial-operational?period={{ period }}">مالي تشغيلي</a></p>
+
+  {% endif %}
+
+</div>
+
+{% endif %}
+
+
+
+{% if show_pos_sections and restaurant_gl_recon %}
+<div class="card" style="border-color:#93c5fd;background:linear-gradient(180deg,#eff6ff 0%,#fff 55%)">
+  <h2 style="margin-top: 0">مطابقة GL — حساب {{ restaurant_gl_recon.account_code }} (مطعم)</h2>
+  <p class="muted" style="margin-top:0;font-size:0.85rem">{{ restaurant_gl_recon.account_name }} · {{ restaurant_gl_recon.from_date }} → {{ restaurant_gl_recon.to_date }}</p>
+  <div class="stat-grid">
+    <div class="stat-card good"><div class="label">تحصيل تشغيلي</div><div class="value">{{ restaurant_gl_recon.operational_net }} د.ل</div></div>
+    <div class="stat-card"><div class="label">صافي دائن GL (4100)</div><div class="value">{{ restaurant_gl_recon.gl_revenue_net }} د.ل</div></div>
+    <div class="stat-card {% if restaurant_gl_recon.gap == 0 %}good{% else %}bad{% endif %}"><div class="label">الفارق</div><div class="value">{{ restaurant_gl_recon.gap }} د.ل</div></div>
+  </div>
+  {% if restaurant_gl_recon.account_id %}
+  <p style="margin:0.65rem 0 0;font-size:0.88rem"><a href="/admin/gl/accounts/{{ restaurant_gl_recon.account_id }}/ledger">دفتر حساب 4100 ←</a></p>
+  {% endif %}
+</div>
+{% endif %}
+
+
+
 <div class="card">
+
   <h2 style="margin-top: 0">التحصيل ورد المبالغ حسب طريقة الدفع</h2>
+
   {% if sales_by_pm %}
+
   <table>
+
     <thead><tr><th>طريقة الدفع</th><th>عمليات التحصيل</th><th>التحصيل</th><th>عمليات الرد</th><th>رد المبالغ</th><th>الصافي</th></tr></thead>
+
     <tbody>
+
       {% for name, sales_cnt, sales_total, refund_cnt, refund_total, net_total in sales_by_pm %}
+
       <tr>
+
         <td>{{ name }}</td>
+
         <td>{{ sales_cnt }}</td>
+
         <td style="color:#16a34a">+{{ sales_total }} د.ل</td>
+
         <td>{{ refund_cnt }}</td>
+
         <td style="color:#b91c1c">−{{ refund_total }} د.ل</td>
+
         <td>{{ net_total }} د.ل</td>
+
       </tr>
+
       {% endfor %}
+
     </tbody>
+
   </table>
+
   {% else %}<p class="muted">لا بيانات.</p>{% endif %}
+
 </div>
 
+
+
 <div class="card">
+
   <h2 style="margin-top: 0">المشتريات حسب المحفظة</h2>
+
   {% if purch_by_pm %}
+
   <table>
+
     <thead><tr><th>المحفظة</th><th>عدد</th><th>الإجمالي</th></tr></thead>
+
     <tbody>
+
       {% for name, cnt, total in purch_by_pm %}<tr><td>{{ name }}</td><td>{{ cnt }}</td><td>{{ total }} د.ل</td></tr>{% endfor %}
+
     </tbody>
+
   </table>
+
   {% else %}<p class="muted">لا بيانات.</p>{% endif %}
+
 </div>
 
+
+
 <div class="card">
+
   <h2 style="margin-top: 0">الأصول/الأدوات حسب المحفظة</h2>
+
   {% if asset_by_pm %}
+
   <table>
+
     <thead><tr><th>المحفظة</th><th>عدد</th><th>الإجمالي</th></tr></thead>
+
     <tbody>
+
       {% for name, cnt, total in asset_by_pm %}<tr><td>{{ name }}</td><td>{{ cnt }}</td><td>{{ total }} د.ل</td></tr>{% endfor %}
+
     </tbody>
+
   </table>
+
   {% else %}<p class="muted">لا بيانات.</p>{% endif %}
+
 </div>
 
+
+
 <div class="card">
+
   <h2 style="margin-top: 0">المصروفات حسب التصنيف</h2>
+
   {% if exp_by_cat %}
+
   <table>
+
     <thead><tr><th>التصنيف</th><th>عدد</th><th>الإجمالي</th></tr></thead>
+
     <tbody>
+
       {% for name, cnt, total in exp_by_cat %}<tr><td>{{ name }}</td><td>{{ cnt }}</td><td>{{ total }} د.ل</td></tr>{% endfor %}
+
     </tbody>
+
   </table>
+
   {% else %}<p class="muted">لا بيانات.</p>{% endif %}
+
 </div>
 
+
+
+{% if show_pos_sections %}
+
 <div class="card">
-  <h2 style="margin-top: 0">رصيد المحافظ (كل الوقت)</h2>
+
+  <h2 style="margin-top: 0">رصيد المحافظ (كل الوقت — POS)</h2>
+
   {% if wallet_rows %}
+
   <table>
+
     <thead><tr><th>المحفظة</th><th>وارد التحصيل</th><th>رد المبالغ</th><th>تسويات داخلة</th><th>تسويات خارجة</th><th>أجرة توصيل خارجة</th><th>صادر المشتريات</th><th>الرصيد</th></tr></thead>
+
     <tbody>
+
       {% for w in wallet_rows %}
+
       <tr>
+
         <td><strong>{{ w.method.name_ar }}</strong>{% if not w.method.is_active %} <span class="muted">(معطّل)</span>{% endif %}</td>
+
         <td style="color: #16a34a">+{{ w.sales_in }}</td>
+
         <td style="color: #b91c1c">−{{ w.refunds_out }}</td>
+
         <td style="color: #0f766e">+{{ w.transfers_in }}</td>
+
         <td style="color: #b45309">−{{ w.transfers_out }}</td>
+
         <td style="color: #b45309">−{{ w.delivery_fees_out }}</td>
+
         <td style="color: #b91c1c">−{{ w.purchases_out }}</td>
+
         <td style="font-weight: 700; color: {% if w.net >= 0 %}#16a34a{% else %}#b91c1c{% endif %}">{{ w.net }} د.ل</td>
+
       </tr>
+
       {% endfor %}
+
     </tbody>
+
   </table>
+
   {% else %}<p class="muted">لا محافظ.</p>{% endif %}
+
 </div>
 
+
+
 <div class="card">
+
   <h2 style="margin-top: 0">أعلى الأصناف ربحاً</h2>
+
   {% if profit_top %}
+
   <table>
+
     <thead><tr><th>#</th><th>الصنف</th><th>الكمية</th><th>الإيراد</th><th>الربح التقديري</th></tr></thead>
+
     <tbody>
+
       {% for r in profit_top %}
+
       <tr>
-        <td>{{ loop.index }}</td><td>{{ r.name_ar }}</td><td>{{ r.qty_sold }}</td>
+
+        <td>{{ loop.index }}</td><td>{{ r.name_ar }}</td><td>{{ r.qty_sold | qty }}</td>
+
         <td>{{ r.revenue }} د.ل</td>
+
         <td style="font-weight: 700; color: {% if r.gross_profit >= 0 %}#16a34a{% else %}#b91c1c{% endif %}">{{ r.gross_profit }} د.ل</td>
+
       </tr>
+
       {% endfor %}
+
     </tbody>
+
   </table>
+
   {% else %}<p class="muted">لا مبيعات.</p>{% endif %}
+
 </div>
 
+
+
 <div class="card">
+
   <h2 style="margin-top: 0">⚠ أصناف قاربت على النفاد</h2>
+
   {% if low_rows %}
+
   <table>
+
     <thead><tr><th>الصنف</th><th>الوحدة</th><th>الرصيد</th><th>الحد الأدنى</th></tr></thead>
+
     <tbody>
+
       {% for r in low_rows %}
+
       <tr style="background: #fef2f2">
+
         <td><strong>{{ r.name_ar }}</strong></td>
+
         <td>{{ r.unit }}</td>
-        <td style="font-weight: 700; color: #b91c1c">{{ r.quantity }}</td>
-        <td>{{ r.reorder_level }}</td>
+
+        <td style="font-weight: 700; color: #b91c1c">{{ pos_qty(r.quantity) }}</td>
+
+        <td>{{ r.reorder_level | qty }}</td>
+
       </tr>
+
       {% endfor %}
+
     </tbody>
+
   </table>
+
   {% else %}<p class="muted">لا توجد أصناف منخفضة حالياً.</p>{% endif %}
+
 </div>
+
+{% endif %}
+
 {% endblock %}
+
+

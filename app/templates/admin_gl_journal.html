@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% from "_gl_export_macros.html" import gl_export_bar, gl_export_format_help, gl_report_print_styles with context %}
+{% block title %}قيود اليومية — GL{% endblock %}
+{% block head_extra %}{{ gl_report_print_styles() }}{% endblock %}
+{% block body %}
+<div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem">
+  <div>
+    <h1 style="margin:0">قيود اليومية</h1>
+    {% if domain_label %}<p class="muted" style="margin:0.35rem 0 0">مجال العرض: <strong>{{ domain_label }}</strong></p>{% endif %}
+  </div>
+  <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+    <a class="btn" href="/admin/gl/accounts">شجرة الحسابات</a>
+    <a class="btn" href="/admin/gl/reports">التقارير المالية</a>
+    <a class="btn btn-primary" href="/admin/gl/journal/new">+ قيد يدوي</a>
+    <a class="btn" href="/admin/gl/reconciliation">مطابقة GL</a>
+    <a class="btn" href="/admin/gl">إعدادات GL</a>
+    <form method="post" action="/admin/gl/backfill" style="margin:0" onsubmit="return confirm('ترحيل كل الحركات السابقة إلى GL؟ (آمن — لا يكرر القيود)')">
+      <button class="btn btn-primary" type="submit">ترحيل الحركات السابقة</button>
+    </form>
+  </div>
+</div>
+
+{% if backfill_done %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4">
+  <p style="margin:0">تم طلب ترحيل الحركات السابقة. راجع القائمة أدناه.</p>
+</div>
+{% endif %}
+
+<div class="card" style="border-color:#bae6fd;background:#f0f9ff">
+  <p style="margin:0;line-height:1.65;font-size:0.92rem">
+    القيود هنا هي <strong>المصدر المحاسبي</strong> لتقارير
+    <a href="/admin/gl/reports">الربح والخسارة والميزانية</a>.
+    لا تؤثر على رصيد المحافظ في POS — للمطابقة استخدم
+    <a href="/admin/gl/reconciliation">مطابقة GL</a>.
+  </p>
+</div>
+
+<div class="card">
+  <form method="get" action="/admin/gl/journal" class="row" style="flex-wrap:wrap;gap:0.75rem;align-items:flex-end">
+    <div>
+      <label class="muted" style="font-size:0.8rem;display:block">من تاريخ</label>
+      <input type="date" name="from" value="{{ from_date or '' }}" />
+    </div>
+    <div>
+      <label class="muted" style="font-size:0.8rem;display:block">إلى تاريخ</label>
+      <input type="date" name="to" value="{{ to_date or '' }}" />
+    </div>
+    <button class="btn" type="submit">تصفية الفترة</button>
+    {% if from_date or to_date %}
+    <a class="btn" href="/admin/gl/journal">إلغاء التصفية</a>
+    {% endif %}
+  </form>
+</div>
+
+{% set journal_xlsx = '/admin/gl/journal/export.xlsx' ~ ('?' if from_date or to_date else '') ~ ('from=' ~ from_date if from_date else '') ~ ('&' if from_date and to_date else '') ~ ('to=' ~ to_date if to_date else '') %}
+{% set journal_csv = journal_xlsx.replace('/export.xlsx', '/export.csv') %}
+
+<p class="muted" style="margin:0.5rem 0">إجمالي القيود{% if from_date or to_date %} في الفترة{% endif %}: {{ total }}</p>
+
+<div id="gl-report-print">
+{% if entries %}
+{{ gl_export_bar(journal_xlsx, journal_csv) }}
+{{ gl_export_format_help() }}
+{% for e in entries %}
+<div class="card" style="margin-bottom:0.75rem">
+  <div style="display:flex;justify-content:space-between;gap:0.5rem;flex-wrap:wrap">
+    <strong>#{{ e.id }} — {{ e.description_ar }}</strong>
+    <span class="muted" style="font-size:0.85rem">{{ e.entry_date }} · {{ e.source_type }} #{{ e.source_id }} · {{ e.post_mode }}{% if e.status.value == 'REVERSED' %} · <span style="color:#b45309">معكوس</span>{% endif %}</span>
+  </div>
+  <table style="width:100%;border-collapse:collapse;font-size:0.88rem;margin-top:0.5rem">
+    <thead>
+      <tr style="border-bottom:1px solid var(--border)">
+        <th style="text-align:right;padding:0.3rem">الحساب</th>
+        <th style="text-align:left;padding:0.3rem;direction:ltr">مدين</th>
+        <th style="text-align:left;padding:0.3rem;direction:ltr">دائن</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ln in e.lines %}
+      <tr style="border-bottom:1px dashed var(--border)">
+        <td style="padding:0.3rem">{{ ln.account.code if ln.account else ln.account_id }} — {{ ln.account.name_ar if ln.account else '' }}</td>
+        <td style="padding:0.3rem;text-align:left;direction:ltr;font-variant-numeric:tabular-nums">{% if ln.debit > 0 %}{{ "%.3f"|format(ln.debit) }}{% else %}—{% endif %}</td>
+        <td style="padding:0.3rem;text-align:left;direction:ltr;font-variant-numeric:tabular-nums">{% if ln.credit > 0 %}{{ "%.3f"|format(ln.credit) }}{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endfor %}
+
+<div style="display:flex;gap:0.5rem;margin-top:0.75rem">
+  {% if page > 0 %}
+  <a class="btn" href="/admin/gl/journal?page={{ page - 1 }}{% if from_date %}&from={{ from_date }}{% endif %}{% if to_date %}&to={{ to_date }}{% endif %}">← السابق</a>
+  {% endif %}
+  {% if has_next %}
+  <a class="btn" href="/admin/gl/journal?page={{ page + 1 }}{% if from_date %}&from={{ from_date }}{% endif %}{% if to_date %}&to={{ to_date }}{% endif %}">التالي →</a>
+  {% endif %}
+</div>
+{% else %}
+<div class="card">
+  <p style="margin:0">لا توجد قيود بعد. فعّل GL من <a href="/admin/gl">الإعدادات</a> ثم نفّذ مبيعات جديدة أو «ترحيل الحركات السابقة».</p>
+</div>
+{% endif %}
+</div>{# gl-report-print #}
+{% endblock %}

@@ -136,40 +136,57 @@ def depreciation_in_period(
     return diff.quantize(Decimal("0.001")) if diff > 0 else Decimal("0")
 
 
-def list_fixed_asset_lines(db: Session) -> list[PurchaseLine]:
-    """جميع بنود الأصول الثابتة (ASSET مع useful_life_months>0)، أحدثاً أولاً."""
+def list_fixed_asset_lines(db: Session, domain=None) -> list[PurchaseLine]:
+    """جميع بنود الأصول الثابتة (من فواتير ASSET أو مختلطة)، أحدثاً أولاً."""
+    from modules.platform.business_domain import purchase_domain_db_values
+
     stmt = (
         select(PurchaseLine)
         .join(Purchase, Purchase.id == PurchaseLine.purchase_id)
-        .where(Purchase.kind == PurchaseKind.ASSET)
-        .where(PurchaseLine.useful_life_months > 0)
-        .order_by(Purchase.created_at.desc(), PurchaseLine.id.desc())
+        .where(
+            Purchase.kind.in_([PurchaseKind.ASSET, PurchaseKind.INVENTORY]),
+            PurchaseLine.useful_life_months > 0,
+            PurchaseLine.product_id.is_(None),
+        )
+        .order_by(Purchase.id.desc(), PurchaseLine.id.desc())
     )
+    domain_vals = purchase_domain_db_values(domain)
+    if domain_vals is not None:
+        stmt = stmt.where(Purchase.business_domain.in_(domain_vals))
     return list(db.scalars(stmt).all())
 
 
 def list_consumable_asset_lines_in_period(
-    db: Session, start: datetime, end: datetime
+    db: Session, start: datetime, end: datetime, domain=None
 ) -> list[PurchaseLine]:
-    """بنود مستلزمات استهلاكية (ASSET مع useful_life_months=0) خلال الفترة."""
+    """بنود مستلزمات استهلاكية خلال الفترة (فواتير ASSET أو مختلطة)."""
+    from modules.platform.business_domain import purchase_domain_db_values
+
     s, e = _to_utc(start), _to_utc(end)
     stmt = (
         select(PurchaseLine)
         .join(Purchase, Purchase.id == PurchaseLine.purchase_id)
-        .where(Purchase.kind == PurchaseKind.ASSET)
-        .where((PurchaseLine.useful_life_months == 0) | (PurchaseLine.useful_life_months.is_(None)))
+        .where(
+            Purchase.kind.in_([PurchaseKind.ASSET, PurchaseKind.INVENTORY]),
+            PurchaseLine.product_id.is_(None),
+            (PurchaseLine.useful_life_months == 0)
+            | (PurchaseLine.useful_life_months.is_(None)),
+        )
         .where(Purchase.created_at >= s, Purchase.created_at < e)
-        .order_by(Purchase.created_at.desc(), PurchaseLine.id.desc())
+        .order_by(Purchase.id.desc(), PurchaseLine.id.desc())
     )
+    domain_vals = purchase_domain_db_values(domain)
+    if domain_vals is not None:
+        stmt = stmt.where(Purchase.business_domain.in_(domain_vals))
     return list(db.scalars(stmt).all())
 
 
 def consumable_assets_total_in_period(
-    db: Session, start: datetime, end: datetime
+    db: Session, start: datetime, end: datetime, domain=None
 ) -> Decimal:
     """إجمالي الأصول الاستهلاكية المسجَّلة في الفترة (مصروف فوري)."""
     total = Decimal("0")
-    for ln in list_consumable_asset_lines_in_period(db, start, end):
+    for ln in list_consumable_asset_lines_in_period(db, start, end, domain=domain):
         total += Decimal(str(ln.line_total or 0))
     return total.quantize(Decimal("0.001"))
 
@@ -195,7 +212,9 @@ class FixedAssetsSummary:
     fully_depreciated_count: int
 
 
-def fixed_assets_summary(db: Session, as_of: datetime | None = None) -> FixedAssetsSummary:
+def fixed_assets_summary(
+    db: Session, as_of: datetime | None = None, domain=None
+) -> FixedAssetsSummary:
     """ملخّص دفتر الأصول الثابتة عند تاريخ as_of (افتراضياً الآن)."""
     if as_of is None:
         as_of = datetime.now(timezone.utc)
@@ -206,7 +225,7 @@ def fixed_assets_summary(db: Session, as_of: datetime | None = None) -> FixedAss
     monthly = Decimal("0")
     fully = 0
     cnt = 0
-    for ln in list_fixed_asset_lines(db):
+    for ln in list_fixed_asset_lines(db, domain=domain):
         if ln.disposal_date is not None and ln.disposal_date <= as_of:
             continue  # نتجاهل المتخلَّص منها
         snap = snapshot_at(ln, as_of)

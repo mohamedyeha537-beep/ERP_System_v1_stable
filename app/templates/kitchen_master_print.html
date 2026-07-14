@@ -14,7 +14,9 @@
     .section { margin-bottom: 0.85rem; border-top: 2px dashed #cbd5e1; padding-top: 0.5rem; }
     .section h2 { margin: 0 0 0.35rem; font-size: 0.95rem; color: #475569; }
     .section ul { margin: 0; padding: 0; list-style: none; }
-    .section li { display: flex; justify-content: space-between; padding: 0.2rem 0; border-bottom: 1px dotted #e2e8f0; font-size: 0.9rem; }
+    .section li { display: flex; justify-content: space-between; gap: 0.35rem; padding: 0.2rem 0; border-bottom: 1px dotted #e2e8f0; font-size: 0.9rem; }
+    .num-frac { font-size: 0.62em; opacity: 0.85; vertical-align: baseline; }
+    .section .line-note { display: block; font-size: 0.78rem; color: #b45309; font-weight: 700; margin-top: 0.1rem; }
     .actions { text-align: center; margin-top: 0.75rem; }
     @media print { .actions { display: none; } }
   </style>
@@ -28,7 +30,7 @@
   <div class="page">
     <div class="head">
       <h1>ورقة تجميع — طلب #{{ sale.id }}</h1>
-      <p style="font-size:0.85rem;color:#64748b;margin:0.25rem 0 0">{{ sale.created_at.strftime('%Y-%m-%d %H:%M') if sale.created_at else '' }}</p>
+      <p style="font-size:0.85rem;color:#64748b;margin:0.25rem 0 0">{{ pos_format_dt(sale.created_at, '%Y-%m-%d %H:%M') if sale.created_at else '' }}</p>
     </div>
     {% if sale.table %}
     <div class="table-line">الطاولة: {{ sale.table.name_ar }}</div>
@@ -40,7 +42,10 @@
       <h2>{{ sec.name_ar }}</h2>
       <ul>
         {% for ln in sec.lines %}
-        <li><span>{{ ln.name_ar }}</span><strong>× {{ ln.qty }}</strong></li>
+        <li>
+          <span>{{ ln.name_ar }}{% if ln.notes %}<span class="line-note">↳ {{ ln.notes }}</span>{% endif %}</span>
+          <strong>× {{ pos_qty(ln.qty) }}</strong>
+        </li>
         {% endfor %}
       </ul>
     </div>

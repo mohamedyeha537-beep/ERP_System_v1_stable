@@ -2,15 +2,28 @@
 {% block title %}تعديل دور{% endblock %}
 {% block body %}
 <h1>تعديل الدور: {{ role.name_ar }}</h1>
+{% if request.query_params.get('admin_locked') %}
+<div class="alert" style="margin-bottom:0.75rem;border-color:#93c5fd;background:#eff6ff;color:#1e40af">
+  دور «مدير النظام» يملك تلقائياً جميع الصلاحيات ولا يمكن تقليلها.
+</div>
+{% endif %}
 <div class="card">
   <form method="post" action="/admin/roles/{{ role.id }}">
     <label for="name_ar">اسم الدور</label>
-    <input id="name_ar" name="name_ar" value="{{ role.name_ar }}" required />
+    <input id="name_ar" name="name_ar" value="{{ role.name_ar }}" required {% if is_admin_role %}readonly{% endif %} />
     <h3 style="margin-bottom: 0.25rem">الصلاحيات</h3>
+    {% if is_admin_role %}
+    <p class="muted" style="margin-top: 0">
+      مدير النظام يتحكم بكل الصلاحيات تلقائياً — أي صلاحية جديدة تُضاف للنظام تُمنح له فوراً.
+    </p>
+    {% else %}
     <p class="muted" style="margin-top: 0">اختر ما ينطبق على هذا الدور.</p>
+    {% endif %}
     {% for p in perms %}
     <label style="display: flex; gap: 0.5rem; align-items: center; max-width: none">
-      <input type="checkbox" name="perm_ids" value="{{ p.id }}" {% if p.id in role_perm_ids %}checked{% endif %} />
+      <input type="checkbox" name="perm_ids" value="{{ p.id }}"
+        {% if p.id in role_perm_ids %}checked{% endif %}
+        {% if is_admin_role %}checked disabled{% endif %} />
       <span>{{ p.label_ar }} <span class="muted">({{ p.code }})</span></span>
     </label>
     {% endfor %}

@@ -1,23 +1,40 @@
-<h2 style="margin-top: 0">الفاتورة</h2>
-
-{% set open_orders_nav = open_orders_nav if open_orders_nav is defined else [] %}
-{% set sale_sent_kitchen = sale_sent_kitchen if sale_sent_kitchen is defined else false %}
-
-{% if open_orders_nav|length > 0 %}
-<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:0.45rem 0.5rem;margin-bottom:0.55rem">
-  <div style="font-weight:700;font-size:0.82rem;margin-bottom:0.35rem;color:#334155">طلبات مفتوحة ({{ open_orders_nav|length }})</div>
-  <div style="display:flex;flex-direction:column;gap:0.28rem">
-    {% for row in open_orders_nav %}
-    <form method="post" action="/pos/open-order/{{ row.id }}" style="margin:0">
-      <button type="submit" class="btn" style="width:100%;text-align:start;font-size:0.82rem;padding:0.35rem 0.45rem;{% if row.active %}border-color:#2563eb;background:#eff6ff;font-weight:700{% endif %}">
-        <span style="opacity:0.75">#{{ row.id }}</span> · {{ row.label }} · {{ pos_money(row.total) }} د.ل
-        <span style="display:block;font-size:0.72rem;color:var(--muted)">{{ row.status }}{% if row.active %} — <strong>الحالي</strong>{% endif %}</span>
-      </button>
-    </form>
-    {% endfor %}
-  </div>
+<div class="pos-sidebar-head">
+  <h2>الفاتورة</h2>
+  {% if sale %}
+  <span class="pos-sidebar-order-no" aria-label="رقم الطلب الحالي">طلب #{{ sale.id }}</span>
+  {% endif %}
 </div>
+{% set _op = order_policy if order_policy is defined else {} %}
+{% if sale %}
+{% set _ctx = sale.context_type.value if sale.context_type else 'TABLE' %}
+{% set _order_lbl = 'طلب #' ~ sale.id %}
+{% if _ctx == 'TABLE' and sale.table %}
+{% set _order_lbl = _order_lbl ~ ' — طاولة ' ~ sale.table.name_ar %}
+{% elif _ctx == 'ROOM' %}
+{% set _order_lbl = _order_lbl ~ ' — شقة' %}
+{% elif _ctx == 'EXTERNAL' %}
+{% set _order_lbl = _order_lbl ~ ' — خارجي' %}
 {% endif %}
+<div id="pos-order-state" hidden
+  data-sent-kitchen="{{ '1' if sale_sent_kitchen else '0' }}"
+  data-sale-id="{{ sale.id }}"
+  data-order-label="{{ _order_lbl }}"
+  data-send-confirm="{{ '1' if _op.get('send_confirm_enabled', true) else '0' }}"
+  data-send-confirm-min="{{ _op.get('send_confirm_min_total', '0') }}"
+  data-sale-total="{{ sale.total }}"></div>
+{% else %}
+<div id="pos-order-state" hidden data-sent-kitchen="0" data-sale-id="" data-order-label=""></div>
+{% endif %}
+
+<div class="pos-sidebar-inner">
+
+{% set sale_sent_kitchen = sale_sent_kitchen if sale_sent_kitchen is defined else false %}
+{% set can_pay = can_pay if can_pay is defined else true %}
+{% set can_charge_room = can_charge_room if can_charge_room is defined else true %}
+{% set can_void_after_kitchen = can_void_after_kitchen if can_void_after_kitchen is defined else false %}
+{% set void_supervisor_configured = void_supervisor_configured if void_supervisor_configured is defined else false %}
+{% set can_hotel_charge = can_hotel_charge if can_hotel_charge is defined else false %}
+{% set kitchen_workflow_enabled = _op.get('kitchen_workflow_enabled', true) %}
 
 <form method="post" action="/pos/new-order" style="margin:0 0 0.45rem">
   <button type="submit" class="btn btn-primary" style="width:100%;font-size:0.9rem;padding:0.45rem 0.55rem">
@@ -25,239 +42,109 @@
   </button>
 </form>
 
-{% if not sale %}
-<div style="background:#f1f5f9;border:1px solid #cbd5e1;border-radius:10px;padding:0.85rem;margin:0.5rem 0;font-size:0.88rem;color:#475569;text-align:center">
-  {% if open_orders_nav|length > 0 %}
-  اختر طلباً من «طلبات مفتوحة» أعلاه، أو أنشئ <strong>طلباً جديداً</strong>.
-  {% else %}
-  لا توجد طلبات مفتوحة. اضغط <strong>طلب جديد</strong> لبدء طلب برقم جديد.
-  {% endif %}
-</div>
-{% else %}
+{% set ctx = (sale.context_type.value if sale and sale.context_type else 'TABLE') %}
+{% set ext_mode = 'ROOM' if sale and ctx == 'ROOM' else (sale.external_order_type.value if sale and sale.external_order_type else 'PICKUP') %}
 
-<p class="muted" style="margin-top: 0">مسودة #{{ sale.id }}</p>
-
-{% if feedback %}
-<div style="background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;padding:0.5rem 0.7rem;border-radius:8px;margin-bottom:0.5rem;font-size:0.85rem;font-weight:500">
-  {{ feedback }}
-</div>
+{% if sale and feedback %}
+{% set alert_msg = feedback %}
+{% set alert_tone = 'info' if 'تم تسجيل' in feedback or 'تم تحويل' in feedback else 'error' %}
+{% include "pos_dismissible_alert.html" %}
 {% endif %}
 
-{% set ctx = (sale.context_type.value if sale.context_type else 'TABLE') %}
-
-<div class="ctx-tabs" role="tablist">
-  <button type="button" class="ctx-tab {% if ctx == 'TABLE' %}active{% endif %}" data-ctx="TABLE">
-    🪑 طاولة
-  </button>
-  {% if pos_perm(request)('hotel:charge') and rooms %}
-  <button type="button" class="ctx-tab {% if ctx == 'ROOM' %}active{% endif %}" data-ctx="ROOM">
-    🏨 شقة
-  </button>
-  {% endif %}
-  <button type="button" class="ctx-tab {% if ctx == 'EXTERNAL' %}active{% endif %}" data-ctx="EXTERNAL">
-    📞 خارجي
-  </button>
 </div>
 
-<!-- لوحة TABLE -->
-<div class="ctx-panel {% if ctx == 'TABLE' %}active{% endif %}" data-ctx-panel="TABLE">
-  {% if tables %}
-  <form method="post" action="/pos/set-context" style="margin: 0 0 0.5rem">
-    <input type="hidden" name="context_type" value="TABLE" />
-    <label class="muted" style="font-size: 0.78rem; display:block; margin-bottom: 0.18rem">اختر الطاولة</label>
-    <div class="row" style="gap:0.3rem; align-items:center">
-      <select name="table_id" onchange="this.form.submit()" style="flex:1">
-        <option value="">— اختر الطاولة —</option>
-        {% for t in tables %}
-        <option value="{{ t.id }}" {% if sale.table_id == t.id %}selected{% endif %}>
-          {{ t.name_ar }}{% if t.section %} ({{ t.section.name_ar }}){% endif %}
-        </option>
-        {% endfor %}
-      </select>
-      {% if sale.table_id %}
-      <button type="submit" class="btn" name="table_id" value="" title="إزالة الطاولة" style="padding: 0.25rem 0.5rem">×</button>
-      {% endif %}
-    </div>
-  </form>
-  {% if sale.table_id %}
-  <div style="background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;padding:0.5rem;margin-top:0.4rem;font-size:0.85rem">
-    <div style="color:#1d4ed8">🪑 الطلب مربوط بالطاولة المختارة حالياً.</div>
-  </div>
-  {% else %}
-  <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:0.55rem;margin-top:0.4rem;font-size:0.85rem">
-    <div style="color:#b91c1c;font-weight:600">⚠️ يجب اختيار طاولة أولاً</div>
-    <div style="color:#7f1d1d;margin-top:0.2rem;font-size:0.8rem">
-      إذا لم يكن الطلب على طاولة، بدّل السياق إلى «خارجي» قبل إتمام البيع.
-    </div>
-  </div>
-  {% endif %}
-  {% else %}
-  <p class="muted" style="font-size:0.82rem; margin:0.4rem 0">لا توجد طاولات. أضف طاولات من <a href="/admin/tables">إدارة الطاولات</a>.</p>
-  {% endif %}
-</div>
-
-<!-- لوحة ROOM -->
-{% if pos_perm(request)('hotel:charge') and rooms %}
-<div class="ctx-panel {% if ctx == 'ROOM' %}active{% endif %}" data-ctx-panel="ROOM">
-  <form method="post" action="/pos/set-context" style="margin: 0 0 0.5rem" id="room-select-form">
-    <input type="hidden" name="context_type" value="ROOM" />
-    <label class="muted" style="font-size: 0.78rem; display:block; margin-bottom: 0.18rem">اختر الشقة/الغرفة</label>
-    {# الافتراضي دائماً «— اختر شقة —» (selected) إلا إذا كان قد اختار الكاشير شقة فعلاً. #}
-    <select name="room_id" onchange="this.form.submit()" style="width:100%"
-            id="room-id-select" required>
-      <option value="" {% if not session_room_id %}selected{% endif %}>— اختر شقة —</option>
-      {% for r in rooms %}
-      <option value="{{ r.id }}" {% if session_room_id == r.id %}selected{% endif %}>
-        شقة #{{ r.number }}
-      </option>
-      {% endfor %}
-    </select>
-  </form>
-  {% if session_room_id %}
-  <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:0.5rem;margin-top:0.4rem;font-size:0.85rem">
-    <div style="color:#92400e">🏨 على حساب الشقة المختارة — <strong>لن يتم تحصيل من هذا الكاشير</strong>.</div>
-    <div style="color:#92400e;margin-top:0.2rem">يسوّي الحساب لاحقاً موظف الاستقبال من «تسوية حسابات الغرف».</div>
-  </div>
-  {% else %}
-  <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:0.55rem;margin-top:0.4rem;font-size:0.85rem">
-    <div style="color:#b91c1c;font-weight:600">⚠️ لم تُختَر شقة بعد</div>
-    <div style="color:#7f1d1d;margin-top:0.2rem;font-size:0.8rem">
-      اختر الشقة من القائمة أعلاه قبل إضافة أيّ صنف. لن يُسمح بإضافة منتجات حتى تُحدَّد الشقة.
-    </div>
-  </div>
-  {% endif %}
-</div>
-{% endif %}
-
-<!-- لوحة EXTERNAL -->
-<div class="ctx-panel {% if ctx == 'EXTERNAL' %}active{% endif %}" data-ctx-panel="EXTERNAL">
-  <form method="post" action="/pos/set-context" style="margin: 0 0 0.5rem">
-    <input type="hidden" name="context_type" value="EXTERNAL" />
-    <label class="muted" style="font-size: 0.78rem; display:block; margin-bottom: 0.18rem">نوع الطلب الخارجي</label>
-    {% set ext_type = sale.external_order_type.value if sale and sale.external_order_type else 'PICKUP' %}
-    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0.4rem;margin-bottom:0.45rem">
-      <label style="display:flex;align-items:center;gap:0.35rem;border:1px solid {% if ext_type == 'PICKUP' %}#3b82f6{% else %}#cbd5e1{% endif %};background:{% if ext_type == 'PICKUP' %}#eff6ff{% else %}#fff{% endif %};border-radius:8px;padding:0.55rem 0.65rem;cursor:pointer">
-        <input type="radio" name="external_order_type" value="PICKUP" {% if ext_type != 'DELIVERY' %}checked{% endif %} />
-        <span>استلام من المطعم</span>
-      </label>
-      <label style="display:flex;align-items:center;gap:0.35rem;border:1px solid {% if ext_type == 'DELIVERY' %}#f59e0b{% else %}#cbd5e1{% endif %};background:{% if ext_type == 'DELIVERY' %}#fff7ed{% else %}#fff{% endif %};border-radius:8px;padding:0.55rem 0.65rem;cursor:pointer">
-        <input type="radio" name="external_order_type" value="DELIVERY" {% if ext_type == 'DELIVERY' %}checked{% endif %} />
-        <span>توصيل</span>
-      </label>
-    </div>
-    <div id="delivery-zone-wrap" style="{% if ext_type != 'DELIVERY' %}display:none;{% endif %} margin-bottom:0.45rem">
-      <label class="muted" style="font-size: 0.78rem; display:block; margin-bottom: 0.18rem">منطقة التوصيل</label>
-      <select class="input" name="delivery_zone_id">
-        <option value="">اختر المنطقة</option>
-        {% for z in delivery_zones %}
-        <option value="{{ z.id }}" {% if sale.delivery_zone_id == z.id %}selected{% endif %}>{{ z.name_ar }} — {{ pos_money(z.fee) }} د.ل</option>
-        {% endfor %}
-      </select>
-      <div style="font-size:0.78rem;color:#9a3412;margin-top:0.22rem">أجرة التوصيل تخصم من صافي الكاش ولا تُحتسب مبيعاً للمطعم.</div>
-    </div>
-    <label class="muted" style="font-size: 0.78rem; display:block; margin-bottom: 0.18rem">
-      رقم هاتف العميل <span style="color:#dc2626;font-weight:700">*</span>
-    </label>
-    <input class="input" type="tel" name="customer_phone" required
-           value="{{ customer.phone if customer else '' }}" placeholder="مثلاً: 0912345678" />
-    <label class="muted" style="font-size: 0.78rem; display:block; margin: 0.3rem 0 0.18rem">اسم العميل (اختياري)</label>
-    <input class="input" type="text" name="customer_name" value="{{ customer.name or '' if customer else '' }}" placeholder="اسم العميل" />
-    <button type="submit" class="btn btn-primary" style="margin-top:0.4rem; width:100%">حفظ بيانات العميل</button>
-  </form>
-  {% if not customer %}
-  <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:0.55rem;margin-top:0.4rem;font-size:0.85rem">
-    <div style="color:#b91c1c;font-weight:600">⚠️ رقم الهاتف مطلوب</div>
-    <div style="color:#7f1d1d;margin-top:0.2rem;font-size:0.8rem">أدخل رقم الهاتف واضغط «حفظ بيانات العميل» قبل إضافة أصناف.</div>
-  </div>
-  {% endif %}
-  {% if customer %}
-  <div style="background:#dcfce7;border:1px solid #16a34a;border-radius:8px;padding:0.5rem;margin-top:0.4rem;font-size:0.85rem">
-    <div style="color:#15803d;font-weight:600">📞 {{ customer.phone }}{% if customer.name %} — {{ customer.name }}{% endif %}</div>
-    {% if customer.points_balance and customer.points_balance > 0 %}
-    <div style="color:#16a34a;margin-top:0.2rem">⭐ نقاط الولاء: {{ '%.0f' % customer.points_balance }}</div>
-    {% endif %}
-    <div style="color:#15803d;margin-top:0.2rem;font-size:0.78rem">
-      {% if ext_type == 'DELIVERY' and sale.delivery_zone_name %}
-      🚚 {{ sale.delivery_zone_name }} — أجرة التوصيل {{ pos_money(sale.delivery_fee) }} د.ل
-      {% else %}
-      سيكسب نقاط ولاء إضافية بعد الدفع.
-      {% endif %}
-    </div>
-  </div>
-  {% endif %}
-</div>
-
-<script>
-(function () {
-  var tabs = document.querySelectorAll(".ctx-tab");
-  var panels = document.querySelectorAll(".ctx-panel");
-  // السياق الحقيقي المُخزَّن في السيرفر (لمعرفة إن كنا نتغيّر فعلاً)
-  var currentCtx = "{{ ctx }}";
-
-  tabs.forEach(function (tab) {
-    tab.addEventListener("click", function () {
-      var ctx = tab.getAttribute("data-ctx");
-      // لو المستخدم نقر نفس التبويب الحالي → فقط تبديل بصري بدون reload
-      if (ctx === currentCtx) {
-        tabs.forEach(function (t) { t.classList.toggle("active", t === tab); });
-        panels.forEach(function (p) {
-          p.classList.toggle("active", p.getAttribute("data-ctx-panel") === ctx);
-        });
-        return;
-      }
-
-      // لو التبويب مختلف، نُرسل POST لتحديث السياق في السيرفر مع تنظيف
-      // الاختيارات السابقة (الافتراضي: لا شقة، لا طاولة، لا عميل خارجي).
-      var f = document.createElement("form");
-      f.method = "POST";
-      f.action = "/pos/set-context";
-      f.style.display = "none";
-      var fld = document.createElement("input");
-      fld.type = "hidden";
-      fld.name = "context_type";
-      fld.value = ctx;
-      f.appendChild(fld);
-      // لا نُمرّر room_id/table_id/customer_phone → السيرفر يُفرغ التحديد
-      document.body.appendChild(f);
-      f.submit();
-    });
-  });
-
-  var extRadios = document.querySelectorAll('input[name="external_order_type"]');
-  var zoneWrap = document.getElementById("delivery-zone-wrap");
-  function syncExternalMode() {
-    var checked = document.querySelector('input[name="external_order_type"]:checked');
-    var isDelivery = checked && checked.value === "DELIVERY";
-    if (zoneWrap) zoneWrap.style.display = isDelivery ? "block" : "none";
-  }
-  extRadios.forEach(function (radio) {
-    radio.addEventListener("change", syncExternalMode);
-  });
-  syncExternalMode();
-})();
-</script>
-
+{% if sale %}
+<div class="pos-sidebar-footer">
+  <div class="pos-sidebar-cart-scroll" aria-label="أصناف الفاتورة">
 {% include "pos_cart_wrap.html" %}
+  </div>
+  <div class="pos-sidebar-actions">
 <div class="pos-total-row">
   <span>الإجمالي</span>
   <span>{{ pos_money(sale.total) }} <span class="money-currency">د.ل</span></span>
 </div>
 
 {% if sale.lines %}
-  {% if sale_sent_kitchen %}
-  <div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px;padding:0.5rem;margin:0.45rem 0;font-size:0.82rem;color:#047857">
-    ✓ أُرسل للمطبخ. التحصيل عند المغادرة —
-    <a href="/pos/prebill/{{ sale.id }}" target="_blank">إعادة طباعة أمر التجهيز</a>
+<div class="pos-print-row no-print" style="display:flex;gap:0.35rem;flex-wrap:wrap;margin:0.35rem 0">
+  <button type="button" class="btn btn-primary pos-receipt-print-btn" data-sale-id="{{ sale.id }}"
+     data-doc-kind="{% if sale.status.value == 'COMPLETED' %}receipt{% else %}prebill{% endif %}"
+     style="flex:1;min-width:7rem;font-weight:700;padding:0.4rem 0.55rem">
+    🖨 طباعة
+  </button>
+  <button type="button" class="btn pos-receipt-preview-btn" data-sale-id="{{ sale.id }}"
+     data-doc-kind="{% if sale.status.value == 'COMPLETED' %}receipt{% else %}prebill{% endif %}"
+     style="flex:1;min-width:7rem;padding:0.4rem 0.55rem">
+    معاينة
+  </button>
+</div>
+{% if sale.status.value == 'COMPLETED' and pos_whatsapp_send_url|default('') %}
+{% with wa_sale_id=sale.id, wa_send_url=pos_whatsapp_send_url, wa_phone=pos_whatsapp_receipt_phone|default('') %}
+{% include "_receipt_whatsapp_block.html" %}
+{% endwith %}
+{% endif %}
+{% endif %}
+
+{% if kitchen_workflow_enabled and pipeline and _op.get('show_pipeline_bar', true) %}
+<div class="pos-pipeline-bar pos-pipeline-{{ pipeline.key }}" title="{{ pipeline.hint }}">
+  <span class="pos-pipeline-label">{{ pipeline.label }}</span>
+  <span class="pos-pipeline-hint">{{ pipeline.hint }}</span>
+</div>
+{% endif %}
+
+{% if sale.lines %}
+  {% set ctx_lbl = {'TABLE':'طاولة','ROOM':'شقة','EXTERNAL':'خارجي'}.get(ctx, 'طلب') %}
+  <div class="pos-settlement-ctx" style="font-size:0.78rem;color:var(--muted);margin:0.35rem 0 0.25rem">
+    نوع الطلب: <strong style="color:#0f172a">{{ ctx_lbl }}</strong>
+    {% if ctx == 'TABLE' and sale.table %} — {{ sale.table.name_ar }}{% endif %}
+    {% if ctx == 'ROOM' and session_room_id %} — شقة #{{ session_room_id }}{% endif %}
   </div>
+
+  {% if not kitchen_workflow_enabled %}
+  <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:0.5rem;margin:0.45rem 0;font-size:0.82rem;color:#92400e">
+    وضع KDS متوقف من الإعدادات — اطبع أمر التجهيز مباشرة ثم أكمل التحصيل دون انتظار شاشة المطبخ.
+    <br />
+    <a href="/pos/order/{{ sale.id }}/kitchen-print?autoprint=1" target="_blank" rel="noopener" style="font-weight:700;color:#b45309">طباعة أمر التجهيز</a>
+  </div>
+  {% elif sale_sent_kitchen %}
+  <div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px;padding:0.5rem;margin:0.45rem 0;font-size:0.82rem;color:#047857">
+    ✓ تم الإرسال للتجهيز — تُطبَع تذاكر المطبخ تلقائياً (إن كان الوكيل يعمل). يمكنك إعادة الطباعة من زر «طباعة» أعلاه.
+    <br />
+    <a href="/admin/kds/print-sale/{{ sale.id }}?autoprint=1" target="_blank" rel="noopener">ورقة تجميع المطبخ</a>
+    {% if ctx == 'ROOM' and session_room_id and can_charge_room %}
+    · <a href="#charge-room-form" style="font-weight:700;color:#b45309">إتمام قيد الشقة</a>
+    {% elif ctx != 'ROOM' and can_pay %}
+    · <button type="button" class="pos-checkout-modal-btn" data-sale-id="{{ sale.id }}" style="font-weight:700;background:none;border:none;padding:0;color:#1d4ed8;cursor:pointer;text-decoration:underline">التحصيل</button>
+    {% elif ctx == 'ROOM' and can_pay %}
+    · <button type="submit" form="charge-room-form" formaction="/pos/settle-as-pay" formmethod="post" style="font-weight:700;background:none;border:none;padding:0;color:#1d4ed8;cursor:pointer;text-decoration:underline">التحصيل والدفع</button>
+    {% endif %}
+  </div>
+  {% if can_void_after_kitchen %}
+  <div class="no-print" style="margin:0.35rem 0">
+    {% if void_supervisor_configured %}
+    <button type="button" class="btn pos-void-sale-btn" data-sale-id="{{ sale.id }}"
+      style="width:100%;font-size:0.82rem;background:#fef2f2;color:#b91c1c;border-color:#fca5a5">
+      ✕ إلغاء الفاتورة (بعد المطبخ)
+    </button>
+    {% else %}
+    <p class="muted" style="font-size:0.75rem;margin:0;text-align:center">لم يُضبط مشرف للإلغاء — راجع المدير</p>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% if ctx == 'EXTERNAL' and ext_mode == 'DELIVERY' %}
+  {% set _sidebar_driver = pipeline.driver_label.split(' — ')[0] if pipeline and pipeline.driver_label else '' %}
+  <button type="button" class="btn pos-driver-btn pos-status-btn--driver{% if _sidebar_driver %} is-assigned{% endif %}" data-sale-id="{{ sale.id }}" style="width:100%;margin:0.35rem 0;font-weight:700" title="{% if _sidebar_driver %}السائق: {{ _sidebar_driver }}{% else %}تسجيل سائق التوصيل{% endif %}">
+    {% if _sidebar_driver %}{{ _sidebar_driver|driver_btn_label }}{% else %}تسليم السائق{% endif %}
+  </button>
+  {% endif %}
   {% else %}
-    {% set can_send = (ctx == 'TABLE' and sale.table_id) or (ctx == 'ROOM' and session_room_id) or (ctx == 'EXTERNAL') %}
+    {% set ext_delivery_ok = ext_mode != 'DELIVERY' or (sale and sale.delivery_zone_id) %}
+    {% set can_send = (ctx == 'TABLE' and sale.table_id) or (ctx == 'ROOM' and session_room_id) or (ctx == 'EXTERNAL' and customer and ext_delivery_ok) %}
     {% if can_send %}
-    <form method="post" action="/pos/send-kitchen" style="margin:0.45rem 0">
+    <form method="post" action="/pos/send-kitchen" id="send-kitchen-form" style="margin:0.45rem 0">
       <button type="submit" class="btn" style="width:100%;background:#059669;border-color:#047857;color:#fff;font-weight:700">
-        🍳 إرسال للمطبخ وطباعة (بدون تحصيل)
+        إرسال للتجهيز وطباعة
       </button>
     </form>
-    <p class="muted" style="font-size:0.74rem;margin:0 0 0.35rem;text-align:center">يُخصم المخزون ويُرسل للمطبخ؛ أكمل الدفع لاحقاً عند طلب الزبون.</p>
     {% endif %}
   {% endif %}
 {% endif %}
@@ -266,54 +153,115 @@
 <button class="btn pos-pay" type="button" disabled style="opacity: 0.5; cursor: not-allowed">
   أضف صنفاً للسلة أولاً
 </button>
-{% elif ctx == 'ROOM' and session_room_id %}
-{# ===== سياق شقة: لا دفع — قيد على حساب الشقة فقط ===== #}
+
+{% elif ctx == 'ROOM' %}
 <form method="post" action="/pos/charge-room" id="charge-room-form" style="margin-top:0.5rem">
-  <label style="display:block;font-size:0.82rem;color:#92400e;margin-bottom:0.2rem;font-weight:600">
-    اسم النزيل <span style="color:#dc2626">*</span>
-  </label>
-  <input class="input" type="text" name="guest_name" id="room_guest_input" required
-         placeholder="مثلاً: السيد أحمد محمد"
-         style="width:100%;padding:0.4rem 0.5rem;border:1px solid var(--border);border-radius:6px;font-size:0.92rem" />
-  <label style="display:block;font-size:0.78rem;color:var(--muted);margin:0.4rem 0 0.2rem">ملاحظة (اختياري)</label>
+  <label style="display:block;font-size:0.78rem;color:var(--muted);margin:0 0 0.2rem">هاتف النزيل (لنقاط الولاء)</label>
+  <input class="input" type="tel" name="room_guest_phone" dir="ltr"
+         value="{{ session_room_phone|default('') }}"
+         placeholder="09xxxxxxxx" autocomplete="tel"
+         style="width:100%;padding:0.4rem 0.5rem;border:1px solid var(--border);border-radius:6px;font-size:0.92rem;margin-bottom:0.35rem" />
+  <label style="display:block;font-size:0.78rem;color:var(--muted);margin:0 0 0.2rem">اسم النزيل (اختياري)</label>
+  <input class="input" type="text" name="room_guest_name"
+         value="{{ session_room_guest|default('') }}"
+         placeholder="اسم النزيل"
+         style="width:100%;padding:0.4rem 0.5rem;border:1px solid var(--border);border-radius:6px;font-size:0.92rem;margin-bottom:0.35rem" />
+  <label style="display:block;font-size:0.78rem;color:var(--muted);margin:0 0 0.2rem">ملاحظة (اختياري)</label>
   <input class="input" type="text" name="note"
          placeholder="مثلاً: عشاء، إفطار..."
-         style="width:100%;padding:0.4rem 0.5rem;border:1px solid var(--border);border-radius:6px;font-size:0.92rem" />
-  <button class="btn btn-primary pos-pay" type="submit" style="margin-top:0.6rem;background:#b45309;border-color:#b45309">
-    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align: -3px; margin-inline-end: 0.3rem">
-      <path d="M3 21h18"></path><path d="M5 21V7l8-4 8 4v14"></path>
-      <path d="M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01"></path>
-    </svg>
-    🏨 قيد على حساب الشقة وطباعة
-  </button>
-  <p class="muted" style="font-size:0.75rem;margin:0.4rem 0 0;text-align:center">
-    التحصيل لاحقاً عبر موظف الاستقبال من «تسوية حسابات الغرف».
+         style="width:100%;padding:0.4rem 0.5rem;border:1px solid var(--border);border-radius:6px;font-size:0.92rem;margin-bottom:0.5rem" />
+  <div class="pos-settle-btns">
+    {% if session_room_id and can_charge_room %}
+    <button class="btn btn-primary pos-pay pos-settle-btn" type="submit" id="charge-room-submit" style="background:#b45309;border-color:#b45309">
+      🏨 تسجيل على حساب الشقة
+    </button>
+    {% elif session_room_id and charge_block_reason %}
+    <button class="btn pos-settle-btn" type="button" disabled style="opacity:0.65;background:#fef3c7;color:#92400e;border-color:#fcd34d">
+      ⚠️ {{ charge_block_reason }}
+    </button>
+    {% else %}
+    <button class="btn pos-settle-btn" type="button" disabled style="opacity:0.65;background:#fef3c7;color:#92400e;border-color:#fcd34d">
+      ⚠️ اختر الشقة من عمود «الشقق»
+    </button>
+    {% endif %}
+    {% if can_pay %}
+    <button class="btn btn-primary pos-settle-btn" type="submit" formaction="/pos/settle-as-pay" formmethod="post" id="settle-pay-form" style="background:#2563eb;border-color:#1d4ed8">
+      💳 التحصيل والدفع
+    </button>
+    {% elif pay_block_reason %}
+    <button class="btn pos-settle-btn" type="button" disabled style="opacity:0.65" title="{{ pay_block_reason }}">
+      💳 التحصيل ({{ pay_block_reason }})
+    </button>
+    {% endif %}
+  </div>
+  <p class="muted" style="font-size:0.72rem;margin:0.45rem 0 0;text-align:center;line-height:1.45">
+    «تسجيل الشقة» يُسجّل على حساب الغرفة. «التحصيل والدفع» إذا غيّر النزيل رأيه ويريد الدفع الآن.
   </p>
 </form>
-{% elif ctx == 'ROOM' %}
-{# ===== سياق شقة بدون اختيار شقة بعد ===== #}
-<button class="btn pos-pay" type="button" disabled style="opacity: 0.6; cursor: not-allowed; background:#fef3c7; color:#92400e; border-color:#fcd34d">
-  ⚠️ اختر الشقة أولاً من تبويب «شقة»
-</button>
-{% elif ctx == 'TABLE' and not sale.table_id %}
-{# ===== سياق طاولة بدون اختيار طاولة ===== #}
+
+{% elif ctx == 'TABLE' and not sale.table_id and not sale_sent_kitchen %}
 <button class="btn pos-pay" type="button" disabled style="opacity: 0.65; cursor: not-allowed; background:#fef2f2; color:#991b1b; border-color:#fca5a5">
   ⚠️ اختر الطاولة أولاً أو حوّل الطلب إلى «خارجي»
 </button>
+{% if can_hotel_charge %}
+<form method="post" action="/pos/settle-as-room" style="margin-top:0.45rem">
+  <button type="submit" class="btn" style="width:100%;font-size:0.85rem;background:#fff7ed;color:#9a3412;border-color:#fdba74">
+    🏨 تسجيل على حساب الشقة
+  </button>
+</form>
+{% endif %}
+
+{% elif ctx == 'EXTERNAL' and ext_mode == 'DELIVERY' and not sale.delivery_zone_id %}
+<button class="btn pos-pay" type="button" disabled style="opacity: 0.65; cursor: not-allowed; background:#fff7ed; color:#9a3412; border-color:#fdba74">
+  ⚠️ اختر منطقة التوصيل أولاً
+</button>
+
 {% elif ctx == 'EXTERNAL' and not customer %}
 <button class="btn pos-pay" type="button" disabled style="opacity: 0.65; cursor: not-allowed; background:#fef2f2; color:#991b1b; border-color:#fca5a5">
-  ⚠️ أدخل رقم الهاتف واحفظ بيانات العميل أولاً
+  ⚠️ أدخل رقم الهاتف قبل الطباعة أو الدفع
 </button>
-{% else %}
-{# ===== سياق طاولة أو خارجي: دفع فوري ===== #}
-<a class="btn btn-primary pos-pay" href="/pos/checkout" style="text-align: center; text-decoration: none">
+
+{% elif can_pay %}
+<button type="button" class="btn btn-primary pos-pay pos-checkout-modal-btn" data-sale-id="{{ sale.id }}" style="width:100%">
   <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align: -3px; margin-inline-end: 0.3rem">
     <rect x="2" y="6" width="20" height="12" rx="2"></rect>
     <circle cx="12" cy="12" r="3"></circle>
   </svg>
   {% if sale_sent_kitchen %}التحصيل وإتمام الفاتورة{% else %}إتمام البيع واختيار الدفع{% endif %}
-</a>
+</button>
+{% if can_hotel_charge and ctx in ('TABLE', 'EXTERNAL') %}
+<form method="post" action="/pos/settle-as-room" style="margin-top:0.45rem">
+  <button type="submit" class="btn" style="width:100%;font-size:0.85rem;background:#fff7ed;color:#9a3412;border-color:#fdba74">
+    🏨 تسجيل على حساب الشقة
+  </button>
+</form>
 {% endif %}
+
+{% elif pay_block_reason %}
+<button class="btn pos-pay" type="button" disabled style="opacity:0.65;cursor:not-allowed;background:#fef2f2;color:#991b1b;border-color:#fca5a5">
+  ⚠️ {{ pay_block_reason }}
+</button>
+{% if can_hotel_charge and ctx in ('TABLE', 'EXTERNAL') %}
+<form method="post" action="/pos/settle-as-room" style="margin-top:0.45rem">
+  <button type="submit" class="btn" style="width:100%;font-size:0.85rem;background:#fff7ed;color:#9a3412;border-color:#fdba74">
+    🏨 تسجيل على حساب الشقة
+  </button>
+</form>
+{% endif %}
+
+{% else %}
+<button class="btn pos-pay" type="button" disabled style="opacity:0.65;cursor:not-allowed">
+  أرسل للتجهيز أولاً
+</button>
+{% if can_hotel_charge and ctx in ('TABLE', 'EXTERNAL') %}
+<form method="post" action="/pos/settle-as-room" style="margin-top:0.45rem">
+  <button type="submit" class="btn" style="width:100%;font-size:0.85rem;background:#fff7ed;color:#9a3412;border-color:#fdba74">
+    🏨 تسجيل على حساب الشقة
+  </button>
+</form>
+{% endif %}
+{% endif %}
+
 {% if sale and not sale_sent_kitchen %}
 <form method="post" action="/pos/cancel-draft" style="margin-top: 0.5rem">
   <button class="btn" type="submit" style="width: 100%">
@@ -321,10 +269,11 @@
       <polyline points="3 6 5 6 21 6"></polyline>
       <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
     </svg>
-    إلغاء هذا الطلب (فارغ)
+    إلغاء هذا الطلب
   </button>
 </form>
 {% endif %}
 
+  </div>
+</div>
 {% endif %}{# sale #}
-

@@ -1,0 +1,36 @@
+{% macro notifications_nav(active, failed=0) %}
+
+<nav class="row" style="gap:0.4rem;margin:1rem 0;flex-wrap:wrap">
+
+  <a class="btn {% if active == 'hub' %}btn-primary{% endif %}" href="/admin/notifications">الإعدادات</a>
+
+  <a class="btn {% if active == 'delivery' %}btn-primary{% endif %}" href="/admin/notifications/delivery">إرسال WhatsApp</a>
+
+  <a class="btn {% if active == 'broadcast' %}btn-primary{% endif %}" href="/admin/messaging/broadcast">إرسال جماعي</a>
+
+  <a class="btn {% if active == 'campaigns' %}btn-primary{% endif %}" href="/admin/messaging/campaigns">الحملات</a>
+
+  <a class="btn {% if active == 'modules' %}btn-primary{% endif %}" href="/admin/notifications?tab=modules">المجموعات</a>
+
+  <a class="btn {% if active == 'events' %}btn-primary{% endif %}" href="/admin/notifications?tab=events">الأحداث</a>
+
+  <a class="btn {% if active == 'routes' %}btn-primary{% endif %}" href="/admin/notifications/routes">التوجيه</a>
+
+  <a class="btn {% if active == 'templates' %}btn-primary{% endif %}" href="/admin/notifications/templates">القوالب</a>
+
+  <a class="btn {% if active == 'rules' %}btn-primary{% endif %}" href="/admin/notifications/rules">القواعد</a>
+
+  <a class="btn {% if active == 'logs' %}btn-primary{% endif %}" href="/admin/notifications/logs">السجل{% if failed %} ({{ failed }} فاشلة){% endif %}</a>
+
+  <a class="btn" href="/admin/messaging/inbox">صندوق الوارد</a>
+
+  <a class="btn" href="/admin/messaging/chat-orders">طلبات الشات</a>
+
+  <a class="btn {% if active == 'inventory' %}btn-primary{% endif %}" href="/admin/notifications/inventory">المخزون</a>
+
+  <a class="btn {% if active == 'analytics' %}btn-primary{% endif %}" href="/admin/notifications/analytics">التحليلات</a>
+
+</nav>
+
+{% endmacro %}
+

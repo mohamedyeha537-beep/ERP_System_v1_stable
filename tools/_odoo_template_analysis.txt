@@ -1,0 +1,31 @@
+field_count=13
+  Activity Exception Decoration
+  Cost
+  Favorite
+  Forecasted Quantity
+  Internal Reference
+  Name
+  Quantity On Hand
+  Sales Price
+  Tags
+  Unit of Measure
+  Image 1024
+  Image
+  Image 256
+
+BOM-related fields:
+
+first row sample (selected):
+  Activity Exception Decoration: 
+  Cost: 0.0
+  Favorite: 
+  Forecasted Quantity: -383.0
+  Internal Reference: 
+  Name:  آيس تي خوخ
+  Quantity On Hand: -383.0
+  Sales Price: 20.0
+  Tags: 
+  Unit of Measure: Units
+  Image 1024: UklGRqgzAQBXRUJQVlA4WAoAAAAwAAAA/wMA/wMASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABh...
+  Image: UklGRqQvAgBXRUJQVlA4WAoAAAAwAAAAWAYAWAYASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABh...
+  Image 256: UklGRggyAABXRUJQVlA4WAoAAAAwAAAA/wAA/wAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABh...

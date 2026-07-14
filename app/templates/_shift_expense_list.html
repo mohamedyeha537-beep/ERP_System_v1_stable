@@ -1,0 +1,84 @@
+{# قائمة مصروفات الجلسة المسجّلة #}
+{% if shift_expenses is defined and open_pos_shift is defined and open_pos_shift %}
+<section class="shift-expense-panel no-print" style="margin:1rem 0 0">
+  <div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.5rem;margin-bottom:0.65rem">
+    <h3 style="margin:0;font-size:1rem">مصروفات الجلسة المسجّلة</h3>
+    <button type="button" class="btn btn-primary" data-shift-expense-open
+      data-next-url="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}"
+      style="font-size:0.88rem;padding:0.35rem 0.65rem">
+      ＋ تسجيل مصروف
+    </button>
+    <span class="muted" style="font-size:0.85rem">
+      كاش: {{ pos_money(shift_expense_total_cash) }} · مصرف: {{ pos_money(shift_expense_total_bank) }} د.ل
+    </span>
+  </div>
+  {% if request.query_params.get('expense_ok') %}
+  <p class="muted" style="color:#15803d;margin:0 0 0.5rem;font-size:0.88rem">✓ تم تسجيل المصروف وتحديث المتوقع في الدرج.</p>
+  {% endif %}
+  {% if request.query_params.get('expense_err') %}
+  <p class="muted" style="color:#b91c1c;margin:0 0 0.5rem;font-size:0.88rem">{{ request.query_params.get('expense_err') }}</p>
+  {% endif %}
+  <form method="post" action="/pos/shift/expense" class="shift-expense-inline-form"
+    style="display:grid;grid-template-columns:minmax(7rem,0.8fr) minmax(9rem,1fr) minmax(9rem,1fr) minmax(12rem,1.4fr) auto;gap:0.45rem;align-items:end;margin:0 0 0.75rem;padding:0.65rem;border:1px dashed #cbd5e1;border-radius:10px;background:#f8fafc">
+    <input type="hidden" name="next_url" value="/pos/shift" />
+    <div>
+      <label class="muted" style="font-size:0.76rem;display:block;margin-bottom:0.18rem">المبلغ</label>
+      <input class="input" type="number" name="amount" step="0.001" min="0.001" required placeholder="0.000" style="width:100%;max-width:none" />
+    </div>
+    <div>
+      <label class="muted" style="font-size:0.76rem;display:block;margin-bottom:0.18rem">التصنيف</label>
+      <select name="category" required style="width:100%;max-width:none">
+        {% for key, label in shift_expense_categories %}
+        <option value="{{ key }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="muted" style="font-size:0.76rem;display:block;margin-bottom:0.18rem">المحفظة</label>
+      {% if shift_expense_single_wallet %}
+      <input type="hidden" name="payment_method_id" value="{{ shift_expense_single_wallet.id }}" />
+      <div class="input" style="box-sizing:border-box;background:#fff">{{ shift_expense_single_wallet.kind_label }} — {{ shift_expense_single_wallet.name_ar }}</div>
+      {% else %}
+      <select name="payment_method_id" required style="width:100%;max-width:none">
+        {% for w in shift_expense_wallet_options %}
+        <option value="{{ w.id }}">{{ w.kind_label }} — {{ w.name_ar }}</option>
+        {% endfor %}
+      </select>
+      {% endif %}
+    </div>
+    <div>
+      <label class="muted" style="font-size:0.76rem;display:block;margin-bottom:0.18rem">الوصف</label>
+      <input class="input" name="note" maxlength="240" value="مصروف أثناء الجلسة" style="width:100%;max-width:none" />
+    </div>
+    <button type="submit" class="btn btn-primary" {% if not shift_expense_single_wallet and not shift_expense_wallet_options %}disabled{% endif %}>
+      حفظ المصروف
+    </button>
+  </form>
+  {% if shift_expenses and shift_expenses|length > 0 %}
+  <table class="table" style="font-size:0.88rem">
+    <thead>
+      <tr>
+        <th>الوقت</th>
+        <th>التصنيف</th>
+        <th>الوصف</th>
+        <th>المحفظة</th>
+        <th>المبلغ</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for exp in shift_expenses %}
+      <tr>
+        <td>{% if exp.created_at %}{{ pos_format_dt(exp.created_at, '%H:%M') }}{% else %}—{% endif %}</td>
+        <td>{{ exp.expense_category or '—' }}</td>
+        <td>{{ exp.note or '—' }}</td>
+        <td>{{ exp.method.name_ar if exp.method else '—' }}</td>
+        <td>{{ pos_money(exp.amount) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted" style="margin:0;font-size:0.88rem">لا مصروفات مسجّلة بعد. عند أي صرف من الدرج استخدم «تسجيل مصروف».</p>
+  {% endif %}
+</section>
+{% endif %}

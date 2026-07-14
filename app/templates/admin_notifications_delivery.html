@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% from "_notifications_admin_nav.html" import notifications_nav %}
+
+{% block title %}إعدادات الإرسال{% endblock %}
+
+{% block body %}
+<h1>إعدادات الإرسال (WhatsApp)</h1>
+{{ notifications_nav(nav_active) }}
+
+{% if saved %}<div class="alert" style="background:#ecfdf5;border-color:#10b981;color:#065f46">تم الحفظ ✓</div>{% endif %}
+{% if test %}<div class="alert" style="background:#fffbeb;border-color:#fcd34d;color:#92400e">{{ test }}</div>{% endif %}
+{% if err %}<div class="alert" style="background:#fef2f2;border-color:#fca5a5;color:#991b1b">{{ err }}</div>{% endif %}
+
+<div class="card" style="{% if enabled %}border-color:#86efac;background:#f0fdf4{% else %}border-color:#fca5a5;background:#fef2f2{% endif %}">
+  <p style="margin:0">حالة الإرسال: <strong>{% if enabled %}جاهز{% else %}معطّل{% endif %}</strong>
+    — مزوّد: <strong>{{ provider }}</strong> — معلّق في الطابور: <strong>{{ pending }}</strong></p>
+</div>
+
+<div class="row" style="gap:0.5rem;margin-top:1rem;flex-wrap:wrap;align-items:center">
+  <a class="btn btn-primary" href="/admin/messaging/broadcast">إرسال جماعي</a>
+  <a class="btn" href="/admin/messaging/campaigns">الحملات</a>
+  <a class="btn" href="/admin/messaging/log">سجل الطابور</a>
+  <span class="muted" style="font-size:0.88rem">الرسائل الدعائية والحملات الإعلانية</span>
+</div>
+
+<form method="post" action="/admin/notifications/delivery/save" class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0">TextMeBot / Webhook</h2>
+  <label style="display:flex;gap:0.4rem;align-items:center;margin-bottom:0.5rem">
+    <input type="checkbox" name="messaging_enabled" {% if messaging_on %}checked{% endif %} style="width:auto" />
+    تفعيل الإرسال (WhatsApp)
+  </label>
+  <label style="display:flex;gap:0.4rem;align-items:center;margin-bottom:0.5rem">
+    <input type="checkbox" name="messaging_outbox_worker_enabled" {% if worker_on %}checked{% endif %} style="width:auto" />
+    عامل الطابور التلقائي
+  </label>
+  <label style="display:flex;gap:0.4rem;align-items:center;margin-bottom:0.75rem">
+    <input type="checkbox" name="messaging_inbound_enabled" {% if inbound_on %}checked{% endif %} style="width:auto" />
+    استقبال رسائل واردة (صندوق الوارد)
+  </label>
+
+  <label>مزوّد WhatsApp
+    <select name="messaging_whatsapp_provider">
+      <option value="textmebot" {% if s.messaging_whatsapp_provider == 'textmebot' %}selected{% endif %}>TextMeBot</option>
+      <option value="webhook" {% if s.messaging_whatsapp_provider == 'webhook' %}selected{% endif %}>Webhook / n8n</option>
+    </select>
+  </label>
+  <label>مفتاح TextMeBot
+    <input name="messaging_textmebot_apikey" dir="ltr" placeholder="اتركه فارغاً للإبقاء على الحالي" style="width:100%;max-width:28rem" autocomplete="off" />
+  </label>
+  <label>رابط TextMeBot
+    <input name="messaging_textmebot_base_url" value="{{ s.messaging_textmebot_base_url or 'http://api.textmebot.com/send.php' }}" dir="ltr" style="width:100%;max-width:36rem" />
+  </label>
+  <label>كود الدولة
+    <input name="messaging_country_code" value="{{ s.messaging_country_code or '218' }}" dir="ltr" style="max-width:8rem" />
+  </label>
+  <label>هاتف المدير
+    <input name="messaging_admin_phone" value="{{ s.messaging_admin_phone }}" dir="ltr" />
+  </label>
+  <label>رابط Webhook
+    <input name="messaging_webhook_url" value="{{ s.messaging_webhook_url }}" dir="ltr" style="width:100%;max-width:36rem" />
+  </label>
+  <div class="row" style="gap:0.5rem;flex-wrap:wrap">
+    <label>طريقة Webhook
+      <select name="messaging_webhook_method">
+        <option value="POST" {% if s.messaging_webhook_method == 'POST' %}selected{% endif %}>POST</option>
+        <option value="GET" {% if s.messaging_webhook_method == 'GET' %}selected{% endif %}>GET</option>
+      </select>
+    </label>
+    <label>اسم الحقل
+      <input name="messaging_webhook_param" value="{{ s.messaging_webhook_param or 'text' }}" />
+    </label>
+    <label style="display:flex;gap:0.35rem;align-items:center;margin-top:1.4rem">
+      <input type="checkbox" name="messaging_use_n8n_json" {% if use_n8n_json %}checked{% endif %} style="width:auto" /> JSON n8n
+    </label>
+  </div>
+  <label>Telegram Bot Token
+    <input name="messaging_telegram_bot_token" value="{{ s.messaging_telegram_bot_token }}" dir="ltr" style="width:100%;max-width:28rem" />
+  </label>
+  <label>سر Webhook الوارد
+    <input name="messaging_inbound_secret" value="{{ s.messaging_inbound_secret }}" dir="ltr" style="width:100%;max-width:28rem" />
+  </label>
+  <p class="muted" style="font-size:0.85rem">رابط الاستقبال: <code dir="ltr">{{ inbound_url }}</code></p>
+  <div class="row" style="gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem">
+    <label>تأخير بين رسائل (ث)
+      <input name="messaging_send_delay_seconds" type="number" min="1" value="{{ s.messaging_send_delay_seconds or '5' }}" style="max-width:6rem" />
+    </label>
+    <label>حجم الدفعة
+      <input name="messaging_outbox_batch_size" type="number" min="1" value="{{ s.messaging_outbox_batch_size or '1' }}" style="max-width:6rem" />
+    </label>
+    <label>فترة العامل (ث)
+      <input name="messaging_worker_interval_seconds" type="number" min="10" value="{{ s.messaging_worker_interval_seconds or '30' }}" style="max-width:6rem" />
+    </label>
+  </div>
+  <button type="submit" class="btn btn-primary" style="margin-top:0.75rem">حفظ</button>
+</form>
+
+<div class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0">اختبار الإرسال</h2>
+  <form method="post" action="/admin/messaging/test" class="row" style="gap:0.5rem;align-items:flex-end;flex-wrap:wrap">
+    <label>رقم واتساب
+      <input name="test_phone" value="{{ s.messaging_test_phone or s.messaging_admin_phone }}" dir="ltr" />
+    </label>
+    <button type="submit" class="btn">إرسال اختبار</button>
+  </form>
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0">أدوات إضافية</h2>
+  <div class="row" style="gap:0.5rem;flex-wrap:wrap">
+    <a class="btn" href="/admin/messaging/inbox">صندوق الوارد</a>
+    <a class="btn" href="/admin/messaging/chat-orders">طلبات الشات</a>
+  </div>
+  <p class="muted" style="margin:0.75rem 0 0;font-size:0.85rem">إعدادات الشات الذكي (Hermes): <a href="/admin/messaging/web-chat">إعدادات الشات</a></p>
+</div>
+{% endblock %}

@@ -1,0 +1,7 @@
+FILE: Product (product.template).csv
+fields: ['Activity Exception Decoration', 'Cost', 'Favorite', 'Forecasted Quantity', 'Internal Reference', 'Name', 'Quantity On Hand', 'Sales Price', 'Tags', 'Unit of Measure', 'Image 1024', 'Image', 'Image 256']
+  Tags = 
+
+FILE: Product all.csv
+fields: ['Activity Exception Decoration', 'Cost', 'Favorite', 'Forecasted Quantity', 'Internal Reference', 'Name', 'Quantity On Hand', 'Sales Price', 'Tags', 'Unit of Measure', 'Image', 'Image 1024', 'Image 256']
+  Tags = 

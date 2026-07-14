@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% from "_reports_macros.html" import reports_nav with context %}
+{% block title %}ديون — {{ party_title }}{% endblock %}
+{% block body %}
+<div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem">
+  <h1 style="margin:0">ديون: {{ party_title }}</h1>
+  <a class="btn" href="/reports/receivables?balance_only=1">رجوع لقائمة الديون</a>
+</div>
+{{ reports_nav('receivables') }}
+
+{% if saved %}
+<div class="alert good" style="margin-top:0.75rem;font-weight:600">تم التحصيل بنجاح</div>
+{% endif %}
+
+{% if group %}
+<div class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0">ملخص الحساب</h2>
+  <div class="stat-grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr))">
+    <div class="stat-card bad">
+      <div class="label">إجمالي المستحق</div>
+      <div class="value">{{ group.total_outstanding }} د.ل</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">مدفوع سابقاً</div>
+      <div class="value">{{ group.total_paid }} د.ل</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">عدد الفواتير</div>
+      <div class="value">{{ group.invoice_count }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">حالة السداد</div>
+      <div class="value" style="font-size:0.95rem">
+        {% if group.pay_status.value == 'unpaid' %}
+        <span class="badge bad">{{ status_labels[group.pay_status] }}</span>
+        {% elif group.pay_status.value == 'partial' %}
+        <span class="badge warn">{{ status_labels[group.pay_status] }}</span>
+        {% else %}
+        <span class="badge good">{{ status_labels[group.pay_status] }}</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0">فواتير هذا الحساب</h2>
+  <p class="muted" style="margin-top:0">انقر على فاتورة لعرض سبب الدين وتسجيل تحصيل كامل أو جزئي.</p>
+  {% if rows %}
+  <table class="recv-click-table">
+    <thead>
+      <tr>
+        <th>الفاتورة</th>
+        <th>التاريخ</th>
+        <th>الغرفة / الشقة</th>
+        <th>سبب الدين (مختصر)</th>
+        <th>المتبقي</th>
+        <th>الحالة</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr class="click-row" data-href="/reports/receivables/invoice/{{ r.sale_id }}">
+        <td><strong>#{{ r.sale_id }}</strong></td>
+        <td>{{ pos_format_dt(r.created_at, '%Y-%m-%d %H:%M') if r.created_at else '—' }}</td>
+        <td>
+          {% if r.room_number %}
+          <strong>شقة/غرفة {{ r.room_number }}</strong>
+          {% if r.guest_name %}<br><span class="muted" style="font-size:0.82rem">{{ r.guest_name }}</span>{% endif %}
+          {% elif r.context_type.value == 'ROOM' %}
+          <span class="muted">غير مربوطة</span>
+          {% else %}—{% endif %}
+        </td>
+        <td style="max-width:280px;font-size:0.88rem">{{ r.debt_reason }}</td>
+        <td style="font-weight:700;color:#b91c1c">{{ r.outstanding }} د.ل</td>
+        <td>
+          {% if r.pay_status.value == 'unpaid' %}
+          <span class="badge bad">غير مدفوعة</span>
+          {% elif r.pay_status.value == 'partial' %}
+          <span class="badge warn">جزئي</span>
+          {% else %}
+          <span class="badge good">مسدّد</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">لا توجد فواتير مفتوحة على هذا الحساب.</p>
+  {% endif %}
+</div>
+
+<style>
+  .badge { display:inline-block; padding:0.15rem 0.5rem; border-radius:6px; font-size:0.8rem; font-weight:600; }
+  .badge.bad { background:#fee2e2; color:#b91c1c; }
+  .badge.warn { background:#ffedd5; color:#c2410c; }
+  .badge.good { background:#dcfce7; color:#15803d; }
+  .recv-click-table .click-row { cursor:pointer; }
+  .recv-click-table .click-row:hover { background:#f8fafc; }
+</style>
+<script>
+(function () {
+  document.querySelectorAll(".click-row[data-href]").forEach(function (row) {
+    row.addEventListener("click", function () {
+      window.location.href = row.getAttribute("data-href");
+    });
+  });
+})();
+</script>
+{% endblock %}

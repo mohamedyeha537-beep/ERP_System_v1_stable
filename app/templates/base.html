@@ -5,12 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     {% set brand = pos_brand(request) %}
     <title>{% block title %}{{ brand.pos_label }}{% endblock %} · {{ pos_display_name(request) }}</title>
-    {# الخطوط المحلية فقط — لا اتصال بالإنترنت أثناء التشغيل #}
+    {# خطوط محلية — IBM Plex / Cairo بدون اتصال بالإنترنت #}
+    <link rel="stylesheet" href="/static/fonts.css?v=1" />
     <style>
       :root {
-        --pos-font-arabic: "Segoe UI", "Tahoma", "Arial", "Microsoft Sans Serif",
-          "Geeza Pro", "Helvetica Neue", system-ui, sans-serif;
+        --pos-font-arabic: "IBM Plex Sans Arabic", "Noto Sans Arabic", "Segoe UI",
+          "Tahoma", system-ui, sans-serif;
+        --pos-font-display: "Cairo", "IBM Plex Sans Arabic", "Noto Sans Arabic",
+          "Segoe UI", sans-serif;
         --header-h: 76px;
+        --sidebar-w: 268px;
         /* ===== متغيرات الهويّة البصرية (يضبطها الأدمن من /admin/branding) ===== */
         --brand-header-from: {{ brand.header_bg_from }};
         --brand-header-to: {{ brand.header_bg_to }};
@@ -20,7 +24,16 @@
         --brand-primary: {{ brand.primary_color }};
         --brand-accent: {{ brand.accent_color }};
       }
-      html, body { font-family: var(--pos-font-arabic); }
+      html, body {
+        font-family: var(--pos-font-arabic);
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        text-rendering: optimizeLegibility;
+      }
+      h1, h2, h3, .brand, .qtitle, .sidebar-title, .nav-label {
+        font-family: var(--pos-font-display);
+        letter-spacing: -0.01em;
+      }
 
       /* اربط متغيّر app.css العام بلون الهويّة الأساسي */
       :root { --primary: var(--brand-primary); }
@@ -50,8 +63,9 @@
         height: var(--header-h);
         position: sticky;
         top: 0;
-        z-index: 100;
+        z-index: 200;
         box-shadow: 0 2px 12px rgba(15, 23, 42, 0.18);
+        overflow: visible;
       }
       .header-inner {
         max-width: 1280px;
@@ -109,11 +123,18 @@
         margin-inline-start: 0.75rem;
         flex: 1;
         min-width: 0;
-        /* تمرير خفي عند ضيق العرض — بدون شريط أبيض ظاهر */
         overflow-x: auto;
         overflow-y: hidden;
         scrollbar-width: none;
         -ms-overflow-style: none;
+      }
+      @media (min-width: 901px) {
+        .header-nav {
+          overflow: visible;
+        }
+        .header-inner {
+          overflow: visible;
+        }
       }
       .header-nav::-webkit-scrollbar {
         display: none;
@@ -134,12 +155,136 @@
       .header-nav a:hover { background: rgba(255,255,255,0.1); opacity: 1; }
       .header-nav a.active { background: rgba(255,255,255,0.18); opacity: 1; }
 
+      /* مجموعات القائمة (قائمة منسدلة) */
+      .nav-group {
+        position: relative;
+        flex-shrink: 0;
+      }
+      .nav-group > summary {
+        list-style: none;
+        cursor: pointer;
+        color: var(--brand-header-fg);
+        opacity: 0.78;
+        padding: 0.4rem 0.55rem;
+        border-radius: 8px;
+        font-size: 0.84rem;
+        font-weight: 600;
+        white-space: nowrap;
+        user-select: none;
+        transition: all 0.15s;
+      }
+      .nav-group > summary::-webkit-details-marker { display: none; }
+      .nav-group > summary::after {
+        content: " ▾";
+        font-size: 0.7em;
+        opacity: 0.75;
+      }
+      .nav-group > summary:hover,
+      .nav-group[open] > summary {
+        background: rgba(255,255,255,0.1);
+        opacity: 1;
+      }
+      .nav-dropdown {
+        display: none;
+        flex-direction: column;
+        gap: 0.1rem;
+        min-width: 12.5rem;
+        padding: 0.35rem;
+        background: linear-gradient(135deg, var(--brand-header-from) 0%, var(--brand-header-to) 100%);
+        color: var(--brand-header-fg);
+        border: 1px solid rgba(255,255,255,0.18);
+        border-radius: 10px;
+        box-shadow: 0 10px 28px rgba(15, 23, 42, 0.22);
+        z-index: 300;
+      }
+      .nav-group[open] .nav-dropdown {
+        display: flex;
+      }
+      .nav-dropdown a {
+        display: block;
+        width: 100%;
+        padding: 0.45rem 0.65rem;
+        border-radius: 7px;
+        font-size: 0.83rem;
+        font-weight: 500;
+        color: var(--brand-header-fg);
+        opacity: 0.85;
+        text-decoration: none;
+        transition: all 0.15s;
+      }
+      .nav-dropdown a:hover {
+        background: rgba(255,255,255,0.12);
+        opacity: 1;
+      }
+      @media (min-width: 901px) {
+        .nav-group .nav-dropdown {
+          position: absolute;
+          top: calc(100% + 4px);
+          inset-inline-end: 0;
+        }
+      }
+      @media (max-width: 900px) {
+        .nav-group { width: 100%; }
+        .nav-group > summary { width: 100%; }
+        .nav-group[open] .nav-dropdown {
+          position: static;
+          margin-top: 0.15rem;
+          margin-bottom: 0.25rem;
+          box-shadow: none;
+          border: 1px solid rgba(255,255,255,0.15);
+        }
+      }
+
       /* User menu */
       .user-menu {
         display: flex;
         align-items: center;
         gap: 0.7rem;
         margin-inline-start: auto;
+      }
+      .header-bell {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.15rem;
+        height: 2.15rem;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.12);
+        border: 1px solid rgba(255,255,255,0.25);
+        color: #fff;
+        text-decoration: none;
+        flex-shrink: 0;
+      }
+      .header-bell:hover {
+        background: rgba(255,255,255,0.22);
+        text-decoration: none;
+        color: #fff;
+      }
+      .header-bell__badge {
+        position: absolute;
+        top: -0.2rem;
+        inset-inline-end: -0.25rem;
+        min-width: 1.05rem;
+        height: 1.05rem;
+        padding: 0 0.28rem;
+        border-radius: 999px;
+        background: #ef4444;
+        color: #fff;
+        font-size: 0.65rem;
+        font-weight: 800;
+        line-height: 1.05rem;
+        text-align: center;
+        border: 2px solid rgba(0,0,0,0.15);
+      }
+      .view-mode-form select {
+        background: rgba(255,255,255,0.12);
+        color: #fff;
+        border: 1px solid rgba(255,255,255,0.25);
+        border-radius: 8px;
+        padding: 0.35rem 0.5rem;
+        font-size: 0.78rem;
+        max-width: 6.5rem;
       }
       .user-info {
         display: flex;
@@ -152,9 +297,9 @@
       .user-info .role-pill {
         font-size: 0.7rem;
         padding: 0.1rem 0.45rem;
-        background: rgba(59,130,246,0.3);
+        background: color-mix(in srgb, var(--brand-primary) 35%, transparent);
         border-radius: 999px;
-        color: #bfdbfe;
+        color: var(--brand-header-fg);
         margin-top: 0.1rem;
       }
       .avatar {
@@ -190,7 +335,11 @@
           position: absolute;
           top: var(--header-h);
           inset-inline: 0;
-          background: #0f172a;
+          background: linear-gradient(
+            180deg,
+            var(--brand-header-from) 0%,
+            color-mix(in srgb, var(--brand-header-from) 75%, #000 25%) 100%
+          );
           flex-direction: column;
           flex-wrap: nowrap;
           padding: 0.5rem;
@@ -200,7 +349,7 @@
           overflow-y: auto;
         }
         .header-nav:not(.open) { display: none; }
-        .header-nav a { width: 100%; }
+        .header-nav > a { width: 100%; }
         .user-info { display: none; }
         .brand .logo { width: 50px; height: 50px; }
         .brand .logo.is-fallback { width: 34px; height: 34px; }
@@ -277,19 +426,191 @@
 
       /* لا تعرض الهيدر/الفوتر في صفحة تسجيل الدخول */
       .auth-page { padding-top: 0 !important; }
+
+      /* =================== Admin sidebar layout =================== */
+      body.admin-layout .header-nav--full { display: none !important; }
+      body.admin-layout .nav-toggle { display: none; }
+      body.admin-layout .sidebar-toggle {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(255,255,255,0.1);
+        border: 1px solid rgba(255,255,255,0.2);
+        color: var(--brand-header-fg);
+        border-radius: 8px;
+        padding: 0.35rem 0.65rem;
+        font-size: 0.85rem;
+        cursor: pointer;
+        margin-inline-start: 0.35rem;
+      }
+      body.admin-layout .sidebar-toggle:hover { background: rgba(255,255,255,0.18); }
+      .admin-shell {
+        display: flex;
+        align-items: stretch;
+        flex: 1;
+        min-height: 0;
+        width: 100%;
+      }
+      .admin-sidebar {
+        width: var(--sidebar-w);
+        flex: 0 0 var(--sidebar-w);
+        background: linear-gradient(
+          180deg,
+          var(--brand-header-from) 0%,
+          color-mix(in srgb, var(--brand-header-from) 72%, #000 28%) 100%
+        );
+        color: var(--brand-header-fg);
+        border-inline-start: 1px solid color-mix(in srgb, var(--brand-header-fg) 12%, transparent);
+        position: sticky;
+        top: var(--header-h);
+        height: calc(100vh - var(--header-h));
+        overflow-y: auto;
+        overflow-x: hidden;
+        z-index: 150;
+        scrollbar-width: thin;
+      }
+      .admin-sidebar-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        padding: 0.85rem 1rem 0.65rem;
+        border-bottom: 1px solid color-mix(in srgb, var(--brand-header-fg) 14%, transparent);
+      }
+      .admin-sidebar-title {
+        font-weight: 700;
+        font-size: 0.92rem;
+        color: var(--brand-header-fg);
+      }
+      .admin-sidebar-close {
+        display: none;
+        background: transparent;
+        border: 0;
+        color: color-mix(in srgb, var(--brand-header-fg) 70%, transparent);
+        font-size: 1.1rem;
+        cursor: pointer;
+        padding: 0.2rem 0.35rem;
+        border-radius: 6px;
+      }
+      .admin-sidebar-close:hover {
+        background: color-mix(in srgb, var(--brand-header-fg) 12%, transparent);
+        color: var(--brand-header-fg);
+      }
+      .admin-sidebar-nav { padding: 0.5rem 0.55rem 1.25rem; }
+      .admin-sidebar-group {
+        margin-bottom: 0.35rem;
+        border-radius: 10px;
+      }
+      .admin-sidebar-group > summary {
+        list-style: none;
+        cursor: pointer;
+        padding: 0.5rem 0.65rem;
+        font-size: 0.82rem;
+        font-weight: 700;
+        color: color-mix(in srgb, var(--brand-header-fg) 72%, transparent);
+        user-select: none;
+        border-radius: 8px;
+      }
+      .admin-sidebar-group > summary::-webkit-details-marker { display: none; }
+      .admin-sidebar-group > summary::after {
+        content: "▾";
+        float: inline-end;
+        font-size: 0.75rem;
+        opacity: 0.7;
+      }
+      .admin-sidebar-group:not([open]) > summary::after { content: "◂"; }
+      .admin-sidebar-group > summary:hover {
+        background: color-mix(in srgb, var(--brand-header-fg) 10%, transparent);
+        color: var(--brand-header-fg);
+      }
+      .admin-sidebar-links {
+        display: flex;
+        flex-direction: column;
+        gap: 0.12rem;
+        padding: 0.15rem 0.35rem 0.45rem;
+      }
+      .admin-sidebar-link {
+        display: block;
+        padding: 0.42rem 0.65rem;
+        border-radius: 8px;
+        color: color-mix(in srgb, var(--brand-header-fg) 88%, transparent);
+        text-decoration: none;
+        font-size: 0.84rem;
+        font-weight: 500;
+        line-height: 1.35;
+        transition: background 0.12s, color 0.12s;
+      }
+      .admin-sidebar-link:hover {
+        background: color-mix(in srgb, var(--brand-header-fg) 12%, transparent);
+        color: var(--brand-header-fg);
+      }
+      .admin-sidebar-link.is-active {
+        background: color-mix(in srgb, var(--brand-primary) 28%, transparent);
+        color: var(--brand-header-fg);
+        box-shadow: inset 3px 0 0 var(--brand-primary);
+      }
+      .admin-content {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      body.admin-layout .admin-content > .app-main {
+        flex: 1;
+      }
+      body.admin-layout .admin-content > .app-main > .container {
+        max-width: none;
+        padding-inline: 1.25rem;
+      }
+      .admin-sidebar-backdrop {
+        display: none;
+        position: fixed;
+        inset: var(--header-h) 0 0 0;
+        background: rgba(15, 23, 42, 0.45);
+        z-index: 140;
+      }
+      @media (min-width: 901px) {
+        body.admin-layout .sidebar-toggle { display: none; }
+      }
+      @media (max-width: 900px) {
+        body.admin-layout .admin-sidebar {
+          position: fixed;
+          inset-inline-end: 0;
+          top: var(--header-h);
+          height: calc(100vh - var(--header-h));
+          transform: translateX(0);
+          transition: transform 0.22s ease;
+          box-shadow: -8px 0 28px rgba(15, 23, 42, 0.35);
+        }
+        html[dir="rtl"] body.admin-layout .admin-sidebar {
+          transform: translateX(100%);
+        }
+        html[dir="ltr"] body.admin-layout .admin-sidebar {
+          transform: translateX(-100%);
+        }
+        body.admin-layout.admin-sidebar-open .admin-sidebar {
+          transform: translateX(0) !important;
+        }
+        body.admin-layout.admin-sidebar-open .admin-sidebar-backdrop {
+          display: block;
+        }
+        body.admin-layout.admin-sidebar-open .admin-sidebar-close { display: block; }
+      }
     </style>
     <link rel="stylesheet" href="/static/app.css" />
     <script src="/static/vendor/htmx.min.js"></script>
     {% block head_extra %}{% endblock %}
   </head>
-  <body>
+  {% set u = pos_user(request) %}
+  {% set p = pos_perm(request) %}
+  {% set kiosk = pos_is_kiosk(request) %}
+  {% set admin_layout = u and not kiosk and pos_is_admin(request) %}
+  <body{% if admin_layout %} class="admin-layout"{% endif %}>
     {# ===================== HEADER ===================== #}
-    {% set u = pos_user(request) %}
-    {% set p = pos_perm(request) %}
     {% if u %}
     <header class="app-header">
       <div class="header-inner">
-        <a class="brand" href="/" title="الرئيسية">
+        <a class="brand" href="{% if kiosk %}/pos{% else %}/{% endif %}" title="{% if kiosk %}{{ brand.pos_label }}{% else %}الرئيسية{% endif %}">
           {% if brand.show_logo_in_header %}
           <span class="logo {% if not brand.logo_url %}is-fallback{% endif %}">
             {% if brand.logo_url %}
@@ -312,22 +633,98 @@
         </a>
 
         <button class="nav-toggle" type="button" onclick="document.querySelector('.header-nav').classList.toggle('open')" aria-label="القائمة">☰</button>
+        {% if admin_layout %}
+        <button class="sidebar-toggle" type="button" id="adminSidebarOpen" aria-label="قائمة الإدارة">☰ القائمة</button>
+        {% endif %}
 
-        <nav class="header-nav" id="mainNav">
+        <nav class="header-nav{% if not admin_layout %} header-nav--full{% endif %}" id="mainNav">
+          {% if kiosk %}
+          {% if p('sales:create') %}
+          <a href="/pos" class="kiosk-pos-link" title="{{ brand.pos_label }}" style="display:inline-flex;align-items:center;gap:0.4rem;padding:0.45rem 0.85rem;border-radius:10px;background:rgba(255,255,255,0.15);font-weight:700;opacity:1">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="2" y="6" width="20" height="12" rx="2"></rect>
+              <path d="M2 10h20"></path>
+            </svg>
+            {{ brand.pos_label }}
+          </a>
+          {% endif %}
+          {% else %}
+          {% set nav_stock = p('inventory:view') or p('warehouses:manage') or p('catalog:write') or p('purchases:manage') or p('purchases:invoices') %}
+          {% set nav_sales = pos_nav_show_restaurant(request) %}
+          {% set nav_hotel = pos_nav_show_hotel(request) %}
+
           <a href="/">الرئيسية</a>
-          {% if p('sales:create') %}<a href="/pos">{{ brand.pos_label }}</a>{% endif %}
-          {% if p('sales:refund') %}<a href="/refunds">استرداد المبيعات</a>{% endif %}
-          {% if p('reports:view') %}<a href="/reports">التقارير</a>{% endif %}
-          {% if p('reports:view') %}<a href="/reports/delivery">التوصيل</a>{% endif %}
-          {% if p('inventory:view') %}<a href="/inventory">المخزون</a>{% endif %}
-          {% if p('warehouses:manage') %}<a href="/admin/warehouses">المخازن</a>{% endif %}
-          {% if p('catalog:write') %}<a href="/catalog/products">الأصناف</a>{% endif %}
+
+          {% if nav_hotel %}
+          <a href="/admin/hotel/dashboard">الشقق</a>
+          {% endif %}
+
+          {% if nav_sales %}
+          <details class="nav-group">
+            <summary>المبيعات والمطعم</summary>
+            <div class="nav-dropdown">
+              {% if p('sales:create') %}<a href="/pos">{{ brand.pos_label }}</a>{% endif %}
+              {% if p('tables:manage') %}<a href="/admin/tables">الطاولات</a>{% endif %}
+              {% if p('kds:view') %}<a href="/admin/kds">شاشة المطبخ</a>{% endif %}
+              {% if p('reports:view') %}<a href="/reports">التقارير</a>{% endif %}
+              {% if p('reports:view') %}<a href="/reports/delivery">تقرير التوصيل</a>{% endif %}
+              {% if p('sales:refund') %}<a href="/refunds">استرداد المبيعات</a>{% endif %}
+              {% if p('sales:edit_invoice') %}<a href="/sales/invoices">تعديل الفواتير</a>{% endif %}
+            </div>
+          </details>
+          {% endif %}
+
+          {% if nav_sales and nav_stock %}
+          <details class="nav-group">
+            <summary>المخزون والأصناف</summary>
+            <div class="nav-dropdown">
+              {% if p('inventory:view') %}<a href="/inventory">المخزون</a>{% endif %}
+              {% if p('warehouses:manage') %}<a href="/admin/warehouses">المخازن</a>{% endif %}
+              {% if p('catalog:write') %}<a href="/catalog/products">الأصناف</a>{% endif %}
+              {% if p('catalog:write') %}<a href="/catalog/import-export">استيراد / تصدير</a>{% endif %}
+              {% if p('purchases:manage') or p('purchases:invoices') %}<a href="/admin/purchases">المشتريات</a>{% endif %}
+            </div>
+          </details>
+          {% elif nav_hotel and (p('purchases:manage') or p('purchases:invoices')) %}
+          <details class="nav-group">
+            <summary>مستهلكات الفندق</summary>
+            <div class="nav-dropdown">
+              {% if p('purchases:manage') %}<a href="/admin/consumables">مستهلكات الفندق</a>{% endif %}
+              {% if p('purchases:manage') %}<a href="/admin/consumable-categories">تصنيفات المستهلكات</a>{% endif %}
+              {% if p('purchases:manage') or p('purchases:invoices') %}<a href="/admin/purchases">المشتريات</a>{% endif %}
+            </div>
+          </details>
+          {% endif %}
+
           {% if p('hr:view') %}<a href="/admin/employees">الموظفون</a>{% endif %}
-          {% if p('purchases:manage') %}<a href="/admin/purchases">المشتريات</a>{% endif %}
+          {% if p('hr:view') and nav_sales %}<a href="/admin/employee-meals">وجبات الموظفين</a>{% endif %}
+          {% if p('messaging:manage') %}<a href="/admin/notifications">الإشعارات</a>{% endif %}
           {% if p('admin:settings') %}<a href="/admin/settings">الإعدادات</a>{% endif %}
+          {% endif %}
         </nav>
 
         <div class="user-menu">
+          {% if pos_is_admin(request) %}
+          <form method="post" action="/admin/view-mode" class="view-mode-form" title="وضع العرض: مطعم أو فندق — الوضع العام من مركز الربح فقط">
+            <select name="mode" onchange="this.form.submit()" aria-label="وضع العرض">
+              <option value="restaurant"{% if pos_view_mode(request) == 'restaurant' %} selected{% endif %}>مطعم</option>
+              <option value="hotel"{% if pos_view_mode(request) == 'hotel' %} selected{% endif %}>فندق</option>
+              {% if pos_view_mode(request) == 'general' %}
+              <option value="general" selected>عام — تقارير</option>
+              {% endif %}
+            </select>
+          </form>
+          {% endif %}
+          {% set _activity_n = pos_activity_unread(request) %}
+          {% if pos_is_admin(request) or p('reports:view') or p('messaging:manage') or p('admin:settings') %}
+          <a class="header-bell" href="/admin/activity" title="مركز الإشعارات" id="header-activity-bell" aria-label="الإشعارات">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+              <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+            </svg>
+            {% if _activity_n %}<span class="header-bell__badge" id="header-activity-badge">{{ _activity_n if _activity_n < 100 else '99+' }}</span>{% endif %}
+          </a>
+          {% endif %}
           <div class="user-info">
             <span class="username">{{ u.username }}</span>
             {% if u.roles %}
@@ -346,15 +743,29 @@
     </header>
     {% endif %}
 
-    {# ===================== MAIN ===================== #}
+    {# ===================== MAIN (admin sidebar + content) ===================== #}
+    {% if admin_layout %}
+    {% set nav_stock = p('inventory:view') or p('warehouses:manage') or p('catalog:write') or p('purchases:manage') or p('purchases:invoices') %}
+    {% set nav_sales = pos_nav_show_restaurant(request) %}
+    {% set nav_hotel = pos_nav_show_hotel(request) %}
+    <div class="admin-shell">
+      {% include "_admin_sidebar.html" %}
+      <div class="admin-content">
+    {% endif %}
+
     <main class="app-main">
       <div class="container">
+        {% block page_trail %}
+        {% if not page_trail_hide|default(false) %}
+        {% include "_page_trail.html" %}
+        {% endif %}
+        {% endblock %}
         {% block body %}{% endblock %}
       </div>
     </main>
 
     {# ===================== FOOTER ===================== #}
-    {% if u %}
+    {% if u and not kiosk %}
     <footer class="app-footer">
       <div class="footer-inner">
         <div class="footer-col">
@@ -366,8 +777,10 @@
         <div class="footer-col">
           <h4>روابط مهمة</h4>
           {% if p('sales:refund') %}<a href="/refunds">↩ استرداد وترجيع المبيعات</a>{% endif %}
+          {% if p('sales:edit_invoice') %}<a href="/sales/invoices">✎ تعديل الفواتير</a>{% endif %}
           {% if p('reports:view') %}<a href="/reports">📊 مركز التقارير</a>{% endif %}
           {% if p('delivery:manage') %}<a href="/admin/delivery-zones">🚚 مناطق التوصيل</a>{% endif %}
+          {% if p('messaging:manage') %}<a href="/admin/notifications">🔔 محرك الإشعارات</a>{% endif %}
           {% if p('admin:settings') %}<a href="/admin/settings">⚙ الإعدادات</a>{% endif %}
           {% if p('backup:manage') %}<a href="/admin/backup">💾 نسخ احتياطي</a>{% endif %}
         </div>
@@ -389,6 +802,85 @@
         <span>صُنع بـ ❤ FastAPI + SQLite + HTMX</span>
       </div>
     </footer>
+    {% if admin_layout %}
+      </div>{# .admin-content #}
+    </div>{# .admin-shell #}
     {% endif %}
+    {% endif %}
+    <script>
+    (function () {
+      var groups = document.querySelectorAll(".nav-group");
+      if (!groups.length) return;
+      groups.forEach(function (g) {
+        g.addEventListener("toggle", function () {
+          if (!g.open) return;
+          groups.forEach(function (o) {
+            if (o !== g) o.removeAttribute("open");
+          });
+        });
+      });
+      document.addEventListener("click", function (e) {
+        groups.forEach(function (g) {
+          if (!g.contains(e.target)) g.removeAttribute("open");
+        });
+      });
+    })();
+    (function () {
+      var openBtn = document.getElementById("adminSidebarOpen");
+      var closeBtn = document.getElementById("adminSidebarClose");
+      var backdrop = document.getElementById("adminSidebarBackdrop");
+      if (!openBtn) return;
+      function openSidebar() {
+        document.body.classList.add("admin-sidebar-open");
+        if (backdrop) backdrop.hidden = false;
+      }
+      function closeSidebar() {
+        document.body.classList.remove("admin-sidebar-open");
+        if (backdrop) backdrop.hidden = true;
+      }
+      openBtn.addEventListener("click", openSidebar);
+      if (closeBtn) closeBtn.addEventListener("click", closeSidebar);
+      if (backdrop) backdrop.addEventListener("click", closeSidebar);
+      document.querySelectorAll(".admin-sidebar-link").forEach(function (a) {
+        a.addEventListener("click", function () {
+          if (window.matchMedia("(max-width: 900px)").matches) closeSidebar();
+        });
+      });
+    })();
+    (function () {
+      var bell = document.getElementById("header-activity-bell");
+      if (!bell) return;
+      function renderBadge(n) {
+        var el = document.getElementById("header-activity-badge");
+        if (!n || n < 1) {
+          if (el) el.remove();
+          return;
+        }
+        var text = n > 99 ? "99+" : String(n);
+        if (!el) {
+          el = document.createElement("span");
+          el.className = "header-bell__badge";
+          el.id = "header-activity-badge";
+          bell.appendChild(el);
+        }
+        el.textContent = text;
+      }
+      function poll() {
+        fetch("/admin/activity/api/count", { credentials: "same-origin" })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            if (data && typeof data.count === "number") renderBadge(data.count);
+          })
+          .catch(function () {});
+      }
+      // غير متزامن بعد الرسم — لا يُعيق فتح الصفحة
+      setTimeout(poll, 400);
+      setInterval(poll, 120000);
+      document.addEventListener("visibilitychange", function () {
+        if (!document.hidden) poll();
+      });
+    })();
+    </script>
+    <script src="/static/pos_guides.js"></script>
   </body>
 </html>

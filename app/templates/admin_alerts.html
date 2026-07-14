@@ -2,10 +2,19 @@
 {% block title %}تنبيهات نفاد المخزون{% endblock %}
 {% block body %}
 <h1>تنبيهات نفاد المخزون</h1>
-<p class="muted">
-  يرسل النظام رسالة تلقائية عند وجود أصناف وصلت أو نزلت تحت «الحد الأدنى» الذي تضبطه لكل صنف
-  من <a href="/catalog/products">صفحة الأصناف</a>.
+<p class="muted pos-guide-intro" data-guide-title="ℹ️ كيف تعمل التنبيهات">
+  يرسل النظام رسالة <strong>تلقائياً بعد كل عملية بيع</strong> عند وجود أصناف تحت «الحد الأدنى»
+  (من <a href="/catalog/products">صفحة الأصناف</a>).
+  للإرسال عبر <strong>Telegram / n8n</strong> استخدم
+  <a href="/admin/notifications/delivery">إعدادات الإرسال</a> — الإعدادات أدناه للإيميل وWhatsApp القديم فقط.
 </p>
+<div class="card pos-guide-panel" data-guide-title="ℹ️ الإرسال التلقائي" style="border-color:#bfdbfe;background:#eff6ff;margin-bottom:1rem">
+  <p style="margin:0;font-size:0.9rem">
+    <strong>تلقائي:</strong> بعد التحصيل في POS → فحص المخزون → رسالة <code>stock.low</code> إذا
+    <a href="/admin/notifications/delivery">إعدادات الإرسال</a> مفعّلة.
+    رسائل الولاء تُرسل تلقائياً عند الدفع إذا وافق العميل على المراسلات.
+  </p>
+</div>
 
 {% if saved %}
 <div class="card" style="border-color: #86efac; background: #f0fdf4">
@@ -13,8 +22,11 @@
 </div>
 {% endif %}
 {% if test %}
-<div class="card" style="border-color: #fcd34d; background: #fffbeb">
+<div class="card" style="border-color: {% if test_ok %}#86efac{% else %}#fcd34d{% endif %}; background: {% if test_ok %}#f0fdf4{% else %}#fffbeb{% endif %}">
   <p style="margin: 0"><strong>نتيجة اختبار الإرسال:</strong> {{ test }}</p>
+  {% if test_ok %}
+  <p class="muted" style="margin:0.35rem 0 0;font-size:0.85rem">راجع أيضاً <a href="/admin/messaging/log">سجل المراسلات</a>.</p>
+  {% endif %}
 </div>
 {% endif %}
 
@@ -33,8 +45,8 @@
       {% for p, qty in rows %}
       <tr>
         <td>{{ p.name_ar }}</td>
-        <td style="color: #b91c1c; font-weight: 700">{{ qty }} {{ p.unit }}</td>
-        <td>{{ p.reorder_level }} {{ p.unit }}</td>
+        <td style="color: #b91c1c; font-weight: 700">{{ pos_qty(qty) }} {{ p.unit }}</td>
+        <td>{{ pos_qty(p.reorder_level) }} {{ p.unit }}</td>
         <td><a href="/inventory/low-stock/print?warehouse_id={{ wh.id }}" target="_blank">طباعة</a></td>
       </tr>
       {% endfor %}

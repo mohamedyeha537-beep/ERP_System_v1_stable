@@ -1,0 +1,119 @@
+{% extends "base_pos.html" %}
+{% block title %}استرداد فاتورة #{{ summary.sale.id }}{% endblock %}
+{% block pos_topbar %}
+<button type="button" class="pos-topbar-btn" onclick="window.location.href='/pos?orders=1'">📋 جميع الطلبات</button>
+<a class="pos-topbar-btn primary" href="/pos">الكاشير</a>
+{% endblock %}
+{% block body %}
+<div style="max-width:960px;margin:0 auto">
+  <h1 style="margin:0">استرداد فاتورة #{{ summary.sale.id }}</h1>
+  <p class="muted" style="margin:0.35rem 0 0">تم التحقق من كود الاسترداد — اختر الكميات المرتجعة.</p>
+  <p class="muted" style="margin:0.25rem 0 0;font-size:0.88rem">
+    الكميات مملوءة تلقائياً بكل المتاح للاسترداد الكامل. للاسترداد الجزئي عدّل الكمية قبل التسجيل.
+  </p>
+  {% if summary.sale.customer_id %}
+  <p class="muted" style="margin:0.25rem 0 0;font-size:0.88rem">
+    عند الاسترداد تُخصم نقاط الولاء الممنوحة لهذه الفاتورة، وتُعاد النقاط التي استُخدمت كخصم إن وُجدت.
+  </p>
+  {% endif %}
+
+  {% if saved_return_id %}
+  <div class="card" style="margin-top:1rem;border-color:#86efac;background:#f0fdf4">
+    <strong style="color:#166534">تم تسجيل الاسترداد.</strong>
+    <div style="margin-top:0.5rem;display:flex;gap:0.5rem;flex-wrap:wrap">
+      <a class="btn btn-primary" href="/pos/refund/receipt/{{ saved_return_id }}?autoprint=1" target="_blank">طباعة السند</a>
+      <a class="btn" href="/pos?orders=1">العودة لجميع الطلبات</a>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if error %}
+  <div class="alert" style="margin-top:1rem">{{ error }}</div>
+  {% endif %}
+
+  <div class="card" style="margin-top:1rem">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.75rem">
+      <div><div class="muted" style="font-size:0.82rem">إجمالي الفاتورة</div><strong>{{ pos_money(summary.sale.total) }} د.ل</strong></div>
+      <div><div class="muted" style="font-size:0.82rem">المتبقي قابل للاسترداد</div><strong>{{ pos_money(summary.net_total) }} د.ل</strong></div>
+      <div><div class="muted" style="font-size:0.82rem">المحصّل</div><strong>{{ pos_money(summary.paid_total) }} د.ل</strong></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">تنفيذ استرداد</h2>
+    {% if summary.net_total <= 0 %}
+    <p class="muted">تم استرداد كامل قيمة الفاتورة.</p>
+    {% else %}
+    <form method="post" action="/pos/refund/{{ summary.sale.id }}">
+      <table style="width:100%">
+        <thead>
+          <tr>
+            <th>الصنف</th>
+            <th>متاح</th>
+            <th>كمية الاسترداد</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in summary.lines %}
+          <tr>
+            <td>
+              <strong>
+                {% if row.sale_line.product %}
+                {{ row.sale_line.product.name_ar }}
+                {% else %}
+                صنف محذوف #{{ row.sale_line.product_id }}
+                {% endif %}
+              </strong>
+            </td>
+            <td>{{ pos_qty(row.remaining_qty) }}</td>
+            <td>
+              {% if row.remaining_qty > 0 %}
+              <input type="number" step="0.0001" min="0" max="{{ pos_qty_plain(row.remaining_qty) }}" name="qty_{{ row.sale_line.id }}" value="{{ pos_qty_plain(row.remaining_qty) }}" style="max-width:7rem" />
+              {% else %}
+              <span class="muted">—</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if row.remaining_qty > 0 %}
+              <label style="font-size:0.82rem;display:flex;align-items:center;gap:0.3rem">
+                <input type="checkbox" name="skip_restock_{{ row.sale_line.id }}" value="1" />
+                <span class="muted">بدون مخزن</span>
+              </label>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div style="margin-top:1rem;display:flex;flex-wrap:wrap;gap:0.75rem">
+        <div style="flex:1;min-width:200px">
+          <label class="muted" style="font-size:0.82rem">سبب</label>
+          <input type="text" name="reason" placeholder="سبب الاسترداد" style="width:100%;max-width:none" />
+        </div>
+        <div style="flex:1;min-width:200px">
+          <label class="muted" style="font-size:0.82rem">ملاحظة</label>
+          <input type="text" name="note" style="width:100%;max-width:none" />
+        </div>
+      </div>
+      {% if summary.room_charge %}
+      <p class="muted" style="margin-top:0.75rem">فاتورة على حساب شقة — يُخفَّض الرصيد دون رد نقدي.</p>
+      {% elif summary.payments %}
+      {% set original_method = summary.payments[0].method if summary.payments and summary.payments[0].method else None %}
+      <p class="muted" style="margin-top:0.75rem">
+        رد المبلغ إلى:
+        <strong>{{ original_method.name_ar if original_method else '—' }}</strong>
+      </p>
+      {% if original_method %}
+      <input type="hidden" name="refund_payment_method_id" value="{{ original_method.id }}" />
+      {% endif %}
+      {% endif %}
+      <div style="margin-top:1rem;display:flex;gap:0.5rem;flex-wrap:wrap">
+        <button type="submit" class="btn btn-primary">تسجيل الاسترداد</button>
+        <a class="btn" href="/pos?orders=1">إلغاء</a>
+      </div>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

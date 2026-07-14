@@ -175,8 +175,17 @@ def main():
 
         section("تطبيع رقم الهاتف")
         check(normalize_phone("  091 234 5678 ") == "0912345678", "إزالة الفراغات")
-        check(normalize_phone("+218-91-234-5678") == "+218912345678", "حفظ + إزالة الشرطات")
+        check(
+            normalize_phone("+218-91-234-5678") == "0912345678",
+            "تحويل +218 إلى 10 أرقام محلية",
+        )
+        check(normalize_phone("917122552") == "0917122552", "9 أرقام → 09…")
         check(normalize_phone(None) == "", "None → سلسلة فارغة")
+        c218 = create_customer(db, phone="+218911000002", name="قديم +218")
+        db.commit()
+        found = get_by_phone(db, "0911000002")
+        check(found is not None and found.id == c218.id, "البحث بالصيغة المحلية يجد +218")
+        check(found.phone == "0911000002", "ترحيل التخزين للصيغة المحلية")
 
         section("إنشاء وتحديث العميل")
         c1 = create_customer(db, phone="0911000001", name="أحمد")

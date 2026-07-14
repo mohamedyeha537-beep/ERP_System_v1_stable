@@ -1,75 +1,582 @@
 {% extends "base.html" %}
+
 {% block title %}تقرير جلسة #{{ shift.id }}{% endblock %}
+
 {% block head_extra %}
+
+<link rel="stylesheet" href="/static/shift_summary.css" />
+
 <style>
+
   @media print {
+
     .no-print { display: none !important; }
+
     body { background: #fff !important; }
+
   }
+
+  .pos-shift-invoice-dialog {
+
+    border: none;
+
+    border-radius: 14px;
+
+    padding: 0;
+
+    width: min(720px, 96vw);
+
+    max-height: 92vh;
+
+    box-shadow: 0 24px 64px rgba(15, 23, 42, 0.28);
+
+  }
+
+  .pos-shift-invoice-dialog::backdrop {
+
+    background: rgba(15, 23, 42, 0.45);
+
+  }
+
+  .pos-shift-invoice-dialog-header {
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content: space-between;
+
+    gap: 0.75rem;
+
+    padding: 0.85rem 1rem;
+
+    border-bottom: 1px solid #e2e8f0;
+
+    background: #f8fafc;
+
+    border-radius: 14px 14px 0 0;
+
+  }
+
+  .pos-shift-invoice-dialog-body {
+
+    padding: 0.85rem 1rem 1rem;
+
+    overflow: auto;
+
+    max-height: calc(92vh - 3.5rem);
+
+  }
+
+  .pos-shift-invoice-lines {
+
+    width: 100%;
+
+    border-collapse: collapse;
+
+    font-size: 0.88rem;
+
+    margin: 0.65rem 0;
+
+  }
+
+  .pos-shift-invoice-lines th,
+
+  .pos-shift-invoice-lines td {
+
+    text-align: right;
+
+    padding: 0.35rem 0.4rem;
+
+    border-bottom: 1px solid #e2e8f0;
+
+  }
+
+  .pos-shift-invoice-lines .num {
+
+    text-align: left;
+
+    white-space: nowrap;
+
+  }
+
+  .pos-shift-invoice-panel__actions {
+
+    display: flex;
+
+    flex-wrap: wrap;
+
+    gap: 0.45rem;
+
+    margin-top: 0.85rem;
+
+    padding-top: 0.65rem;
+
+    border-top: 1px dashed #cbd5e1;
+
+  }
+
+  .shift-invoice-open-btn {
+
+    font-weight: 700;
+
+    color: #1d4ed8;
+
+    background: none;
+
+    border: none;
+
+    padding: 0;
+
+    cursor: pointer;
+
+    text-decoration: underline;
+
+    font-size: inherit;
+
+  }
+
+  .print-only { display: none; }
+
+  @media print {
+
+    .print-only { display: inline; }
+
+  }
+
 </style>
+
 {% endblock %}
+
 {% block body %}
+
 <div class="no-print row" style="justify-content:space-between;align-items:center;margin-bottom:0.75rem">
+
   <h1 style="margin:0">تقرير جلسة الكاشير #{{ shift.id }}</h1>
+
   <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+
     <button type="button" class="btn btn-primary" onclick="window.print()">طباعة / حفظ PDF</button>
+
     <a class="btn" href="/pos/shift/{{ shift.id }}/export.csv">تنزيل CSV</a>
+
     <a class="btn" href="/pos/shift">رجوع</a>
+
   </div>
+
 </div>
+
+
+
+{% if request.query_params.get('ok') %}
+
+<div class="card no-print" style="border-color:#86efac;background:#f0fdf4;margin-bottom:0.75rem">
+
+  <p style="margin:0;color:#166534">{{ request.query_params.get('ok') }}</p>
+
+</div>
+
+{% endif %}
+
+{% if request.query_params.get('err') %}
+
+<div class="card no-print" style="border-color:#fecaca;background:#fef2f2;margin-bottom:0.75rem">
+
+  <p style="margin:0;color:#b91c1c">{{ request.query_params.get('err') }}</p>
+
+</div>
+
+{% endif %}
+
+
 
 <div class="card">
+
   <h2 style="margin-top:0">{{ store_name }}</h2>
+
   <p style="margin:0.25rem 0"><strong>الحالة:</strong> {{ shift.status.value }}</p>
-  <p style="margin:0.25rem 0"><strong>فتح:</strong> {% if shift.opened_at %}{{ shift.opened_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</p>
-  <p style="margin:0.25rem 0"><strong>إغلاق:</strong> {% if shift.closed_at %}{{ shift.closed_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</p>
+
+  <p style="margin:0.25rem 0"><strong>فتح:</strong> {% if shift.opened_at %}{{ pos_format_dt(shift.opened_at, '%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</p>
+  {% if shift.opening_cash and shift.opening_cash > 0 %}
+  <p style="margin:0.25rem 0"><strong>رصيد افتتاحي (فكة):</strong> {{ pos_money(shift.opening_cash) }} <span class="money-currency">د.ل</span></p>
+  {% endif %}
+  <p style="margin:0.25rem 0"><strong>إغلاق:</strong> {% if shift.closed_at %}{{ pos_format_dt(shift.closed_at, '%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</p>
+
+  {% set shift_id = shift.id %}
+
+  {% set show_drawer_expected = true %}
+
+  {% set show_count_preview = false %}
+
+  {% include "_shift_financial_summary.html" %}
+
   {% if shift.status.value == 'CLOSED' %}
-  <p style="margin:0.25rem 0"><strong>كاش متوقع:</strong> {{ pos_money(shift.expected_cash) }} <span class="money-currency">د.ل</span></p>
-  <p style="margin:0.25rem 0"><strong>كاش معدود:</strong> {{ pos_money(shift.counted_cash) }} <span class="money-currency">د.ل</span></p>
-  <p style="margin:0.25rem 0"><strong>الفرق (معدود − متوقع):</strong> {{ pos_money(shift.cash_difference) }} <span class="money-currency">د.ل</span></p>
-  {% if shift.expected_bank is not none %}
-  <p style="margin:0.25rem 0"><strong>مصرف متوقع:</strong> {{ pos_money(shift.expected_bank) }} <span class="money-currency">د.ل</span></p>
-  <p style="margin:0.25rem 0"><strong>مصرف معدود:</strong> {{ pos_money(shift.counted_bank) }} <span class="money-currency">د.ل</span></p>
-  <p style="margin:0.25rem 0"><strong>فرق المصرف:</strong> {{ pos_money(shift.bank_difference) }} <span class="money-currency">د.ل</span></p>
+
+  <div style="margin-top:0.65rem;padding-top:0.55rem;border-top:1px solid var(--border,#e2e8f0)">
+
+    <p style="margin:0.25rem 0"><strong>كاش معدود في الدرج:</strong> {{ pos_money(shift.counted_cash) }} <span class="money-currency">د.ل</span></p>
+
+    <p style="margin:0.25rem 0"><strong>الفرق (معدود − متوقع):</strong> {{ pos_money(shift.cash_difference) }} <span class="money-currency">د.ل</span></p>
+
+    {% if shift.expected_bank is not none %}
+
+    <p style="margin:0.25rem 0"><strong>مصرف معدود:</strong> {{ pos_money(shift.counted_bank) }} <span class="money-currency">د.ل</span></p>
+
+    <p style="margin:0.25rem 0"><strong>فرق المصرف:</strong> {{ pos_money(shift.bank_difference) }} <span class="money-currency">د.ل</span></p>
+
+    {% endif %}
+
+    {% if shift.expected_room is not none %}
+
+    <p style="margin:0.25rem 0"><strong>شقق معدودة (مراجعة):</strong> {{ pos_money(shift.counted_room) }} <span class="money-currency">د.ل</span></p>
+
+    <p style="margin:0.25rem 0"><strong>فرق مراجعة الشقق:</strong> {{ pos_money(shift.room_difference) }} <span class="money-currency">د.ل</span></p>
+
+    {% endif %}
+
+    {% set cash_short = (-shift.cash_difference) if shift.cash_difference is not none and shift.cash_difference < 0 else 0 %}
+    {% set bank_short = (-shift.bank_difference) if shift.bank_difference is not none and shift.bank_difference < 0 else 0 %}
+    {% set cash_sur = shift.cash_difference if shift.cash_difference is not none and shift.cash_difference > 0 else 0 %}
+    {% set bank_sur = shift.bank_difference if shift.bank_difference is not none and shift.bank_difference > 0 else 0 %}
+    {% set short_total = cash_short + bank_short %}
+    {% set sur_total = cash_sur + bank_sur %}
+    {% if short_total > 0 %}
+    <p style="margin:0.35rem 0 0"><strong>إجمالي العجز:</strong> <span style="color:#b91c1c;font-weight:700">{{ pos_money(short_total) }} <span class="money-currency">د.ل</span></span></p>
+    {% endif %}
+    {% if sur_total > 0 %}
+    <p style="margin:0.25rem 0"><strong>إجمالي الفائض:</strong> <span style="color:#15803d;font-weight:700">{{ pos_money(sur_total) }} <span class="money-currency">د.ل</span></span></p>
+    {% endif %}
+
+  </div>
+
+  {% else %}
+
+  <p class="muted" style="font-size:0.88rem;margin:0.5rem 0 0">يُحدَّث الملخص مع كل عملية بيع؛ القيم النهائية تُثبَّت عند إغلاق الجلسة.</p>
+
   {% endif %}
-  {% elif preview_expected_cash is not none %}
-  <p style="margin:0.25rem 0"><strong>كاش متوقع (حتى الآن):</strong> {{ pos_money(preview_expected_cash) }} <span class="money-currency">د.ل</span></p>
-  <p class="muted" style="font-size:0.88rem;margin:0">يُحدَّث هذا الرقم مع كل عملية بيع؛ القيم النهائية تُثبَّت عند إغلاق الجلسة.</p>
-  {% endif %}
+
   {% if shift.closing_note %}
+
   <p style="margin:0.5rem 0"><strong>ملاحظة الإغلاق:</strong> {{ shift.closing_note }}</p>
+
   {% endif %}
+
 </div>
 
+
+
 <div class="card" style="margin-top:1rem">
+
   <h2 style="margin-top:0">ملخص المبيعات</h2>
+
   <p>عدد الفواتير المكتملة: <strong>{{ sales_count }}</strong></p>
+
   <p>إجمالي قيمة الفواتير (بنود): <strong>{{ pos_money(sales_total) }}</strong> <span class="money-currency">د.ل</span></p>
+
+  <p>إجمالي التكاليف (COGS): <strong style="color:#b45309">{{ pos_money(total_costs) }}</strong> <span class="money-currency">د.ل</span></p>
+
+  {% if sales_total > total_costs %}
+  <p>إجمالي الربح الإجمالي: <strong style="color:#15803d">{{ pos_money(sales_total - total_costs) }}</strong> <span class="money-currency">د.ل</span></p>
+  {% endif %}
+
+  {% if shift_financial.loyalty_dinar_cost and shift_financial.loyalty_dinar_cost > 0 %}
+
+  <p>خصم نقاط ولاء (غير نقدي):
+
+    <strong style="color:#c2410c">−{{ pos_money(shift_financial.loyalty_dinar_cost) }}</strong> د.ل
+
+    — <a href="/reports/shifts/{{ shift.id }}/loyalty">تفاصيل</a>
+
+  </p>
+
+  <p>صافي محصّل (كاش + مصرف): <strong>{{ pos_money(shift_financial.net_collected) }}</strong> <span class="money-currency">د.ل</span></p>
+
+  {% endif %}
+
 </div>
 
+
+
 <div class="card" style="margin-top:1rem">
+
   <h2 style="margin-top:0">تفاصيل الفواتير</h2>
+
   <table>
+
     <thead>
+
       <tr>
-        <th>فاتورة</th>
-        <th>سياق</th>
-        <th>الدفع</th>
+
+        <th>نوع الفاتورة</th>
+
+        <th>وسيلة الدفع</th>
+
         <th>الإجمالي</th>
-        <th>وقت</th>
+
+        <th>الوقت والتاريخ</th>
+
+        <th>الفاتورة</th>
+
       </tr>
+
     </thead>
+
     <tbody>
+
       {% for r in rows %}
+
       <tr>
-        <td>#{{ r.sale_id }}</td>
-        <td>{{ r.context }}</td>
+
+        <td>{{ r.context_label }}</td>
+
         <td>{{ r.payment_label }}</td>
+
         <td>{{ pos_money(r.total) }} <span class="money-currency">د.ل</span></td>
-        <td>{% if r.created_at %}{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+
+        <td>{% if r.created_at %}{{ pos_format_dt(r.created_at, '%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+
+        <td>
+
+          <button type="button" class="shift-invoice-open-btn no-print"
+
+            data-sale-id="{{ r.sale_id }}"
+
+            data-shift-id="{{ shift.id }}">فاتورة #{{ r.sale_id }}</button>
+
+          <span class="print-only">#{{ r.sale_id }}</span>
+
+        </td>
+
       </tr>
+
       {% endfor %}
+
     </tbody>
+
   </table>
+
 </div>
+
+
+
+<dialog id="shift-invoice-dialog" class="pos-shift-invoice-dialog no-print">
+
+  <div class="pos-shift-invoice-dialog-header">
+
+    <h2 style="margin:0;font-size:1.05rem">تفاصيل الفاتورة</h2>
+
+    <button type="button" class="btn" id="shift-invoice-dialog-close" aria-label="إغلاق">✕</button>
+
+  </div>
+
+  <div id="shift-invoice-dialog-body" class="pos-shift-invoice-dialog-body">
+
+    <p class="muted" style="margin:0">جاري التحميل…</p>
+
+  </div>
+
+</dialog>
+
+
+
+{% if can_correct_payment and treasury_pay_methods|length > 0 %}
+
+<dialog id="shift-payfix-dialog" class="pos-shift-invoice-dialog no-print">
+
+  <form method="post" action="/pos/shift/{{ shift.id }}/invoice/0/change-payment" id="shift-payfix-form" class="pos-shift-invoice-dialog-body" style="padding:1rem">
+
+    <h3 style="margin:0 0 0.5rem">تصحيح وسيلة الدفع</h3>
+
+    <p class="muted" style="margin:0 0 0.35rem;font-size:0.88rem">
+
+      للفاتورة <strong id="shift-payfix-sale-label">#</strong>
+
+    </p>
+
+    <p class="muted" style="margin:0 0 0.75rem;font-size:0.88rem;line-height:1.5">
+
+      الخزينة الحالية (المسجّلة على الفاتورة): <strong id="shift-payfix-current-method" style="color:#0f172a">—</strong>
+
+      <br />
+
+      <span style="font-size:0.82rem">يُنقل المبلغ من هذه الخزينة إلى الخزينة الجديدة التي تختارها أدناه.</span>
+
+    </p>
+
+    <label for="shift-payfix-method">الخزينة / وسيلة الدفع الجديدة</label>
+
+    <select id="shift-payfix-method" name="payment_method_id" required class="input" style="width:100%;margin-bottom:0.75rem">
+
+      <option value="">اختر…</option>
+
+      {% for m in treasury_pay_methods %}
+
+      <option value="{{ m.id }}">{{ m.name_ar }}</option>
+
+      {% endfor %}
+
+    </select>
+
+    <div style="display:flex;gap:0.5rem;justify-content:flex-end;flex-wrap:wrap">
+
+      <button type="button" class="btn" id="shift-payfix-cancel">إلغاء</button>
+
+      <button type="submit" class="btn btn-primary">تأكيد التصحيح</button>
+
+    </div>
+
+  </form>
+
+</dialog>
+
+{% endif %}
+
+
+
+<script>
+
+(function () {
+
+  var dlg = document.getElementById("shift-invoice-dialog");
+
+  var body = document.getElementById("shift-invoice-dialog-body");
+
+  var closeBtn = document.getElementById("shift-invoice-dialog-close");
+
+  if (!dlg || !body) return;
+
+
+
+  function openInvoicePanel(saleId, shiftId) {
+
+    body.innerHTML = '<p class="muted" style="margin:0">جاري التحميل…</p>';
+
+    if (typeof dlg.showModal === "function") dlg.showModal();
+
+    fetch("/pos/shift/" + encodeURIComponent(shiftId) + "/invoice/" + encodeURIComponent(saleId) + "/panel", {
+
+      credentials: "same-origin"
+
+    })
+
+      .then(function (r) { return r.text(); })
+
+      .then(function (html) {
+
+        body.innerHTML = html;
+
+        bindPanelPayfix();
+
+      })
+
+      .catch(function () {
+
+        body.innerHTML = '<div class="alert">تعذّر تحميل تفاصيل الفاتورة.</div>';
+
+      });
+
+  }
+
+
+
+  function bindPanelPayfix() {
+
+    body.querySelectorAll(".shift-payfix-btn").forEach(function (btn) {
+
+      btn.addEventListener("click", function () {
+
+        openPayfix(
+          btn.getAttribute("data-sale-id"),
+          btn.getAttribute("data-shift-id"),
+          btn.getAttribute("data-sale-label"),
+          btn.getAttribute("data-current-payment"),
+          btn.getAttribute("data-current-payment-id")
+        );
+
+      });
+
+    });
+
+  }
+
+
+
+  document.querySelectorAll(".shift-invoice-open-btn").forEach(function (btn) {
+
+    btn.addEventListener("click", function () {
+
+      openInvoicePanel(btn.getAttribute("data-sale-id"), btn.getAttribute("data-shift-id"));
+
+    });
+
+  });
+
+
+
+  if (closeBtn) {
+
+    closeBtn.addEventListener("click", function () { dlg.close(); });
+
+  }
+
+
+
+  var payDlg = document.getElementById("shift-payfix-dialog");
+
+  var payForm = document.getElementById("shift-payfix-form");
+
+  var payCancel = document.getElementById("shift-payfix-cancel");
+
+
+
+  function openPayfix(saleId, shiftId, label, currentPayment, currentPaymentId) {
+
+    if (!payDlg || !payForm) return;
+
+    payForm.action = "/pos/shift/" + shiftId + "/invoice/" + saleId + "/change-payment";
+
+    var lbl = document.getElementById("shift-payfix-sale-label");
+
+    if (lbl) lbl.textContent = label || ("#" + saleId);
+
+    var cur = document.getElementById("shift-payfix-current-method");
+
+    if (cur) cur.textContent = currentPayment || "—";
+
+    var sel = document.getElementById("shift-payfix-method");
+
+    if (sel) {
+
+      sel.value = "";
+
+      Array.prototype.forEach.call(sel.options, function (opt) {
+
+        opt.disabled = false;
+
+        if (currentPaymentId && opt.value === String(currentPaymentId)) {
+
+          opt.disabled = true;
+
+        }
+
+      });
+
+    }
+
+    if (typeof payDlg.showModal === "function") payDlg.showModal();
+
+  }
+
+
+
+  if (payCancel && payDlg) {
+
+    payCancel.addEventListener("click", function () { payDlg.close(); });
+
+  }
+
+})();
+
+</script>
+
 {% endblock %}

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% from "_notifications_admin_nav.html" import notifications_nav %}
+
+{% block title %}أحداث الإشعارات{% endblock %}
+
+{% block body %}
+<h1>فهرس الأحداث</h1>
+<p class="muted">الأحداث مُعرّفة في النظام — اربط كل حدث بقالب وقاعدة من <a href="/admin/notifications/templates">القوالب</a> و <a href="/admin/notifications/rules">القواعد</a>.</p>
+
+{{ notifications_nav(nav_active) }}
+
+<div class="card pos-guide-panel" style="border-color:#bbf7d0;background:#f0fdf4;margin-bottom:1rem">
+  <p style="margin:0;font-size:0.9rem">
+    <strong>المرحلة 1:</strong> order.created · order.delivered · loyalty.points_earned · inventory.low_stock<br>
+    <strong>المرحلة 2 (مفعّلة):</strong> order.confirmed · order.sent_to_kitchen · order.driver_assigned · order.out_for_delivery · loyalty.points_redeemed · customer.created · pos.*<br>
+  </p>
+</div>
+
+<table class="table">
+  <thead><tr><th>مفتاح الحدث</th><th>الوصف</th><th>المرحلة</th></tr></thead>
+  <tbody>
+  {% for key, label in events %}
+  <tr>
+    <td><code>{{ key }}</code></td>
+    <td>{{ label }}</td>
+    <td>{% if key in phase1 %}<strong style="color:#15803d">1 — مفعّل</strong>{% elif phase4 is defined and key in phase4 %}<strong style="color:#15803d">4 — مفعّل</strong>{% elif phase3 is defined and key in phase3 %}<strong style="color:#15803d">3 — مفعّل</strong>{% elif wired is defined and key in wired %}<strong style="color:#15803d">2 — مفعّل</strong>{% elif key.startswith('inventory.') %}3{% elif key.startswith('order.') or key.startswith('pos.') %}2{% else %}—{% endif %}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<p class="muted" style="margin-top:1rem"><a href="/admin/notifications">← الإعدادات</a> · <a href="/admin/notifications?tab=events">الأحداث</a></p>
+{% endblock %}

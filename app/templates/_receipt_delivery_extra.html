@@ -1,0 +1,10 @@
+{# توصيل: اسم الزبون ورقمه في سطر واحد بدون إطار #}
+{% if is_delivery %}
+  {% if customer %}
+  <p class="receipt-delivery-line">
+    {% if customer.name %}<strong>{{ customer.name }}</strong> — {% endif %}📞 {{ customer.phone }}
+  </p>
+  {% else %}
+  <p class="receipt-delivery-line muted" style="font-size:0.82rem">لم يُسجَّل هاتف الزبون</p>
+  {% endif %}
+{% endif %}

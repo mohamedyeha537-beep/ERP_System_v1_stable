@@ -1,0 +1,181 @@
+{# كرت شقة صغير — شبكة مثل الروابط السريعة #}
+
+{% set avail = c.is_available and c.is_active %}
+
+{% set is_maint = c.status_key == 'maintenance' %}
+
+{% set accent = '#22c55e' if avail else ('#f97316' if is_maint else '#ef4444') %}
+
+{% if tile_mode == 'setup' %}
+
+<div class="apt-tile apt-tile--static" style="--accent: {{ accent }}">
+
+  <div class="apt-tile__icon" aria-hidden="true">{% if is_maint %}🔧{% else %}🏠{% endif %}</div>
+
+  <div class="apt-tile__body">
+
+    <div class="apt-tile__title">{{ c.display_name }}</div>
+
+    <div class="apt-tile__price">{{ '%.3f'|format(c.nightly_price) }} د.ل / ليلة</div>
+
+    <div class="apt-tile__status apt-tile__status--{% if avail %}ok{% elif is_maint %}maint{% else %}no{% endif %}">
+
+      {% if avail %}متاحة{% elif is_maint %}غير متاحة — صيانة{% else %}{{ c.status_label or 'غير متاحة' }}{% endif %}
+
+    </div>
+
+    {% if is_maint and c.status_detail %}
+
+    <div class="apt-tile__hint apt-tile__hint--maint">{{ c.status_detail }}</div>
+
+    {% endif %}
+
+  </div>
+
+  <div class="apt-tile__setup-actions">
+
+    {% set r = setup_rooms.get(c.room_id) %}
+
+    {% if r %}
+
+    <button
+
+      type="button"
+
+      class="apt-tile__btn"
+
+      data-room-edit
+
+      data-id="{{ r.id }}"
+
+      data-name="{{ r.name_ar or '' }}"
+
+      data-number="{{ r.number }}"
+
+      data-price="{{ r.nightly_price if r.nightly_price else '' }}"
+
+      data-room-type-id="{{ r.room_type_id or '' }}"
+
+      data-floor="{{ r.floor or '' }}"
+
+      data-notes="{{ r.notes or '' }}"
+
+      data-active="{{ 1 if r.is_active else 0 }}"
+
+      data-show-online="{{ 1 if r.show_online else 0 }}"
+
+      data-online-desc="{{ r.online_description or '' }}"
+
+      data-delete-label="{{ r.name_ar or r.number }}"
+
+      data-can-delete="{{ 0 if room_booking_counts.get(r.id, 0) > 0 else 1 }}"
+
+      data-booking-count="{{ room_booking_counts.get(r.id, 0) }}"
+
+    >تعديل</button>
+
+    <a class="apt-tile__btn" href="/admin/hotel/rooms/{{ r.id }}/media" style="text-decoration:none;text-align:center">🖼 وسائط</a>
+
+    {% if r.show_online %}<span class="apt-tile__hint" style="color:#1d4ed8">🌐 أونلاين</span>{% endif %}
+
+    {% if can_maintain and r.is_active %}
+
+      {% if avail %}
+
+      <button type="button" class="apt-tile__btn apt-tile__btn--maint" data-maint-open data-room-id="{{ c.room_id }}" data-room-label="{{ c.display_name }}">وضع في الصيانة</button>
+
+      {% elif is_maint %}
+
+      <form method="post" action="/admin/hotel/rooms/{{ c.room_id }}/maintenance-done" style="margin:0">
+
+        <input type="hidden" name="redirect_to" value="/admin/hotel/rooms" />
+
+        <button type="submit" class="apt-tile__btn apt-tile__btn--ready">إنهاء الصيانة — متاحة</button>
+
+      </form>
+
+      {% endif %}
+
+    {% endif %}
+
+    {% endif %}
+
+  </div>
+
+</div>
+
+{% else %}
+
+<div class="apt-tile apt-tile--card" style="--accent: {{ accent }}">
+
+  <a class="apt-tile__link" href="{% if avail %}/admin/hotel/bookings/new?room_id={{ c.room_id }}{% elif c.booking_id %}/admin/hotel/bookings/{{ c.booking_id }}{% else %}/admin/hotel/bookings?room_id={{ c.room_id }}{% endif %}" title="{% if avail %}احجز {{ c.display_name }}{% else %}{{ c.status_label }}{% endif %}">
+
+    <div class="apt-tile__icon" aria-hidden="true">{% if is_maint %}🔧{% else %}🏠{% endif %}</div>
+
+    <div class="apt-tile__body">
+
+      <div class="apt-tile__title">{{ c.display_name }}</div>
+
+      <div class="apt-tile__price">{{ '%.3f'|format(c.nightly_price) }} د.ل / ليلة</div>
+
+      <div class="apt-tile__status apt-tile__status--{% if avail %}ok{% elif is_maint %}maint{% else %}no{% endif %}">
+
+        {% if avail %}متاحة{% elif c.checkout_today %}مغادرة اليوم{% elif is_maint %}غير متاحة — صيانة{% else %}{{ c.status_label }}{% endif %}
+
+      </div>
+
+      {% if is_maint and c.status_detail %}
+
+      <div class="apt-tile__hint apt-tile__hint--maint">{{ c.status_detail }}</div>
+
+      {% elif avail and c.status_detail %}
+
+      <div class="apt-tile__hint apt-tile__hint--upcoming">{{ c.status_detail }}</div>
+
+      {% elif not avail and c.guest_name %}
+
+      <div class="apt-tile__hint">{{ c.guest_name }}</div>
+
+      {% endif %}
+
+      {% if c.balance_due > 0 %}
+
+      <div class="apt-tile__debt" title="مبلغ غير مدفوع">⚠️ {{ '%.3f'|format(c.balance_due) }} د.ل</div>
+
+      {% endif %}
+
+    </div>
+
+  </a>
+
+  {% if can_maintain and c.is_active %}
+
+  <div class="apt-tile__maint-bar">
+
+    <span class="apt-tile__maint-label">إجراء:</span>
+
+    {% if avail %}
+
+    <button type="button" class="apt-tile__maint-btn" data-maint-open data-room-id="{{ c.room_id }}" data-room-label="{{ c.display_name }}">وضع في الصيانة</button>
+
+    {% elif is_maint %}
+
+    <form method="post" action="/admin/hotel/rooms/{{ c.room_id }}/maintenance-done" style="margin:0">
+
+      <input type="hidden" name="redirect_to" value="/admin/hotel/dashboard" />
+
+      <button type="submit" class="apt-tile__maint-btn apt-tile__maint-btn--ready">إنهاء الصيانة — تصبح متاحة</button>
+
+    </form>
+
+    {% endif %}
+
+  </div>
+
+  {% endif %}
+
+</div>
+
+{% endif %}
+
+

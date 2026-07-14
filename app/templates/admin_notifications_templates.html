@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% from "_notifications_admin_nav.html" import notifications_nav %}
+
+{% block title %}قوالب الإشعارات{% endblock %}
+
+{% block body %}
+<h1>قوالب الإشعارات</h1>
+{{ notifications_nav(nav_active) }}
+{% if saved %}<p class="muted" style="color:#15803d">تم الحفظ.</p>{% endif %}
+{% if imported %}<p class="muted" style="color:#15803d">تم الاستيراد: {{ imported }}</p>{% endif %}
+{% if err %}<p class="muted" style="color:#b91c1c">{{ err }}</p>{% endif %}
+
+<div class="card" style="margin-top:1rem;border:2px solid #bfdbfe;background:linear-gradient(180deg,#eff6ff,#fff)">
+  <h2 style="margin-top:0">مزامنة القوالب (محلي ↔ لايف)</h2>
+  <p class="muted" style="margin:0 0 0.75rem;line-height:1.7">
+    صدّر JSON من جهازك ثم استورده على السيرفر. يدعم أيضاً ملفات قوالب <strong>بوت المراسلات القديم</strong>.
+    التحديث يتم حسب <code>event_key</code> + <code>recipient_type</code>.
+  </p>
+  <div style="display:flex;flex-wrap:nowrap;gap:0.5rem;align-items:center;overflow-x:auto">
+    <a class="btn btn-primary" href="/admin/notifications/templates/export.json" style="flex:0 0 auto;white-space:nowrap">⬇ تصدير JSON</a>
+    <form method="post" action="/admin/notifications/templates/import" enctype="multipart/form-data" style="display:flex;flex-wrap:nowrap;gap:0.4rem;margin:0;align-items:center;flex:0 1 auto;min-width:0">
+      <input type="file" name="file" accept=".json,application/json" required style="max-width:12rem;min-width:8rem" />
+      <button type="submit" class="btn" style="flex:0 0 auto;white-space:nowrap;background:#2563eb;color:#fff;border-color:#1d4ed8">⬆ استيراد JSON</button>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">قالب جديد / تعديل</h2>
+  <form method="post" action="/admin/notifications/templates/save" enctype="multipart/form-data">
+    <input type="hidden" name="template_id" id="tpl_id" value="" />
+    <div class="row" style="gap:0.5rem;flex-wrap:wrap">
+      <label>الاسم <input name="name" id="tpl_name" required /></label>
+      <label>الحدث
+        <select name="event_key" id="tpl_event">
+          {% for key, label in events %}
+          <option value="{{ key }}">{{ key }} — {{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>المستلم
+        <select name="recipient_type" id="tpl_recipient">
+          <option value="customer">عميل</option>
+          <option value="referrer">محيل</option>
+          <option value="admin">مدير</option>
+          <option value="supervisor">مشرف</option>
+          <option value="inventory_manager">مخزون</option>
+          <option value="hotel_guest">نزيل فندق</option>
+        </select>
+      </label>
+      <label>نوع الرسالة
+        <select name="message_type" id="tpl_mtype">
+          <option value="text">نص</option>
+          <option value="image">صورة</option>
+          <option value="document">PDF</option>
+          <option value="interactive">أزرار</option>
+        </select>
+        <small class="muted" style="display:block;font-size:0.75rem">يمكن تركها "نص"؛ الصورة/PDF والأزرار تُرسل إذا أُضيفت.</small>
+      </label>
+    </div>
+    <label style="display:block;margin-top:0.5rem">نص القالب (متغيرات: {customer_name} {order_id} {total} …)
+      <textarea name="body_template" id="tpl_body" rows="6" style="width:100%"></textarea>
+    </label>
+
+    <div style="margin-top:0.75rem;padding:0.75rem;border:1px solid #dbeafe;border-radius:12px;background:#eff6ff">
+      <h3 style="margin:0 0 0.45rem;font-size:1rem;color:#1d4ed8">مرفقات اختيارية لأي رسالة</h3>
+      <p class="muted" style="margin:0 0 0.65rem;font-size:0.84rem;line-height:1.6">
+        يمكنك تركها فارغة. إذا رفعت ملفاً من جهازك سيُحفظ رابطه تلقائياً في القالب. على السيرفر اللايف يجب أن يكون الرابط عاماً حتى يستطيع واتساب تحميل الصورة أو PDF.
+      </p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:0.75rem">
+        <div>
+          <label>رابط صورة
+            <input name="image_url" id="tpl_image" dir="ltr" placeholder="https://example.com/image.jpg" style="width:100%" />
+          </label>
+          <label style="display:block;margin-top:0.35rem">أو رفع صورة
+            <input type="file" name="image_file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" style="width:100%" />
+          </label>
+        </div>
+        <div>
+          <label>رابط PDF
+            <input name="document_url" id="tpl_doc" dir="ltr" placeholder="https://example.com/file.pdf" style="width:100%" />
+          </label>
+          <label style="display:block;margin-top:0.35rem">أو رفع PDF
+            <input type="file" name="document_file" accept=".pdf,application/pdf" style="width:100%" />
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:0.75rem;padding:0.75rem;border:1px solid #e2e8f0;border-radius:12px;background:#f8fafc">
+      <h3 style="margin:0 0 0.45rem;font-size:1rem">أزرار اختيارية</h3>
+      <p class="muted" style="margin:0 0 0.55rem;font-size:0.84rem;line-height:1.6">
+        TextMeBot يدعم حتى 3 أزرار. اكتبها كقائمة JSON. قيمة <code>id</code> تحدد السلوك: رابط يبدأ بـ <code>https://</code> يفتح صفحة، رقم مثل <code>+218...</code> زر اتصال، وأي نص آخر يكون رد سريع يرسله العميل عند الضغط.
+      </p>
+      <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.45rem">
+        <button type="button" class="btn" id="tpl_btn_example_link">مثال زر رابط</button>
+        <button type="button" class="btn" id="tpl_btn_example_reply">مثال رد سريع</button>
+        <button type="button" class="btn" id="tpl_btn_example_call">مثال اتصال</button>
+      </div>
+      <label>أزرار JSON
+        <textarea name="buttons_json" id="tpl_buttons" rows="4" dir="ltr" style="width:100%;font-family:Consolas,monospace"></textarea>
+      </label>
+    </div>
+
+    <label><input type="checkbox" name="is_active" id="tpl_active" checked /> نشط</label>
+    <button type="submit" class="btn btn-primary">حفظ</button>
+  </form>
+</div>
+
+<table class="table" style="margin-top:1rem">
+  <thead><tr><th>الاسم</th><th>حدث</th><th>مستلم</th><th>نوع</th><th>نشط</th><th></th></tr></thead>
+  <tbody>
+  {% for t in templates %}
+  <tr>
+    <td>{{ t.name }}</td>
+    <td><code>{{ t.event_key }}</code></td>
+    <td>{{ t.recipient_type }}</td>
+    <td>{{ t.message_type }}</td>
+    <td>{% if t.is_active %}✓{% else %}—{% endif %}</td>
+    <td>
+      <button
+        type="button"
+        class="btn notif-template-edit"
+        data-id="{{ t.id }}"
+        data-name="{{ t.name|e }}"
+        data-event="{{ t.event_key|e }}"
+        data-recipient="{{ t.recipient_type|e }}"
+        data-mtype="{{ t.message_type|e }}"
+        data-body="{{ (t.body_template or '')|e }}"
+        data-image="{{ (t.image_url or '')|e }}"
+        data-doc="{{ (t.document_url or '')|e }}"
+        data-buttons="{{ (t.buttons_json or '')|e }}"
+        data-active="{% if t.is_active %}1{% else %}0{% endif %}"
+      >تعديل</button>
+      <form method="post" action="/admin/notifications/templates/toggle/{{ t.id }}" style="display:inline"><button class="btn">تبديل</button></form>
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="6" class="muted">لا قوالب — شغّل التطبيق لزرع الافتراضيات.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<script>
+function fillTpl(data){
+  document.getElementById('tpl_id').value = data.id || '';
+  document.getElementById('tpl_name').value = data.name || '';
+  document.getElementById('tpl_event').value = data.event || '';
+  document.getElementById('tpl_recipient').value = data.recipient || '';
+  document.getElementById('tpl_mtype').value = data.mtype || 'text';
+  document.getElementById('tpl_body').value = data.body || '';
+  document.getElementById('tpl_image').value = data.image || '';
+  document.getElementById('tpl_doc').value = data.doc || '';
+  document.getElementById('tpl_buttons').value = data.buttons || '';
+  document.getElementById('tpl_active').checked = data.active !== '0';
+  document.getElementById('tpl_name').focus();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+document.querySelectorAll('.notif-template-edit').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    fillTpl(btn.dataset);
+  });
+});
+function setButtonsExample(rows){
+  document.getElementById('tpl_buttons').value = JSON.stringify(rows, null, 2);
+}
+document.getElementById('tpl_btn_example_link').addEventListener('click', function(){
+  setButtonsExample([{ text: 'فتح الرابط', id: 'https://example.com' }]);
+});
+document.getElementById('tpl_btn_example_reply').addEventListener('click', function(){
+  setButtonsExample([{ text: 'أرسل كودي', id: 'referral_code' }]);
+});
+document.getElementById('tpl_btn_example_call').addEventListener('click', function(){
+  setButtonsExample([{ text: 'اتصل بنا', id: '+218917122552' }]);
+});
+</script>
+{% endblock %}

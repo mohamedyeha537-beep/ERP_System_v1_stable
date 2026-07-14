@@ -1,0 +1,57 @@
+{% set status_rows = order_status_rows if order_status_rows is defined else [] %}
+{% set _op = order_policy if order_policy is defined else {} %}
+{% set kitchen_workflow_enabled = _op.get('kitchen_workflow_enabled', true) %}
+<div class="pos-order-status-strip__head">
+  <h3 class="pos-order-status-strip__title">حالة الطلبات</h3>
+  <span class="pos-order-status-strip__hint muted">توصيل · شقة · استلام</span>
+</div>
+{% if status_rows|length == 0 %}
+<p class="muted pos-order-status-strip__empty">لا توجد طلبات توصيل أو شقة أو استلام مفتوحة.</p>
+{% else %}
+<div class="pos-order-status-strip__scroll" role="list">
+  {% for row in status_rows %}
+  <article class="pos-order-status-chip pos-ctx--{{ row.context_kind|lower }}{% if row.is_active %} is-active{% endif %}" role="listitem">
+    <div class="pos-order-status-chip__main">
+      <span class="pos-order-status-chip__icon" aria-hidden="true">
+        {% if row.context_kind == 'DELIVERY' %}🏍{% elif row.context_kind == 'ROOM' %}🏨{% else %}🍽{% endif %}
+      </span>
+      <div class="pos-order-status-chip__meta">
+        <span class="pos-order-status-chip__type">{{ row.context_label }}</span>
+        <a href="#" class="pos-order-status-chip__id" data-open-order="{{ row.id }}">#{{ row.id }}</a>
+      </div>
+      <span class="pos-order-status-badge pos-pipe--{{ row.pipeline_key }}" title="{{ row.label }}">{{ row.pipeline_status }}</span>
+    </div>
+    <div class="pos-order-status-track pos-order-status-track--compact" aria-hidden="true">
+      <span class="pos-track-dot{% if row.stage >= 0 %} on{% endif %}"></span>
+      <span class="pos-track-line{% if row.stage >= 1 %} on{% endif %}"></span>
+      <span class="pos-track-dot{% if row.stage >= 1 %} on{% endif %}"></span>
+      <span class="pos-track-line{% if row.stage >= 2 %} on{% endif %}"></span>
+      <span class="pos-track-dot{% if row.stage >= 2 %} on{% endif %}"></span>
+      <span class="pos-track-line{% if row.stage >= 3 %} on{% endif %}"></span>
+      <span class="pos-track-dot{% if row.stage >= 3 %} on{% endif %}"></span>
+    </div>
+    <div class="pos-order-status-chip__actions">
+      {% if kitchen_workflow_enabled and row.can_send %}
+      <form method="post" action="/pos/order/{{ row.id }}/send-kitchen" style="margin:0">
+        <button type="submit" class="btn btn-primary pos-status-btn pos-status-btn--xs">إرسال</button>
+      </form>
+      {% elif kitchen_workflow_enabled and row.pipeline_key in ('entering', 'sent', 'sent_pending', 'kitchen_working') and not row.can_send %}
+      <button type="button" class="btn pos-status-btn pos-status-btn--xs" disabled title="{% if row.pipeline_key != 'entering' %}أُرسل للمطبخ{% else %}أكمل بيانات الطلب أولاً{% endif %}">إرسال</button>
+      {% endif %}
+      {% if row.can_present %}
+      <form method="post" action="/pos/order/{{ row.id }}/mark-served" style="margin:0">
+        <input type="hidden" name="return_to" value="pos" />
+        <button type="submit" class="btn pos-status-btn pos-status-btn--xs pos-status-btn--present">تقديم</button>
+      </form>
+      {% endif %}
+      {% if row.can_driver %}
+      <button type="button" class="btn pos-status-btn pos-status-btn--xs pos-driver-btn pos-status-btn--driver{% if row.driver_name %} is-assigned{% endif %}" data-sale-id="{{ row.id }}" title="{% if row.driver_name %}السائق: {{ row.driver_name }}{% else %}تسجيل سائق التوصيل{% endif %}">{{ row.driver_button_label }}</button>
+      {% endif %}
+      {% if row.can_checkout %}
+      <button type="button" class="btn btn-primary pos-status-btn pos-status-btn--xs pos-checkout-modal-btn" data-sale-id="{{ row.id }}">تحصيل</button>
+      {% endif %}
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% endif %}

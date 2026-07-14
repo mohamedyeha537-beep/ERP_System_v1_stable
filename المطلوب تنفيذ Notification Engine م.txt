@@ -1,0 +1,780 @@
+المطلوب تنفيذ Notification Engine مركزي داخل نظام POS والمتجر الأونلاين، وليس رسائل متناثرة داخل الصفحات.
+
+## الهدف
+
+لدينا نظام يحتوي على:
+
+* POS داخل المطعم
+* متجر أونلاين
+* طلبات توصيل
+* كاشير
+* مطبخ / KDS / طابعات
+* سائقين
+* عملاء
+* نظام ولاء
+* نظام إحالات
+* مخزون ومستودعات
+* منصة خارجية لإرسال رسائل WhatsApp
+
+المطلوب بناء طبقة مركزية لإدارة الإشعارات والرسائل بحيث أي حدث في النظام يولد Event، ثم يقوم Notification Engine بتحديد:
+
+* هل نرسل رسالة؟
+* لمن نرسل؟
+* متى نرسل؟
+* هل الرسالة نصية فقط أم تفاعلية؟
+* هل تم إرسالها سابقاً أم لا؟
+* هل فشل الإرسال ويحتاج إعادة محاولة؟
+
+ممنوع كتابة إرسال الرسائل مباشرة داخل صفحات الطلبات أو المنتجات أو المخزون بشكل متكرر. يجب أن تكون الرسائل من خلال service مركزي.
+
+---
+
+# 1. البنية المطلوبة
+
+أنشئ موديول جديد مثلاً:
+
+modules/notifications/
+
+ويحتوي على الأقل:
+
+* models.py
+* service.py
+* events.py
+* providers.py
+* templates.py
+* rules.py
+* admin_routes.py
+* webhook_routes.py
+* seed.py
+
+أو استخدم الهيكل الأقرب لبنية المشروع الحالية.
+
+---
+
+# 2. الجداول المطلوبة
+
+## notification_events
+
+يسجل كل حدث مهم في النظام.
+
+الحقول المقترحة:
+
+* id
+* event_key
+* source_type مثل order, pos_shift, inventory, loyalty, referral, purchase, product
+* source_id
+* payload_json
+* created_at
+* processed_at
+* status: pending, processed, failed
+* error_message
+
+---
+
+## notification_templates
+
+قوالب الرسائل.
+
+الحقول:
+
+* id
+* name
+* event_key
+* channel: whatsapp, internal, telegram optional
+* recipient_type: customer, cashier, kitchen, driver, admin, supervisor, inventory_manager
+* message_type: text, interactive
+* title
+* body_template
+* buttons_json nullable
+* language
+* is_active
+* created_at
+* updated_at
+
+مثال body_template:
+
+مرحباً {{customer_name}}، تم استلام طلبك رقم {{order_id}} بقيمة {{total}} د.ل.
+
+---
+
+## notification_rules
+
+قواعد الإرسال.
+
+الحقول:
+
+* id
+* event_key
+* recipient_type
+* channel
+* template_id
+* is_active
+* priority: low, normal, high, critical
+* delay_seconds default 0
+* condition_json nullable
+* throttle_minutes nullable
+* created_at
+* updated_at
+
+condition_json أمثلة:
+
+* فقط لو order_type = delivery
+* فقط لو payment_status = paid
+* فقط لو stock_balance <= reorder_level
+* فقط لو shortage_amount > 0
+
+---
+
+## notification_logs
+
+سجل الرسائل المرسلة أو الفاشلة.
+
+الحقول:
+
+* id
+* event_key
+* source_type
+* source_id
+* recipient_type
+* recipient_name
+* recipient_phone
+* channel
+* message_type
+* template_id
+* body_rendered
+* provider
+* provider_message_id nullable
+* status: queued, sent, failed, skipped
+* error_message
+* idempotency_key
+* attempts
+* last_attempt_at
+* sent_at
+* created_at
+
+يجب وضع Unique Index على:
+
+idempotency_key
+
+حتى لا يتم إرسال نفس الرسالة مرتين.
+
+---
+
+## notification_actions
+
+للرسائل التفاعلية.
+
+الحقول:
+
+* id
+* notification_log_id
+* action_key
+* action_payload_json
+* received_from_phone
+* handled_status: pending, handled, failed
+* handled_at
+* result_message
+* created_at
+
+---
+
+# 3. Service مركزي
+
+أنشئ service مركزي مثلاً:
+
+NotificationService
+
+بداخله دوال:
+
+* emit_event(event_key, source_type, source_id, payload)
+* process_event(event_id)
+* render_template(template, payload)
+* resolve_recipients(rule, payload)
+* send_notification(rule, template, recipient, payload)
+* handle_provider_response()
+* handle_incoming_action()
+* retry_failed_notifications()
+
+أي مكان في النظام يريد إرسال رسالة يجب أن يستدعي:
+
+NotificationService.emit_event(...)
+
+وليس provider مباشرة.
+
+---
+
+# 4. Provider لإرسال واتساب
+
+أنشئ واجهة عامة:
+
+class MessagingProvider:
+send_text(phone, message)
+send_interactive(phone, message, buttons)
+
+ثم أنشئ implementation للمنصة الحالية المستخدمة في WhatsApp.
+
+يجب أن تكون بيانات الربط من الإعدادات الموجودة في النظام أو من app_settings، وليس hardcoded.
+
+يجب دعم:
+
+* timeout
+* retry
+* logging
+* حفظ provider response
+* عدم كسر العملية الأساسية لو فشل إرسال الرسالة
+
+مثلاً: فشل إرسال واتساب لا يجب أن يفشل حفظ الطلب.
+
+---
+
+# 5. الأحداث المطلوبة للطلبات
+
+أنشئ events ثابتة:
+
+* customer.created
+
+* loyalty.account_created
+
+* loyalty.points_earned
+
+* loyalty.points_redeemed
+
+* referral.link_created
+
+* referral.first_order_completed
+
+* order.created
+
+* order.confirmed
+
+* order.rejected
+
+* order.payment_pending
+
+* order.payment_paid
+
+* order.sent_to_kitchen
+
+* order.preparing
+
+* order.ready
+
+* order.driver_assigned
+
+* order.driver_accepted
+
+* order.driver_rejected
+
+* order.out_for_delivery
+
+* order.delivered
+
+* order.cancelled
+
+* order.failed_delivery
+
+* order.refunded
+
+* pos.shift_opened
+
+* pos.shift_closed
+
+* pos.cash_shortage
+
+* pos.cash_overage
+
+* pos.invoice_cancel_requested
+
+* pos.invoice_cancel_approved
+
+* pos.item_void_requested
+
+* pos.item_void_approved
+
+* kitchen.ticket_created
+
+* kitchen.item_cancelled
+
+* kitchen.order_delayed
+
+---
+
+# 6. أحداث المخزون المطلوبة
+
+أريد إضافة إشعارات مخزون كاملة، وهي مهمة جداً.
+
+أنشئ events:
+
+* inventory.low_stock
+* inventory.out_of_stock
+* inventory.negative_stock
+* inventory.stock_replenished
+* inventory.purchase_needed
+* inventory.purchase_received
+* inventory.stock_adjustment_created
+* inventory.stock_adjustment_approved
+* inventory.stock_adjustment_rejected
+* inventory.waste_recorded
+* inventory.expiry_warning
+* inventory.expired_item
+* inventory.high_usage_detected
+* inventory.unusual_stock_movement
+* inventory.transfer_requested
+* inventory.transfer_approved
+* inventory.transfer_received
+* inventory.recipe_cost_changed
+* inventory.bom_missing_cost
+
+---
+
+# 7. متى ترسل إشعارات المخزون؟
+
+## low_stock
+
+عندما يصبح رصيد صنف أقل من أو يساوي reorder_level.
+
+المستلم:
+
+* inventory_manager
+* admin
+* optionally purchasing_manager
+
+نوع الرسالة:
+
+نصية فقط غالباً.
+
+مثال:
+
+تنبيه مخزون: الصنف {{product_name}} وصل إلى {{balance}} {{unit}}، والحد الأدنى هو {{reorder_level}}. يُنصح بإنشاء فاتورة شراء.
+
+---
+
+## out_of_stock
+
+عندما يصبح الرصيد صفر.
+
+المستلم:
+
+* admin
+* inventory_manager
+* cashier optional إذا الصنف يظهر في POS
+
+نوع الرسالة:
+
+نصية عالية الأولوية.
+
+---
+
+## negative_stock
+
+عندما يصبح الرصيد أقل من صفر.
+
+المستلم:
+
+* admin
+* inventory_manager
+* supervisor
+
+نوع الرسالة:
+
+نصية حرجة.
+
+يجب منع تكرار الرسالة لنفس الصنف خلال فترة قصيرة، مثلاً throttle 30 دقيقة.
+
+---
+
+## purchase_needed
+
+عند وجود عدة أصناف تحت الحد الأدنى.
+
+المستلم:
+
+* inventory_manager
+
+نوع الرسالة:
+
+نصية مجمعة مرة واحدة، لا رسالة لكل صنف إذا العدد كبير.
+
+مثال:
+
+توجد 8 أصناف تحتاج شراء:
+
+* بصل: الرصيد 2 كجم / الحد 5
+* دجاج: الرصيد 1 كجم / الحد 10
+
+---
+
+## purchase_received
+
+عند تسجيل فاتورة شراء واستلام المخزون.
+
+المستلم:
+
+* admin
+* inventory_manager
+
+نوع الرسالة:
+
+نصية.
+
+مثال:
+
+تم استلام فاتورة شراء رقم {{purchase_id}} من {{supplier}} بقيمة {{amount}} د.ل وتم تحديث المخزون.
+
+---
+
+## stock_adjustment_created
+
+عند إنشاء تسوية مخزون.
+
+المستلم:
+
+* supervisor أو admin
+
+نوع الرسالة:
+
+تفاعلية إذا كانت تحتاج موافقة.
+
+الأزرار:
+
+* موافقة
+* رفض
+* عرض التفاصيل
+
+---
+
+## waste_recorded
+
+عند تسجيل هالك أو تالف.
+
+المستلم:
+
+* admin
+* inventory_manager
+
+إذا قيمة الهالك كبيرة، تكون high priority.
+
+---
+
+## expiry_warning
+
+إذا المنتج له تاريخ انتهاء ويقترب خلال X أيام.
+
+المستلم:
+
+* inventory_manager
+* admin
+
+نوع الرسالة:
+
+نصية.
+
+مثال:
+
+تنبيه انتهاء: الصنف {{product_name}} سينتهي خلال {{days_left}} يوم. الكمية: {{qty}}.
+
+---
+
+## expired_item
+
+إذا انتهى المنتج.
+
+المستلم:
+
+* admin
+* inventory_manager
+* supervisor
+
+نوع الرسالة:
+
+critical.
+
+---
+
+## unusual_stock_movement
+
+إذا حدثت حركة مخزون غير طبيعية.
+
+أمثلة:
+
+* خصم كمية كبيرة جداً
+* تعديل يدوي كبير
+* صنف دخل في السالب
+* استهلاك أعلى من المتوسط
+
+المستلم:
+
+* admin
+
+نوع الرسالة:
+
+نصية أو تفاعلية للمراجعة.
+
+---
+
+## recipe_cost_changed
+
+إذا تغيرت تكلفة صنف بسبب تغير تكلفة مكوناته في BOM.
+
+المستلم:
+
+* admin
+* inventory_manager
+* pricing_manager optional
+
+نوع الرسالة:
+
+نصية.
+
+مثال:
+
+تنبيه تكلفة: تكلفة المنتج {{product_name}} تغيرت من {{old_cost}} إلى {{new_cost}} بسبب تحديث أسعار المكونات.
+
+---
+
+## bom_missing_cost
+
+إذا منتج له تركيبة ولكن بعض مكوناته بدون تكلفة مرجعية.
+
+المستلم:
+
+* admin
+* inventory_manager
+
+نوع الرسالة:
+
+نصية.
+
+---
+
+# 8. قواعد منع الإزعاج والتكرار
+
+يجب تنفيذ idempotency_key لكل رسالة.
+
+مثال:
+
+inventory.low_stock:product_id:warehouse_id:date
+
+ولا يرسل نفس تنبيه low_stock لنفس الصنف كل دقيقة.
+
+ضع throttle:
+
+* low_stock: مرة كل 6 ساعات لنفس الصنف والمخزن
+* out_of_stock: مرة كل 1 ساعة
+* negative_stock: مرة كل 30 دقيقة
+* expiry_warning: مرة يومياً
+* purchase_needed summary: مرة يومياً أو عند الطلب
+* cash_shortage: فوراً عند إغلاق الجلسة
+* order status messages: مرة واحدة لكل حالة
+
+---
+
+# 9. الرسائل النصية مقابل التفاعلية
+
+## رسائل نصية فقط
+
+استخدم text message في:
+
+* تأكيد الطلب
+* تحديث حالة الطلب
+* ربح نقاط
+* إنشاء حساب ولاء
+* انتهاء أو قرب انتهاء مخزون
+* خروج الطلب للتوصيل
+* إغلاق الجلسة
+* ملخص شراء
+* تنبيه منخفض المخزون
+
+## رسائل تفاعلية
+
+استخدم interactive في:
+
+* قبول/رفض طلب جديد من الكاشير
+* قبول/رفض طلب توصيل من السائق
+* تأكيد عنوان من العميل
+* اختيار بديل لصنف غير متوفر
+* موافقة مشرف على إلغاء فاتورة
+* موافقة مشرف على حذف صنف بعد إرساله للمطبخ
+* موافقة على تسوية مخزون كبيرة
+* تأكيد استلام السائق للطلب
+* تأكيد العميل للاستلام أو التقييم
+
+---
+
+# 10. ربط النظام بالأماكن الصحيحة
+
+لا تضع إرسال الرسائل مباشرة داخل route.
+
+بدلاً من ذلك، عند حدوث حدث مهم ضع:
+
+NotificationService.emit_event(
+event_key="order.created",
+source_type="order",
+source_id=order.id,
+payload={...}
+)
+
+أمثلة:
+
+بعد إنشاء طلب أونلاين:
+event_key = order.created
+
+بعد قبول الكاشير:
+event_key = order.confirmed
+
+بعد إضافة نقاط:
+event_key = loyalty.points_earned
+
+بعد نزول مخزون تحت الحد:
+event_key = inventory.low_stock
+
+بعد إغلاق جلسة:
+event_key = pos.shift_closed
+
+بعد وجود عجز:
+event_key = pos.cash_shortage
+
+---
+
+# 11. واجهة الإدارة المطلوبة
+
+أضف صفحة إدارة للإشعارات:
+
+/admin/notifications
+
+تحتوي:
+
+1. قوالب الرسائل
+2. قواعد الإرسال
+3. سجل الرسائل
+4. الرسائل الفاشلة
+5. إعادة إرسال رسالة
+6. تفعيل/إيقاف قاعدة
+7. اختبار إرسال رسالة
+8. إعدادات مزود WhatsApp
+9. إعدادات throttling
+10. إعدادات إشعارات المخزون
+
+---
+
+# 12. إعدادات إشعارات المخزون في الواجهة
+
+أضف صفحة:
+
+/admin/inventory/notifications
+
+أو داخل إعدادات المخزون.
+
+تحتوي:
+
+* تفعيل تنبيه منخفض المخزون
+* تفعيل تنبيه نفاد المخزون
+* تفعيل تنبيه المخزون السالب
+* تفعيل تنبيه قرب الانتهاء
+* عدد أيام تنبيه الانتهاء
+* تفعيل ملخص يومي للأصناف التي تحتاج شراء
+* وقت إرسال الملخص اليومي
+* أرقام أو مستخدمو الاستلام
+* منع تكرار التنبيه لمدة X دقائق
+
+---
+
+# 13. التعامل مع فشل الإرسال
+
+إذا فشل إرسال الرسالة:
+
+* لا تفشل العملية الأصلية
+* خزّن الفشل في notification_logs
+* attempts += 1
+* error_message = response/error
+* أعد المحاولة لاحقاً حسب السياسة
+
+يجب وجود command أو job:
+
+python -m modules.notifications.retry_failed
+
+أو دمجها مع آلية jobs الموجودة في المشروع.
+
+---
+
+# 14. Seed مبدئي للقوالب
+
+أضف seed لقوالب أساسية:
+
+## order.created customer
+
+تم استلام طلبك رقم #{{order_id}} بقيمة {{total}} د.ل. سنقوم بمراجعته قريباً.
+
+## order.confirmed customer
+
+تم قبول طلبك رقم #{{order_id}} وبدأ التجهيز.
+
+## order.out_for_delivery customer
+
+طلبك رقم #{{order_id}} خرج للتوصيل. السائق: {{driver_name}}.
+
+## order.delivered customer
+
+تم تسليم طلبك رقم #{{order_id}}. شكراً لاختيارك مطعم روف.
+
+## loyalty.points_earned customer
+
+ربحت {{points}} نقطة من طلبك رقم #{{order_id}}. رصيدك الحالي {{balance}} نقطة.
+
+## inventory.low_stock admin
+
+تنبيه مخزون: الصنف {{product_name}} وصل إلى {{balance}} {{unit}}، والحد الأدنى {{reorder_level}}.
+
+## inventory.out_of_stock admin
+
+تنبيه نفاد: الصنف {{product_name}} نفد من المخزون.
+
+## pos.cash_shortage admin
+
+تنبيه عجز جلسة: الكاشير {{cashier_name}} لديه عجز {{shortage}} د.ل في جلسة #{{shift_id}}.
+
+---
+
+# 15. المطلوب في التنفيذ الآن
+
+نفذ على مراحل:
+
+## المرحلة 1
+
+* إنشاء الجداول
+* إنشاء NotificationService
+* إنشاء WhatsApp provider
+* إنشاء صفحة logs
+* إرسال رسائل order.created وorder.delivered وloyalty.points_earned وinventory.low_stock
+
+## المرحلة 2
+
+* إضافة الرسائل التفاعلية
+* Webhook لاستقبال ردود WhatsApp
+* ربط قبول/رفض السائق والكاشير
+* ربط موافقات المشرف
+
+## المرحلة 3
+
+* ملخصات يومية
+* رسائل تسويق وولاء
+* إحالات
+* تحليلات أداء الرسائل
+
+---
+
+# 16. مهم جداً
+
+أضف migrations رسمية لكل الجداول والأعمدة الجديدة، ويجب أن تعمل على MySQL وSQLite.
+
+لا تضف أعمدة بدون migration.
+
+لا تكسر التشغيل الحالي.
+
+لا تجعل فشل الرسالة يوقف الطلب أو الفاتورة أو المخزون.
+
+كل رسالة يجب أن تسجل في notification_logs.
+
+كل رسالة يجب أن يكون لها idempotency_key لمنع التكرار.
+
+اجعل كل النماذج والقوالب والرسائل اون و اوف لايقاف العمل بها وقت الحاجة ويكون هناك اوبشن لتعديل الرسالة او تغير النص او تغير السلوك مثلا بدل ارسال نص فقط ارسال نص وصورة او ارسال ملف او بدل من صورة ارسال ب دي اف او بدل من صورة او زر ارسال نص فق وهكذا

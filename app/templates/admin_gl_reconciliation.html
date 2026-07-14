@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% from "_gl_export_macros.html" import gl_export_bar, gl_export_format_help, gl_report_print_styles with context %}
+{% block title %}مطابقة GL{% endblock %}
+{% block head_extra %}{{ gl_report_print_styles() }}{% endblock %}
+{% block body %}
+<div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem">
+  <div>
+    <h1 style="margin:0">مطابقة GL مع الخزينة</h1>
+    {% if domain_label %}<p class="muted" style="margin:0.35rem 0 0">مجال المطابقة: <strong>{{ domain_label }}</strong></p>{% endif %}
+  </div>
+  <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+    <a class="btn" href="/admin/gl">إعدادات GL</a>
+    <a class="btn" href="/admin/gl/journal">قيود اليومية</a>
+    <a class="btn" href="/admin/gl/accounts">شجرة الحسابات</a>
+  </div>
+</div>
+
+<div class="card" style="border-color:#bae6fd;background:#f0f9ff">
+  <p style="margin:0;line-height:1.65;font-size:0.92rem">
+    مقارنة <strong>أرصدة المحافظ التشغيلية</strong> مع <strong>أرصدة حسابات GL المربوطة</strong>.
+    بعد تفعيل الوضع المباشر وترحيل الحركات، يجب أن تكون الفروقات قريبة من الصفر.
+  </p>
+</div>
+
+<div id="gl-report-print">
+{{ gl_export_bar('/admin/gl/reconciliation/export.xlsx', '/admin/gl/reconciliation/export.csv') }}
+{{ gl_export_format_help() }}
+
+<div class="card">
+  <h2 style="margin-top:0">ذمم مدينة (عملاء / غرف)</h2>
+  <table style="width:100%;border-collapse:collapse;font-size:0.92rem">
+    <tr><td style="padding:0.35rem">ذمم تشغيلية (تقرير المدينين)</td><td style="padding:0.35rem;direction:ltr;text-align:left">{{ "%.3f"|format(summary.ar_operational) }}</td></tr>
+    <tr><td style="padding:0.35rem">رصيد GL حساب 1200</td><td style="padding:0.35rem;direction:ltr;text-align:left">{{ "%.3f"|format(summary.ar_gl) }}</td></tr>
+    <tr style="font-weight:600"><td style="padding:0.35rem">الفرق</td><td style="padding:0.35rem;direction:ltr;text-align:left;color:{% if summary.ar_difference == 0 %}#15803d{% else %}#b45309{% endif %}">{{ "%.3f"|format(summary.ar_difference) }}</td></tr>
+  </table>
+  <p class="muted" style="margin:0.75rem 0 0;font-size:0.85rem"><a href="/reports/receivables?balance_only=1">تقرير ديون العملاء</a></p>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">محافظ ↔ حسابات GL</h2>
+  {% if summary.wallet_rows %}
+  <table style="width:100%;border-collapse:collapse;font-size:0.92rem">
+    <thead>
+      <tr style="border-bottom:2px solid var(--border)">
+        <th style="text-align:right;padding:0.4rem">المحفظة</th>
+        <th style="text-align:right;padding:0.4rem">حساب GL</th>
+        <th style="text-align:left;padding:0.4rem;direction:ltr">رصيد تشغيلي</th>
+        <th style="text-align:left;padding:0.4rem;direction:ltr">رصيد GL</th>
+        <th style="text-align:left;padding:0.4rem;direction:ltr">فرق</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in summary.wallet_rows %}
+      <tr style="border-bottom:1px dashed var(--border)">
+        <td style="padding:0.35rem">{{ row.payment_method_name }}</td>
+        <td style="padding:0.35rem">{{ row.gl_account_code }} — {{ row.gl_account_name }}</td>
+        <td style="padding:0.35rem;text-align:left;direction:ltr;font-variant-numeric:tabular-nums">{{ "%.3f"|format(row.operational_balance) }}</td>
+        <td style="padding:0.35rem;text-align:left;direction:ltr;font-variant-numeric:tabular-nums">{{ "%.3f"|format(row.gl_balance) }}</td>
+        <td style="padding:0.35rem;text-align:left;direction:ltr;font-variant-numeric:tabular-nums;{% if row.difference != 0 %}color:#b45309{% endif %}">{{ "%.3f"|format(row.difference) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted" style="margin:0">لا توجد محافظ مربوطة — من <a href="/admin/gl">إعدادات GL</a> اربط المحافظ بحسابات.</p>
+  {% endif %}
+  <p class="muted" style="margin:0.75rem 0 0;font-size:0.85rem">{{ summary.ap_note }}</p>
+</div>
+</div>{# gl-report-print #}
+{% endblock %}

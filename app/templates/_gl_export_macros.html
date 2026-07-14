@@ -1,0 +1,73 @@
+{# تصدير تقارير GL — Excel / CSV / PDF #}
+{% from "_reports_macros.html" import pdf_export_button %}
+
+{% macro gl_report_print_styles() %}
+<style>
+  @media print {
+    body.gl-report-printing .app-header,
+    body.gl-report-printing .app-footer,
+    body.gl-report-printing .no-print { display: none !important; }
+    body.gl-report-printing { background: #fff !important; }
+    body.gl-report-printing .app-main { padding: 0.35rem 0 !important; }
+    body.gl-report-printing .app-main > .container { max-width: 100% !important; padding: 0 0.5rem !important; }
+    body.gl-report-printing a { color: inherit !important; text-decoration: none !important; }
+  }
+  .gl-export-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    margin: 0.75rem 0;
+    padding: 0.65rem 0.85rem;
+    background: #f8fafc;
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 10px;
+  }
+  .gl-export-bar > .label {
+    font-weight: 700;
+    font-size: 0.88rem;
+    margin-inline-end: 0.35rem;
+  }
+  .gl-export-xlsx {
+    background: #ecfdf5 !important;
+    color: #065f46 !important;
+    border-color: #6ee7b7 !important;
+    font-weight: 700;
+  }
+  .gl-export-csv {
+    background: #eff6ff !important;
+    color: #1e40af !important;
+    border-color: #93c5fd !important;
+  }
+</style>
+<script>
+(function () {
+  if (window.__glReportPrintInit) return;
+  window.__glReportPrintInit = true;
+  window.glPrintReportAsPdf = function () {
+    document.body.classList.add("gl-report-printing");
+    window.print();
+    setTimeout(function () {
+      document.body.classList.remove("gl-report-printing");
+    }, 900);
+  };
+})();
+</script>
+{% endmacro %}
+
+{% macro gl_export_bar(xlsx_url, csv_url, pdf_label='حفظ PDF') %}
+<div class="gl-export-bar no-print">
+  <span class="label">تصدير:</span>
+  <a class="btn gl-export-xlsx" href="{{ xlsx_url }}" title="ملف Excel أصلي (.xlsx) — العربية تظهر بشكل صحيح">📊 Excel (.xlsx)</a>
+  <a class="btn gl-export-csv" href="{{ csv_url }}" title="CSV بترميز UTF-8 مع BOM">📄 CSV</a>
+  <button type="button" class="btn pdf-export-btn" onclick="glPrintReportAsPdf()" title="طباعة أو حفظ كملف PDF">{{ pdf_label }}</button>
+</div>
+{% endmacro %}
+
+{% macro gl_export_format_help() %}
+<p class="muted no-print" style="margin:0.5rem 0 0;font-size:0.82rem;line-height:1.55">
+  <strong>Excel:</strong> ملف <code>.xlsx</code> — الأفضل للعربية (بدون رموز غريبة).
+  <strong>CSV:</strong> UTF-8 مع BOM لـ Excel.
+  <strong>PDF:</strong> «حفظ PDF» ثم «Microsoft Print to PDF» أو «Save as PDF».
+</p>
+{% endmacro %}

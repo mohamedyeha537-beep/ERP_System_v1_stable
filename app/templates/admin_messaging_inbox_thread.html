@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}محادثة #{{ conv.id }}{% endblock %}
+{% block body %}
+<div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem">
+  <h1 style="margin:0">💬 محادثة مع {% if conv.customer %}{{ conv.customer.name or conv.customer.phone }}{% else %}{{ conv.phone }}{% endif %}</h1>
+  <a class="btn" href="/admin/messaging/inbox">← صندوق الوارد</a>
+</div>
+
+{% if err %}
+<div class="alert" style="margin-bottom:0.75rem">{{ err }}</div>
+{% endif %}
+{% if ok %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4;margin-bottom:0.75rem"><p style="margin:0">تم الإرسال / التحديث.</p></div>
+{% endif %}
+
+<div class="row" style="gap:0.75rem;align-items:flex-start">
+  <div class="card" style="flex:1;min-width:280px">
+    <div style="max-height:420px;overflow-y:auto;display:flex;flex-direction:column;gap:0.65rem;padding:0.25rem 0">
+      {% for m in conv.messages %}
+      <div style="align-self:{% if m.direction == 'outbound' %}flex-start{% else %}flex-end{% endif %};max-width:85%">
+        <div style="padding:0.55rem 0.75rem;border-radius:12px;{% if m.direction == 'outbound' %}background:#eff6ff;border:1px solid #bfdbfe{% else %}background:#f0fdf4;border:1px solid #bbf7d0{% endif %}">
+          <div style="font-size:0.78rem;color:var(--muted);margin-bottom:0.2rem">
+            {% if m.direction == 'outbound' %}
+            {% if m.sender %}{{ m.sender.username }}{% else %}النظام{% endif %} · صادر
+            {% else %}
+            العميل · وارد
+            {% endif %}
+            · {{ pos_format_dt(m.created_at, '%m-%d %H:%M') }}
+          </div>
+          <div style="white-space:pre-wrap;line-height:1.5">{{ m.body }}</div>
+        </div>
+      </div>
+      {% else %}
+      <p class="muted">لا رسائل بعد.</p>
+      {% endfor %}
+    </div>
+
+    {% if can_send %}
+    <form method="post" action="/admin/messaging/inbox/{{ conv.id }}/reply" style="margin-top:1rem;border-top:1px solid var(--border);padding-top:0.85rem">
+      <label for="message">ردّك</label>
+      <textarea id="message" name="message" rows="3" required placeholder="اكتب ردّك للعميل…" style="width:100%"></textarea>
+      <label style="display:flex;align-items:center;gap:0.4rem;margin-top:0.45rem;font-size:0.88rem">
+        <input type="checkbox" name="force" value="on" />
+        إرسال رغم عدم موافقة العميل على المراسلات
+      </label>
+      <button type="submit" class="btn btn-primary" style="margin-top:0.65rem">📤 إرسال الرد</button>
+    </form>
+    {% endif %}
+  </div>
+
+  <div class="card" style="width:min(100%,300px)">
+    <h3 style="margin-top:0;font-size:1rem">تفاصيل</h3>
+    <p style="margin:0.35rem 0"><strong>الهاتف:</strong> <span dir="ltr">{{ conv.phone }}</span></p>
+    <p style="margin:0.35rem 0"><strong>الحالة:</strong> {{ 'مفتوحة' if conv.status == 'open' else 'مغلقة' }}</p>
+    {% if conv.customer %}
+    <p style="margin:0.35rem 0"><a href="/admin/customers/{{ conv.customer.id }}">صفحة العميل</a></p>
+    {% else %}
+    <p class="muted" style="font-size:0.85rem">لا يوجد عميل بهذا الرقم — أنشئ عميلاً لتمكين الرد.</p>
+    {% endif %}
+
+    <form method="post" action="/admin/messaging/inbox/{{ conv.id }}/assign" style="margin-top:0.85rem">
+      <label style="font-size:0.85rem">تعيين لموظف</label>
+      <select name="assignee_id" class="input" style="width:100%;margin:0.25rem 0 0.5rem">
+        <option value="none" {% if not conv.assigned_to_user_id %}selected{% endif %}>بدون تعيين</option>
+        <option value="me">إليّ</option>
+        {% for a in agents %}
+        <option value="{{ a.id }}" {% if conv.assigned_to_user_id == a.id %}selected{% endif %}>{{ a.username }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn" style="width:100%">حفظ التعيين</button>
+    </form>
+
+    <div style="margin-top:0.75rem;display:flex;flex-direction:column;gap:0.4rem">
+      {% if conv.status == 'open' %}
+      <form method="post" action="/admin/messaging/inbox/{{ conv.id }}/close">
+        <button type="submit" class="btn" style="width:100%">✓ إغلاق المحادثة</button>
+      </form>
+      {% else %}
+      <form method="post" action="/admin/messaging/inbox/{{ conv.id }}/reopen">
+        <button type="submit" class="btn btn-primary" style="width:100%">إعادة فتح</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

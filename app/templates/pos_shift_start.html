@@ -1,0 +1,95 @@
+{% extends "base_pos.html" %}
+{% block title %}بدء وردية — رصيد الدرج{% endblock %}
+{% block pos_topbar %}
+<a class="pos-topbar-btn" href="/auth/logout">خروج</a>
+{% endblock %}
+{% block head_extra %}
+<style>
+  .shift-start-wrap { max-width: 440px; margin: 1.5rem auto; }
+  .shift-start-wrap h1 { margin-top: 0; font-size: 1.35rem; }
+  .shift-start-card {
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 14px;
+    padding: 1.25rem; box-shadow: 0 4px 24px rgba(15,23,42,0.06);
+  }
+  .shift-start-cash {
+    font-size: 1.35rem; font-weight: 700; padding: 0.65rem 0.75rem;
+    width: 100%; box-sizing: border-box; border: 2px solid #cbd5e1;
+    border-radius: 10px; direction: ltr; text-align: end;
+  }
+  .shift-start-cash:focus { border-color: var(--brand-primary, #2563eb); outline: none; }
+  .shift-start-no-float {
+    display: flex; align-items: center; gap: 0.5rem; margin: 0.75rem 0;
+    font-size: 0.92rem; cursor: pointer;
+  }
+</style>
+{% endblock %}
+{% block body %}
+<div class="shift-start-wrap">
+  <h1>بدء وردية جديدة</h1>
+  <p class="muted" style="margin-top: -0.35rem; line-height: 1.55">
+    {% if operator_name %}
+    مرحباً <strong>{{ operator_name }}</strong> —
+    {% endif %}
+    أدخل مبلغ الفكة التي تُسلَّم للدرج. يُخصم تلقائياً من <strong>الخزينة الرئيسية — كاش</strong>
+    ويُحوَّل إلى محفظة الكاشير — وليس إيراداً ولا يُحسب عجزاً إذا كان العدد عند الإغلاق = فكة + مبيعات كاش.
+  </p>
+
+  {% if error %}
+  <div class="alert" style="background:#fef2f2;border-color:#fecaca;margin:1rem 0">{{ error }}</div>
+  {% endif %}
+
+  <div class="shift-start-card">
+    <form method="post" action="/pos/shift/start" id="shift-start-form">
+      <label for="opening_cash" style="display:block;font-weight:700;margin-bottom:0.45rem;font-size:1.05rem">
+        💵 رصيد افتتاحي في الدرج (د.ل)
+      </label>
+      <input id="opening_cash" name="opening_cash" class="shift-start-cash" type="text"
+        inputmode="decimal" autocomplete="off" placeholder="0.000"
+        {% if not no_float_checked %}required{% endif %}
+        value="{{ opening_cash_value or '' }}" />
+      <label class="shift-start-no-float">
+        <input type="checkbox" name="no_opening_float" value="1" id="no_opening_float"
+          {% if no_float_checked %}checked{% endif %} />
+        لا يوجد فكة — الدرج فارغ (0 د.ل)
+      </label>
+      <label for="opening_note" style="display:block;font-weight:600;margin:0.5rem 0 0.35rem">ملاحظة (اختياري)</label>
+      <textarea id="opening_note" name="opening_note" rows="2"
+        style="width:100%;padding:0.5rem;border-radius:8px;border:1px solid #e2e8f0;box-sizing:border-box">{{ opening_note_value or '' }}</textarea>
+      {% if branch_warehouses %}
+      <label for="warehouse_id" style="display:block;font-weight:600;margin:0.75rem 0 0.35rem">مخزن البيع (خصم المخزون)</label>
+      <select id="warehouse_id" name="warehouse_id" style="width:100%;padding:0.5rem;border-radius:8px;border:1px solid #e2e8f0">
+        <option value="">— الافتراضي من الإعدادات —</option>
+        {% for wh in branch_warehouses %}
+        <option value="{{ wh.id }}" {% if default_warehouse_id == wh.id %}selected{% endif %}>{{ wh.name_ar }}{% if wh.is_main %} (رئيسي){% endif %}</option>
+        {% endfor %}
+      </select>
+      <p class="muted" style="margin:0.35rem 0 0;font-size:0.82rem">تظهر هنا المخازن التي فعّلها الأدمن للخصم عند البيع.</p>
+      {% endif %}
+      <button type="submit" class="btn btn-primary" style="width:100%;margin-top:1rem;padding:0.75rem;font-size:1.05rem">
+        تأكيد وبدء الوردية
+      </button>
+    </form>
+  </div>
+</div>
+<script>
+(function () {
+  var cb = document.getElementById("no_opening_float");
+  var inp = document.getElementById("opening_cash");
+  if (!cb || !inp) return;
+  function sync() {
+    if (cb.checked) {
+      inp.value = "0";
+      inp.readOnly = true;
+      inp.removeAttribute("required");
+    } else {
+      inp.readOnly = false;
+      inp.setAttribute("required", "required");
+      if (inp.value === "0") inp.value = "";
+      inp.focus();
+    }
+  }
+  cb.addEventListener("change", sync);
+  sync();
+})();
+</script>
+{% endblock %}

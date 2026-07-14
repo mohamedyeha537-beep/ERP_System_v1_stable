@@ -1,0 +1,436 @@
+/* معاينة الشاشة */
+.receipt-page {
+  margin: 0 auto;
+  padding: 1rem;
+  font-family: "Noto Sans Arabic", system-ui, sans-serif;
+  color: #111;
+  background: #fff;
+}
+
+.receipt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.receipt-actions .btn svg {
+  vertical-align: -3px;
+  margin-inline-end: 0.25rem;
+}
+
+.receipt-page.receipt-preview-focus,
+.receipt-capture-root.receipt-preview-focus {
+  outline: 2px solid #2563eb;
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+.receipt-capture-root {
+  background: #fff;
+  color: #111;
+  overflow: visible;
+  height: auto;
+  max-height: none;
+  padding-bottom: 1.25rem;
+}
+
+body.receipt-embed {
+  background: #fff !important;
+  margin: 0;
+  padding: 0;
+}
+
+body.receipt-embed .receipt-page {
+  background: #fff !important;
+  margin: 0 auto;
+  padding: 2mm 5mm;
+}
+
+.receipt-capture-root .receipt-grand,
+.receipt-capture-root .receipt-payment,
+.receipt-capture-root .receipt-footer-row,
+.receipt-capture-root .receipt-guest-sign-row {
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+.receipt-guest-sign-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin-top: 1rem;
+  padding-top: 0.65rem;
+  padding-inline: 0.2rem;
+  border-top: 1px dashed #999;
+  box-sizing: border-box;
+}
+
+.receipt-guest-sign-field {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 0.35rem;
+  align-items: end;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.receipt-handwriting {
+  font-family: "Segoe Script", "Brush Script MT", "Lucida Handwriting", "Comic Sans MS", cursive;
+  font-size: 1.15rem;
+  letter-spacing: 0.02em;
+}
+
+.receipt-guest-sign-label {
+  flex: 0 0 auto;
+  font-weight: 700;
+  font-size: 0.95rem;
+  line-height: 1.3;
+  white-space: nowrap;
+  font-family: "Segoe UI", "Tahoma", "Arial", system-ui, sans-serif;
+}
+
+.receipt-guest-sign-line {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: block;
+  border-bottom: 1px solid #333;
+  min-height: 1.65rem;
+  margin-bottom: 0.12rem;
+}
+
+.receipt-page.paper-58mm .receipt-guest-sign-row,
+.receipt-page.paper-80mm .receipt-guest-sign-row {
+  gap: 0.75rem;
+}
+
+.receipt-page.paper-58mm .receipt-guest-sign-line,
+.receipt-page.paper-80mm .receipt-guest-sign-line {
+  min-height: 1.5rem;
+}
+
+.receipt-page.paper-58mm .receipt-guest-sign-label,
+.receipt-page.paper-80mm .receipt-guest-sign-label {
+  font-size: 0.88rem;
+}
+
+@media print {
+  html,
+  body {
+    background: #fff !important;
+  }
+  .receipt-line-note,
+  .line-note {
+    color: #000 !important;
+    font-weight: 700;
+  }
+  .receipt-actions,
+  .no-print {
+    display: none !important;
+  }
+  .receipt-page {
+    padding: 0;
+    margin: 0;
+    max-width: none !important;
+  }
+  .receipt-logo {
+    filter: brightness(0);
+    -webkit-filter: brightness(0);
+  }
+}
+
+/* المقاسات: ضبط عرض المعاينة وحجم الخط */
+.receipt-page.paper-A4 {
+  max-width: 210mm;
+}
+.receipt-page.paper-A5 {
+  max-width: 148mm;
+}
+.receipt-page.paper-80mm {
+  max-width: 80mm;
+  margin: 0 auto;
+  padding: 3mm 5mm;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+.receipt-page.paper-58mm {
+  max-width: 58mm;
+  margin: 0 auto;
+  padding: 3mm 4mm;
+  font-size: 10.5px;
+  box-sizing: border-box;
+}
+
+.receipt-page.paper-80mm .receipt-section-title,
+.receipt-page.paper-58mm .receipt-section-title {
+  font-size: 1.05rem;
+}
+
+.receipt-page.paper-58mm .receipt-table {
+  font-size: 0.8rem;
+}
+
+.receipt-page.paper-80mm .receipt-table {
+  font-size: 0.95rem;
+}
+
+.receipt-header {
+  text-align: center;
+  border-bottom: 2px dashed #333;
+  padding-bottom: 0.6rem;
+  margin-bottom: 0.85rem;
+}
+
+.receipt-logo-wrap {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 0.45rem;
+}
+
+.receipt-logo {
+  max-width: 110px;
+  max-height: 80px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
+.num-frac {
+  font-size: 0.58em;
+  opacity: 0.88;
+}
+
+.money-currency {
+  font-size: 0.72em;
+  margin-inline-start: 0.12rem;
+}
+
+.receipt-section {
+  margin-bottom: 1rem;
+  page-break-inside: avoid;
+}
+
+.receipt-section-headline {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.receipt-section-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin: 0 0 0.4rem;
+  padding: 0.3rem 0;
+  border-bottom: 2px solid #333;
+}
+
+.receipt-cashier {
+  font-size: 0.9rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.receipt-subtitle {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #333;
+  margin: 0.55rem 0 0.3rem;
+}
+
+.receipt-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.receipt-table th,
+.receipt-table td {
+  text-align: right;
+  padding: 0.22rem 0.15rem;
+  border-bottom: 1px dotted #ccc;
+  word-break: break-word;
+}
+
+.receipt-line-note {
+  font-size: 0.82rem;
+  color: #b45309;
+  font-weight: 600;
+  margin-top: 0.12rem;
+  line-height: 1.35;
+}
+
+.receipt-table .num {
+  text-align: left;
+  white-space: nowrap;
+}
+
+/* في الورق الحراري: نمنح اسم الصنف مساحة أكبر */
+.receipt-page.paper-80mm .receipt-table th:first-child,
+.receipt-page.paper-80mm .receipt-table td:first-child,
+.receipt-page.paper-58mm .receipt-table th:first-child,
+.receipt-page.paper-58mm .receipt-table td:first-child {
+  width: 50%;
+}
+
+.receipt-section-total {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 600;
+  margin-top: 0.3rem;
+  padding-top: 0.3rem;
+  border-top: 1px solid #999;
+}
+
+.receipt-grand {
+  display: flex;
+  justify-content: space-between;
+  font-size: 1.15rem;
+  font-weight: 800;
+  margin-top: 0.85rem;
+  padding-top: 0.6rem;
+  border-top: 3px double #000;
+}
+
+.receipt-page.paper-58mm .receipt-grand {
+  font-size: 1rem;
+}
+
+.receipt-grand-paid {
+  margin-top: 0.45rem;
+  padding-top: 0.45rem;
+  border-top: 2px solid #000;
+  font-size: 1.25rem;
+}
+
+.receipt-page.paper-58mm .receipt-grand-paid {
+  font-size: 1.05rem;
+}
+
+.receipt-divider {
+  border: none;
+  border-top: 1px dashed #999;
+  margin: 0.85rem 0;
+}
+
+.receipt-payment {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+  padding: 0.4rem 0.5rem;
+  background: #f3f4f6;
+  border-radius: 6px;
+  font-size: 0.95rem;
+}
+
+.receipt-page.paper-58mm .receipt-payment,
+.receipt-page.paper-80mm .receipt-payment {
+  background: transparent;
+  padding: 0.3rem 0;
+  border-top: 1px dashed #999;
+  border-radius: 0;
+  gap: 0.28rem;
+}
+
+.receipt-thanks {
+  text-align: center;
+  margin: 0.85rem 0 0;
+  font-size: 0.95rem;
+  color: #333;
+}
+
+/* توصيل: الزبون وطريقة الدفع — سطر عادي بدون خلفية */
+.receipt-delivery-line {
+  margin: 0.35rem 0 0;
+  padding: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.receipt-page.paper-58mm .receipt-delivery-line,
+.receipt-page.paper-80mm .receipt-delivery-line {
+  white-space: normal;
+  font-size: 0.82rem;
+}
+
+.receipt-footer-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin: 0.45rem 0 0;
+  padding: 0;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.receipt-footer-pay {
+  text-align: start;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.receipt-footer-points {
+  text-align: end;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.receipt-page.paper-58mm .receipt-footer-row,
+.receipt-page.paper-80mm .receipt-footer-row {
+  font-size: 0.82rem;
+  flex-wrap: wrap;
+}
+
+.receipt-page.paper-58mm .receipt-footer-points,
+.receipt-page.paper-80mm .receipt-footer-points {
+  white-space: normal;
+}
+
+.receipt-payment-total-delivery {
+  font-weight: 700;
+}
+
+/* ختم «خالص مع التوصيل» */
+.receipt-paid-stamp {
+  display: block;
+  margin: 0.85rem auto 0.35rem;
+  max-width: 11rem;
+  text-align: center;
+  font-size: 1.05rem;
+  font-weight: 900;
+  color: #15803d;
+  border: 3px double #16a34a;
+  border-radius: 10px;
+  padding: 0.4rem 0.55rem;
+  transform: rotate(-3deg);
+  letter-spacing: 0.03em;
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.15);
+}
+
+.receipt-page.paper-58mm .receipt-paid-stamp,
+.receipt-page.paper-80mm .receipt-paid-stamp {
+  font-size: 0.92rem;
+  max-width: 9.5rem;
+  padding: 0.3rem 0.4rem;
+}
+
+@media print {
+  .receipt-paid-stamp {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
+
+#receipt-nav-back[hidden],
+#receipt-nav-close[hidden] {
+  display: none !important;
+}

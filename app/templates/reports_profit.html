@@ -1,8 +1,41 @@
 {% extends "base.html" %}
-{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button, financial_statement_styles with context %}
 {% block title %}تقرير الأرباح{% endblock %}
+{% block head_extra %}
+<style>
+  .two-statements { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 0.5rem; }
+  @media (max-width: 900px) { .two-statements { grid-template-columns: 1fr; } }
+  .statement {
+    background: #fff; border-radius: 14px; padding: 1.1rem 1.3rem;
+    border: 2px solid transparent; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  .statement.s1 { border-color: #10b981; background: linear-gradient(180deg, #ecfdf5 0%, #fff 60%); }
+  .statement.s2 { border-color: #f59e0b; background: linear-gradient(180deg, #fffbeb 0%, #fff 60%); }
+  .statement h3 { margin: 0 0 0.4rem; font-size: 1.05rem; display: flex; align-items: center; gap: 0.5rem; }
+  .statement .stnum {
+    width: 28px; height: 28px; border-radius: 50%; color: #fff;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 0.95rem;
+  }
+  .s1 .stnum { background: #10b981; }
+  .s2 .stnum { background: #f59e0b; }
+  .stmt-formula {
+    margin-top: 0.4rem; padding: 0.5rem 0.7rem;
+    background: rgba(255,255,255,0.7); border-radius: 8px;
+    font-size: 0.82rem; color: #475569; line-height: 1.6;
+    border: 1px dashed #cbd5e1;
+  }
+  .stmt-formula strong { color: #1e293b; }
+</style>
+{{ financial_statement_styles() }}
+{% endblock %}
 {% block body %}
-<h1>تقرير الأرباح</h1>
+<h1>تقرير الأرباح{% if domain_label %} — {{ domain_label }}{% endif %}</h1>
+{% if revenue_source == 'hotel' %}
+<p class="muted" style="margin-top:0;font-size:0.88rem">الإيراد من تحصيلات الحجز؛ التكلفة المتغيّرة = مصروفات ومشتريات مجال الفندق.</p>
+{% elif revenue_source == 'combined' %}
+<p class="muted" style="margin-top:0;font-size:0.88rem">إيراد مجمّع: POS + تحصيلات الفندق.</p>
+{% endif %}
 {{ reports_nav('profit') }}
 {{ period_filter('/reports/profit', period, period_labels, start, end, start_str, end_str) }}
 {{ report_export_format_help() }}
@@ -20,21 +53,27 @@
     <div class="stat-card good"><div class="label">إجمالي المبيعات</div><div class="value">{{ sales_sum.gross_revenue }} د.ل</div></div>
     <div class="stat-card bad"><div class="label">المرتجعات</div><div class="value">{{ sales_sum.returns_total }} د.ل</div><div class="muted" style="font-size: 0.78rem">{{ sales_sum.return_count }} سند</div></div>
     <div class="stat-card good"><div class="label">صافي المبيعات</div><div class="value">{{ sales_sum.net_revenue }} د.ل</div></div>
-    <div class="stat-card bad"><div class="label">تكلفة المباع</div><div class="value">{{ cogs }} د.ل</div><div class="muted" style="font-size: 0.78rem">يطابق مجموع جدول الأرباح أدناه</div></div>
+    <div class="stat-card bad"><div class="label">تكلفة المباع</div><div class="value">{{ cogs }} د.ل</div><div class="muted" style="font-size: 0.78rem">يشمل مواد التغليف للطلبات الخارجية</div></div>
+    {% if packaging_cogs is defined and packaging_cogs > 0 %}
+    <div class="stat-card bad"><div class="label">منها: مواد التغليف</div><div class="value">{{ packaging_cogs }} د.ل</div><div class="muted" style="font-size: 0.78rem">أونلاين / استلام / توصيل — لا تظهر في الفاتورة</div></div>
+    {% endif %}
     <div class="stat-card bad"><div class="label">المصاريف اليومية</div><div class="value">{{ expenses.total }} د.ل</div><div class="muted" style="font-size: 0.78rem">كهرباء/ماء/غاز/صيانة...</div></div>
     <div class="stat-card bad"><div class="label">رواتب وإيجار وثابتة</div><div class="value">{{ rec_period_share }} د.ل</div><div class="muted" style="font-size: 0.78rem">حصة الفترة من {{ rec_monthly_total }} د.ل/شهر</div></div>
     <div class="stat-card bad"><div class="label">مستلزمات استهلاكية</div><div class="value">{{ consumables_period }} د.ل</div><div class="muted" style="font-size: 0.78rem">مصروف فوري</div></div>
     <div class="stat-card bad"><div class="label">إهلاك أصول ثابتة</div><div class="value">{{ depreciation_period }} د.ل</div><div class="muted" style="font-size: 0.78rem">حصة الفترة وفق IAS 16</div></div>
+    {% if loyalty_redeem is defined and loyalty_redeem.dinar_cost > 0 %}
+    <div class="stat-card bad"><div class="label">نقاط ولاء مُصرفة</div><div class="value">{{ loyalty_redeem.dinar_cost }} د.ل</div><div class="muted" style="font-size: 0.78rem">{{ loyalty_redeem.redeem_count }} عملية — تكلفة تسويق</div></div>
+    {% endif %}
     <div class="stat-card bad"><div class="label">فواتير الشراء (مخزون)</div><div class="value">{{ inv_purch.total }} د.ل</div></div>
     <div class="stat-card bad"><div class="label">أجرة التوصيل الخارجة</div><div class="value">{{ delivery_cash_out }} د.ل</div><div class="muted" style="font-size: 0.78rem">خصم كاش للسائق وليس إيراداً</div></div>
     <div class="stat-card {% if gross_profit >= 0 %}good{% else %}bad{% endif %}"><div class="label">حسبة (١) إجمالي الربح</div><div class="value">{{ gross_profit }} د.ل</div><div class="muted" style="font-size: 0.78rem">إيراد − تكلفة المباع فقط</div></div>
-    <div class="stat-card {% if net_profit >= 0 %}good{% else %}bad{% endif %}"><div class="label">حسبة (٢) صافي الربح</div><div class="value">{{ net_profit }} د.ل</div><div class="muted" style="font-size: 0.78rem">إجمالي − مصاريف − رواتب − مستلزمات − إهلاك</div></div>
+    <div class="stat-card {% if net_profit >= 0 %}good{% else %}bad{% endif %}"><div class="label">حسبة (٢) صافي الربح</div><div class="value">{{ net_profit }} د.ل</div><div class="muted" style="font-size: 0.78rem">إجمالي − مصاريف − رواتب − مستلزمات − إهلاك − نقاط ولاء</div></div>
     <div class="stat-card {% if cashflow >= 0 %}good{% else %}bad{% endif %}"><div class="label">صافي التدفق النقدي</div><div class="value">{{ cashflow }} د.ل</div><div class="muted" style="font-size: 0.78rem">تحصيل − رد مبالغ − أجرة توصيل − شراء − مصروف − أصول كاملة</div></div>
   </div>
   <div class="muted" style="margin-top: 0.6rem; font-size: 0.85rem; line-height: 1.7; background: #f8fafc; padding: 0.6rem 0.85rem; border-radius: 8px; border: 1px dashed var(--border)">
     <strong>المعالجة المحاسبية وفق المعايير الدولية:</strong>
     <ul style="margin: 0.3rem 0; padding-inline-start: 1.2rem">
-      <li><strong>تكلفة المباع</strong> = Σ(الكمية × تكلفة الوحدة من <a href="/catalog/products">وصفة التركيب</a>).</li>
+      <li><strong>تكلفة المباع</strong> = Σ(الكمية × تكلفة الوحدة من <a href="/catalog/products">وصفة التركيب</a>) + <strong>مواد التغليف</strong> للطلبات الخارجية (مكوّنات «تغليف فقط» في التركيبة).</li>
       <li><strong>المصروفات</strong> (إيجار/راتب/فاتورة): تُخصم بالكامل في فترة دفعها (المعيار IAS 1).</li>
       <li><strong>مستلزمات استهلاكية</strong> (أكياس، ورق، مواد تنظيف): تُخصم بالكامل في شهر شرائها (لأنها قصيرة العمر).</li>
       <li><strong>الأصول الثابتة</strong> (فرن، أثاث، طابعة...): <em>لا تُخصم كاملةً</em>! تُوزَّع على عمرها الإنتاجي بالقسط الثابت — هذا ما يسمّى <strong>الإهلاك (Depreciation)</strong> وفق <a href="https://www.ifrs.org/issued-standards/list-of-standards/ias-16-property-plant-and-equipment/" target="_blank">المعيار الدولي IAS 16</a>.</li>
@@ -43,12 +82,21 @@
     <br>
     <strong>(١) إجمالي الربح = إيرادات − تكلفة المباع.</strong>
     <br>
-    <strong>(٢) صافي الربح = إجمالي الربح − مصاريف يومية − رواتب وإيجار (حصة الفترة) − مستلزمات − إهلاك.</strong>
+    <strong>(٢) صافي الربح = إجمالي الربح − مصاريف يومية − رواتب وإيجار (حصة الفترة) − مستلزمات − إهلاك − نقاط ولاء مُصرفة.</strong>
     <br>
     <strong>صافي التدفق النقدي ≠ صافي الربح:</strong> التدفق يطرح ما خرج فعلياً من المحفظة (شراء المخزون كاملاً، الأصول الثابتة كاملةً)، أما صافي الربح فيوزّع كلفة الأصول على عمرها — لذا قد تكون رابحاً محاسبياً لكن نقدك انخفض (أو العكس).
     <br>
     <a href="/reports/fixed-assets">تفاصيل الأصول الثابتة وحسابات الإهلاك »</a>
   </div>
+</div>
+
+<div class="card pos-guide-panel" data-guide-title="ℹ️ الحسبتان للفترة">
+  <h2 style="margin-top: 0">الحسبتان للفترة</h2>
+  <p class="muted" style="margin-top:0; margin-bottom:0.6rem">
+    جدول تفصيلي مع روابط للتقارير ذات الصلة — نفس منطق مركز التقارير.
+    <a href="/reports?period={{ period }}">مركز التقارير</a>
+  </p>
+  {% include "_financial_statements_period.html" %}
 </div>
 
 <div class="card">
@@ -61,7 +109,7 @@
       <tr>
         <td>{{ loop.index }}</td>
         <td>{{ r.name_ar }}</td>
-        <td>{{ r.qty_sold }}</td>
+        <td>{{ r.qty_sold | qty }}</td>
         <td>{{ r.revenue }} د.ل</td>
         <td>{{ r.avg_cost }}</td>
         <td>{{ r.cogs }}</td>
@@ -72,4 +120,31 @@
   </table>
   {% else %}<p class="muted">لا مبيعات في هذه الفترة.</p>{% endif %}
 </div>
+
+{% if packaging_breakdown is defined and packaging_breakdown %}
+<div class="card">
+  <h2 style="margin-top: 0">تكلفة مواد التغليف (تفصيل)</h2>
+  <p class="muted" style="margin-top:0">تُحسب لطلبات المتجر الإلكتروني واستلام/توصيل من الكاشير — لا تظهر في فاتورة الزبون.</p>
+  <table>
+    <thead><tr><th>#</th><th>مادة التغليف</th><th>الكمية المستخدمة</th><th>تكلفة الوحدة</th><th>الإجمالي</th></tr></thead>
+    <tbody>
+      {% for r in packaging_breakdown %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td>{{ r.name_ar }}</td>
+        <td>{{ r.qty_used | qty }}</td>
+        <td>{{ r.unit_cost }} د.ل</td>
+        <td>{{ r.total_cost }} د.ل</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr style="font-weight:700;background:#f8fafc">
+        <td colspan="4">إجمالي التغليف</td>
+        <td>{{ packaging_cogs }} د.ل</td>
+      </tr>
+    </tfoot>
+  </table>
+</div>
+{% endif %}
 {% endblock %}

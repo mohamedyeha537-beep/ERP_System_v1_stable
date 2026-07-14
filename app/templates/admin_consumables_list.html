@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}أدوات واستهلاكات{% endblock %}
+{% block body %}
+<div class="row" style="justify-content: space-between; align-items: center">
+  <h1 style="margin: 0">{% if finance_domain_filter and finance_domain_filter.value == 'hotel' %}مستهلكات الفندق{% else %}أدوات واستهلاكات{% endif %}</h1>
+  <div class="row" style="gap: 0.5rem">
+    <a class="btn btn-primary" href="/admin/consumables/new">+ فاتورة استهلاك</a>
+    <a class="btn" href="/admin/consumable-categories">تصنيفات الاستهلاك</a>
+    <a class="btn" href="/admin/assets">الأصول</a>
+    <a class="btn" href="/admin/purchases">فواتير الشراء</a>
+  </div>
+</div>
+
+<p class="muted">
+  {% if finance_domain_filter and finance_domain_filter.value == 'hotel' %}
+  فراش، مواد تنظيف، ومستلزمات الغرف والشقق — تُخصم كاملةً في شهر الشراء (مجال: {{ domain_label }}).
+  {% else %}
+  مناديل، منظفات، أدوات مكتبية، ومستلزمات تُستهلك داخلياً — تُخصم كاملةً في شهر الشراء (بدون إهلاك).
+  {% if domain_label is defined and domain_label %} · المجال: {{ domain_label }}{% endif %}
+  {% endif %}
+</p>
+
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+{% if saved %}
+<div class="card" style="border-color: #86efac; background: #f0fdf4">
+  <p style="margin:0">تم تسجيل الفاتورة.</p>
+</div>
+{% endif %}
+
+{% if category_totals %}
+<div class="card">
+  <h2 style="margin-top:0">ملخص الفترة حسب التصنيف</h2>
+  <div style="display:flex;flex-wrap:wrap;gap:0.65rem">
+    {% for cat, amt, cnt in category_totals %}
+    <div style="flex:1;min-width:9rem;padding:0.55rem 0.75rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px">
+      <div class="muted" style="font-size:0.78rem">{{ cat }}</div>
+      <div style="font-weight:700;direction:ltr;text-align:right">{{ pos_money(amt) }} <span class="money-currency">د.ل</span></div>
+      <div class="muted" style="font-size:0.75rem">{{ cnt }} فاتورة</div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <form method="get" action="/admin/consumables" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:flex-end;margin-bottom:0.75rem">
+    <div>
+      <label for="start" class="muted" style="font-size:0.8rem">من تاريخ</label>
+      <input id="start" name="start" type="date" value="{{ pos_format_dt(start, '%Y-%m-%d') }}" style="max-width:10rem" />
+    </div>
+    <div>
+      <label for="end" class="muted" style="font-size:0.8rem">إلى تاريخ (حصري)</label>
+      <input id="end" name="end" type="date" value="{{ pos_format_dt(end, '%Y-%m-%d') }}" style="max-width:10rem" />
+    </div>
+    <div>
+      <label for="category" class="muted" style="font-size:0.8rem">التصنيف</label>
+      <select id="category" name="category" style="min-width:11rem">
+        <option value="">— الكل —</option>
+        {% for key, label in categories %}
+        <option value="{{ key }}" {% if selected_category == key %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button class="btn btn-primary" type="submit">تصفية</button>
+    <a class="btn" href="/admin/consumables">إعادة ضبط</a>
+  </form>
+
+  <p class="muted" style="margin:0">
+    الفترة: {{ pos_format_dt(start, '%Y-%m-%d') }} → {{ pos_format_dt(end, '%Y-%m-%d') }}
+    — إجمالي المعروض: <strong>{{ pos_money(total) }} د.ل</strong> ({{ items|length }} فاتورة)
+  </p>
+
+  {% if items %}
+  <table style="margin-top:0.75rem">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>التاريخ</th>
+        <th>التصنيف</th>
+        <th>المورّد</th>
+        <th>عدد البنود</th>
+        <th>الإجمالي</th>
+        <th>المحفظة</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in items %}
+      <tr>
+        <td>{{ p.id }}</td>
+        <td>{{ pos_format_dt(p.created_at, '%Y-%m-%d %H:%M') }}</td>
+        <td>{{ p.expense_category or '—' }}</td>
+        <td>{{ p.supplier or '—' }}</td>
+        <td>{{ p.lines|length }}</td>
+        <td style="direction:ltr;text-align:right">{{ pos_money(p.amount) }} <span class="money-currency">د.ل</span></td>
+        <td>{% if p.method %}{{ p.method.name_ar }}{% else %}—{% endif %}</td>
+        <td>
+          <div class="row" style="gap:0.3rem;margin:0">
+            <a class="btn" href="/admin/consumables/{{ p.id }}" style="padding:0.2rem 0.5rem;font-size:0.85rem">عرض</a>
+            <form method="post" action="/admin/consumables/{{ p.id }}/delete" onsubmit="return confirm('حذف هذه الفاتورة؟');" style="margin:0">
+              <button type="submit" class="btn btn-danger" style="padding:0.2rem 0.5rem;font-size:0.85rem">حذف</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted" style="margin-top:0.75rem">لا توجد فواتير استهلاك في هذه الفترة.</p>
+  {% endif %}
+</div>
+{% endblock %}

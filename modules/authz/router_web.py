@@ -4,13 +4,25 @@ from fastapi import APIRouter, Depends, Form, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 
-from app.deps import DBSession, require_permission
+from app.deps import DBSession, require_permission, LoggedInUser
 from app.jinja_env import templates
 from modules.authz.models import Permission, Role, User
 from modules.authz.permissions import ADMIN_ROLES, ADMIN_USERS
-from modules.authz.service import get_user_by_username, hash_password, verify_password
+from modules.authz.service import get_user_by_username, hash_password, is_admin_role, sync_admin_role_permissions, verify_password
+from modules.authz.ui_blocks import (
+    UI_BLOCK_GROUPS,
+    compute_ui_hidden_from_shown,
+    ui_blocks_by_group,
+    user_ui_hidden_set,
+)
+from modules.platform.business_domain import UserViewScope, parse_user_view_scope, user_view_scope_choices
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+KDS_SCOPE_OPTIONS = (
+    ("ALL", "كل أقسام شاشة المطبخ"),
+    ("CAFE", "المقهى / المشروبات فقط"),
+    ("RESTAURANT", "المطعم / الوجبات فقط"),
+)
 
 
 @router.get("/login", response_class=HTMLResponse)
@@ -43,6 +55,18 @@ def login_submit(
             status_code=status.HTTP_200_OK,
         )
     request.session["user_id"] = user.id
+    from modules.authz.kiosk import is_cashier_kiosk_user
+    from modules.platform.business_domain import (
+        is_hotel_scope_user,
+        is_restaurant_scope_user,
+    )
+
+    if is_cashier_kiosk_user(user):
+        return RedirectResponse("/pos", status_code=status.HTTP_302_FOUND)
+    if is_hotel_scope_user(user):
+        return RedirectResponse("/admin/hotel/dashboard", status_code=status.HTTP_302_FOUND)
+    if is_restaurant_scope_user(user):
+        return RedirectResponse("/pos", status_code=status.HTTP_302_FOUND)
     return RedirectResponse("/", status_code=status.HTTP_302_FOUND)
 
 
@@ -55,6 +79,52 @@ def logout(request: Request):
 # --- Admin: roles / users (mounted with prefix /admin in main) ---
 
 admin_router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+@admin_router.post("/view-mode")
+def admin_set_view_mode(
+    request: Request,
+    user: LoggedInUser,
+    mode: str = Form("general"),
+):
+    from modules.platform.business_domain import (
+        SESSION_VIEW_MODE_KEY,
+        ViewMode,
+        is_system_admin,
+    )
+
+    if not is_system_admin(user):
+        return RedirectResponse("/", status_code=302)
+    try:
+        request.session[SESSION_VIEW_MODE_KEY] = ViewMode(mode.strip().lower()).value
+    except ValueError:
+        request.session[SESSION_VIEW_MODE_KEY] = ViewMode.GENERAL.value
+    ref = (request.headers.get("referer") or "/").strip()
+    if not ref.startswith("/"):
+        ref = "/"
+    return RedirectResponse(ref, status_code=302)
+
+
+@admin_router.get("/finance-hub", response_class=HTMLResponse)
+def admin_finance_hub(
+    request: Request,
+    db: DBSession,
+    user: LoggedInUser,
+):
+    from modules.authz.service import user_has_permission
+    from modules.platform.business_domain import is_system_admin
+    from modules.platform.finance_hub import build_finance_hub_context
+
+    if not (
+        is_system_admin(user)
+        or user_has_permission(user, "reports:view")
+        or user_has_permission(user, "gl:manage")
+    ):
+        return RedirectResponse("/", status_code=302)
+
+    ctx = build_finance_hub_context(db, user, request.session)
+    ctx["request"] = request
+    return templates.TemplateResponse("admin_finance_hub.html", ctx)
 
 
 @admin_router.get("/roles", response_class=HTMLResponse)
@@ -86,6 +156,7 @@ def admin_role_edit(
             "role": role,
             "perms": perms,
             "role_perm_ids": role_perm_ids,
+            "is_admin_role": is_admin_role(role),
         },
     )
 
@@ -116,6 +187,10 @@ def admin_role_save(
     if role is None:
         return RedirectResponse("/admin/roles", status_code=302)
     role.name_ar = name_ar.strip()
+    if is_admin_role(role):
+        sync_admin_role_permissions(db)
+        db.commit()
+        return RedirectResponse(f"/admin/roles/{role_id}?admin_locked=1", status_code=302)
     ids = perm_ids or []
     if ids:
         perms = db.execute(select(Permission).where(Permission.id.in_(ids))).scalars().all()
@@ -136,7 +211,15 @@ def admin_users(
     roles = list(db.scalars(select(Role).order_by(Role.id)).all())
     return templates.TemplateResponse(
         "admin_users.html",
-        {"request": request, "users": users, "roles": roles},
+        {
+            "request": request,
+            "users": users,
+            "roles": roles,
+            "kds_scope_options": KDS_SCOPE_OPTIONS,
+            "view_scope_options": user_view_scope_choices(),
+            "ui_block_groups": UI_BLOCK_GROUPS,
+            "ui_blocks_by_group": ui_blocks_by_group(),
+        },
     )
 
 
@@ -147,6 +230,9 @@ def admin_user_create(
     _: User = Depends(require_permission(ADMIN_USERS)),
     username: str = Form(...),
     password: str = Form(...),
+    kds_scope: str = Form("ALL"),
+    view_scope: str = Form("both"),
+    ui_show: list[str] | None = Form(None),
     role_ids: list[int] | None = Form(None),
 ):
     if db.execute(select(User).where(User.username == username.strip())).scalar_one_or_none():
@@ -158,11 +244,28 @@ def admin_user_create(
                 "request": request,
                 "users": users,
                 "roles": roles,
+                "kds_scope_options": KDS_SCOPE_OPTIONS,
+                "view_scope_options": user_view_scope_choices(),
+                "ui_block_groups": UI_BLOCK_GROUPS,
+                "ui_blocks_by_group": ui_blocks_by_group(),
                 "error": "اسم المستخدم موجود مسبقاً.",
             },
             status_code=400,
         )
-    u = User(username=username.strip(), password_hash=hash_password(password), is_active=True)
+    scope = (kds_scope or "ALL").strip().upper()
+    if scope not in {x[0] for x in KDS_SCOPE_OPTIONS}:
+        scope = "ALL"
+    parsed_view = parse_user_view_scope(view_scope)
+    if parsed_view == UserViewScope.HOTEL:
+        scope = "ALL"
+    u = User(
+        username=username.strip(),
+        password_hash=hash_password(password),
+        is_active=True,
+        kds_scope=scope,
+        view_scope=parsed_view.value,
+        ui_hidden=compute_ui_hidden_from_shown(ui_show or []),
+    )
     rids = role_ids or []
     if rids:
         u.roles = list(db.scalars(select(Role).where(Role.id.in_(rids))).all())
@@ -176,6 +279,9 @@ def admin_user_roles_save(
     user_id: int,
     db: DBSession,
     _: User = Depends(require_permission(ADMIN_USERS)),
+    kds_scope: str = Form("ALL"),
+    view_scope: str = Form("both"),
+    ui_show: list[str] | None = Form(None),
     role_ids: list[int] | None = Form(None),
 ):
     u = db.get(User, user_id)
@@ -183,5 +289,31 @@ def admin_user_roles_save(
         return RedirectResponse("/admin/users", status_code=302)
     rids = role_ids or []
     u.roles = list(db.scalars(select(Role).where(Role.id.in_(rids))).all()) if rids else []
+    parsed_view = parse_user_view_scope(view_scope)
+    u.view_scope = parsed_view.value
+    u.ui_hidden = compute_ui_hidden_from_shown(ui_show or [])
+    if parsed_view == UserViewScope.HOTEL:
+        u.kds_scope = "ALL"
+    else:
+        scope = (kds_scope or "ALL").strip().upper()
+        u.kds_scope = scope if scope in {x[0] for x in KDS_SCOPE_OPTIONS} else "ALL"
+    db.commit()
+    return RedirectResponse("/admin/users", status_code=302)
+
+
+@admin_router.post("/users/{user_id}/password", response_class=HTMLResponse)
+def admin_user_password_save(
+    user_id: int,
+    db: DBSession,
+    _: User = Depends(require_permission(ADMIN_USERS)),
+    password: str = Form(...),
+):
+    u = db.get(User, user_id)
+    if u is None:
+        return RedirectResponse("/admin/users", status_code=302)
+    new_password = (password or "").strip()
+    if len(new_password) < 4:
+        return RedirectResponse("/admin/users?error=كلمة المرور قصيرة جداً.", status_code=302)
+    u.password_hash = hash_password(new_password)
     db.commit()
     return RedirectResponse("/admin/users", status_code=302)

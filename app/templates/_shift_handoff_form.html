@@ -1,0 +1,36 @@
+{# نموذج اعتماد الخزينة — handoff_cash/bank = ما استلمه أمين الخزينة فعلياً #}
+<form method="post" action="{{ form_action }}" class="shift-handoff-form" style="margin-top:0.85rem;padding-top:0.85rem;border-top:1px dashed #cbd5e1"
+  onsubmit="return confirm('اعتماد وتحويل جلسة #{{ shift_id }} بالمبالغ المدخلة؟');">
+  <input type="hidden" name="shift_id" value="{{ shift_id }}" />
+  {% if period is defined %}<input type="hidden" name="period" value="{{ period }}" />{% endif %}
+  {% if start_str is defined %}<input type="hidden" name="start" value="{{ start_str }}" />{% endif %}
+  {% if end_str is defined %}<input type="hidden" name="end" value="{{ end_str }}" />{% endif %}
+
+  <p class="muted" style="margin:0 0 0.65rem;font-size:0.88rem;line-height:1.6">
+    <strong>عدّ ما استلمته فعلياً</strong> — إن اختلف عن ما كتبه الكاشير عند الإغلاق، عدّل الرقم قبل الاعتماد.
+    المتوقع من النظام: كاش <strong>{{ pos_money(expected_cash) }}</strong> · مصرف <strong>{{ pos_money(expected_bank) }}</strong> د.ل
+  </p>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.65rem;max-width:28rem">
+    <div>
+      <label for="hof_cash_{{ shift_id }}">كاش مُستلم (د.ل)</label>
+      <input id="hof_cash_{{ shift_id }}" name="handoff_cash" type="number" step="0.001" min="0" required
+        value="{{ pos_money_plain(cash_default) }}"
+        style="width:100%;padding:0.45rem;border-radius:8px;border:1px solid var(--border)" />
+      <small class="muted">سجّله الكاشير: {{ pos_money(cash_default) }}</small>
+    </div>
+    <div>
+      <label for="hof_bank_{{ shift_id }}">مصرف مُستلم (د.ل)</label>
+      <input id="hof_bank_{{ shift_id }}" name="handoff_bank" type="number" step="0.001" min="0" required
+        value="{{ pos_money_plain(bank_default) }}"
+        style="width:100%;padding:0.45rem;border-radius:8px;border:1px solid var(--border)" />
+      <small class="muted">سجّله الكاشير: {{ pos_money(bank_default) }}</small>
+    </div>
+  </div>
+  <div style="margin-top:0.55rem;max-width:28rem">
+    <label for="hof_note_{{ shift_id }}">ملاحظة (اختياري — سبب التصحيح)</label>
+    <input id="hof_note_{{ shift_id }}" name="handoff_note" placeholder="مثال: الكاشير أخطأ — المستلم 250 د.ل"
+      style="width:100%;padding:0.45rem;border-radius:8px;border:1px solid var(--border)" />
+  </div>
+  <button type="submit" class="btn btn-primary" style="margin-top:0.75rem">✓ اعتماد وتحويل للخزينة</button>
+</form>

@@ -4,14 +4,17 @@ from datetime import datetime
 from decimal import Decimal
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, Form, Query, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from urllib.parse import quote
 from sqlalchemy import select
 
 from app.deps import DBSession, require_permission
+from app.datetime_local import format_local_dt
 from app.jinja_env import templates
 from modules.authz.models import User
-from modules.authz.permissions import REPORTS_VIEW
+from modules.authz.permissions import PAYMENTS_MANAGE, REPORTS_VIEW
+from modules.authz.service import user_has_permission
 from modules.customers.models import Customer
 from modules.delivery.service import delivery_fee_cash_out_total
 from modules.payments.daily_burden import (
@@ -31,6 +34,8 @@ from modules.payments.models import PaymentMethod, PurchaseKind
 from modules.payments.service import list_purchases, wallet_breakdown
 from modules.reporting import queries as report_queries
 from modules.reporting.exports import csv_response
+from modules.reporting.profit_calc import calc_net_profit
+from modules.customers.loyalty_shift_reports import loyalty_redeem_cost_in_period
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -67,95 +72,63 @@ def _common_ctx(request: Request, period: str, s, e, start: str | None, end: str
         "period_labels": _PERIOD_LABELS,
         "start": s,
         "end": e,
-        "start_str": start or s.strftime("%Y-%m-%d"),
-        "end_str": end or (e.strftime("%Y-%m-%d") if e else ""),
+        "start_str": start or format_local_dt(s, "%Y-%m-%d"),
+        "end_str": end or (format_local_dt(e, "%Y-%m-%d") if e else ""),
     }
 
 
 _perm = require_permission(REPORTS_VIEW)
+_pay_manage = require_permission(PAYMENTS_MANAGE)
 
 
 def _payment_flow_totals(rows) -> tuple[Decimal, Decimal, Decimal]:
-    cash_in = sum((row[2] for row in rows), Decimal("0"))
-    refunds_out = sum((row[4] for row in rows), Decimal("0"))
-    net = (cash_in - refunds_out).quantize(Decimal("0.001"))
-    return (
-        cash_in.quantize(Decimal("0.001")),
-        refunds_out.quantize(Decimal("0.001")),
-        net,
-    )
+    from modules.reporting.queries import payment_flow_totals
+
+    return payment_flow_totals(rows)
+
+
+def payment_flow_totals(rows) -> tuple[Decimal, Decimal, Decimal]:
+    return _payment_flow_totals(rows)
+
+
+def _finance_domain_filter(request: Request, user: User):
+    from modules.platform.business_domain import resolve_finance_domain
+
+    return resolve_finance_domain(user, request.session)
 
 
 @router.get("", response_class=HTMLResponse)
 def reports_hub(
     request: Request,
     db: DBSession,
-    _: User = Depends(_perm),
+    user: User = Depends(_perm),
     period: str = Query("month"),
     start: str | None = Query(None),
     end: str | None = Query(None),
 ):
     period, s, e = _resolve_period(period, start, end)
+    domain = _finance_domain_filter(request, user)
 
-    sales_sum = report_queries.sales_summary(db, s, e)
-    sales_by_pm = report_queries.sales_by_payment_method(db, s, e)
-    sales_cash_in, refunds_cash_out, net_collected = _payment_flow_totals(sales_by_pm)
-    delivery_cash_out = delivery_fee_cash_out_total(db, start=s, end=e)
-    inv_purch = report_queries.inventory_purchases_summary(db, s, e)
-    expenses = report_queries.expenses_summary(db, s, e)
-    assets = report_queries.assets_summary(db, s, e)
-    cogs = report_queries.cogs_summary(db, s, e)
-    consumables_period = consumable_assets_total_in_period(db, s, e)
-    depreciation_period = total_depreciation_in_period(db, s, e)
-    operating_assets_expense = (consumables_period + depreciation_period).quantize(
-        Decimal("0.001")
+    from modules.platform.business_domain import domain_label
+    from modules.reporting.domain_financials import (
+        build_profit_report_bundle,
+        domain_sales_by_payment_method,
     )
-    # حصة التكاليف الشهرية (رواتب، إيجار، اشتراكات...) المنسوبة للفترة
-    rec_monthly_total, rec_period_share, period_days = recurring_costs_in_period(
-        db, s, e
-    )
-    rec_breakdown = recurring_costs_breakdown_in_period(db, s, e)
 
-    # حسبة (1): إجمالي الربح / هامش المساهمة = إيراد − تكلفة المباع
-    gross_profit = (sales_sum.revenue - cogs).quantize(Decimal("0.001"))
-    # حسبة (2): صافي الربح = إجمالي − (مصاريف + رواتب وإيجار + مستلزمات + إهلاك)
-    net_profit = (
-        gross_profit
-        - expenses.total
-        - rec_period_share
-        - operating_assets_expense
-    ).quantize(Decimal("0.001"))
-    cashflow = (
-        net_collected - delivery_cash_out - inv_purch.total - expenses.total - assets.total
-    ).quantize(Decimal("0.001"))
+    bundle = build_profit_report_bundle(db, s, e, domain=domain)
+    sales_by_pm = domain_sales_by_payment_method(db, s, e, domain=domain)
     inv_value = report_queries.inventory_value(db)
     low_count = sum(1 for r in report_queries.inventory_snapshot(db, only_low=True))
 
     ctx = _common_ctx(request, period, s, e, start, end)
+    ctx.update(bundle)
     ctx.update(
         {
-            "sales_sum": sales_sum,
             "sales_by_pm": sales_by_pm,
-            "sales_cash_in": sales_cash_in,
-            "refunds_cash_out": refunds_cash_out,
-            "net_collected": net_collected,
-            "delivery_cash_out": delivery_cash_out,
-            "inv_purch": inv_purch,
-            "expenses": expenses,
-            "assets": assets,
-            "cogs": cogs,
-            "gross_profit": gross_profit,
-            "net_profit": net_profit,
-            "cashflow": cashflow,
             "inv_value": inv_value,
             "low_count": low_count,
-            "consumables_period": consumables_period,
-            "depreciation_period": depreciation_period,
-            "operating_assets_expense": operating_assets_expense,
-            "rec_monthly_total": rec_monthly_total,
-            "rec_period_share": rec_period_share,
-            "rec_breakdown": rec_breakdown,
-            "period_days": period_days,
+            "finance_domain_filter": domain,
+            "domain_label": domain_label(domain) if domain else "الكل",
         }
     )
     return templates.TemplateResponse("reports_hub.html", ctx)
@@ -165,17 +138,47 @@ def reports_hub(
 def reports_sales(
     request: Request,
     db: DBSession,
-    _: User = Depends(_perm),
+    user: User = Depends(_perm),
     period: str = Query("day"),
     start: str | None = Query(None),
     end: str | None = Query(None),
 ):
     period, s, e = _resolve_period(period, start, end)
-    summary = report_queries.sales_summary(db, s, e)
-    top = report_queries.top_products(db, s, e)
-    sales_by_pm = report_queries.sales_by_payment_method(db, s, e)
-    sales_cash_in, refunds_cash_out, net_collected = _payment_flow_totals(sales_by_pm)
-    delivery_cash_out = delivery_fee_cash_out_total(db, start=s, end=e)
+    domain = _finance_domain_filter(request, user)
+    from modules.platform.business_domain import BusinessDomain, domain_label
+
+    if domain == BusinessDomain.HOTEL:
+        from modules.hotel.revenue_stats import hotel_collections_by_payment_method
+        from modules.reporting.domain_financials import build_domain_period_financials
+
+        fin = build_domain_period_financials(db, s, e, domain=domain)
+        sales_by_pm = hotel_collections_by_payment_method(db, s, e)
+        sales_cash_in, refunds_cash_out, net_collected = _payment_flow_totals(sales_by_pm)
+        shift_handoff = None
+        handoff_pending_count = 0
+        summary = fin.sales_sum
+        top = []
+        delivery_cash_out = fin.delivery_cash_out
+        show_pos_sections = False
+        revenue_source = "hotel"
+    else:
+        summary = report_queries.sales_summary(db, s, e)
+        top = report_queries.top_products(db, s, e)
+        sales_by_pm = report_queries.sales_by_payment_method(db, s, e)
+        sales_cash_in, refunds_cash_out, net_collected = _payment_flow_totals(sales_by_pm)
+        delivery_cash_out = delivery_fee_cash_out_total(db, start=s, end=e)
+        from modules.payments.shift_handoff_service import (
+            build_shift_handoff_panel,
+            count_shifts_pending_handoff,
+        )
+
+        shift_handoff = build_shift_handoff_panel(db)
+        handoff_pending_count = count_shifts_pending_handoff(db)
+        show_pos_sections = True
+        revenue_source = "pos"
+
+    handoff_ok = request.query_params.get("handoff_ok")
+    handoff_err = request.query_params.get("handoff_err")
     ctx = _common_ctx(request, period, s, e, start, end)
     ctx.update(
         {
@@ -186,33 +189,373 @@ def reports_sales(
             "refunds_cash_out": refunds_cash_out,
             "net_collected": net_collected,
             "delivery_cash_out": delivery_cash_out,
+            "shift_handoff": shift_handoff,
+            "handoff_pending_count": handoff_pending_count,
+            "can_approve_handoff": user_has_permission(user, PAYMENTS_MANAGE),
+            "handoff_ok": handoff_ok,
+            "handoff_err": handoff_err,
+            "show_pos_sections": show_pos_sections,
+            "revenue_source": revenue_source,
+            "finance_domain_filter": domain,
+            "domain_label": domain_label(domain) if domain else None,
         }
     )
     return templates.TemplateResponse("reports_sales.html", ctx)
+
+
+@router.get("/hotel-collections", response_class=HTMLResponse)
+def reports_hotel_collections(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_perm),
+    period: str = Query("month"),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+):
+    from modules.hotel.revenue_stats import hotel_collections_detail
+    from modules.platform.business_domain import domain_label, reports_show_hotel_sections
+
+    if not reports_show_hotel_sections(user, request.session):
+        return RedirectResponse("/reports/sales?period=month", status_code=302)
+
+    period, s, e = _resolve_period(period, start, end)
+    domain = _finance_domain_filter(request, user)
+    rows, summary = hotel_collections_detail(db, s, e)
+    from modules.hotel.revenue_stats import hotel_collections_by_payment_method
+
+    sales_by_pm = hotel_collections_by_payment_method(db, s, e)
+    ctx = _common_ctx(request, period, s, e, start, end)
+    ctx.update(
+        {
+            "rows": rows,
+            "summary": summary,
+            "sales_by_pm": sales_by_pm,
+            "finance_domain_filter": domain,
+            "domain_label": domain_label(domain) if domain else "الكل",
+        }
+    )
+    return templates.TemplateResponse("reports_hotel_collections.html", ctx)
+
+
+@router.get("/hotel-bookings", response_class=HTMLResponse)
+def reports_hotel_bookings(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_perm),
+    period: str = Query("month"),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+):
+    from modules.hotel.bookings_report import hotel_bookings_in_period
+    from modules.platform.business_domain import domain_label, reports_show_hotel_sections
+
+    if not reports_show_hotel_sections(user, request.session):
+        return RedirectResponse("/reports/sales?period=month", status_code=302)
+
+    period, s, e = _resolve_period(period, start, end)
+    domain = _finance_domain_filter(request, user)
+    rows, summary = hotel_bookings_in_period(db, s, e)
+    ctx = _common_ctx(request, period, s, e, start, end)
+    ctx.update(
+        {
+            "rows": rows,
+            "summary": summary,
+            "finance_domain_filter": domain,
+            "domain_label": domain_label(domain) if domain else "الكل",
+        }
+    )
+    return templates.TemplateResponse("reports_hotel_bookings.html", ctx)
+
+
+@router.get("/hotel-balances", response_class=HTMLResponse)
+def reports_hotel_balances(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_perm),
+):
+    from modules.hotel.booking_debts import open_debts_summary
+    from modules.hotel.bookings_report import hotel_open_balances
+    from modules.platform.business_domain import domain_label, reports_show_hotel_sections
+
+    if not reports_show_hotel_sections(user, request.session):
+        return RedirectResponse("/reports/receivables?balance_only=1", status_code=302)
+
+    domain = _finance_domain_filter(request, user)
+    rows, summary = hotel_open_balances(db)
+    _, open_debts_total = open_debts_summary(db)
+    from modules.hotel.booking_debts import list_open_debts
+
+    open_debts = list_open_debts(db)
+    ctx = {
+        "request": request,
+        "rows": rows,
+        "summary": summary,
+        "open_debts_count": len(open_debts),
+        "open_debts_total": open_debts_total,
+        "finance_domain_filter": domain,
+        "domain_label": domain_label(domain) if domain else "الكل",
+        "as_of_date": format_local_dt(datetime.now(), "%Y-%m-%d"),
+    }
+    return templates.TemplateResponse("reports_hotel_balances.html", ctx)
+
+
+@router.get("/hotel-daily-close", response_class=HTMLResponse)
+def reports_hotel_daily_close(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_perm),
+    period: str = Query("month"),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+):
+    from modules.hotel.daily_close_report import hotel_daily_close_report
+    from modules.hotel.finance_service import finance_enabled
+    from modules.platform.business_domain import domain_label, reports_show_hotel_sections
+
+    if not reports_show_hotel_sections(user, request.session):
+        return RedirectResponse("/reports/sales?period=month", status_code=302)
+
+    period, s, e = _resolve_period(period, start, end)
+    domain = _finance_domain_filter(request, user)
+    rows, summary = hotel_daily_close_report(db, s, e)
+    hotel_gl_recon = None
+    from modules.hotel.revenue_stats import hotel_cash_collected
+    from modules.reporting.comprehensive_helpers import hotel_gl_reconciliation_for_period
+
+    hotel_gl_recon = hotel_gl_reconciliation_for_period(
+        db, s, e, operational_net=hotel_cash_collected(db, s, e)
+    )
+    ctx = _common_ctx(request, period, s, e, start, end)
+    ctx.update(
+        {
+            "rows": rows,
+            "summary": summary,
+            "finance_on": finance_enabled(db),
+            "finance_domain_filter": domain,
+            "domain_label": domain_label(domain) if domain else "الكل",
+            "hotel_gl_recon": hotel_gl_recon,
+        }
+    )
+    return templates.TemplateResponse("reports_hotel_daily_close.html", ctx)
+
+
+@router.get("/gl-reconciliation", response_class=HTMLResponse)
+def reports_gl_reconciliation(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_perm),
+    period: str = Query("month"),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+):
+    from modules.platform.business_domain import domain_label
+    from modules.reporting.gl_reconciliation_report import build_gl_reconciliation_report
+
+    period, s, e = _resolve_period(period, start, end)
+    domain = _finance_domain_filter(request, user)
+    report = build_gl_reconciliation_report(db, s, e, domain=domain)
+    ctx = _common_ctx(request, period, s, e, start, end)
+    ctx.update(
+        {
+            "report": report,
+            "finance_domain_filter": domain,
+            "domain_label": domain_label(domain) if domain else "الكل",
+        }
+    )
+    return templates.TemplateResponse("reports_gl_reconciliation.html", ctx)
+
+
+@router.get("/revenue-matrix", response_class=HTMLResponse)
+def reports_revenue_matrix(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_perm),
+    period: str = Query("year"),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+    bucket: str = Query("month"),
+    measure: str = Query("net"),
+    segment: str = Query("all"),
+):
+    from modules.platform.business_domain import (
+        BusinessDomain,
+        domain_label,
+        reports_show_hotel_sections,
+        reports_show_pos_sections,
+    )
+    from modules.reporting.revenue_matrix import (
+        GRANULARITY_LABELS,
+        MEASURE_LABELS,
+        build_revenue_matrix_report,
+        resolve_segment_filter,
+    )
+
+    period, s, e = _resolve_period(period, start, end)
+    domain = _finance_domain_filter(request, user)
+    report = build_revenue_matrix_report(
+        db,
+        s,
+        e,
+        granularity=bucket,
+        measure=measure,
+        domain=domain,
+        segment=segment,
+    )
+    show_restaurant, show_hotel = resolve_segment_filter(segment, domain)
+    show_segment_filter = (
+        domain is None
+        and reports_show_hotel_sections(user, request.session)
+        and reports_show_pos_sections(user, request.session)
+    )
+    ctx = _common_ctx(request, period, s, e, start, end)
+    matrix_qs_parts = [
+        f"period={period}",
+        f"bucket={report.granularity}",
+        f"measure={report.measure}",
+    ]
+    if segment and segment != "all":
+        matrix_qs_parts.append(f"segment={segment}")
+    if period == "custom" and start and end:
+        matrix_qs_parts.append(f"start={start}")
+        matrix_qs_parts.append(f"end={end}")
+    matrix_qs = "&".join(matrix_qs_parts)
+    matrix_filter_extra = (
+        f"&bucket={report.granularity}&measure={report.measure}"
+        + (f"&segment={segment}" if segment and segment != "all" else "")
+    )
+    ctx.update(
+        {
+            "report": report,
+            "granularity_labels": GRANULARITY_LABELS,
+            "measure_labels": MEASURE_LABELS,
+            "segment": segment,
+            "show_segment_filter": show_segment_filter,
+            "matrix_qs": matrix_qs,
+            "matrix_filter_extra": matrix_filter_extra,
+            "finance_domain_filter": domain,
+            "domain_label": domain_label(domain) if domain else "الكل",
+        }
+    )
+    return templates.TemplateResponse("reports_revenue_matrix.html", ctx)
+
+
+@router.get("/pos-daily-close", response_class=HTMLResponse)
+def reports_pos_daily_close(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_perm),
+    period: str = Query("month"),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+):
+    from modules.platform.business_domain import (
+        BusinessDomain,
+        domain_label,
+        reports_show_hotel_sections,
+        reports_show_pos_sections,
+    )
+    from modules.reporting.comprehensive_helpers import restaurant_gl_reconciliation_for_period
+    from modules.reporting.domain_financials import build_domain_period_financials
+    from modules.reporting.pos_daily_close_report import pos_daily_close_report
+
+    if not reports_show_pos_sections(user, request.session):
+        return RedirectResponse("/reports/hotel-daily-close?period=month", status_code=302)
+
+    period, s, e = _resolve_period(period, start, end)
+    domain = _finance_domain_filter(request, user)
+    rows, summary = pos_daily_close_report(db, s, e)
+    pos_fin = build_domain_period_financials(
+        db, s, e, domain=BusinessDomain.RESTAURANT
+    )
+    restaurant_gl_recon = restaurant_gl_reconciliation_for_period(
+        db, s, e, operational_net=pos_fin.net_collected
+    )
+    ctx = _common_ctx(request, period, s, e, start, end)
+    ctx.update(
+        {
+            "rows": rows,
+            "summary": summary,
+            "finance_domain_filter": domain,
+            "domain_label": domain_label(domain) if domain else "المطعم",
+            "restaurant_gl_recon": restaurant_gl_recon,
+            "show_hotel_hint": reports_show_hotel_sections(user, request.session),
+        }
+    )
+    return templates.TemplateResponse("reports_pos_daily_close.html", ctx)
+
+
+@router.post("/sales/shift-handoff", response_class=HTMLResponse)
+def reports_sales_shift_handoff(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_pay_manage),
+    shift_id: int = Form(...),
+    period: str = Form("day"),
+    start: str = Form(""),
+    end: str = Form(""),
+    handoff_cash: str = Form(""),
+    handoff_bank: str = Form(""),
+    handoff_note: str = Form(""),
+):
+    from modules.payments.shift_handoff_service import (
+        ShiftHandoffError,
+        approve_shift_handoff,
+        parse_handoff_amount,
+    )
+
+    back = f"/reports/sales?period={quote(period)}"
+    if period == "custom" and start:
+        back += f"&start={quote(start)}&end={quote(end)}"
+    try:
+        approve_shift_handoff(
+            db,
+            shift_id=shift_id,
+            user_id=user.id,
+            admin_username=user.username,
+            handoff_cash=parse_handoff_amount(handoff_cash),
+            handoff_bank=parse_handoff_amount(handoff_bank),
+            handoff_note=handoff_note,
+        )
+        db.commit()
+        return RedirectResponse(back + "&handoff_ok=1", status_code=302)
+    except ShiftHandoffError as exc:
+        db.rollback()
+        return RedirectResponse(
+            back + "&handoff_err=" + quote(str(exc)),
+            status_code=302,
+        )
+    except Exception:
+        db.rollback()
+        return RedirectResponse(
+            back + "&handoff_err=" + quote("تعذّر تنفيذ الاعتماد والتحويل."),
+            status_code=302,
+        )
 
 
 @router.get("/purchases", response_class=HTMLResponse)
 def reports_purchases(
     request: Request,
     db: DBSession,
-    _: User = Depends(_perm),
+    user: User = Depends(_perm),
     period: str = Query("month"),
     start: str | None = Query(None),
     end: str | None = Query(None),
 ):
     period, s, e = _resolve_period(period, start, end)
-    summary = report_queries.inventory_purchases_summary(db, s, e)
+    domain = _finance_domain_filter(request, user)
+    summary = report_queries.inventory_purchases_summary(db, s, e, domain=domain)
     by_pm = report_queries.purchases_by_payment_method(
-        db, s, e, kind=PurchaseKind.INVENTORY
+        db, s, e, kind=PurchaseKind.INVENTORY, domain=domain
     )
-    items = list_purchases(db, s, e, kind=PurchaseKind.INVENTORY)
+    items = list_purchases(db, s, e, kind=PurchaseKind.INVENTORY, domain=domain)
     pay_filter = (request.query_params.get("pay") or "all").lower()
     if pay_filter not in ("all", "paid", "partial", "unpaid"):
         pay_filter = "all"
     balance_only = request.query_params.get("balance_only") == "1"
     from modules.payables.service import build_payable_rows, payables_summary
+    from modules.platform.business_domain import domain_label
 
-    ap_summary = payables_summary(db, kind=PurchaseKind.INVENTORY)
+    ap_summary = payables_summary(db, kind=PurchaseKind.INVENTORY, domain=domain)
     pay_rows = build_payable_rows(
         db,
         start=s,
@@ -220,6 +563,7 @@ def reports_purchases(
         kind=PurchaseKind.INVENTORY,
         pay_filter=pay_filter,
         only_with_balance=balance_only,
+        domain=domain,
     )
     pay_by_id = {r.purchase_id: r for r in pay_rows}
     ctx = _common_ctx(request, period, s, e, start, end)
@@ -232,6 +576,8 @@ def reports_purchases(
             "pay_by_id": pay_by_id,
             "pay_filter": pay_filter,
             "balance_only": balance_only,
+            "finance_domain_filter": domain,
+            "domain_label": domain_label(domain) if domain else "الكل",
         }
     )
     return templates.TemplateResponse("reports_purchases.html", ctx)
@@ -241,18 +587,21 @@ def reports_purchases(
 def reports_expenses(
     request: Request,
     db: DBSession,
-    _: User = Depends(_perm),
+    user: User = Depends(_perm),
     period: str = Query("month"),
     start: str | None = Query(None),
     end: str | None = Query(None),
 ):
     period, s, e = _resolve_period(period, start, end)
-    summary = report_queries.expenses_summary(db, s, e)
+    domain = _finance_domain_filter(request, user)
+    from modules.platform.business_domain import domain_label
+
+    summary = report_queries.expenses_summary(db, s, e, domain=domain)
     by_pm = report_queries.purchases_by_payment_method(
-        db, s, e, kind=PurchaseKind.EXPENSE
+        db, s, e, kind=PurchaseKind.EXPENSE, domain=domain
     )
-    by_cat = report_queries.expenses_by_category(db, s, e)
-    items = list_purchases(db, s, e, kind=PurchaseKind.EXPENSE)
+    by_cat = report_queries.expenses_by_category(db, s, e, domain=domain)
+    items = list_purchases(db, s, e, kind=PurchaseKind.EXPENSE, domain=domain)
     ctx = _common_ctx(request, period, s, e, start, end)
     ctx.update(
         {
@@ -260,6 +609,8 @@ def reports_expenses(
             "by_pm": by_pm,
             "by_cat": by_cat,
             "items": items,
+            "finance_domain_filter": domain,
+            "domain_label": domain_label(domain) if domain else "الكل",
         }
     )
     return templates.TemplateResponse("reports_expenses.html", ctx)
@@ -269,65 +620,34 @@ def reports_expenses(
 def reports_profit(
     request: Request,
     db: DBSession,
-    _: User = Depends(_perm),
+    user: User = Depends(_perm),
     period: str = Query("month"),
     start: str | None = Query(None),
     end: str | None = Query(None),
 ):
     period, s, e = _resolve_period(period, start, end)
-    sales_sum = report_queries.sales_summary(db, s, e)
-    sales_by_pm = report_queries.sales_by_payment_method(db, s, e)
-    sales_cash_in, refunds_cash_out, net_collected = _payment_flow_totals(sales_by_pm)
-    delivery_cash_out = delivery_fee_cash_out_total(db, start=s, end=e)
-    cogs = report_queries.cogs_summary(db, s, e)
-    expenses = report_queries.expenses_summary(db, s, e)
-    assets = report_queries.assets_summary(db, s, e)
-    inv_purch = report_queries.inventory_purchases_summary(db, s, e)
-    # المعالجة المحاسبية الصحيحة (IAS 16): الأصل الثابت يُهلَك، والمستهلك يُخصم كاملاً.
-    consumables_period = consumable_assets_total_in_period(db, s, e)
-    depreciation_period = total_depreciation_in_period(db, s, e)
-    operating_assets_expense = (consumables_period + depreciation_period).quantize(
-        Decimal("0.001")
+    domain = _finance_domain_filter(request, user)
+    from modules.platform.business_domain import domain_label
+    from modules.reporting.domain_financials import build_profit_report_bundle
+
+    bundle = build_profit_report_bundle(db, s, e, domain=domain)
+    from modules.reporting.domain_financials import domain_sales_by_payment_method
+
+    sales_by_pm = domain_sales_by_payment_method(db, s, e, domain=domain)
+    by_product = (
+        report_queries.profit_by_product(db, s, e)
+        if bundle.get("show_product_profit")
+        else []
     )
-    rec_monthly_total, rec_period_share, period_days = recurring_costs_in_period(
-        db, s, e
-    )
-    rec_breakdown = recurring_costs_breakdown_in_period(db, s, e)
-    gross_profit = (sales_sum.revenue - cogs).quantize(Decimal("0.001"))
-    net_profit = (
-        gross_profit
-        - expenses.total
-        - rec_period_share
-        - operating_assets_expense
-    ).quantize(Decimal("0.001"))
-    cashflow = (
-        net_collected - delivery_cash_out - inv_purch.total - expenses.total - assets.total
-    ).quantize(Decimal("0.001"))
-    by_product = report_queries.profit_by_product(db, s, e)
+
     ctx = _common_ctx(request, period, s, e, start, end)
+    ctx.update(bundle)
     ctx.update(
         {
-            "sales_sum": sales_sum,
             "sales_by_pm": sales_by_pm,
-            "sales_cash_in": sales_cash_in,
-            "refunds_cash_out": refunds_cash_out,
-            "net_collected": net_collected,
-            "delivery_cash_out": delivery_cash_out,
-            "cogs": cogs,
-            "expenses": expenses,
-            "assets": assets,
-            "inv_purch": inv_purch,
-            "consumables_period": consumables_period,
-            "depreciation_period": depreciation_period,
-            "operating_assets_expense": operating_assets_expense,
-            "rec_monthly_total": rec_monthly_total,
-            "rec_period_share": rec_period_share,
-            "rec_breakdown": rec_breakdown,
-            "period_days": period_days,
-            "gross_profit": gross_profit,
-            "net_profit": net_profit,
-            "cashflow": cashflow,
             "by_product": by_product,
+            "finance_domain_filter": domain,
+            "domain_label": domain_label(domain) if domain else "الكل",
         }
     )
     return templates.TemplateResponse("reports_profit.html", ctx)
@@ -337,7 +657,7 @@ def reports_profit(
 def reports_inventory(
     request: Request,
     db: DBSession,
-    _: User = Depends(_perm),
+    user: User = Depends(_perm),
     period: str = Query("month"),
     start: str | None = Query(None),
     end: str | None = Query(None),
@@ -345,6 +665,11 @@ def reports_inventory(
     only_low: int = Query(0, ge=0, le=1),
     w: str | None = Query(None),
 ):
+    from modules.platform.business_domain import reports_show_pos_sections
+
+    if not reports_show_pos_sections(user, request.session):
+        return RedirectResponse("/reports/purchases?period=month", status_code=302)
+
     from modules.inventory.service import get_main_warehouse, get_warehouse, list_warehouses
 
     period, s, e = _resolve_period(period, start, end)
@@ -394,19 +719,25 @@ def reports_inventory(
 def reports_assets(
     request: Request,
     db: DBSession,
-    _: User = Depends(_perm),
+    user: User = Depends(_perm),
     period: str = Query("month"),
     start: str | None = Query(None),
     end: str | None = Query(None),
 ):
     period, s, e = _resolve_period(period, start, end)
-    summary = report_queries.assets_summary(db, s, e)
+    domain = _finance_domain_filter(request, user)
+    from modules.platform.business_domain import domain_label
+
+    summary = report_queries.assets_summary(db, s, e, domain=domain)
     by_pm = report_queries.purchases_by_payment_method(
-        db, s, e, kind=PurchaseKind.ASSET
+        db, s, e, kind=PurchaseKind.ASSET, domain=domain
     )
-    items = list_purchases(db, s, e, kind=PurchaseKind.ASSET)
-    consumables_total = consumable_assets_total_in_period(db, s, e)
+    items = list_purchases(db, s, e, kind=PurchaseKind.ASSET, domain=domain)
+    consumables_total = consumable_assets_total_in_period(db, s, e, domain=domain)
     depreciation_total = total_depreciation_in_period(db, s, e)
+    from modules.gl.role_maps import asset_roles_gl_summary
+
+    gl_asset = asset_roles_gl_summary(db, s, e)
     ctx = _common_ctx(request, period, s, e, start, end)
     ctx.update(
         {
@@ -415,6 +746,9 @@ def reports_assets(
             "items": items,
             "consumables_total": consumables_total,
             "depreciation_total": depreciation_total,
+            "gl_asset": gl_asset,
+            "finance_domain_filter": domain,
+            "domain_label": domain_label(domain) if domain else "الكل",
         }
     )
     return templates.TemplateResponse("reports_assets.html", ctx)
@@ -424,14 +758,17 @@ def reports_assets(
 def reports_fixed_assets(
     request: Request,
     db: DBSession,
-    _: User = Depends(_perm),
+    user: User = Depends(_perm),
     period: str = Query("month"),
     start: str | None = Query(None),
     end: str | None = Query(None),
 ):
     """سجل الأصول الثابتة وحسابات الإهلاك (Fixed Assets Register)."""
     period, s, e = _resolve_period(period, start, end)
-    lines = list_fixed_asset_lines(db)
+    domain = _finance_domain_filter(request, user)
+    from modules.platform.business_domain import domain_label
+
+    lines = list_fixed_asset_lines(db, domain=domain)
     snapshots = []
     period_depr_total = Decimal("0")
     for ln in lines:
@@ -441,8 +778,11 @@ def reports_fixed_assets(
         period_depr = depreciation_in_period(ln, s, e)
         period_depr_total += period_depr
         snapshots.append({"snap": snap, "period_depr": period_depr})
-    summary = fixed_assets_summary(db, e)
-    consumables_total = consumable_assets_total_in_period(db, s, e)
+    summary = fixed_assets_summary(db, e, domain=domain)
+    consumables_total = consumable_assets_total_in_period(db, s, e, domain=domain)
+    from modules.gl.role_maps import asset_roles_gl_summary
+
+    gl_asset = asset_roles_gl_summary(db, s, e)
     ctx = _common_ctx(request, period, s, e, start, end)
     ctx.update(
         {
@@ -450,6 +790,9 @@ def reports_fixed_assets(
             "summary": summary,
             "period_depr_total": period_depr_total.quantize(Decimal("0.001")),
             "consumables_total": consumables_total,
+            "gl_asset": gl_asset,
+            "finance_domain_filter": domain,
+            "domain_label": domain_label(domain) if domain else "الكل",
         }
     )
     return templates.TemplateResponse("reports_fixed_assets.html", ctx)
@@ -459,80 +802,88 @@ def reports_fixed_assets(
 def reports_comprehensive(
     request: Request,
     db: DBSession,
-    _: User = Depends(_perm),
+    user: User = Depends(_perm),
     period: str = Query("month"),
     start: str | None = Query(None),
     end: str | None = Query(None),
 ):
     period, s, e = _resolve_period(period, start, end)
+    domain = _finance_domain_filter(request, user)
 
-    sales_sum = report_queries.sales_summary(db, s, e)
-    sales_by_pm = report_queries.sales_by_payment_method(db, s, e)
-    sales_cash_in, refunds_cash_out, net_collected = _payment_flow_totals(sales_by_pm)
-    delivery_cash_out = delivery_fee_cash_out_total(db, start=s, end=e)
-    cogs = report_queries.cogs_summary(db, s, e)
-    inv_purch = report_queries.inventory_purchases_summary(db, s, e)
-    expenses = report_queries.expenses_summary(db, s, e)
-    assets = report_queries.assets_summary(db, s, e)
-    consumables_period = consumable_assets_total_in_period(db, s, e)
-    depreciation_period = total_depreciation_in_period(db, s, e)
-    operating_assets_expense = (consumables_period + depreciation_period).quantize(
-        Decimal("0.001")
+    from modules.platform.business_domain import (
+        BusinessDomain,
+        domain_label,
+        reports_show_hotel_sections,
+        reports_show_pos_sections,
     )
-    rec_monthly_total, rec_period_share, period_days = recurring_costs_in_period(
-        db, s, e
-    )
-    rec_breakdown = recurring_costs_breakdown_in_period(db, s, e)
-    gross_profit = (sales_sum.revenue - cogs).quantize(Decimal("0.001"))
-    net_profit = (
-        gross_profit
-        - expenses.total
-        - rec_period_share
-        - operating_assets_expense
-    ).quantize(Decimal("0.001"))
-    cashflow = (
-        net_collected - delivery_cash_out - inv_purch.total - expenses.total - assets.total
-    ).quantize(Decimal("0.001"))
+    from modules.reporting.domain_financials import build_profit_report_bundle
+
+    bundle = build_profit_report_bundle(db, s, e, domain=domain)
+    from modules.reporting.domain_financials import domain_sales_by_payment_method
+
+    sales_by_pm = domain_sales_by_payment_method(db, s, e, domain=domain)
     purch_by_pm = report_queries.purchases_by_payment_method(
-        db, s, e, kind=PurchaseKind.INVENTORY
+        db, s, e, kind=PurchaseKind.INVENTORY, domain=domain
     )
     exp_by_pm = report_queries.purchases_by_payment_method(
-        db, s, e, kind=PurchaseKind.EXPENSE
+        db, s, e, kind=PurchaseKind.EXPENSE, domain=domain
     )
     asset_by_pm = report_queries.purchases_by_payment_method(
-        db, s, e, kind=PurchaseKind.ASSET
+        db, s, e, kind=PurchaseKind.ASSET, domain=domain
     )
-    exp_by_cat = report_queries.expenses_by_category(db, s, e)
+    exp_by_cat = report_queries.expenses_by_category(db, s, e, domain=domain)
+    show_pos = reports_show_pos_sections(user, request.session)
+    show_hotel = reports_show_hotel_sections(user, request.session)
+    top = (
+        report_queries.top_products(db, s, e, limit=10)
+        if bundle.get("show_product_profit")
+        else []
+    )
+    profit_top = (
+        report_queries.profit_by_product(db, s, e, limit=10)
+        if bundle.get("show_product_profit")
+        else []
+    )
+    inv_value = Decimal("0")
+    low_rows: list = []
+    wallet_rows: list = []
+    if show_pos:
+        inv_value = report_queries.inventory_value(db)
+        low_rows = report_queries.inventory_snapshot(db, only_low=True)
+        wallet_rows = wallet_breakdown(db, None, None)
 
-    top = report_queries.top_products(db, s, e, limit=10)
-    profit_top = report_queries.profit_by_product(db, s, e, limit=10)
+    hotel_supplements: dict = {}
+    restaurant_gl_recon = None
+    if show_hotel and domain in (None, BusinessDomain.HOTEL):
+        from modules.hotel.revenue_stats import hotel_cash_collected
+        from modules.reporting.comprehensive_helpers import hotel_comprehensive_supplements
 
-    inv_value = report_queries.inventory_value(db)
-    low_rows = report_queries.inventory_snapshot(db, only_low=True)
-    wallet_rows = wallet_breakdown(db, None, None)
+        hotel_op = (
+            bundle["net_collected"]
+            if domain == BusinessDomain.HOTEL
+            else hotel_cash_collected(db, s, e)
+        )
+        hotel_supplements = hotel_comprehensive_supplements(
+            db, s, e, operational_net=hotel_op
+        )
+    if show_pos and domain in (None, BusinessDomain.RESTAURANT):
+        from modules.reporting.comprehensive_helpers import restaurant_gl_reconciliation_for_period
+        from modules.reporting.domain_financials import build_domain_period_financials
+
+        pos_net = bundle["net_collected"]
+        if domain is None:
+            pos_fin = build_domain_period_financials(
+                db, s, e, domain=BusinessDomain.RESTAURANT
+            )
+            pos_net = pos_fin.net_collected
+        restaurant_gl_recon = restaurant_gl_reconciliation_for_period(
+            db, s, e, operational_net=pos_net
+        )
 
     ctx = _common_ctx(request, period, s, e, start, end)
+    ctx.update(bundle)
     ctx.update(
         {
-            "sales_sum": sales_sum,
-            "sales_cash_in": sales_cash_in,
-            "refunds_cash_out": refunds_cash_out,
-            "net_collected": net_collected,
-            "delivery_cash_out": delivery_cash_out,
-            "cogs": cogs,
-            "inv_purch": inv_purch,
-            "expenses": expenses,
-            "assets": assets,
-            "consumables_period": consumables_period,
-            "depreciation_period": depreciation_period,
-            "operating_assets_expense": operating_assets_expense,
-            "rec_monthly_total": rec_monthly_total,
-            "rec_period_share": rec_period_share,
-            "rec_breakdown": rec_breakdown,
-            "period_days": period_days,
-            "gross_profit": gross_profit,
-            "net_profit": net_profit,
-            "cashflow": cashflow,
             "sales_by_pm": sales_by_pm,
             "purch_by_pm": purch_by_pm,
             "exp_by_pm": exp_by_pm,
@@ -543,6 +894,12 @@ def reports_comprehensive(
             "inv_value": inv_value,
             "low_rows": low_rows,
             "wallet_rows": wallet_rows,
+            "show_pos_sections": show_pos,
+            "show_hotel_sections": show_hotel,
+            "restaurant_gl_recon": restaurant_gl_recon,
+            "finance_domain_filter": domain,
+            "domain_label": domain_label(domain) if domain else "الكل",
+            **hotel_supplements,
         }
     )
     return templates.TemplateResponse("reports_comprehensive.html", ctx)
@@ -575,7 +932,7 @@ def _financial_operational_filter_qs(
 def reports_financial_operational(
     request: Request,
     db: DBSession,
-    _: User = Depends(_perm),
+    user: User = Depends(_perm),
     period: str = Query("month"),
     start: str | None = Query(None),
     end: str | None = Query(None),
@@ -585,6 +942,8 @@ def reports_financial_operational(
 ):
     """تقرير مالي تشغيلي موثّق: استحقاق مبيعات + مرتجعات + تحصيل/ردود — دون مسودات ودون جدول قيود عام بعد."""
     period, s, e = _resolve_period(period, start, end)
+    domain = _finance_domain_filter(request, user)
+    from modules.platform.business_domain import BusinessDomain, domain_label, payment_method_visible_for_domain
 
     def _parse_opt_id(raw: str | None) -> int | None:
         if raw is None or str(raw).strip() == "":
@@ -596,20 +955,30 @@ def reports_financial_operational(
 
     uid = _parse_opt_id(user_id)
     pmid = _parse_opt_id(payment_method_id)
-    cid = _parse_opt_id(customer_id)
+    cid = _parse_opt_id(customer_id) if domain != BusinessDomain.HOTEL else None
     filters = report_queries.ReportFilters(
         user_id=uid,
         payment_method_id=pmid,
         customer_id=cid,
     )
-    stmt = report_queries.financial_operational_statement(db, s, e, filters)
-    logical = report_queries.financial_operational_logical_lines(stmt)
-    users = list(db.scalars(select(User).order_by(User.username)).all())
-    methods = list(
-        db.scalars(select(PaymentMethod).order_by(PaymentMethod.sort_order, PaymentMethod.id)).all()
+    stmt, statement_source = report_queries.financial_operational_statement_for_domain(
+        db, s, e, filters, domain=domain
     )
-    customers = list(
-        db.scalars(select(Customer).order_by(Customer.phone).limit(500)).all()
+    logical = report_queries.financial_operational_logical_lines(
+        stmt, source=statement_source
+    )
+    users = list(db.scalars(select(User).order_by(User.username)).all())
+    methods = [
+        pm
+        for pm in db.scalars(
+            select(PaymentMethod).order_by(PaymentMethod.sort_order, PaymentMethod.id)
+        ).all()
+        if payment_method_visible_for_domain(pm.business_domain, filter_domain=domain)
+    ]
+    customers = (
+        list(db.scalars(select(Customer).order_by(Customer.phone).limit(500)).all())
+        if domain != BusinessDomain.HOTEL
+        else []
     )
     filter_qs = _financial_operational_filter_qs(
         period, start, end, uid, pmid, cid
@@ -634,6 +1003,9 @@ def reports_financial_operational(
             "filter_qs": filter_qs,
             "filter_extra": filter_extra,
             "nav_active": "financial_ops",
+            "statement_source": statement_source,
+            "finance_domain_filter": domain,
+            "domain_label": domain_label(domain) if domain else "الكل",
         }
     )
     return templates.TemplateResponse("reports_financial_operational.html", ctx)
@@ -641,8 +1013,9 @@ def reports_financial_operational(
 
 @router.get("/export/financial-operational.csv")
 def export_financial_operational_csv(
+    request: Request,
     db: DBSession,
-    _: User = Depends(_perm),
+    user: User = Depends(_perm),
     period: str = Query("month"),
     start: str | None = Query(None),
     end: str | None = Query(None),
@@ -650,7 +1023,10 @@ def export_financial_operational_csv(
     payment_method_id: str | None = Query(None),
     customer_id: str | None = Query(None),
 ):
+    from modules.platform.business_domain import BusinessDomain, domain_label
+
     period, s, e = _resolve_period(period, start, end)
+    domain = _finance_domain_filter(request, user)
 
     def _parse_opt_id(raw: str | None) -> int | None:
         if raw is None or str(raw).strip() == "":
@@ -662,29 +1038,41 @@ def export_financial_operational_csv(
 
     uid = _parse_opt_id(user_id)
     pmid = _parse_opt_id(payment_method_id)
-    cid = _parse_opt_id(customer_id)
+    cid = _parse_opt_id(customer_id) if domain != BusinessDomain.HOTEL else None
     filters = report_queries.ReportFilters(
         user_id=uid,
         payment_method_id=pmid,
         customer_id=cid,
     )
-    stmt = report_queries.financial_operational_statement(db, s, e, filters)
-    logical = report_queries.financial_operational_logical_lines(stmt)
+    stmt, statement_source = report_queries.financial_operational_statement_for_domain(
+        db, s, e, filters, domain=domain
+    )
+    logical = report_queries.financial_operational_logical_lines(
+        stmt, source=statement_source
+    )
+    dom_tag = domain_label(domain) if domain else "الكل"
+    count_label = (
+        "عدد التحصيلات (فندق)"
+        if statement_source == "hotel"
+        else "عدد الفواتير المكتملة"
+    )
     headers = ["البند", "الاتجاه التوضيحي", "المبلغ", "مصدر البيانات / الملاحظة"]
     rows: list[list] = [
-        ["الفترة", "", f"{s.strftime('%Y-%m-%d')} → {e.strftime('%Y-%m-%d')}", ""],
+        ["الفترة", "", f"{format_local_dt(s, '%Y-%m-%d')} → {format_local_dt(e, '%Y-%m-%d')}", ""],
+        ["مجال التقرير", "", dom_tag, ""],
+        ["مصدر البيانات", "", statement_source, ""],
         ["فلاتر المستخدم/طريقة الدفع/العميل", "", str(filters), ""],
         [],
-        ["عدد الفواتير المكتملة", "", stmt.invoice_count, "sales حيث status=COMPLETED"],
-        ["عدد سندات المرتجع المرحّلة", "", stmt.return_count, "sale_returns حيث status=POSTED"],
-        ["إجمالي مبيعات الاستحقاق", "", stmt.gross_revenue, "مجموع sales.total"],
-        ["إجمالي المرتجعات", "", stmt.returns_total, "مجموع sale_returns.total"],
-        ["صافي إيراد الاستحقاق", "", stmt.net_revenue, "فرق الإيراد عن المرتجعات — لا عد مزدوج"],
-        ["مجموع التحصيل (دفعات الفواتير المفسرة)", "", stmt.collections_total, "sale_payments"],
-        ["مجموع ردود المبالغ", "", stmt.refunds_payment_total, "refund_payments"],
-        ["صافي أثر نقدي تشغيلي", "", stmt.net_cash_effect, "تحصيل − ردود"],
-        ["ضرائب معروضة في التقرير", "", stmt.taxes_included, "غير مطبّقة في نموذج البيع"],
-        ["خصومات سطرية معروضة", "", stmt.line_discounts_included, "غير مطبّقة في نموذج البيع"],
+        [count_label, "", stmt.invoice_count, ""],
+        ["عدد سندات المرتجع / مرتجعات التحصيل", "", stmt.return_count, ""],
+        ["إجمالي الإيراد التشغيلي", "", stmt.gross_revenue, ""],
+        ["إجمالي المرتجعات", "", stmt.returns_total, ""],
+        ["صافي الإيراد", "", stmt.net_revenue, ""],
+        ["مجموع التحصيل", "", stmt.collections_total, ""],
+        ["مجموع ردود المبالغ", "", stmt.refunds_payment_total, ""],
+        ["صافي أثر نقدي تشغيلي", "", stmt.net_cash_effect, ""],
+        ["ضرائب معروضة في التقرير", "", stmt.taxes_included, "غير مطبّقة"],
+        ["خصومات سطرية معروضة", "", stmt.line_discounts_included, "غير مطبّقة"],
         [],
         ["--- قيد منطقي توضيحي (ليس مرحّلاً في دفتر أستاذ عام) ---", "", "", ""],
     ]
@@ -709,7 +1097,7 @@ def export_financial_operational_csv(
 def reports_break_even(
     request: Request,
     db: DBSession,
-    _: User = Depends(_perm),
+    user: User = Depends(_perm),
     period: str = Query("month"),
     start: str | None = Query(None),
     end: str | None = Query(None),
@@ -719,12 +1107,12 @@ def reports_break_even(
     يحسب العبء اليومي ويُقارن إيرادات أيام الفترة بالعتبة، مع إبراز الأيام الرابحة والخاسرة.
     """
     period, s, e = _resolve_period(period, start, end)
-    burden = compute_daily_burden(db, operating_days_per_month=days)
-
-    # توليد سلسلة يومية لمقارنة كل يوم بالعتبة
-    from modules.reporting.queries import cogs_summary, sales_summary
+    domain = _finance_domain_filter(request, user)
+    burden = compute_daily_burden(db, operating_days_per_month=days, domain=domain)
 
     from datetime import timedelta as _td
+
+    from modules.platform.business_domain import BusinessDomain
 
     daily_rows = []
     cur = s.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -734,12 +1122,30 @@ def reports_break_even(
     total_below = Decimal("0")
     while cur < e:
         nxt_day = (cur + _td(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-        ss = sales_summary(db, cur, nxt_day)
-        cg = cogs_summary(db, cur, nxt_day)
-        gross = (ss.revenue - cg).quantize(Decimal("0.001"))
+        if domain == BusinessDomain.HOTEL:
+            from modules.hotel.revenue_stats import hotel_day_financials
+
+            rev, var, gross = hotel_day_financials(db, cur, nxt_day)
+        elif domain == BusinessDomain.RESTAURANT:
+            from modules.reporting.queries import cogs_summary, sales_summary
+
+            ss = sales_summary(db, cur, nxt_day)
+            var = cogs_summary(db, cur, nxt_day)
+            rev = ss.revenue
+            gross = (rev - var).quantize(Decimal("0.001"))
+        else:
+            from modules.hotel.revenue_stats import hotel_day_financials
+            from modules.reporting.queries import cogs_summary, sales_summary
+
+            ss = sales_summary(db, cur, nxt_day)
+            pos_var = cogs_summary(db, cur, nxt_day)
+            h_rev, h_var, _ = hotel_day_financials(db, cur, nxt_day)
+            rev = (ss.revenue + h_rev).quantize(Decimal("0.001"))
+            var = (pos_var + h_var).quantize(Decimal("0.001"))
+            gross = (rev - var).quantize(Decimal("0.001"))
         net = (gross - burden.grand_daily).quantize(Decimal("0.001"))
-        is_profit = net >= 0 and ss.revenue > 0
-        if ss.revenue > 0:
+        is_profit = net >= 0 and rev > 0
+        if rev > 0:
             if is_profit:
                 profit_days += 1
                 total_above += net
@@ -748,16 +1154,18 @@ def reports_break_even(
                 total_below += -net
         daily_rows.append(
             {
-                "date": cur.strftime("%Y-%m-%d"),
-                "revenue": ss.revenue,
-                "cogs": cg,
+                "date": format_local_dt(cur, "%Y-%m-%d"),
+                "revenue": rev,
+                "cogs": var,
                 "gross": gross,
                 "net": net,
                 "is_profit": is_profit,
-                "no_sales": ss.revenue == 0,
+                "no_sales": rev == 0,
             }
         )
         cur = nxt_day
+
+    from modules.platform.business_domain import domain_label
 
     ctx = _common_ctx(request, period, s, e, start, end)
     ctx.update(
@@ -769,6 +1177,9 @@ def reports_break_even(
             "total_above": total_above.quantize(Decimal("0.001")),
             "total_below": total_below.quantize(Decimal("0.001")),
             "operating_days": days,
+            "finance_domain_filter": domain,
+            "domain_label": domain_label(domain) if domain else "الكل",
+            "hotel_break_even_note": False,
         }
     )
     return templates.TemplateResponse("reports_break_even.html", ctx)
@@ -794,41 +1205,75 @@ def reports_accounting_help(
 
 
 def _period_tag(period: str, s: datetime, e: datetime) -> str:
-    return f"{period}-{s.strftime('%Y%m%d')}-to-{e.strftime('%Y%m%d')}"
+    return f"{period}-{format_local_dt(s, '%Y%m%d')}-to-{format_local_dt(e, '%Y%m%d')}"
 
 
 @router.get("/export/sales.csv")
 def export_sales_csv(
+    request: Request,
     db: DBSession,
-    _: User = Depends(_perm),
+    user: User = Depends(_perm),
     period: str = Query("month"),
     start: str | None = Query(None),
     end: str | None = Query(None),
 ):
-    """تصدير قائمة المبيعات + الإجمالي."""
+    """تصدير قائمة المبيعات / تحصيلات الفندق + الإجمالي."""
+    from modules.platform.business_domain import BusinessDomain, domain_label
+    from modules.reporting.domain_financials import (
+        build_domain_period_financials,
+        domain_sales_by_payment_method,
+    )
+
     period, s, e = _resolve_period(period, start, end)
-    summary = report_queries.sales_summary(db, s, e)
-    by_pm = report_queries.sales_by_payment_method(db, s, e)
+    domain = _finance_domain_filter(request, user)
+    summary = build_domain_period_financials(db, s, e, domain=domain).sales_sum
+    by_pm = domain_sales_by_payment_method(db, s, e, domain=domain)
     sales_cash_in, refunds_cash_out, net_collected = _payment_flow_totals(by_pm)
-    delivery_cash_out = delivery_fee_cash_out_total(db, start=s, end=e)
+    delivery_cash_out = (
+        Decimal("0")
+        if domain == BusinessDomain.HOTEL
+        else delivery_fee_cash_out_total(db, start=s, end=e)
+    )
+    dom_tag = domain_label(domain) if domain else "الكل"
 
     headers = ["البند", "القيمة"]
     rows: list[list] = [
-        ["الفترة", f"{s.strftime('%Y-%m-%d')} → {e.strftime('%Y-%m-%d')}"],
-        ["عدد الفواتير", summary.invoice_count],
-        ["عدد سندات المرتجع", summary.return_count],
-        ["إجمالي المبيعات", summary.gross_revenue],
-        ["المرتجعات", summary.returns_total],
-        ["صافي المبيعات", summary.net_revenue],
-        ["متوسط الفاتورة", summary.avg_basket],
-        ["التحصيل خلال الفترة", sales_cash_in],
-        ["رد المبالغ خلال الفترة", refunds_cash_out],
-        ["صافي التحصيل", net_collected],
-        ["أجرة التوصيل الخارجة", delivery_cash_out],
-        [],
-        ["تفصيل التحصيل والرد حسب طريقة الدفع", ""],
-        ["طريقة الدفع", "عمليات التحصيل", "التحصيل", "عمليات الرد", "رد المبالغ", "الصافي"],
+        ["الفترة", f"{format_local_dt(s, '%Y-%m-%d')} → {format_local_dt(e, '%Y-%m-%d')}"],
+        ["مجال التقرير", dom_tag],
     ]
+    if domain == BusinessDomain.HOTEL:
+        rows.extend(
+            [
+                ["عدد التحصيلات", summary.invoice_count],
+                ["إيراد الإقامة (صافي)", summary.net_revenue],
+                ["متوسط التحصيل", summary.avg_basket],
+                ["التحصيل خلال الفترة", sales_cash_in],
+                ["مرتجعات التحصيل", refunds_cash_out],
+                ["صافي التحصيل", net_collected],
+            ]
+        )
+    else:
+        rows.extend(
+            [
+                ["عدد الفواتير", summary.invoice_count],
+                ["عدد سندات المرتجع", summary.return_count],
+                ["إجمالي المبيعات", summary.gross_revenue],
+                ["المرتجعات", summary.returns_total],
+                ["صافي المبيعات", summary.net_revenue],
+                ["متوسط الفاتورة", summary.avg_basket],
+                ["التحصيل خلال الفترة", sales_cash_in],
+                ["رد المبالغ خلال الفترة", refunds_cash_out],
+                ["صافي التحصيل", net_collected],
+                ["أجرة التوصيل الخارجة", delivery_cash_out],
+            ]
+        )
+    rows.extend(
+        [
+            [],
+            ["تفصيل التحصيل والرد حسب طريقة الدفع", ""],
+            ["طريقة الدفع", "عمليات التحصيل", "التحصيل", "عمليات الرد", "رد المبالغ", "الصافي"],
+        ]
+    )
     for name, sales_cnt, sales_total, refund_cnt, refund_total, net_total in by_pm:
         rows.append([name, sales_cnt, sales_total, refund_cnt, refund_total, net_total])
     return csv_response(f"sales-{_period_tag(period, s, e)}", headers, rows)
@@ -836,13 +1281,23 @@ def export_sales_csv(
 
 @router.get("/export/sales-detailed.csv")
 def export_sales_detailed_csv(
+    request: Request,
     db: DBSession,
-    _: User = Depends(_perm),
+    user: User = Depends(_perm),
     period: str = Query("month"),
     start: str | None = Query(None),
     end: str | None = Query(None),
 ):
-    """تصدير كل بنود المبيعات (سطر لكل صنف في كل فاتورة)."""
+    """تصدير كل بنود المبيعات (سطر لكل صنف في كل فاتورة) — POS فقط."""
+    from modules.platform.business_domain import BusinessDomain
+
+    period, s, e = _resolve_period(period, start, end)
+    domain = _finance_domain_filter(request, user)
+    if domain == BusinessDomain.HOTEL:
+        headers = ["ملاحظة"]
+        rows = [["تصدير بنود POS غير متاح في وضع الفندق — استخدم تقرير المبيعات أو تحصيلات الحجز."]]
+        return csv_response(f"sales-detailed-{_period_tag(period, s, e)}", headers, rows)
+
     from sqlalchemy import select as _sel
     from modules.catalog.models import Product
     from modules.payments.models import PaymentMethod, SalePayment
@@ -939,16 +1394,460 @@ def export_sales_detailed_csv(
     )
 
 
+@router.get("/export/hotel-collections.csv")
+def export_hotel_collections_csv(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_perm),
+    period: str = Query("month"),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+):
+    from modules.hotel.revenue_stats import hotel_collections_detail
+    from modules.platform.business_domain import domain_label, reports_show_hotel_sections
+
+    period, s, e = _resolve_period(period, start, end)
+    if not reports_show_hotel_sections(user, request.session):
+        return csv_response(
+            f"hotel-collections-{_period_tag(period, s, e)}",
+            ["ملاحظة"],
+            [["تصدير تحصيلات الفندق غير متاح في وضع المطعم."]],
+        )
+
+    domain = _finance_domain_filter(request, user)
+    detail_rows, summary = hotel_collections_detail(db, s, e)
+    dom_tag = domain_label(domain) if domain else "الكل"
+    headers = [
+        "نوع الحركة",
+        "رقم الحركة",
+        "مرجع الحجز",
+        "رقم الحجز",
+        "النزيل",
+        "التاريخ",
+        "المبلغ",
+        "طريقة الدفع",
+        "عربون",
+        "المستلم",
+        "ملاحظة",
+    ]
+    rows: list[list] = [
+        ["الفترة", f"{format_local_dt(s, '%Y-%m-%d')} → {format_local_dt(e, '%Y-%m-%d')}"],
+        ["مجال التقرير", dom_tag],
+        ["عدد التحصيلات", summary.payment_count],
+        ["عدد المرتجعات", summary.refund_count],
+        ["إجمالي التحصيل", summary.collected_total],
+        ["إجمالي المرتجعات", summary.refunded_total],
+        ["صافي التحصيل", summary.net_total],
+        [],
+    ]
+    for r in detail_rows:
+        rows.append(
+            [
+                r.movement_type,
+                r.movement_id,
+                r.booking_ref,
+                r.booking_id,
+                r.guest_name,
+                r.created_at,
+                r.amount,
+                r.payment_method,
+                "نعم" if r.is_deposit else "لا",
+                r.received_by,
+                r.note,
+            ]
+        )
+    return csv_response(
+        f"hotel-collections-{_period_tag(period, s, e)}", headers, rows
+    )
+
+
+@router.get("/export/hotel-bookings.csv")
+def export_hotel_bookings_csv(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_perm),
+    period: str = Query("month"),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+):
+    from modules.hotel.bookings_report import hotel_bookings_in_period
+    from modules.platform.business_domain import domain_label, reports_show_hotel_sections
+
+    period, s, e = _resolve_period(period, start, end)
+    if not reports_show_hotel_sections(user, request.session):
+        return csv_response(
+            f"hotel-bookings-{_period_tag(period, s, e)}",
+            ["ملاحظة"],
+            [["تصدير حجوزات الفندق غير متاح في وضع المطعم."]],
+        )
+
+    domain = _finance_domain_filter(request, user)
+    detail_rows, summary = hotel_bookings_in_period(db, s, e)
+    dom_tag = domain_label(domain) if domain else "الكل"
+    headers = [
+        "مرجع الحجز",
+        "رقم الحجز",
+        "النزيل",
+        "دخول",
+        "خروج",
+        "ليالي",
+        "حالة الحجز",
+        "حالة الدفع",
+        "استحقاق الإقامة",
+        "المدفوع",
+        "الرصيد",
+    ]
+    rows: list[list] = [
+        ["الفترة", f"{format_local_dt(s, '%Y-%m-%d')} → {format_local_dt(e, '%Y-%m-%d')}"],
+        ["مجال التقرير", dom_tag],
+        ["عدد الحجوزات", summary.booking_count],
+        ["إجمالي الليالي", summary.nights_total],
+        ["إجمالي الاستحقاق", summary.accommodation_total],
+        ["إجمالي المدفوع", summary.paid_total],
+        ["إجمالي الرصيد", summary.balance_total],
+        ["مسكّن حالياً", summary.checked_in_count],
+        ["مغادر", summary.checked_out_count],
+        [],
+    ]
+    for r in detail_rows:
+        rows.append(
+            [
+                r.reference,
+                r.booking_id,
+                r.guest_name,
+                r.check_in,
+                r.check_out,
+                r.nights,
+                r.booking_status_label,
+                r.payment_status_label,
+                r.accommodation_total,
+                r.paid_amount,
+                r.balance,
+            ]
+        )
+    return csv_response(
+        f"hotel-bookings-{_period_tag(period, s, e)}", headers, rows
+    )
+
+
+@router.get("/export/hotel-balances.csv")
+def export_hotel_balances_csv(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_perm),
+):
+    from modules.hotel.bookings_report import hotel_open_balances
+    from modules.platform.business_domain import domain_label, reports_show_hotel_sections
+
+    if not reports_show_hotel_sections(user, request.session):
+        return csv_response(
+            "hotel-balances",
+            ["ملاحظة"],
+            [["تصدير ذمم الحجز غير متاح في وضع المطعم."]],
+        )
+
+    domain = _finance_domain_filter(request, user)
+    detail_rows, summary = hotel_open_balances(db)
+    dom_tag = domain_label(domain) if domain else "الكل"
+    as_of = format_local_dt(datetime.now(), "%Y-%m-%d")
+    headers = [
+        "مرجع الحجز",
+        "رقم الحجز",
+        "النزيل",
+        "دخول",
+        "خروج",
+        "حالة الحجز",
+        "حالة الدفع",
+        "استحقاق الإقامة",
+        "المدفوع",
+        "الرصيد",
+    ]
+    rows: list[list] = [
+        ["تاريخ التقرير", as_of],
+        ["مجال التقرير", dom_tag],
+        ["عدد الحجوزات ذات الرصيد", summary.booking_count],
+        ["إجمالي الرصيد", summary.balance_total],
+        ["مسكّن — عدد", summary.checked_in_count],
+        ["مسكّن — رصيد", summary.checked_in_balance],
+        ["متأخر — عدد", summary.overdue_count],
+        ["متأخر — رصيد", summary.overdue_balance],
+        [],
+    ]
+    for r in detail_rows:
+        rows.append(
+            [
+                r.reference,
+                r.booking_id,
+                r.guest_name,
+                r.check_in,
+                r.check_out,
+                r.booking_status_label,
+                r.payment_status_label,
+                r.accommodation_total,
+                r.paid_amount,
+                r.balance,
+            ]
+        )
+    return csv_response(f"hotel-balances-{as_of}", headers, rows)
+
+
+@router.get("/export/hotel-daily-close.csv")
+def export_hotel_daily_close_csv(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_perm),
+    period: str = Query("month"),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+):
+    from modules.hotel.daily_close_report import hotel_daily_close_report
+    from modules.platform.business_domain import domain_label, reports_show_hotel_sections
+
+    period, s, e = _resolve_period(period, start, end)
+    if not reports_show_hotel_sections(user, request.session):
+        return csv_response(
+            f"hotel-daily-close-{_period_tag(period, s, e)}",
+            ["ملاحظة"],
+            [["تصدير الإقفال اليومي غير متاح في وضع المطعم."]],
+        )
+
+    domain = _finance_domain_filter(request, user)
+    detail_rows, summary = hotel_daily_close_report(db, s, e)
+    dom_tag = domain_label(domain) if domain else "الكل"
+    from modules.hotel.revenue_stats import hotel_cash_collected
+    from modules.reporting.comprehensive_helpers import hotel_gl_reconciliation_for_period
+
+    gl = hotel_gl_reconciliation_for_period(
+        db, s, e, operational_net=hotel_cash_collected(db, s, e)
+    )
+    rows: list[list] = [
+        ["الفترة", f"{format_local_dt(s, '%Y-%m-%d')} → {format_local_dt(e, '%Y-%m-%d')}"],
+        ["مجال التقرير", dom_tag],
+        ["عدد الأيام", summary.day_count],
+        ["أيام مُقفلة", summary.closed_days],
+        ["أيام غير مُقفلة", summary.open_days],
+        ["إجمالي التحصيل", summary.total_revenue],
+        ["إجمالي العربونات", summary.total_deposits],
+        ["متوسط الإشغال %", summary.avg_occupancy],
+    ]
+    if gl is not None:
+        rows.extend(
+            [
+                ["أيام بفارق GL", summary.days_with_gl_mismatch],
+                ["مجموع فوارق GL", summary.gl_gap_total],
+                [],
+                ["━━━━━━ مطابقة GL 4150 (الفترة) ━━━━━━", ""],
+                ["تحصيل تشغيلي", gl.operational_net],
+                ["صافي دائن GL", gl.gl_revenue_net],
+                ["الفارق", gl.gap],
+            ]
+        )
+    else:
+        rows.append([])
+    headers = [
+        "التاريخ",
+        "مُقفَل",
+        "حجوزات جديدة",
+        "تسكين",
+        "مغادرة",
+        "إلغاء",
+        "لم يحضر",
+        "صافي التحصيل",
+        "GL 4150",
+        "فارق GL",
+        "عربونات",
+        "إشغال %",
+        "غرف مشغولة",
+        "إجمالي الغرف",
+        "أُقفِل بواسطة",
+        "ملاحظات",
+    ]
+    for r in detail_rows:
+        rows.append(
+            [
+                r.day,
+                "نعم" if r.is_closed else "لا",
+                r.bookings_new,
+                r.check_ins,
+                r.check_outs,
+                r.cancellations,
+                r.no_shows,
+                r.revenue_net,
+                r.gl_revenue_net if r.gl_revenue_net is not None else "",
+                r.gl_gap if r.gl_gap is not None else "",
+                r.deposits_total,
+                r.occupancy_rate,
+                r.occupied,
+                r.total_rooms,
+                r.closed_by or "",
+                r.notes or "",
+            ]
+        )
+    return csv_response(
+        f"hotel-daily-close-{_period_tag(period, s, e)}", headers, rows
+    )
+
+
+@router.get("/export/gl-reconciliation.csv")
+def export_gl_reconciliation_csv(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_perm),
+    period: str = Query("month"),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+):
+    from modules.platform.business_domain import domain_label
+    from modules.reporting.gl_reconciliation_report import (
+        build_gl_reconciliation_report,
+        gl_reconciliation_csv_rows,
+    )
+
+    period, s, e = _resolve_period(period, start, end)
+    domain = _finance_domain_filter(request, user)
+    dom_tag = domain_label(domain) if domain else "الكل"
+    report = build_gl_reconciliation_report(db, s, e, domain=domain)
+    rows = gl_reconciliation_csv_rows(report, dom_tag, s, e)
+    headers = ["البند", "القيمة"]
+    return csv_response(
+        f"gl-reconciliation-{_period_tag(period, s, e)}", headers, rows
+    )
+
+
+@router.get("/export/revenue-matrix.csv")
+def export_revenue_matrix_csv(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_perm),
+    period: str = Query("year"),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+    bucket: str = Query("month"),
+    measure: str = Query("net"),
+    segment: str = Query("all"),
+):
+    from modules.platform.business_domain import domain_label
+    from modules.reporting.revenue_matrix import build_revenue_matrix_report, revenue_matrix_csv_rows
+
+    period, s, e = _resolve_period(period, start, end)
+    domain = _finance_domain_filter(request, user)
+    report = build_revenue_matrix_report(
+        db,
+        s,
+        e,
+        granularity=bucket,
+        measure=measure,
+        domain=domain,
+        segment=segment,
+    )
+    headers, rows = revenue_matrix_csv_rows(report)
+    dom_tag = domain_label(domain) if domain else "الكل"
+    meta_rows = [
+        ["الفترة", f"{format_local_dt(s, '%Y-%m-%d')} → {format_local_dt(e, '%Y-%m-%d')}"],
+        ["التجميع", report.granularity_label],
+        ["المقياس", report.measure_label],
+        ["المجال", dom_tag],
+        [],
+    ]
+    return csv_response(
+        f"revenue-matrix-{_period_tag(period, s, e)}",
+        headers,
+        meta_rows + rows,
+    )
+
+
+@router.get("/export/pos-daily-close.csv")
+def export_pos_daily_close_csv(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_perm),
+    period: str = Query("month"),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+):
+    from modules.platform.business_domain import domain_label, reports_show_pos_sections
+    from modules.reporting.comprehensive_helpers import restaurant_gl_reconciliation_for_period
+    from modules.reporting.domain_financials import build_domain_period_financials
+    from modules.platform.business_domain import BusinessDomain
+    from modules.reporting.pos_daily_close_report import pos_daily_close_report
+
+    period, s, e = _resolve_period(period, start, end)
+    if not reports_show_pos_sections(user, request.session):
+        return csv_response(
+            f"pos-daily-close-{_period_tag(period, s, e)}",
+            ["ملاحظة"],
+            [["تصدير إقفال المطعم غير متاح في وضع الفندق."]],
+        )
+
+    domain = _finance_domain_filter(request, user)
+    dom_tag = domain_label(domain) if domain else "المطعم"
+    detail_rows, summary = pos_daily_close_report(db, s, e)
+    pos_fin = build_domain_period_financials(
+        db, s, e, domain=BusinessDomain.RESTAURANT
+    )
+    gl = restaurant_gl_reconciliation_for_period(
+        db, s, e, operational_net=pos_fin.net_collected
+    )
+    rows: list[list] = [
+        ["الفترة", f"{format_local_dt(s, '%Y-%m-%d')} → {format_local_dt(e, '%Y-%m-%d')}"],
+        ["مجال التقرير", dom_tag],
+        ["عدد الأيام", summary.day_count],
+        ["إجمالي التحصيل", summary.total_revenue],
+        ["فواتير مكتملة", summary.total_sales],
+        ["جلسات مفتوحة", summary.total_shifts_opened],
+        ["جلسات مُغلقة", summary.total_shifts_closed],
+        ["أيام بفارق GL", summary.days_with_gl_mismatch],
+    ]
+    if gl is not None:
+        rows.extend(
+            [
+                [],
+                ["—— مطابقة GL 4100 ——", ""],
+                ["صافي تحصيل POS", gl.operational_net],
+                ["صافي دائن GL", gl.gl_revenue_net],
+                ["الفارق", gl.gap],
+            ]
+        )
+    rows.extend([[], ["—— تفصيل يومي ——", ""]])
+    headers = [
+        "التاريخ",
+        "تحصيل",
+        "فواتير",
+        "جلسات فُتحت",
+        "جلسات أُغلقت",
+        "GL 4100",
+        "فارق",
+    ]
+    rows.append(headers)
+    for r in detail_rows:
+        rows.append(
+            [
+                r.day,
+                r.revenue_net,
+                r.sales_count,
+                r.shifts_opened,
+                r.shifts_closed,
+                r.gl_revenue_net if r.gl_revenue_net is not None else "",
+                r.gl_gap if r.gl_gap is not None else "",
+            ]
+        )
+    return csv_response(
+        f"pos-daily-close-{_period_tag(period, s, e)}", headers, rows
+    )
+
+
 @router.get("/export/purchases.csv")
 def export_purchases_csv(
+    request: Request,
     db: DBSession,
-    _: User = Depends(_perm),
+    user: User = Depends(_perm),
     period: str = Query("month"),
     start: str | None = Query(None),
     end: str | None = Query(None),
 ):
     period, s, e = _resolve_period(period, start, end)
-    items = list_purchases(db, s, e, kind=PurchaseKind.INVENTORY)
+    domain = _finance_domain_filter(request, user)
+    items = list_purchases(db, s, e, kind=PurchaseKind.INVENTORY, domain=domain)
     headers = [
         "رقم الفاتورة",
         "التاريخ",
@@ -975,14 +1874,16 @@ def export_purchases_csv(
 
 @router.get("/export/expenses.csv")
 def export_expenses_csv(
+    request: Request,
     db: DBSession,
-    _: User = Depends(_perm),
+    user: User = Depends(_perm),
     period: str = Query("month"),
     start: str | None = Query(None),
     end: str | None = Query(None),
 ):
     period, s, e = _resolve_period(period, start, end)
-    items = list_purchases(db, s, e, kind=PurchaseKind.EXPENSE)
+    domain = _finance_domain_filter(request, user)
+    items = list_purchases(db, s, e, kind=PurchaseKind.EXPENSE, domain=domain)
     headers = [
         "التاريخ",
         "التصنيف",
@@ -1007,14 +1908,16 @@ def export_expenses_csv(
 
 @router.get("/export/assets.csv")
 def export_assets_csv(
+    request: Request,
     db: DBSession,
-    _: User = Depends(_perm),
+    user: User = Depends(_perm),
     period: str = Query("month"),
     start: str | None = Query(None),
     end: str | None = Query(None),
 ):
     period, s, e = _resolve_period(period, start, end)
-    items = list_purchases(db, s, e, kind=PurchaseKind.ASSET)
+    domain = _finance_domain_filter(request, user)
+    items = list_purchases(db, s, e, kind=PurchaseKind.ASSET, domain=domain)
     headers = [
         "التاريخ",
         "المورّد",
@@ -1039,14 +1942,19 @@ def export_assets_csv(
 
 @router.get("/export/profit-by-product.csv")
 def export_profit_by_product_csv(
+    request: Request,
     db: DBSession,
-    _: User = Depends(_perm),
+    user: User = Depends(_perm),
     period: str = Query("month"),
     start: str | None = Query(None),
     end: str | None = Query(None),
 ):
+    from modules.platform.business_domain import BusinessDomain
+    from modules.reporting.domain_financials import build_domain_period_financials
+
     period, s, e = _resolve_period(period, start, end)
-    items = report_queries.profit_by_product(db, s, e, limit=10000)
+    domain = _finance_domain_filter(request, user)
+    fin = build_domain_period_financials(db, s, e, domain=domain)
     headers = [
         "الصنف",
         "الكمية المباعة",
@@ -1055,6 +1963,14 @@ def export_profit_by_product_csv(
         "تكلفة المباع",
         "الربح الإجمالي",
     ]
+    if domain == BusinessDomain.HOTEL or not fin.show_product_profit:
+        return csv_response(
+            f"profit-by-product-{_period_tag(period, s, e)}",
+            headers,
+            [],
+        )
+
+    items = report_queries.profit_by_product(db, s, e, limit=10000)
     rows = [
         [
             r.name_ar,
@@ -1073,12 +1989,62 @@ def export_profit_by_product_csv(
 
 @router.get("/export/inventory.csv")
 def export_inventory_csv(
+    request: Request,
     db: DBSession,
-    _: User = Depends(_perm),
+    user: User = Depends(_perm),
     only_low: int = Query(0, ge=0, le=1),
     q: str = Query(""),
     w: str | None = Query(None),
 ):
+    from modules.platform.business_domain import reports_show_pos_sections
+
+    if not reports_show_pos_sections(user, request.session):
+        return csv_response(
+            "inventory-blocked",
+            ["ملاحظة"],
+            [["تصدير المخزون غير متاح في وضع الفندق."]],
+        )
+
+    headers, rows, suffix = _inventory_report_export_table(
+        db, only_low=bool(only_low), q=q, w=w
+    )
+    return csv_response(f"inventory-{suffix}", headers, rows)
+
+
+@router.get("/export/inventory.xlsx")
+def export_inventory_xlsx(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_perm),
+    only_low: int = Query(0, ge=0, le=1),
+    q: str = Query(""),
+    w: str | None = Query(None),
+):
+    from modules.platform.business_domain import reports_show_pos_sections
+    from modules.reporting.exports import SheetSpec, xlsx_response
+
+    if not reports_show_pos_sections(user, request.session):
+        return xlsx_response(
+            "inventory-blocked",
+            [SheetSpec(name="ملاحظة", headers=["البند"], rows=[["تصدير المخزون غير متاح في وضع الفندق."]])],
+        )
+
+    headers, rows, suffix = _inventory_report_export_table(
+        db, only_low=bool(only_low), q=q, w=w
+    )
+    return xlsx_response(
+        f"inventory-{suffix}",
+        [SheetSpec(name="المخزون", headers=headers, rows=rows)],
+    )
+
+
+def _inventory_report_export_table(
+    db: DBSession,
+    *,
+    only_low: bool,
+    q: str,
+    w: str | None,
+) -> tuple[list[str], list[list], str]:
     from modules.inventory.service import get_main_warehouse, get_warehouse
 
     warehouse_id = get_main_warehouse(db).id
@@ -1090,7 +2056,7 @@ def export_inventory_csv(
         except ValueError:
             pass
     rows_data = report_queries.inventory_snapshot(
-        db, search=q or None, only_low=bool(only_low), warehouse_id=warehouse_id
+        db, search=q or None, only_low=only_low, warehouse_id=warehouse_id
     )
     headers = [
         "الصنف",
@@ -1114,88 +2080,77 @@ def export_inventory_csv(
         for r in rows_data
     ]
     suffix = "low" if only_low else "all"
-    return csv_response(f"inventory-{suffix}", headers, rows)
+    return headers, rows, suffix
 
 
 @router.get("/export/comprehensive.csv")
 def export_comprehensive_csv(
+    request: Request,
     db: DBSession,
-    _: User = Depends(_perm),
+    user: User = Depends(_perm),
     period: str = Query("month"),
     start: str | None = Query(None),
     end: str | None = Query(None),
 ):
     """تقرير شامل في ملف واحد: كل المؤشرات."""
-    period, s, e = _resolve_period(period, start, end)
-    sales_sum = report_queries.sales_summary(db, s, e)
-    sales_by_pm = report_queries.sales_by_payment_method(db, s, e)
-    sales_cash_in, refunds_cash_out, net_collected = _payment_flow_totals(sales_by_pm)
-    delivery_cash_out = delivery_fee_cash_out_total(db, start=s, end=e)
-    cogs = report_queries.cogs_summary(db, s, e)
-    inv_purch = report_queries.inventory_purchases_summary(db, s, e)
-    expenses = report_queries.expenses_summary(db, s, e)
-    assets = report_queries.assets_summary(db, s, e)
-    consumables_period = consumable_assets_total_in_period(db, s, e)
-    depreciation_period = total_depreciation_in_period(db, s, e)
-    rec_monthly_total, rec_period_share, period_days = recurring_costs_in_period(
-        db, s, e
-    )
-    gross_profit = (sales_sum.revenue - cogs).quantize(Decimal("0.001"))
-    net_profit = (
-        gross_profit
-        - expenses.total
-        - rec_period_share
-        - consumables_period
-        - depreciation_period
-    ).quantize(Decimal("0.001"))
-    cashflow = (
-        net_collected - delivery_cash_out - inv_purch.total - expenses.total - assets.total
-    ).quantize(Decimal("0.001"))
-    inv_value = report_queries.inventory_value(db)
+    from modules.reporting.comprehensive_helpers import build_comprehensive_csv_rows
+    from modules.reporting.domain_financials import build_profit_report_bundle
 
+    period, s, e = _resolve_period(period, start, end)
+    domain = _finance_domain_filter(request, user)
+    bundle = build_profit_report_bundle(db, s, e, domain=domain)
+    dom_tag = domain_label(domain) if domain else "الكل"
     headers = ["البند", "القيمة (د.ل)"]
-    rows = [
-        ["الفترة", f"{s.strftime('%Y-%m-%d')} → {e.strftime('%Y-%m-%d')}"],
-        ["عدد أيام الفترة", f"{float(period_days):.1f}"],
-        [],
-        ["━━━━━━ الحسبة (1): الفرق المباشر ━━━━━━", ""],
-        ["+ إجمالي المبيعات", sales_sum.gross_revenue],
-        ["− المرتجعات", sales_sum.returns_total],
-        ["= صافي المبيعات", sales_sum.net_revenue],
-        ["− تكلفة البضاعة المباعة (COGS)", cogs],
-        ["= إجمالي الربح / هامش المساهمة", gross_profit],
-        [],
-        ["━━━━━━ الحسبة (2): صافي الربح بعد كل المصاريف ━━━━━━", ""],
-        ["+ إجمالي الربح من (1)", gross_profit],
-        ["− المصاريف التشغيلية", expenses.total],
-        [
-            f"− رواتب وإيجار وثابتة (حصة الفترة من {rec_monthly_total} شهرياً)",
-            rec_period_share,
-        ],
-        ["− مستلزمات استهلاكية", consumables_period],
-        ["− إهلاك الأصول الثابتة (IAS 16)", depreciation_period],
-        ["= صافي الربح/الخسارة", net_profit],
-        [],
-        ["━━━━━━ التدفق النقدي ━━━━━━", ""],
-        ["التحصيل الداخل", sales_cash_in],
-        ["رد المبالغ", refunds_cash_out],
-        ["صافي التحصيل", net_collected],
-        ["أجرة التوصيل الخارجة", delivery_cash_out],
-        ["شراء بضاعة (مخزون)", inv_purch.total],
-        ["مصاريف", expenses.total],
-        ["شراء أصول/أدوات (نقد)", assets.total],
-        ["= صافي التدفق النقدي", cashflow],
-        [],
-        ["━━━━━━ المخزون ━━━━━━", ""],
-        ["قيمة المخزون الحالية", inv_value],
-        [
-            "أصناف منخفضة المخزون",
-            sum(
-                1
-                for r in report_queries.inventory_snapshot(db, only_low=True)
-            ),
-        ],
+    rows = build_comprehensive_csv_rows(db, s, e, domain, bundle)
+    tag = _period_tag(period, s, e)
+    if domain:
+        tag = f"{domain.value}-{tag}"
+    return csv_response(f"comprehensive-{tag}", headers, rows)
+
+
+@router.get("/export/shifts.csv")
+def reports_shifts_export_csv(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_perm),
+    status: str = Query("all"),
+):
+    from modules.platform.business_domain import reports_show_pos_sections
+
+    if not reports_show_pos_sections(user, request.session):
+        return csv_response(
+            "pos-shifts-blocked",
+            ["ملاحظة"],
+            [["تصدير جلسات الكاشير غير متاح في وضع الفندق."]],
+        )
+
+    from modules.pos_shifts.shift_reports import list_shifts_index, shift_index_csv_rows
+
+    status_f = (status or "all").lower()
+    if status_f not in ("all", "open", "closed"):
+        status_f = "all"
+    rows, _ = list_shifts_index(db, status_filter=status_f, limit=5000, offset=0)
+    headers = [
+        "رقم الجلسة",
+        "الحالة",
+        "الكاشير",
+        "المستخدم",
+        "فتح",
+        "إغلاق",
+        "عدد الفواتير",
+        "إجمالي المبيعات",
+        "كاش متوقع",
+        "مصرف متوقع",
+        "كاش معدود",
+        "مصرف معدود",
+        "فرق كاش",
+        "فرق مصرف",
+        "عجز",
+        "فائض",
+        "اعتماد الخزينة",
     ]
     return csv_response(
-        f"comprehensive-{_period_tag(period, s, e)}", headers, rows
+        f"pos-shifts-{status_f}",
+        headers,
+        shift_index_csv_rows(rows),
     )

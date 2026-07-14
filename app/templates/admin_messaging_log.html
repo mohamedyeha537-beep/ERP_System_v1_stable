@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+
+{% block title %}سجل المراسلات{% endblock %}
+
+{% block body %}
+
+<h1>سجل المراسلات</h1>
+
+<a class="btn" href="/admin/messaging">رجوع</a>
+
+{% if request.query_params.get('processed') %}
+
+<p class="muted">تمت معالجة {{ request.query_params.get('processed') }} رسالة الآن.</p>
+
+{% endif %}
+
+<form method="post" action="/admin/messaging/outbox/process" style="display:inline;margin:0.5rem 0">
+
+  <button type="submit" class="btn">معالجة دفعة من الطابور الآن</button>
+
+</form>
+
+
+
+<div class="row" style="gap:0.4rem;margin:0.5rem 0;flex-wrap:wrap;align-items:center">
+
+  <span class="muted" style="font-size:0.88rem">إيقاف المعلّقة:</span>
+
+  <form method="post" action="/admin/messaging/outbox/cancel-pending" style="display:inline;margin:0" onsubmit="return confirm('إلغاء كل الرسائل المعلّقة؟');">
+
+    <input type="hidden" name="scope" value="all" />
+
+    <button type="submit" class="btn" style="background:#fef2f2;color:#b91c1c;border-color:#fecaca">إلغاء الكل (pending)</button>
+
+  </form>
+
+  <form method="post" action="/admin/messaging/outbox/cancel-pending" style="display:inline;margin:0" onsubmit="return confirm('إلغاء الدعائية المعلّقة فقط؟');">
+
+    <input type="hidden" name="scope" value="promo" />
+
+    <button type="submit" class="btn">إلغاء الدعائية فقط</button>
+
+  </form>
+
+  <form method="post" action="/admin/messaging/outbox/cancel-pending" style="display:inline;margin:0" onsubmit="return confirm('إلغاء التلقائية المعلّقة؟');">
+
+    <input type="hidden" name="scope" value="auto" />
+
+    <button type="submit" class="btn">إلغاء التلقائية فقط</button>
+
+  </form>
+
+</div>
+
+<p class="muted" style="font-size:0.82rem;margin:0 0 0.5rem">
+
+  لمنع إرسال جديد: عطّل <a href="/admin/messaging">عامل الإرسال</a> أو «بوت المراسلات».
+
+</p>
+
+{% if request.query_params.get('cancelled') %}
+
+<p class="muted" style="color:#b45309">تم إلغاء {{ request.query_params.get('cancelled') }} رسالة معلّقة.</p>
+
+{% endif %}
+
+
+
+<div class="row" style="margin:1rem 0;gap:0.5rem;flex-wrap:wrap">
+
+  <span class="muted" style="align-self:center;font-size:0.88rem">النوع:</span>
+
+  <a class="btn {% if not kind_filter %}btn-primary{% endif %}" href="/admin/messaging/log{% if status_filter %}?status={{ status_filter }}{% endif %}">الكل</a>
+
+  <a class="btn {% if kind_filter == 'auto' %}btn-primary{% endif %}" href="/admin/messaging/log?kind=auto{% if status_filter %}&status={{ status_filter }}{% endif %}">تلقائية</a>
+
+  <a class="btn {% if kind_filter == 'promo' %}btn-primary{% endif %}" href="/admin/messaging/log?kind=promo{% if status_filter %}&status={{ status_filter }}{% endif %}">دعائية</a>
+
+</div>
+
+<div class="row" style="margin:0 0 1rem;gap:0.5rem;flex-wrap:wrap">
+
+  <span class="muted" style="align-self:center;font-size:0.88rem">الحالة:</span>
+
+  <a class="btn {% if not status_filter %}btn-primary{% endif %}" href="/admin/messaging/log{% if kind_filter %}?kind={{ kind_filter }}{% endif %}">الكل</a>
+
+  {% for st in statuses %}
+
+  <a class="btn {% if status_filter == st.value %}btn-primary{% endif %}" href="/admin/messaging/log?status={{ st.value }}{% if kind_filter %}&kind={{ kind_filter }}{% endif %}">{{ st.value }}</a>
+
+  {% endfor %}
+
+</div>
+
+
+
+<table class="table">
+
+  <thead><tr><th>#</th><th>النوع</th><th>الحدث</th><th>القناة</th><th>الهاتف</th><th>الحالة</th><th>خطأ</th><th>أنشئت</th><th></th></tr></thead>
+
+  <tbody>
+
+  {% for j in jobs %}
+
+  <tr>
+
+    <td>{{ j.id }}</td>
+
+    <td>{{ kind_label_ar(message_kind(j.event_type)) }}</td>
+
+    <td>{{ event_label_ar(j.event_type) }}</td>
+
+    <td>{{ j.channel }}</td>
+
+    <td dir="ltr">{{ j.phone or '—' }}</td>
+
+    <td>{{ j.status }}</td>
+
+    <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis">{{ j.error_message or '—' }}</td>
+
+    <td>{{ j.created_at }}</td>
+
+    <td>
+
+      {% if j.status == 'failed' %}
+
+      <form method="post" action="/admin/messaging/log/{{ j.id }}/retry" style="display:inline">
+
+        <button type="submit" class="btn">إعادة</button>
+
+      </form>
+
+      {% endif %}
+
+      {% if j.status == 'pending' %}
+
+      <form method="post" action="/admin/messaging/log/{{ j.id }}/cancel" style="display:inline">
+
+        <button type="submit" class="btn" style="font-size:0.82rem">إلغاء</button>
+
+      </form>
+
+      {% endif %}
+
+    </td>
+
+  </tr>
+
+  {% else %}
+
+  <tr><td colspan="9" class="muted">لا سجلات.</td></tr>
+
+  {% endfor %}
+
+  </tbody>
+
+</table>
+
+{% endblock %}
+

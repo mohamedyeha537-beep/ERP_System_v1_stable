@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button with context %}
+{% block title %}الإقفال اليومي — المطعم{% endblock %}
+{% block body %}
+<h1>الإقفال اليومي للمطعم{% if domain_label %} — {{ domain_label }}{% endif %}</h1>
+<p class="muted" style="margin-top:-0.35rem;margin-bottom:0.75rem">ملخص يومي: جلسات الكاشير، فواتير مكتملة، وصافي التحصيل — مع مطابقة GL 4100.</p>
+{{ reports_nav('pos_daily_close') }}
+{{ period_filter('/reports/pos-daily-close', period, period_labels, start, end, start_str, end_str) }}
+{{ report_export_format_help() }}
+<div class="export-bar">
+  <span class="label">Excel (.csv):</span>
+  {{ export_button('/reports/export/pos-daily-close.csv?period=' ~ period, 'إقفال المطعم') }}
+  <span class="label no-print" style="margin-inline-start:0.75rem">PDF:</span>
+  {{ pdf_export_button() }}
+</div>
+
+<div class="card no-print" style="background:#eff6ff;border-color:#93c5fd">
+  <p style="margin:0;font-size:0.9rem">عند إغلاق جلسة الكاشير يُرحَّل GL تلقائياً للحركات الناقصة — راجع <a href="/reports/shifts">جلسات الكاشير</a> أو <a href="/pos/shift">شاشة الجلسة</a>.</p>
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">ملخص الفترة</h2>
+  <div class="stat-grid">
+    <div class="stat-card"><div class="label">عدد الأيام</div><div class="value">{{ summary.day_count }}</div></div>
+    <div class="stat-card good"><div class="label">إجمالي التحصيل</div><div class="value">{{ summary.total_revenue }} د.ل</div></div>
+    <div class="stat-card"><div class="label">فواتير مكتملة</div><div class="value">{{ summary.total_sales }}</div></div>
+    <div class="stat-card"><div class="label">جلسات فُتحت</div><div class="value">{{ summary.total_shifts_opened }}</div></div>
+    <div class="stat-card"><div class="label">جلسات أُغلقت</div><div class="value">{{ summary.total_shifts_closed }}</div></div>
+    {% if summary.days_with_gl_mismatch is defined %}
+    <div class="stat-card {% if summary.days_with_gl_mismatch > 0 %}bad{% else %}good{% endif %}"><div class="label">أيام بفارق GL</div><div class="value">{{ summary.days_with_gl_mismatch }}</div></div>
+    {% endif %}
+  </div>
+</div>
+
+{% if restaurant_gl_recon %}
+<div class="card" style="border-color:#6ee7b7;background:linear-gradient(180deg,#ecfdf5 0%,#fff 55%)">
+  <h2 style="margin-top: 0">مطابقة GL — حساب {{ restaurant_gl_recon.account_code }}</h2>
+  <p class="muted" style="margin-top:0;font-size:0.85rem">{{ restaurant_gl_recon.account_name }} · {{ restaurant_gl_recon.from_date }} → {{ restaurant_gl_recon.to_date }}</p>
+  <div class="stat-grid">
+    <div class="stat-card good"><div class="label">تحصيل تشغيلي (الفترة)</div><div class="value">{{ restaurant_gl_recon.operational_net }} د.ل</div></div>
+    <div class="stat-card"><div class="label">صافي دائن GL</div><div class="value">{{ restaurant_gl_recon.gl_revenue_net }} د.ل</div></div>
+    <div class="stat-card {% if restaurant_gl_recon.gap == 0 %}good{% else %}bad{% endif %}"><div class="label">الفارق (تشغيل − GL)</div><div class="value">{{ restaurant_gl_recon.gap }} د.ل</div></div>
+  </div>
+  {% if restaurant_gl_recon.account_id %}
+  <p style="margin:0.65rem 0 0;font-size:0.88rem">
+    <a href="/admin/gl/accounts/{{ restaurant_gl_recon.account_id }}/ledger">دفتر حساب {{ restaurant_gl_recon.account_code }} ←</a>
+    · <a href="/reports/sales?period={{ period }}">المبيعات</a>
+    · <a href="/reports/gl-reconciliation?period={{ period }}">مطابقة GL</a>
+  </p>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top: 0">تفاصيل الأيام{% if restaurant_gl_recon %} · مطابقة GL 4100 يومياً{% endif %}</h2>
+  {% if rows %}
+  <table>
+    <thead>
+      <tr>
+        <th>التاريخ</th>
+        <th>تحصيل</th>
+        <th>فواتير</th>
+        <th>جلسات فُتحت</th>
+        <th>جلسات أُغلقت</th>
+        {% if restaurant_gl_recon %}<th>GL 4100</th><th>فارق</th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr{% if r.gl_gap is not none and r.gl_gap != 0 %} style="background:#fef2f2"{% endif %}>
+        <td><strong>{{ r.day }}</strong></td>
+        <td>{{ r.revenue_net }} د.ل</td>
+        <td>{{ r.sales_count }}</td>
+        <td>{{ r.shifts_opened }}</td>
+        <td>{{ r.shifts_closed }}</td>
+        {% if restaurant_gl_recon %}
+        <td>{% if r.gl_revenue_net is not none %}{{ r.gl_revenue_net }}{% else %}—{% endif %}</td>
+        <td{% if r.gl_gap is not none and r.gl_gap != 0 %} style="color:#b91c1c;font-weight:600"{% endif %}>{% if r.gl_gap is not none %}{{ r.gl_gap }}{% else %}—{% endif %}</td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">لا توجد أيام في الفترة المحددة.</p>
+  {% endif %}
+</div>
+{% endblock %}

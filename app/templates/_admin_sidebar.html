@@ -1,0 +1,285 @@
+{# قائمة جانبية للمدير — تُضمَّن من base.html #}
+
+{% macro sidebar_link(href, label, match_prefix=none, exact=false, ui=none) %}
+
+  {% if ui is not none and not pos_ui_show(request, ui) %}{% else %}
+
+  {% set prefix = match_prefix if match_prefix is not none else href %}
+
+  {% set active = (request.url.path == href) if exact else (request.url.path == href or request.url.path.startswith(prefix + '/') or request.url.path == prefix) %}
+
+  <a class="admin-sidebar-link{% if active %} is-active{% endif %}" href="{{ href }}">{{ label }}</a>
+
+  {% endif %}
+
+{% endmacro %}
+
+
+
+<aside class="admin-sidebar" id="adminSidebar" aria-label="قائمة الإدارة">
+
+  <div class="admin-sidebar-head">
+
+    <span class="admin-sidebar-title">لوحة الإدارة</span>
+
+    <button type="button" class="admin-sidebar-close" id="adminSidebarClose" aria-label="إغلاق">✕</button>
+
+  </div>
+
+  <nav class="admin-sidebar-nav">
+
+    {% if pos_ui_show(request, 'ui_nav_home') %}
+
+    {{ sidebar_link('/', 'الرئيسية', exact=true, ui='ui_nav_home') }}
+
+    {% endif %}
+
+
+
+    {% if nav_hotel and pos_ui_show(request, 'ui_nav_hotel_group') %}
+
+    <details class="admin-sidebar-group" open>
+
+      <summary>الشقق والفندق</summary>
+
+      <div class="admin-sidebar-links">
+
+        {{ sidebar_link('/admin/hotel/dashboard', 'لوحة الفندق', '/admin/hotel', ui='ui_hotel') }}
+
+        {% if p('hotel:booking:view') %}{{ sidebar_link('/admin/hotel/bookings', 'الحجوزات', '/admin/hotel/bookings', ui='ui_hotel') }}{% endif %}
+
+        {% if p('hotel:rooms:manage') %}{{ sidebar_link('/admin/hotel/rooms', 'الغرف والشقق', '/admin/hotel/rooms', ui='ui_hotel') }}{% endif %}
+
+        {% if p('hotel:settle') %}{{ sidebar_link('/hotel/settle', 'تسوية الغرف', '/hotel/settle', ui='ui_hotel_settle') }}{% endif %}
+
+      </div>
+
+    </details>
+
+    {% endif %}
+
+
+
+    {% if p('reports:view') or p('hotel:booking:manage') or p('hotel:finance:close_day') %}
+
+    {{ sidebar_link('/admin/shifts', 'الورديات', '/admin/shifts') }}
+
+    {% endif %}
+
+
+
+    {% if nav_sales and pos_ui_show(request, 'ui_nav_sales_group') %}
+
+    <details class="admin-sidebar-group" open>
+
+      <summary>المبيعات والمطعم</summary>
+
+      <div class="admin-sidebar-links">
+
+        {% if p('sales:create') %}{{ sidebar_link('/pos', 'نقطة البيع', '/pos', exact=true, ui='ui_pos') }}{% endif %}
+
+        {% if p('tables:manage') %}{{ sidebar_link('/admin/tables', 'الطاولات', '/admin/tables', ui='ui_tables') }}{% endif %}
+
+        {% if p('kds:view') %}{{ sidebar_link('/admin/kds', 'شاشة المطبخ', '/admin/kds', ui='ui_kds') }}{% endif %}
+
+        {% if p('reports:view') %}{{ sidebar_link('/reports', 'التقارير', '/reports', ui='ui_reports') }}{% endif %}
+
+        {% if p('sales:refund') %}{{ sidebar_link('/refunds', 'استرداد المبيعات', '/refunds', ui='ui_reports') }}{% endif %}
+
+        {% if p('sales:edit_invoice') %}{{ sidebar_link('/sales/invoices', 'تعديل الفواتير', '/sales/invoices', ui='ui_reports') }}{% endif %}
+
+        {% if p('delivery:manage') %}{{ sidebar_link('/admin/delivery-zones', 'مناطق التوصيل', '/admin/delivery-zones', ui='ui_settings') }}{% endif %}
+
+      </div>
+
+    </details>
+
+    {% endif %}
+
+
+
+    {% if nav_sales and nav_stock and pos_ui_show(request, 'ui_nav_stock_group') %}
+
+    <details class="admin-sidebar-group" open>
+
+      <summary>المخزون والأصناف</summary>
+
+      <div class="admin-sidebar-links">
+
+        {% if p('inventory:view') %}{{ sidebar_link('/inventory', 'المخزون', '/inventory', ui='ui_inventory') }}{% endif %}
+
+        {% if p('warehouses:manage') %}{{ sidebar_link('/admin/warehouses', 'المخازن', '/admin/warehouses', ui='ui_inventory') }}{% endif %}
+
+        {% if p('catalog:write') %}{{ sidebar_link('/catalog/products', 'الأصناف', '/catalog/products', ui='ui_catalog') }}{% endif %}
+
+        {% if p('catalog:write') %}{{ sidebar_link('/catalog/categories', 'الفئات', '/catalog/categories', ui='ui_categories') }}{% endif %}
+
+        {% if p('catalog:write') %}{{ sidebar_link('/catalog/import-export', 'استيراد / تصدير', '/catalog/import-export', ui='ui_catalog') }}{% endif %}
+
+        {% if p('purchases:manage') or p('purchases:invoices') %}{{ sidebar_link('/admin/purchases', 'المشتريات', '/admin/purchases', ui='ui_purchases') }}{% endif %}
+
+      </div>
+
+    </details>
+
+    {% elif nav_hotel and (p('purchases:manage') or p('purchases:invoices')) and pos_ui_show(request, 'ui_nav_stock_group') %}
+
+    <details class="admin-sidebar-group" open>
+
+      <summary>مستهلكات ومشتريات الفندق</summary>
+
+      <div class="admin-sidebar-links">
+
+        {% if p('purchases:manage') %}{{ sidebar_link('/admin/consumables', 'مستهلكات الفندق', '/admin/consumables', ui='ui_purchases') }}{% endif %}
+
+        {% if p('purchases:manage') %}{{ sidebar_link('/admin/consumable-categories', 'تصنيفات المستهلكات', '/admin/consumable-categories', ui='ui_purchases') }}{% endif %}
+
+        {% if p('purchases:manage') or p('purchases:invoices') %}{{ sidebar_link('/admin/purchases', 'المشتريات', '/admin/purchases', ui='ui_purchases') }}{% endif %}
+
+      </div>
+
+    </details>
+
+    {% endif %}
+
+
+
+    {% if p('hr:view') and pos_ui_show(request, 'ui_nav_hr_group') %}
+
+    <details class="admin-sidebar-group">
+
+      <summary>الموظفون والرواتب</summary>
+
+      <div class="admin-sidebar-links">
+
+        {{ sidebar_link('/admin/employees', 'الموظفون', '/admin/employees', ui='ui_hr') }}
+
+        {{ sidebar_link('/admin/attendance', 'الحضور والانصراف', '/admin/attendance', ui='ui_hr') }}
+
+        {{ sidebar_link('/admin/payroll', 'الرواتب', '/admin/payroll', ui='ui_hr') }}
+
+        {{ sidebar_link('/admin/advances', 'السلف', '/admin/advances', ui='ui_hr') }}
+
+        {% if nav_sales %}{{ sidebar_link('/admin/employee-meals', 'وجبات الموظفين', '/admin/employee-meals', ui='ui_hr') }}{% endif %}
+
+        {{ sidebar_link('/admin/departments', 'الأقسام', '/admin/departments', ui='ui_hr') }}
+
+        {{ sidebar_link('/admin/work-shifts', 'ورديات العمل', '/admin/work-shifts', ui='ui_hr') }}
+
+      </div>
+
+    </details>
+
+    {% endif %}
+
+
+
+    {% if (p('customers:view') or (p('customers:manage') and nav_sales)) and pos_ui_show(request, 'ui_nav_customers_group') %}
+
+    <details class="admin-sidebar-group">
+
+      <summary>{% if nav_sales %}العملاء والولاء{% else %}العملاء{% endif %}</summary>
+
+      <div class="admin-sidebar-links">
+
+        {% if p('customers:view') %}{{ sidebar_link('/admin/customers', 'العملاء', '/admin/customers', ui='ui_customers') }}{% endif %}
+
+        {% if p('customers:manage') and nav_sales %}{{ sidebar_link('/admin/loyalty', 'إعدادات الولاء', '/admin/loyalty', ui='ui_loyalty') }}{% endif %}
+
+      </div>
+
+    </details>
+
+    {% endif %}
+
+
+
+    {% if (p('purchases:manage') or p('gl:manage')) and pos_ui_show(request, 'ui_nav_finance_group') %}
+
+    <details class="admin-sidebar-group">
+
+      <summary>المالية والمحاسبة</summary>
+
+      <div class="admin-sidebar-links">
+
+        {% if p('purchases:manage') %}{{ sidebar_link('/admin/expenses', 'المصروفات', '/admin/expenses', ui='ui_expenses') }}{% endif %}
+
+        {% if p('purchases:manage') %}{{ sidebar_link('/admin/assets', 'الأصول', '/admin/assets', ui='ui_assets') }}{% endif %}
+
+        {% if p('purchases:manage') %}{{ sidebar_link('/admin/recurring-costs', 'التكاليف الشهرية', '/admin/recurring-costs', ui='ui_recurring') }}{% endif %}
+
+        {% if p('reports:view') or p('gl:manage') %}{{ sidebar_link('/admin/finance-hub', 'مركز الربح', '/admin/finance-hub', ui='ui_finance_hub') }}{% endif %}
+
+        {% if p('gl:manage') %}{{ sidebar_link('/admin/gl', 'دفتر الأستاذ', '/admin/gl', ui='ui_gl') }}{% endif %}
+
+        {% if p('payments:manage') %}{{ sidebar_link('/admin/payment-methods', 'أساليب الدفع', '/admin/payment-methods', ui='ui_payment_methods') }}{% endif %}
+
+      </div>
+
+    </details>
+
+    {% endif %}
+
+
+
+    {% if (p('messaging:manage') or p('admin:settings') or p('reports:view') or ((p('messaging:view') or p('messaging:send')) and nav_sales)) and pos_ui_show(request, 'ui_nav_messaging_group') %}
+
+    <details class="admin-sidebar-group"{% if '/admin/activity' in request.url.path or '/admin/notifications' in request.url.path or '/admin/messaging' in request.url.path %} open{% endif %}>
+
+      <summary>الإشعارات والمراسلات</summary>
+
+      <div class="admin-sidebar-links">
+        {% if p('admin:settings') or p('reports:view') or p('messaging:manage') %}{{ sidebar_link('/admin/activity', 'مركز الإشعارات', '/admin/activity') }}{% endif %}
+        {% if p('messaging:manage') %}{{ sidebar_link('/admin/notifications', 'محرك الإشعارات', '/admin/notifications', ui='ui_messaging') }}{% endif %}
+
+        {% if nav_sales and (p('messaging:manage') or p('messaging:view') or p('messaging:send')) %}{{ sidebar_link('/admin/messaging/inbox', 'صندوق الوارد', '/admin/messaging/inbox', ui='ui_messaging') }}{% endif %}
+
+        {% if nav_sales and p('messaging:manage') %}{{ sidebar_link('/admin/messaging/chat-orders', 'طلبات الشات', '/admin/messaging/chat-orders', ui='ui_messaging') }}{% endif %}
+
+      </div>
+
+    </details>
+
+    {% endif %}
+
+
+
+    {% if (p('admin:settings') or p('admin:users') or p('admin:roles') or p('backup:manage') or p('branding:manage')) and pos_ui_show(request, 'ui_nav_system_group') %}
+
+    <details class="admin-sidebar-group">
+
+      <summary>النظام والإعدادات</summary>
+
+      <div class="admin-sidebar-links">
+
+        {% if p('admin:settings') %}{{ sidebar_link('/admin/settings', 'الإعدادات', '/admin/settings', ui='ui_settings') }}{% endif %}
+
+        {% if p('admin:settings') and nav_sales %}{{ sidebar_link('/admin/alerts', 'تنبيهات النفاد', '/admin/alerts', ui='ui_settings') }}{% endif %}
+
+        {% if p('admin:users') %}{{ sidebar_link('/admin/users', 'المستخدمون', '/admin/users', ui='ui_users') }}{% endif %}
+
+        {% if p('admin:roles') %}{{ sidebar_link('/admin/roles', 'الأدوار', '/admin/roles', ui='ui_roles') }}{% endif %}
+
+        {% if p('admin:roles') and nav_sales %}{{ sidebar_link('/catalog/units', 'وحدات القياس', '/catalog/units', ui='ui_catalog') }}{% endif %}
+
+        {% if p('branding:manage') %}{{ sidebar_link('/admin/branding', 'الهوية البصرية', '/admin/branding', ui='ui_branding') }}{% endif %}
+
+        {% if p('branding:manage') %}{{ sidebar_link('/admin/web-marketing', 'SEO والتحليلات', '/admin/web-marketing', ui='ui_branding') }}{% endif %}
+
+        {% if p('backup:manage') %}{{ sidebar_link('/admin/backup', 'نسخ احتياطي', '/admin/backup', ui='ui_backup') }}{% endif %}
+
+        {% if p('admin:settings') %}{{ sidebar_link('/admin/printing', 'الطباعة', '/admin/printing', ui='ui_settings') }}{% endif %}
+
+      </div>
+
+    </details>
+
+    {% endif %}
+
+  </nav>
+
+</aside>
+
+<div class="admin-sidebar-backdrop" id="adminSidebarBackdrop" hidden></div>
+
+

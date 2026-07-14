@@ -1,0 +1,46 @@
+{% if loyalty_quote and loyalty_quote.can_redeem and can_redeem_loyalty %}
+<div class="card" id="loyalty-redeem-block" style="margin-bottom:1rem;border-color:#fbbf24;background:#fffbeb"
+     data-max-discount="{{ loyalty_quote.max_discount }}"
+     data-max-points="{{ loyalty_quote.max_points }}"
+     data-sale-total="{{ sale.total }}">
+  <label style="display:flex;align-items:flex-start;gap:0.5rem;cursor:pointer;font-weight:600">
+    <input type="checkbox" name="use_loyalty_redeem" id="use-loyalty-redeem" value="on" style="margin-top:0.2rem;flex-shrink:0;width:1.1rem;height:1.1rem;cursor:pointer" />
+    <span>
+      ⭐ استخدام نقاط الولاء
+      <span style="display:block;font-weight:400;font-size:0.88rem;color:#92400e;margin-top:0.2rem">
+        الرصيد: {{ '%.0f' % loyalty_quote.balance }} نقطة —
+        خصم حتى <strong>{{ pos_money(loyalty_quote.max_discount) }}</strong>
+        <span class="money-currency">د.ل</span>
+        {% if loyalty_quote.max_redeem_percent_of_sale < 100 %}
+        (حد أقصى {{ '%.0f' % loyalty_quote.max_redeem_percent_of_sale }}٪ من الفاتورة = {{ pos_money(loyalty_quote.percent_cap_discount) }})
+        {% endif %}
+        (الحد الأدنى {{ '%.0f' % loyalty_quote.min_points }} نقطة)
+      </span>
+    </span>
+  </label>
+  <p id="loyalty-full-cover-hint" class="muted" style="display:none;margin:0.5rem 0 0;font-size:0.85rem;color:#047857">
+    ✓ يغطي الرصيد كامل الفاتورة — لا حاجة لاختيار وسيلة دفع.
+  </p>
+</div>
+{% elif customer and loyalty.enabled and loyalty_quote and not loyalty_quote.can_redeem %}
+<div class="card" style="margin-bottom:1rem;background:#f1f5f9;font-size:0.88rem">
+  {% if customer.points_balance and customer.points_balance > 0 %}
+  رصيد النقاط {{ '%.0f' % customer.points_balance }} — لا يمكن الصرف على هذه الفاتورة
+  {% if (loyalty.max_redeem_percent_of_sale | default(0)) <= 0 %}
+  (صرف النقاط غير مفعّل — حدّد نسبة في <a href="/admin/loyalty">إعدادات الولاء</a>).
+  {% else %}
+  (أقل من الحد الأدنى {{ '%.0f' % loyalty.min_points_to_redeem }} نقطة، أو يتجاوز حد الصرف {{ '%.0f' % (loyalty.max_redeem_percent_of_sale | default(0)) }}٪ من قيمة الطلب).
+  {% endif %}
+  {% else %}
+  ✓ عميل مسجّل — لا يوجد رصيد نقاط للصرف حالياً.
+  {% endif %}
+</div>
+{% elif customer and loyalty.enabled and customer.points_balance and customer.points_balance > 0 and not loyalty_quote %}
+<div class="card" style="margin-bottom:1rem;background:#f0fdf4;font-size:0.88rem;color:#166534">
+  رصيد النقاط: {{ '%.0f' % customer.points_balance }} نقطة
+</div>
+{% elif customer and loyalty.enabled and not customer.points_balance %}
+<div class="card" style="margin-bottom:1rem;background:#f0fdf4;font-size:0.88rem;color:#166534">
+  ✓ عميل مسجّل — سيُمنح نقاط ولاء بعد الدفع حسب الإعدادات.
+</div>
+{% endif %}

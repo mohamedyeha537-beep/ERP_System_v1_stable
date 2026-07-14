@@ -1,0 +1,5 @@
+{% if web_mkt is defined and web_mkt and web_mkt.tracking_body %}{{ web_mkt.tracking_body }}{% endif %}
+{% if web_mkt is defined and web_mkt and web_mkt.analytics_init %}
+<script>window.__WEB_ANALYTICS__ = {{ web_mkt.analytics_init | tojson }};</script>
+<script src="/static/web_analytics.js?v=1"></script>
+{% endif %}

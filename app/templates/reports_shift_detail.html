@@ -1,0 +1,431 @@
+{% extends "base.html" %}
+{% block title %}جلسة #{{ shift.id }} — تقرير تفصيلي{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/shift_summary.css" />
+<style>
+  @media print {
+    .no-print { display: none !important; }
+    body { background: #fff !important; }
+  }
+  .shift-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 0.65rem;
+  }
+  .shift-mini-stat {
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 10px;
+    padding: 0.65rem 0.75rem;
+    background: #fff;
+  }
+  .shift-mini-stat .lbl { font-size: 0.78rem; color: var(--muted, #64748b); }
+  .shift-mini-stat .val { font-size: 1.15rem; font-weight: 700; margin-top: 0.2rem; }
+  .shift-mini-stat.good .val { color: #15803d; }
+  .shift-mini-stat.bad .val { color: #b91c1c; }
+  .action-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; }
+</style>
+{% endblock %}
+{% block body %}
+{% if error %}<div class="alert no-print">{{ error }}</div>{% endif %}
+{% if saved %}<div class="alert no-print" style="background:#ecfdf5;border-color:#10b981;color:#065f46">تم حفظ التغييرات ✓</div>{% endif %}
+{% if request.query_params.get('handoff_revoked') %}<div class="alert no-print" style="background:#fff7ed;border-color:#fdba74;color:#9a3412">تم إلغاء الاعتماد — يمكنك التعديل ثم الاعتماد مجدداً.</div>{% endif %}
+{% if request.query_params.get('handoff') %}<div class="alert no-print" style="background:#ecfdf5;border-color:#10b981;color:#065f46">تم اعتماد وتحويل الإيراد للخزينة الرئيسية ✓</div>{% endif %}
+
+<div class="no-print action-bar" style="justify-content:space-between;align-items:flex-start">
+  <div>
+    <a class="btn" href="/admin/shifts{% if request.url.path.startswith('/reports/shifts') %}?kind=pos{% endif %}">← كل الورديات</a>
+    <h1 style="margin:0.35rem 0 0;font-size:1.35rem">جلسة #{{ shift.id }} — {{ report.cashier_label }}</h1>
+    <p class="muted" style="margin:0.25rem 0 0;font-size:0.88rem">
+      {% if shift.opened_at %}فتح {{ pos_format_dt(shift.opened_at, '%Y-%m-%d %H:%M') }}{% endif %}
+      {% if shift.closed_at %} · إغلاق {{ pos_format_dt(shift.closed_at, '%Y-%m-%d %H:%M') }}{% endif %}
+      · مستخدم النظام: {{ report.user_label }}
+    </p>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:0.5rem">
+    <button type="button" class="btn btn-primary" onclick="window.print()">طباعة / PDF</button>
+    <a class="btn" href="/pos/shift/{{ shift.id }}/report" target="_blank">تقرير مختصر</a>
+    <a class="btn" href="/pos/shift/{{ shift.id }}/export.csv">CSV</a>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">ملخص سريع</h2>
+  <div class="shift-detail-grid">
+    <div class="shift-mini-stat">
+      <div class="lbl">الحالة</div>
+      <div class="val" style="font-size:1rem">{{ shift.status.value }}</div>
+    </div>
+    <div class="shift-mini-stat good">
+      <div class="lbl">فواتير مكتملة</div>
+      <div class="val">{{ report.sales_count }}</div>
+    </div>
+    <div class="shift-mini-stat good">
+      <div class="lbl">إجمالي المبيعات</div>
+      <div class="val">{{ pos_money(report.sales_total) }} <span class="money-currency">د.ل</span></div>
+    </div>
+    <div class="shift-mini-stat" style="border-color:#fed7aa;background:#fffbeb">
+      <div class="lbl">إجمالي التكاليف</div>
+      <div class="val" style="color:#b45309">{{ pos_money(report.total_costs) }} <span class="money-currency">د.ل</span></div>
+      <div class="lbl" style="margin-top:0.15rem;font-size:0.72rem">تكلفة المباع (COGS)</div>
+    </div>
+    <div class="shift-mini-stat">
+      <div class="lbl">كاش معدود</div>
+      <div class="val">{% if shift.counted_cash is not none %}{{ pos_money(shift.counted_cash) }}{% else %}—{% endif %}</div>
+    </div>
+    <div class="shift-mini-stat">
+      <div class="lbl">مصرف معدود</div>
+      <div class="val">{% if shift.counted_bank is not none %}{{ pos_money(shift.counted_bank) }}{% else %}—{% endif %}</div>
+    </div>
+    {% if report.counted_total is not none %}
+    <div class="shift-mini-stat good">
+      <div class="lbl">إجمالي معدود (كاش+مصرف)</div>
+      <div class="val">{{ pos_money(report.counted_total) }} <span class="money-currency">د.ل</span></div>
+    </div>
+    {% endif %}
+    {% if shift.status.value == 'CLOSED' %}
+    {% set _sh_total = namespace(v=0) %}
+    {% set _su_total = namespace(v=0) %}
+    {% for s in report.shortage_rows %}
+    {% set _sh_total.v = _sh_total.v + s.shortage_amount %}
+    {% endfor %}
+    {% if shift.cash_difference is not none and shift.cash_difference > 0 %}
+    {% set _su_total.v = _su_total.v + shift.cash_difference %}
+    {% endif %}
+    {% if shift.bank_difference is not none and shift.bank_difference > 0 %}
+    {% set _su_total.v = _su_total.v + shift.bank_difference %}
+    {% endif %}
+    {% if _sh_total.v > 0 %}
+    <div class="shift-mini-stat bad">
+      <div class="lbl">عجز (كاش + مصرف)</div>
+      <div class="val">{{ pos_money(_sh_total.v) }} <span class="money-currency">د.ل</span></div>
+    </div>
+    {% endif %}
+    {% if _su_total.v > 0 %}
+    <div class="shift-mini-stat good">
+      <div class="lbl">فائض (كاش + مصرف)</div>
+      <div class="val">{{ pos_money(_su_total.v) }} <span class="money-currency">د.ل</span></div>
+    </div>
+    {% endif %}
+    {% endif %}
+    {% if report.cancelled_count or report.draft_count %}
+    <div class="shift-mini-stat">
+      <div class="lbl">ملغاة / مسودات</div>
+      <div class="val" style="font-size:0.95rem">{{ report.cancelled_count }} / {{ report.draft_count }}</div>
+    </div>
+    {% endif %}
+  </div>
+  {% if shift.opening_note %}
+  <p style="margin:0.75rem 0 0"><strong>ملاحظة الفتح:</strong> {{ shift.opening_note }}</p>
+  {% endif %}
+  {% if shift.opening_cash and shift.opening_cash > 0 %}
+  <p style="margin:0.35rem 0 0"><strong>رصيد افتتاحي (فكة):</strong> {{ pos_money(shift.opening_cash) }} <span class="money-currency">د.ل</span></p>
+  {% endif %}
+  {% if shift.closing_note %}
+  <p style="margin:0.35rem 0 0"><strong>ملاحظة الإغلاق:</strong> {{ shift.closing_note }}</p>
+  {% endif %}
+</div>
+
+{% if shift.status.value == 'CLOSED' and shift.gl_operational_net is not none %}
+<div class="card" style="border-color:#6ee7b7;background:linear-gradient(180deg,#ecfdf5 0%,#fff 55%)">
+  <h2 style="margin-top:0">مطابقة GL — حساب 4100</h2>
+  {% if shift.gl_backfilled_entries and shift.gl_backfilled_entries > 0 %}
+  <p class="muted" style="margin:0 0 0.5rem;font-size:0.88rem">تم ترحيل <strong>{{ shift.gl_backfilled_entries }}</strong> قيد GL ناقص عند الإغلاق.</p>
+  {% endif %}
+  <div class="shift-detail-grid">
+    <div class="shift-mini-stat good">
+      <div class="lbl">صافي تحصيل الجلسة</div>
+      <div class="val">{{ pos_money(shift.gl_operational_net) }} <span class="money-currency">د.ل</span></div>
+    </div>
+    <div class="shift-mini-stat">
+      <div class="lbl">إيراد GL (4100)</div>
+      <div class="val">{% if shift.gl_revenue_net is not none %}{{ pos_money(shift.gl_revenue_net) }}{% else %}—{% endif %}</div>
+    </div>
+    <div class="shift-mini-stat {% if shift.gl_gap is not none and shift.gl_gap == 0 %}good{% elif shift.gl_gap is not none %}bad{% endif %}">
+      <div class="lbl">الفارق (تحصيل − GL)</div>
+      <div class="val">{% if shift.gl_gap is not none %}{{ pos_money(shift.gl_gap) }}{% else %}—{% endif %}</div>
+    </div>
+  </div>
+  <p style="margin:0.65rem 0 0;font-size:0.85rem">
+    <a href="/reports/gl-reconciliation?period=custom">مطابقة GL ←</a>
+    · <a href="/reports/pos-daily-close?period=month">الإقفال اليومي</a>
+  </p>
+</div>
+{% endif %}
+
+{% if shift.status.value == 'OPEN' %}
+<div class="card no-print" style="margin-top:1rem;border:2px solid #f59e0b;background:linear-gradient(180deg,#fffbeb,#fff)">
+  <h2 style="margin-top:0;color:#92400e">جلسة مفتوحة</h2>
+  <p class="muted" style="margin:0 0 0.75rem;line-height:1.65">
+    الإغلاق العادي يتم من حساب الكاشير (<strong>{{ report.user_label }}</strong>) في
+    <a href="/pos/shift">جلسة الكاشير</a> بعد عدّ النقد.
+    {% if can_admin_close %}يمكنك إغلاقها إدارياً من هنا إن لم يعد الكاشير متاحاً.{% endif %}
+  </p>
+
+  {% if pending_orders %}
+  <div style="margin-bottom:0.75rem;padding:0.65rem 0.85rem;background:#fef2f2;border-radius:8px;border:1px solid #fecaca">
+    <strong style="color:#b91c1c">{{ pending_orders|length }} طلب/طلبات عالقة تمنع الإغلاق:</strong>
+    <ul style="margin:0.4rem 0 0;padding-right:1.2rem;font-size:0.88rem">
+      {% for p in pending_orders %}
+      <li>#{{ p.id }} — {{ p.label }} ({{ p.status }})</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% if can_admin_close %}
+  <details open style="margin-top:0.5rem">
+    <summary style="cursor:pointer;font-weight:700;color:#92400e">إغلاق إداري (للمدير)</summary>
+    <form method="post" action="/reports/shifts/{{ shift.id }}/admin-close" style="margin-top:0.75rem;display:flex;flex-direction:column;gap:0.55rem;max-width:32rem" onsubmit="return confirm('إغلاق الجلسة #{{ shift.id }} إدارياً؟');">
+      <p class="muted" style="margin:0;font-size:0.85rem">
+        اترك المبالغ فارغة لاستخدام المتوقع تلقائياً:
+        كاش {{ pos_money(expected_cash) }} · مصرف {{ pos_money(expected_bank) }} د.ل
+      </p>
+      <div>
+        <label>كاش معدود (د.ل)</label>
+        <input name="counted_cash" type="number" step="0.001" min="0" placeholder="{{ pos_money_plain(expected_cash) }}" />
+      </div>
+      <div>
+        <label>مصرف معدود (د.ل)</label>
+        <input name="counted_bank" type="number" step="0.001" min="0" placeholder="{{ pos_money_plain(expected_bank) }}" />
+      </div>
+      <div>
+        <label>ملاحظة</label>
+        <input name="closing_note" placeholder="مثال: الكاشير غادر دون إغلاق" />
+      </div>
+      <label><input type="checkbox" name="cancel_safe_drafts" value="on" checked /> إلغاء المسودات غير المُرسَلة للمطبخ</label>
+      <label><input type="checkbox" name="force_ignore_pending" value="on" /> تجاهل الطلبات العالقة (استخدم بحذر)</label>
+      <button type="submit" class="btn" style="background:#dc2626;color:#fff;border-color:#b91c1c;align-self:flex-start">⊗ إغلاق إداري للجلسة</button>
+    </form>
+  </details>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card" style="margin-top:1rem">
+  {% set shift_id = shift.id %}
+  {% set show_drawer_expected = true %}
+  {% set show_count_preview = false %}
+  {% include "_shift_financial_summary.html" %}
+  {% if shift_financial.loyalty_dinar_cost and shift_financial.loyalty_dinar_cost > 0 %}
+  <p class="muted no-print" style="margin:0.75rem 0 0;font-size:0.88rem">
+    <a href="/reports/shifts/{{ shift.id }}/loyalty">تفاصيل صرف نقاط الولاء</a>
+    — {{ shift_financial.loyalty_redeem_count }} عملية بقيمة {{ pos_money(shift_financial.loyalty_dinar_cost) }} د.ل (تكلفة تسويق).
+  </p>
+  {% endif %}
+  {% if shift.status.value == 'CLOSED' %}
+  <div style="margin-top:0.65rem;padding-top:0.55rem;border-top:1px solid var(--border,#e2e8f0)">
+    {% set cash_short = (-shift.cash_difference) if shift.cash_difference is not none and shift.cash_difference < 0 else 0 %}
+    {% set bank_short = (-shift.bank_difference) if shift.bank_difference is not none and shift.bank_difference < 0 else 0 %}
+    {% set cash_sur = shift.cash_difference if shift.cash_difference is not none and shift.cash_difference > 0 else 0 %}
+    {% set bank_sur = shift.bank_difference if shift.bank_difference is not none and shift.bank_difference > 0 else 0 %}
+    {% set short_total = cash_short + bank_short %}
+    {% set sur_total = cash_sur + bank_sur %}
+    <p style="margin:0.25rem 0"><strong>فرق الكاش (معدود − متوقع):</strong>
+      {% if shift.cash_difference is not none %}
+      <span {% if shift.cash_difference < 0 %}style="color:#b91c1c;font-weight:700"{% elif shift.cash_difference > 0 %}style="color:#15803d"{% endif %}>
+        {{ pos_money(shift.cash_difference) }} <span class="money-currency">د.ل</span>
+      </span>
+      {% else %}—{% endif %}
+    </p>
+    <p style="margin:0.25rem 0"><strong>فرق المصرف:</strong>
+      {% if shift.bank_difference is not none %}
+      <span {% if shift.bank_difference < 0 %}style="color:#b91c1c;font-weight:700"{% elif shift.bank_difference > 0 %}style="color:#15803d"{% endif %}>
+        {{ pos_money(shift.bank_difference) }} <span class="money-currency">د.ل</span>
+      </span>
+      {% else %}—{% endif %}
+    </p>
+    {% if short_total > 0 %}
+    <p style="margin:0.35rem 0 0"><strong>إجمالي العجز:</strong> <span style="color:#b91c1c;font-weight:700">{{ pos_money(short_total) }} <span class="money-currency">د.ل</span></span></p>
+    {% endif %}
+    {% if sur_total > 0 %}
+    <p style="margin:0.25rem 0"><strong>إجمالي الفائض:</strong> <span style="color:#15803d;font-weight:700">{{ pos_money(sur_total) }} <span class="money-currency">د.ل</span></span></p>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+{% if shift.status.value == 'CLOSED' %}
+<div class="card" style="margin-top:1rem;border-color:#bfdbfe">
+  <h2 style="margin-top:0">اعتماد الخزينة الرئيسية</h2>
+  {% if shift.treasury_handoff_at %}
+  <p style="margin:0;color:#15803d;font-weight:600">
+    ✓ تم الاعتماد {{ pos_format_dt(shift.treasury_handoff_at, '%Y-%m-%d %H:%M') }}
+    {% if report.handoff_by_label %} — {{ report.handoff_by_label }}{% endif %}
+  </p>
+  {% if can_revoke_handoff %}
+  <details class="no-print" style="margin-top:0.85rem;padding:0.75rem;border:1px dashed #fca5a5;border-radius:10px;background:#fff5f5">
+    <summary style="cursor:pointer;font-weight:700;color:#b91c1c">↩ إلغاء الاعتماد وفتح للتعديل</summary>
+    <p class="muted" style="margin:0.55rem 0;font-size:0.86rem;line-height:1.6">
+      يُعكس تحويل الإيراد من الخزينة الرئيسية إلى محفظة الكاشير، وتُعاد الجلسة لحالة «بانتظار الاعتماد».
+      بعد التصحيح، اعتمد من جديد بالمبالغ الصحيحة.
+    </p>
+    <form method="post" action="/reports/shifts/{{ shift.id }}/handoff-revoke"
+      onsubmit="return confirm('إلغاء اعتماد جلسة #{{ shift.id }} وعكس القيود المحاسبية؟');">
+      <label for="revoke_reason">سبب الإلغاء (مطلوب)</label>
+      <input id="revoke_reason" name="revoke_reason" required minlength="3" maxlength="500"
+        placeholder="مثال: خطأ في مبلغ المصرف المعدود"
+        style="width:100%;max-width:28rem;padding:0.45rem;margin:0.35rem 0 0.65rem;border-radius:8px;border:1px solid var(--border)" />
+      <button type="submit" class="btn" style="background:#dc2626;color:#fff;border-color:#b91c1c">↩ إلغاء الاعتماد</button>
+    </form>
+  </details>
+  {% endif %}
+  {% elif can_approve_handoff %}
+  <p class="muted" style="margin:0 0 0.65rem;line-height:1.6">
+    هذه الجلسة <strong>التالية بالترتيب</strong> بانتظار اعتماد. عدّ ما استلمته فعلياً ثم اعتمد.
+  </p>
+  {% set form_action = '/reports/shifts/' ~ shift.id ~ '/handoff' %}
+  {% set cash_default = shift.counted_cash if shift.counted_cash is not none else shift_financial.expected_cash_drawer %}
+  {% set bank_default = shift.counted_bank if shift.counted_bank is not none else shift_financial.expected_bank %}
+  {% set expected_cash = shift_financial.expected_cash_drawer %}
+  {% set expected_bank = shift_financial.expected_bank %}
+  {% include "_shift_handoff_form.html" %}
+  {% else %}
+  <p class="muted" style="margin:0">
+    بانتظار الاعتماد — {% if next_handoff_shift_id %}اعتمد أولاً
+    <a href="/reports/shifts/{{ next_handoff_shift_id }}">جلسة #{{ next_handoff_shift_id }}</a>
+    (الأقدم في الطابور){% else %}راجع <a href="/reports/sales">تقرير المبيعات</a>{% endif %}.
+  </p>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if report.context_stats %}
+<div class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0">الطلبات حسب النوع</h2>
+  <table>
+    <thead><tr><th>النوع</th><th>عدد</th><th>الإجمالي</th></tr></thead>
+    <tbody>
+      {% for c in report.context_stats %}
+      <tr>
+        <td>{{ c.label_ar }}</td>
+        <td>{{ c.count }}</td>
+        <td>{{ pos_money(c.total) }} <span class="money-currency">د.ل</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if report.payment_breakdown %}
+<div class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0">التحصيل حسب طريقة الدفع</h2>
+  <table>
+    <thead><tr><th>الحساب</th><th>النوع</th><th>عمليات</th><th>المبلغ</th></tr></thead>
+    <tbody>
+      {% for p in report.payment_breakdown %}
+      <tr>
+        <td>{{ p.method_name }}</td>
+        <td>{{ p.kind }}</td>
+        <td>{{ p.payment_count }}</td>
+        <td>{{ pos_money(p.amount) }} <span class="money-currency">د.ل</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<div class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0">الفواتير والطلبات ({{ report.sales_count }})</h2>
+  <div style="overflow-x:auto">
+    <table>
+      <thead>
+        <tr>
+          <th>فاتورة</th>
+          <th>الطلب</th>
+          <th>السياق</th>
+          <th>الدفع</th>
+          <th>أصناف</th>
+          <th>الإجمالي</th>
+          <th>الوقت</th>
+          <th class="no-print"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in report.sale_rows %}
+        <tr>
+          <td>#{{ r.sale_id }}</td>
+          <td>{{ r.label }}</td>
+          <td>{{ r.context }}</td>
+          <td>{{ r.payment_label }}</td>
+          <td>{{ r.line_count }}</td>
+          <td>{{ pos_money(r.total) }} <span class="money-currency">د.ل</span></td>
+          <td>{% if r.created_at %}{{ pos_format_dt(r.created_at, '%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+          <td class="no-print" style="white-space:nowrap">
+            <a class="btn" style="padding:0.2rem 0.45rem;font-size:0.78rem" href="/pos/receipt/{{ r.sale_id }}" target="_blank">طباعة</a>
+            {% if can_edit_invoice|default(false) %}
+            <a class="btn" style="padding:0.2rem 0.45rem;font-size:0.78rem" href="/sales/invoices/{{ r.sale_id }}/edit">تعديل</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="muted" style="text-align:center">لا توجد فواتير مكتملة.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if report.delivery_rows %}
+<div class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0">مصروفات التوصيل</h2>
+  <table>
+    <thead><tr><th>فاتورة</th><th>الطلب</th><th>من حساب</th><th>المبلغ</th><th>الوقت</th></tr></thead>
+    <tbody>
+      {% for d in report.delivery_rows %}
+      <tr>
+        <td>#{{ d.sale_id }}</td>
+        <td>{{ d.order_label }}</td>
+        <td>{{ d.cash_method_name }}</td>
+        <td>{{ pos_money(d.amount) }} <span class="money-currency">د.ل</span></td>
+        <td>{% if d.created_at %}{{ pos_format_dt(d.created_at, '%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if report.refund_rows %}
+<div class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0">المرتجعات</h2>
+  <table>
+    <thead><tr><th>مرتجع</th><th>فاتورة أصلية</th><th>طريقة</th><th>المبلغ</th><th>الوقت</th></tr></thead>
+    <tbody>
+      {% for rf in report.refund_rows %}
+      <tr>
+        <td>#{{ rf.return_id }}</td>
+        <td>#{{ rf.sale_id }}</td>
+        <td>{{ rf.method_name }} ({{ rf.kind }})</td>
+        <td>{{ pos_money(rf.amount) }} <span class="money-currency">د.ل</span></td>
+        <td>{% if rf.created_at %}{{ pos_format_dt(rf.created_at, '%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if report.shortage_rows %}
+<div class="card" style="margin-top:1rem;border-color:#fecaca;background:#fef2f2">
+  <h2 style="margin-top:0;color:#991b1b">سجل العجز</h2>
+  <table>
+    <thead><tr><th>النوع</th><th>متوقع</th><th>معدود</th><th>الفرق</th><th>عجز</th><th>المعالجة</th></tr></thead>
+    <tbody>
+      {% for s in report.shortage_rows %}
+      <tr>
+        <td>{{ s.kind_label }}</td>
+        <td>{% if s.expected is not none %}{{ pos_money(s.expected) }}{% else %}—{% endif %}</td>
+        <td>{% if s.counted is not none %}{{ pos_money(s.counted) }}{% else %}—{% endif %}</td>
+        <td>{% if s.difference is not none %}{{ pos_money(s.difference) }}{% else %}—{% endif %}</td>
+        <td style="font-weight:700;color:#b91c1c">{{ pos_money(s.shortage_amount) }}</td>
+        <td>{{ s.resolved_action or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="no-print" style="margin:0.75rem 0 0"><a href="/pos/shift/shortages">عرض كل سجل العجز ←</a></p>
+</div>
+{% endif %}
+{% endblock %}

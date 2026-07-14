@@ -1,0 +1,56 @@
+<form method="post" action="/pos/set-context" class="pos-ext-hub-form" id="pickup-rail-form">
+
+  <input type="hidden" name="context_type" value="EXTERNAL" />
+
+  <input type="hidden" name="external_order_type" value="PICKUP" />
+
+  <div id="pos-chat-pickup-incoming">
+  {% set chat_orders = web_chat_pickup_pending if web_chat_pickup_pending is defined else [] %}
+  {% include "_pos_chat_rail_incoming.html" %}
+  </div>
+
+  <div class="pos-ext-hub-fields">
+
+    {% set show_linked = customer and ctx == 'EXTERNAL' and ext_mode != 'DELIVERY' %}
+
+    {% set form_id = 'pickup-rail-form' %}
+
+    {% set phone_id = 'pickup-customer-phone' %}
+
+    {% set name_id = 'pickup-customer-name' %}
+
+    {% set chip_id = 'pickup-customer-chip' %}
+
+    {% set change_btn_id = 'change-pickup-customer-btn' %}
+
+    {% set fields_id = 'pickup-customer-fields' %}
+
+    {% include "_pos_rail_customer.html" %}
+
+  </div>
+
+
+
+  {% if open_orders_nav|length > 0 %}
+
+  <div class="pos-hub-open-orders" aria-label="طلبات مفتوحة">
+
+    {% for row in open_orders_nav %}
+
+    <form method="post" action="/pos/open-order/{{ row.id }}" class="pos-hub-open-order-form">
+
+      <button type="submit" class="pos-hub-order-chip{% if row.active %} is-active{% endif %}" title="{{ row.status }}">
+
+        #{{ row.id }} · {{ row.label }} · {{ pos_money(row.total) }}
+
+      </button>
+
+    </form>
+
+    {% endfor %}
+
+  </div>
+
+  {% endif %}
+
+</form>

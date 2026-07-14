@@ -1,0 +1,221 @@
+{% set board = table_board if table_board is defined else [] %}
+
+{% set rail_mode = rail_mode if rail_mode is defined else false %}
+
+{% set hub_mode = hub_mode if hub_mode is defined else false %}
+
+{% set ctx_val = (sale.context_type.value if sale and sale.context_type else 'TABLE') %}
+
+{% set auto_collapse = not hub_mode and not rail_mode and sale and ctx_val == 'TABLE' and sale.table_id %}
+
+{% set ns_tbl = namespace(label='', count=0, show_badge=false, sent=false) %}
+
+{% for cell in board %}
+
+  {% if cell.is_selected %}
+
+  {% set ns_tbl.label = cell.label %}
+
+  {% set ns_tbl.count = cell.item_count %}
+
+  {% set ns_tbl.show_badge = cell.show_badge %}
+
+  {% set ns_tbl.sent = cell.sent_kitchen %}
+
+  {% endif %}
+
+{% endfor %}
+
+
+
+{% if board|length > 0 %}
+
+{% if rail_mode %}
+
+<div class="pos-table-grid pos-table-grid--rail" role="group" aria-label="اختيار الطاولة">
+
+  {% for cell in board %}
+
+  <form method="post" action="/pos/select-table" class="pos-table-tile-form">
+
+    <input type="hidden" name="table_id" value="{{ cell.id }}" />
+
+    <button
+
+      type="submit"
+
+      class="pos-table-tile{% if cell.is_selected %} is-selected{% endif %}{% if cell.show_badge and not cell.sent_kitchen %} has-order{% endif %}{% if cell.sent_kitchen %} has-order-sent{% endif %}"
+
+      title="{{ cell.name_ar }}"
+
+      aria-label="طاولة {{ cell.label }}{% if cell.show_badge %} — {{ cell.item_count }} صنف{% endif %}"
+
+    >
+
+      {% if cell.show_badge %}
+
+      <span class="pos-table-tile__badge pos-table-tile__badge--{{ cell.badge_tone }}">{{ cell.item_count }}</span>
+
+      {% endif %}
+
+      <span class="pos-table-tile__no">{{ cell.label }}</span>
+
+    </button>
+
+  </form>
+
+  {% endfor %}
+
+</div>
+
+{% elif hub_mode %}
+
+<div class="pos-table-grid pos-table-grid--hub" role="group" aria-label="اختيار الطاولة">
+
+  {% for cell in board %}
+
+  <form method="post" action="/pos/select-table" class="pos-table-tile-form">
+
+    <input type="hidden" name="table_id" value="{{ cell.id }}" />
+
+    <button
+
+      type="submit"
+
+      class="pos-table-tile{% if cell.is_selected %} is-selected{% endif %}{% if cell.show_badge and not cell.sent_kitchen %} has-order{% endif %}{% if cell.sent_kitchen %} has-order-sent{% endif %}"
+
+      title="{{ cell.name_ar }}"
+
+      aria-label="طاولة {{ cell.label }}{% if cell.show_badge %} — {{ cell.item_count }} صنف{% endif %}"
+
+    >
+
+      {% if cell.show_badge %}
+
+      <span class="pos-table-tile__badge pos-table-tile__badge--{{ cell.badge_tone }}">{{ cell.item_count }}</span>
+
+      {% endif %}
+
+      <span class="pos-table-tile__no">{{ cell.label }}</span>
+
+    </button>
+
+  </form>
+
+  {% endfor %}
+
+</div>
+
+{% else %}
+
+<div
+
+  id="pos-tables-panel"
+
+  class="pos-tables-panel{% if auto_collapse %} pos-tables-panel--ready-collapse{% endif %}"
+
+  data-auto-collapse="{{ '1' if auto_collapse else '0' }}"
+
+>
+
+  <div class="pos-tables-toolbar">
+
+    {% if auto_collapse and ns_tbl.label %}
+
+    <span class="pos-tables-current" id="pos-tables-current-label">
+
+      🪑 طاولة {{ ns_tbl.label }}{% if ns_tbl.show_badge %} — <strong>{{ ns_tbl.count }}</strong> صنف{% if ns_tbl.sent %} (مُرسَل){% else %} (قيد الإدخال){% endif %}{% endif %}
+
+    </span>
+
+    {% elif sale and sale.id %}
+
+    <span class="pos-tables-current muted" style="font-size:0.78rem">طلب #{{ sale.id }}</span>
+
+    {% endif %}
+
+    <button
+
+      type="button"
+
+      id="pos-tables-toggle"
+
+      class="btn pos-tables-toggle-btn"
+
+      aria-expanded="{% if auto_collapse %}false{% else %}true{% endif %}"
+
+      aria-controls="pos-tables-body"
+
+    >
+
+      <span class="pos-tables-toggle-show">عرض الطاولات</span>
+
+      <span class="pos-tables-toggle-hide">إخفاء الطاولات</span>
+
+    </button>
+
+  </div>
+
+
+
+  <div class="pos-tables-body" id="pos-tables-body">
+
+    <div class="pos-table-grid" role="group" aria-label="اختيار الطاولة">
+
+      {% for cell in board %}
+
+      <form method="post" action="/pos/select-table" class="pos-table-tile-form">
+
+        <input type="hidden" name="table_id" value="{{ cell.id }}" />
+
+        <button
+
+          type="submit"
+
+          class="pos-table-tile{% if cell.is_selected %} is-selected{% endif %}{% if cell.show_badge and not cell.sent_kitchen %} has-order{% endif %}{% if cell.sent_kitchen %} has-order-sent{% endif %}"
+
+          title="{{ cell.name_ar }}"
+
+          aria-label="طاولة {{ cell.label }}{% if cell.show_badge %} — {{ cell.item_count }} صنف{% endif %}"
+
+          onclick="try{sessionStorage.removeItem('pos_tables_open')}catch(e){}"
+
+        >
+
+          {% if cell.show_badge %}
+
+          <span class="pos-table-tile__badge pos-table-tile__badge--{{ cell.badge_tone }}">{{ cell.item_count }}</span>
+
+          {% endif %}
+
+          <span class="pos-table-tile__no">{{ cell.label }}</span>
+
+        </button>
+
+      </form>
+
+      {% endfor %}
+
+    </div>
+
+    {% if not auto_collapse %}
+
+    <p class="muted pos-tables-hint">اضغط طاولة لبدء الطلب أو لتبديل الطاولة</p>
+
+    {% endif %}
+
+  </div>
+
+</div>
+
+{% endif %}
+
+{% else %}
+
+<p class="muted pos-table-grid-empty">
+
+  لا توجد طاولات. أضفها من <a href="/admin/tables">إدارة الطاولات</a>.
+
+</p>
+
+{% endif %}

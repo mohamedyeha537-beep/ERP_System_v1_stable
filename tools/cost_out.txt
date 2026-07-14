@@ -1,0 +1,201 @@
+﻿python : Traceback (most recent call last):
+At C:\Users\PIXEL\AppData\Local\Temp\ps-script-d482ce72-da96-45ec-a74f-e30c3bce2bcc.ps1:145 char:64
++ ... p\pos"; $env:PYTHONPATH="."; python tools/_diag_costs.py 2>&1 | Out-F ...
++                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Traceback (most recent call last)::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\orm\clsregistry.py", line 516, in _resolve_name
+    rval = d[token]
+           ~^^^^^^^
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\util\_collections.py", line 345, in __missing__
+    self[key] = val = self.creator(key)
+                      ~~~~~~~~~~~~^^^^^
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\orm\clsregistry.py", line 484, in _access_cls
+    return self.fallback[key]
+           ~~~~~~~~~~~~~^^^^^
+KeyError: 'Warehouse'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\PIXEL\OneDrive\Desktop\pos\tools\_diag_costs.py", line 13, in <module>
+    costs = rq.avg_unit_cost_per_product(db)
+  File "C:\Users\PIXEL\OneDrive\Desktop\pos\modules\reporting\queries.py", line 446, in avg_unit_cost_per_product
+    for pid, total_cost, total_qty in db.execute(stmt).all():
+                                      ~~~~~~~~~~^^^^^^
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\orm\session.py", line 2362, in execute
+    return self._execute_internal(
+           ~~~~~~~~~~~~~~~~~~~~~~^
+        statement,
+        ^^^^^^^^^^
+    ...<4 lines>...
+        _add_event=_add_event,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\orm\session.py", line 2247, in _execute_internal
+    result: Result[Any] = compile_state_cls.orm_execute_statement(
+                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self,
+        ^^^^^
+    ...<4 lines>...
+        conn,
+        ^^^^^
+    )
+    ^
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\orm\context.py", line 305, in orm_execute_statement
+    result = conn.execute(
+        statement, params or {}, execution_options=execution_options
+    )
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\engine\base.py", line 1418, in execute
+    return meth(
+        self,
+        distilled_parameters,
+        execution_options or NO_OPTIONS,
+    )
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\sql\elements.py", line 515, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self, distilled_params, execution_options
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\engine\base.py", line 1632, in _execute_clauseelement
+    compiled_sql, extracted_params, cache_hit = elem._compile_w_cache(
+                                                ~~~~~~~~~~~~~~~~~~~~~^
+        dialect=dialect,
+        ^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        linting=self.dialect.compiler_linting | compiler.WARN_LINTING,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\sql\elements.py", line 703, in _compile_w_cache
+    compiled_sql = self._compiler(
+        dialect,
+    ...<4 lines>...
+        **kw,
+    )
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\sql\elements.py", line 316, in _compiler
+    return dialect.statement_compiler(dialect, self, **kw)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\sql\compiler.py", line 1429, in __init__
+    Compiled.__init__(self, dialect, statement, **kwargs)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\sql\compiler.py", line 870, in __init__
+    self.string = self.process(self.statement, **compile_kwargs)
+                  ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\sql\compiler.py", line 915, in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\sql\visitors.py", line 141, in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\sql\compiler.py", line 4679, in visit_select
+    compile_state = select_stmt._compile_state_factory(
+        select_stmt, self, **kwargs
+    )
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\sql\base.py", line 683, in create_for_statement
+    return klass.create_for_statement(statement, compiler, **kw)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\orm\context.py", line 1110, in create_for_statement
+    _QueryEntity.to_compile_state(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self,
+        ^^^^^
+    ...<2 lines>...
+        is_current_entities=True,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\orm\context.py", line 2598, in to_compile_state
+    _ColumnEntity._for_columns(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        compile_state,
+        ^^^^^^^^^^^^^^
+    ...<3 lines>...
+        is_current_entities,
+        ^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\orm\context.py", line 2952, in _for_columns
+    _ORMColumnEntity(
+    ~~~~~~~~~~~~~~~~^
+        compile_state,
+        ^^^^^^^^^^^^^^
+    ...<5 lines>...
+        parent_bundle=parent_bundle,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\orm\context.py", line 3172, in __init__
+    _entity._post_inspect
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\util\langhelpers.py", line 1253, in __get__
+    obj.__dict__[self.__name__] = result = self.fget(obj)
+                                           ~~~~~~~~~^^^^^
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\orm\mapper.py", line 2722, in _post_inspect
+    self._check_configure()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\orm\mapper.py", line 2399, in _check_configure
+    _configure_registries({self.registry}, cascade=True)
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\orm\mapper.py", line 4215, in _configure_registries
+    _do_configure_registries(registries, cascade)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\orm\mapper.py", line 4256, in _do_configure_registries
+    mapper._post_configure_properties()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\orm\mapper.py", line 2416, in _post_configure_properties
+    prop.init()
+    ~~~~~~~~~^^
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\orm\interfaces.py", line 589, in init
+    self.do_init()
+    ~~~~~~~~~~~~^^
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\orm\relationships.py", line 1642, in do_init
+    self._setup_entity()
+    ~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\orm\relationships.py", line 1854, in _setup_entity
+    self._clsregistry_resolve_name(argument)(),
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\orm\clsregistry.py", line 520, in _resolve_name
+    self._raise_for_name(name, err)
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\PIXEL\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packa
+ges\Python313\site-packages\sqlalchemy\orm\clsregistry.py", line 501, in _raise_for_name
+    raise exc.InvalidRequestError(
+    ...<5 lines>...
+    ) from err
+sqlalchemy.exc.InvalidRequestError: When initializing mapper Mapper[Purchase(purchases)], expression 'Warehouse' 
+failed to locate a name ('Warehouse'). If this is a class name, consider adding this relationship() to the <class 
+'modules.payments.models.Purchase'> class after both dependent classes have been defined.

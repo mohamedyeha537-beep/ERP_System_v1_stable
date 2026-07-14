@@ -1,0 +1,7 @@
+sheets: Sheet1
+row0: ['BoM Type', 'Company', 'Product', 'Reference', 'Sequence']
+row1: ['Kit', 'بيتك للشقق الفندقية', ' آيس تي خوخ', None, 0]
+row2: ['Kit', 'بيتك للشقق الفندقية', 'شوربة ماشروم', None, 0]
+row3: ['Kit', 'بيتك للشقق الفندقية', 'شوربة دجاج كريمة', None, 0]
+row4: ['Kit', 'بيتك للشقق الفندقية', 'شوربة سيفود', None, 0]
+total_data_rows~=57

@@ -47,46 +47,49 @@
 {% if notice %}<div class="alert" style="background:#ecfdf5; border-color:#10b981; color:#065f46">{{ notice }}</div>{% endif %}
 
 <div class="info-card">
-  <strong>📦 ملف القاعدة الحالي:</strong> <code>{{ db_path }}</code>
+  <strong>📦 قاعدة البيانات:</strong> <strong>{{ db_kind }}</strong>
+  &nbsp;—&nbsp; <code>{{ db_path }}</code>
   &nbsp;—&nbsp; الحجم: <strong>{{ db_size }}</strong>
-  {% if not is_sqlite %}
-  <p style="margin: 0.4rem 0 0; color:#b91c1c">⚠ هذه الصفحة تعمل مع قواعد SQLite فقط. قاعدتك ليست SQLite، استخدم أدوات قاعدة البيانات الخاصة بها.</p>
-  {% else %}
   <p style="margin: 0.4rem 0 0">
-    التشغيل البسيط: <strong>SQLite</strong> = ملف واحد على القرص. النسخ الاحتياطي = نسخة من هذا الملف،
-    والاستعادة = استبدال الملف بنسخة سابقة. لنقل البيانات بين الأجهزة: نزّل الملف من جهاز، ارفعه على آخر.
+    {% if is_sqlite %}
+    <strong>SQLite</strong> = ملف واحد على القرص. النسخ الاحتياطي = نسخة من الملف، والاستعادة = استبدال الملف.
+    {% elif is_mysql %}
+    <strong>MySQL</strong> = قاعدة على السيرفر (شائعة على VPS). النسخ الاحتياطي عبر <code>mysqldump</code> (ملف <code>.sql</code>).
+    {% elif is_postgresql %}
+    <strong>PostgreSQL</strong> = قاعدة على السيرفر (مناسبة للإنتاج على VPS). النسخ الاحتياطي عبر <code>pg_dump</code>.
+    {% else %}
+    نوع قاعدة غير معروف — راجع <code>DATABASE_URL</code> في ملف <code>.env</code>.
+    {% endif %}
   </p>
-  {% endif %}
 </div>
 
-{% if is_sqlite %}
+{% if is_sqlite or is_postgresql or is_mysql %}
 <div class="card">
   <h2 style="margin-top: 0">إنشاء نسخة احتياطية</h2>
   <p class="muted" style="margin-top: 0">
-    ينشئ نسخة آمنة من قاعدة البيانات (تتعامل مع الكتابات المتزامنة عبر <em>SQLite Online Backup API</em>) ويحفظها في مجلد <code>backups/</code>.
+    {% if is_sqlite %}
+    ينشئ نسخة آمنة من قاعدة البيانات (SQLite Online Backup API) ويحفظها في مجلد <code>backups/</code>.
+    {% elif is_mysql %}
+    ينشئ نسخة بصيغة <code>.sql</code> عبر <code>mysqldump</code> ويحفظها في مجلد <code>backups/</code>.
+    {% else %}
+    ينشئ نسخة بصيغة <code>.dump</code> عبر <code>pg_dump</code> ويحفظها في مجلد <code>backups/</code>.
+    {% endif %}
   </p>
   <div class="row" style="gap: 0.5rem">
     <form method="post" action="/admin/backup/create">
-      <button class="btn btn-primary" type="submit">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -3px; margin-inline-end: 0.3rem">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-          <polyline points="17 8 12 3 7 8"></polyline>
-          <line x1="12" y1="3" x2="12" y2="15"></line>
-        </svg>
-        إنشاء نسخة الآن (تُحفظ على القرص)
-      </button>
+      <button class="btn btn-primary" type="submit">إنشاء نسخة الآن (تُحفظ على القرص)</button>
     </form>
-    <a class="btn" href="/admin/backup/download/current">
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -3px; margin-inline-end: 0.3rem">
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-        <polyline points="7 10 12 15 17 10"></polyline>
-        <line x1="12" y1="15" x2="12" y2="3"></line>
-      </svg>
-      تنزيل القاعدة الحالية للجهاز
-    </a>
+    {% if is_sqlite %}
+    <a class="btn" href="/admin/backup/download/current">تنزيل القاعدة الحالية للجهاز</a>
+    {% elif is_mysql %}
+    <a class="btn" href="/admin/backup/download/current">تنزيل نسخة .sql للجهاز</a>
+    {% elif is_postgresql %}
+    <a class="btn" href="/admin/backup/download/current">تنزيل نسخة .dump للجهاز</a>
+    {% endif %}
   </div>
 </div>
 
+{% if is_sqlite %}
 <div class="card">
   <h2 style="margin-top: 0">رفع واستعادة من ملف</h2>
   <p class="muted" style="margin-top: 0">
@@ -105,25 +108,74 @@
     </div>
   </form>
 </div>
+{% elif is_mysql %}
+<div class="card">
+  <h2 style="margin-top: 0">رفع واستعادة من ملف</h2>
+  <p class="muted" style="margin-top: 0">
+    اختر ملف <code>.sql</code> أنشأه النظام عبر <code>mysqldump</code>.
+    يُؤخذ <em>نسخة أمان</em> تلقائياً قبل الاستبدال.
+  </p>
+  <form method="post" action="/admin/backup/restore-uploaded" enctype="multipart/form-data">
+    <div class="upload-area">
+      <input type="file" name="file" accept=".sql,application/octet-stream,text/plain" required />
+      <p class="muted" style="margin: 0.4rem 0 0; font-size: 0.85rem">
+        ⚠ يتطلب وجود أداة <code>mysql</code> على السيرفر.
+      </p>
+    </div>
+    <div style="margin-top: 0.6rem">
+      <button class="btn btn-primary" type="submit">استعادة من ملف .sql</button>
+    </div>
+  </form>
+</div>
+{% elif is_postgresql %}
+<div class="card">
+  <h2 style="margin-top: 0">رفع واستعادة من ملف</h2>
+  <p class="muted" style="margin-top: 0">
+    اختر ملف <code>.dump</code> أنشأه النظام عبر <code>pg_dump</code>.
+    يُؤخذ <em>نسخة أمان</em> تلقائياً قبل الاستبدال.
+  </p>
+  <form method="post" action="/admin/backup/restore-uploaded" enctype="multipart/form-data">
+    <div class="upload-area">
+      <input type="file" name="file" accept=".dump,application/octet-stream" required />
+      <p class="muted" style="margin: 0.4rem 0 0; font-size: 0.85rem">
+        ⚠ يتطلب وجود <code>pg_restore</code> على السيرفر. قد تظهر تحذيرات غير حرجة.
+      </p>
+    </div>
+    <div style="margin-top: 0.6rem">
+      <button class="btn btn-primary" type="submit">استعادة من ملف .dump</button>
+    </div>
+  </form>
+</div>
+{% endif %}
 
 <div class="card">
   <h2 style="margin-top: 0">النسخ المحفوظة على القرص</h2>
   {% if backups %}
   <table class="backup-table">
     <thead>
-      <tr><th>اسم الملف</th><th>الحجم</th><th>تاريخ الإنشاء (UTC)</th><th></th></tr>
+      <tr><th>اسم الملف</th><th>الحجم</th><th>تاريخ الإنشاء</th><th></th></tr>
     </thead>
     <tbody>
       {% for name, size, mtime in backups %}
       <tr>
         <td><strong>{{ name }}</strong></td>
         <td>{{ (size / 1024)|round(1) }} KB</td>
-        <td>{{ mtime.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td>{{ pos_format_dt(mtime, '%Y-%m-%d %H:%M') }}</td>
         <td class="row" style="gap:0.3rem; margin:0">
           <a class="btn" href="/admin/backup/download/{{ name }}" style="padding:0.25rem 0.6rem; font-size:0.85rem">تنزيل</a>
+          {% if is_sqlite and name.endswith('.db') %}
           <form method="post" action="/admin/backup/restore-existing/{{ name }}" onsubmit="return confirm('استعادة هذه النسخة؟ سيتم استبدال البيانات الحالية.')" style="display:inline">
             <button type="submit" class="btn" style="padding:0.25rem 0.6rem; font-size:0.85rem; background:#3b82f6; color:#fff; border-color:#3b82f6">استعادة</button>
           </form>
+          {% elif is_mysql and name.endswith('.sql') %}
+          <form method="post" action="/admin/backup/restore-existing/{{ name }}" onsubmit="return confirm('استعادة هذه النسخة؟ سيتم استبدال بيانات MySQL الحالية.')" style="display:inline">
+            <button type="submit" class="btn" style="padding:0.25rem 0.6rem; font-size:0.85rem; background:#3b82f6; color:#fff; border-color:#3b82f6">استعادة</button>
+          </form>
+          {% elif is_postgresql and name.endswith('.dump') %}
+          <form method="post" action="/admin/backup/restore-existing/{{ name }}" onsubmit="return confirm('استعادة هذه النسخة؟ سيتم استبدال بيانات PostgreSQL الحالية.')" style="display:inline">
+            <button type="submit" class="btn" style="padding:0.25rem 0.6rem; font-size:0.85rem; background:#3b82f6; color:#fff; border-color:#3b82f6">استعادة</button>
+          </form>
+          {% endif %}
           <form method="post" action="/admin/backup/delete/{{ name }}" onsubmit="return confirm('حذف هذه النسخة؟')" style="display:inline">
             <button type="submit" class="btn" style="padding:0.25rem 0.6rem; font-size:0.85rem; color:#b91c1c; border-color:#fecaca">حذف</button>
           </form>
@@ -137,6 +189,7 @@
   {% endif %}
 </div>
 
+{% if is_sqlite %}
 <div class="card" style="background:#fef9c3; border-color:#facc15">
   <h2 style="margin-top:0">📲 كيف أنقل البيانات بين الأجهزة؟</h2>
   <ol style="line-height: 1.8; margin: 0.4rem 0; padding-inline-start: 1.3rem">
@@ -147,6 +200,7 @@
     <li>أعد تحميل المتصفح. كل بياناتك ستكون موجودة على الجهاز الجديد.</li>
   </ol>
 </div>
+{% endif %}
 
 <!-- Danger Zone -->
 <div class="danger-zone">
@@ -159,9 +213,16 @@
   <div class="danger-action">
     <h3>١. محو الحركات فقط (المستوى الأدنى) — يبقي الكتالوج والإعدادات والمستخدمين</h3>
     <p>
-      يحذف: المبيعات، فواتير شراء البضائع، المصروفات، حركات المخزون، تذاكر المطبخ.
+      يحذف: المبيعات والمرتجعات، جلسات الكاشير (ومبالغ العدّ والعجز)، تحويلات الخزينة ومدفوعات الشراء/المصروف،
+      فواتير شراء البضائع والمصروفات، حركات المخزون (مع تصفير الأرصدة)، تذاكر المطبخ، التوصيل، نقاط الولاء المتراكمة،
+      سجل الطباعة والتنبيهات التشغيلية.
       <br>
-      يُبقي: الأصناف، الأسعار، المستخدمون، الأدوار، أساليب الدفع، التكاليف الشهرية، الأصول الثابتة المسجَّلة، الإعدادات، الطاولات.
+      يُبقي: الأصناف والأسعار، المستخدمون، الأدوار، أساليب الدفع، التكاليف الشهرية، الإعدادات، الطاولات،
+      <strong>سجل الأصول الثابتة</strong> (للإهلاك الشهري في التقارير).
+      <br>
+      <strong>قد يبقى بعد المحو (طبيعي):</strong>
+      إهلاك الأصول الثابتة في تقرير الفترة إن وُجدت أصول مسجَّلة؛
+      وعدد «أصناف قاربت على النفاد» إذا كانت حدود إعادة الطلب في الكتالوج &gt; 0 والمخزون صفر.
       <br>
       <strong>الاستخدام المثالي:</strong> بعد تجربة بيانات الاختبار وتريد البدء بنظام نظيف للعمل الفعلي.
     </p>
@@ -187,18 +248,20 @@
   </div>
 
   <div class="danger-action">
-    <h3>٣. التصفير الكامل (مصنع) — يحذف القاعدة بالكامل</h3>
+    <h3>٣. التصفير الكامل (مصنع) — SQLite فقط</h3>
     <p>
       يحذف ملف القاعدة من القرص نهائياً (بعد أرشفته كنسخة احتياطية). سينشئ النظام قاعدة جديدة فارغة عند إعادة التشغيل.
       <br>
-      <strong>الاستخدام:</strong> إعادة بدء كاملة كأنك ركّبت النظام للتو.
-      <br>
-      <strong>⚠ هام:</strong> بعد التنفيذ <em>أعِد تشغيل الخادم</em> ليعيد بذر البيانات الافتراضية (مستخدم admin، أساليب دفع، إلخ).
+      <strong>⚠ على MySQL/PostgreSQL:</strong> لا تستخدم هذا الخيار — احذف القاعدة من السيرفر يدوياً أو أنشئ قاعدة جديدة.
     </p>
+    {% if is_sqlite %}
     <form method="post" action="/admin/backup/reset/factory" onsubmit="return confirm('هذا تصفير كامل! متأكد؟')">
       <input type="text" name="confirm" placeholder="اكتب: تصفير المصنع الكامل" required />
       <button type="submit">تنفيذ مستوى ٣ (الأخطر)</button>
     </form>
+    {% else %}
+    <p class="muted">غير متاح — أنت تستخدم قاعدة سيرفر (MySQL/PostgreSQL).</p>
+    {% endif %}
   </div>
 </div>
 

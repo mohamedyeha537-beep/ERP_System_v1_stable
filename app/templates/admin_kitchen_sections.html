@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}أقسام المطبخ{% endblock %}
+{% block body %}
+<h1>أقسام المطبخ (ربط الطابعات)</h1>
+<a class="btn" href="/admin/printing">رجوع</a>
+<a class="btn" href="/admin/kds">شاشة المطبخ</a>
+
+<div class="card pos-guide-panel" data-guide-title="ℹ️ الأقسام الأربعة الافتراضية" style="margin-top:1rem;background:#f0f9ff;border:1px solid #bae6fd">
+  <h2 style="margin:0 0 0.5rem;font-size:1rem">الأقسام الأربعة (افتراضي)</h2>
+  <p class="muted" style="margin:0 0 0.65rem;font-size:0.88rem">
+    المقهى = <strong>مشروبات</strong> قسم واحد. عند إرسال الطلب للمطبخ تُطبع ورقة منفصلة لكل قسم فيه بنود.
+  </p>
+  <table class="table" style="font-size:0.88rem;margin:0">
+    <thead>
+      <tr><th>القسم</th><th>الرمز</th><th>مفتاح الوكيل (config.json)</th></tr>
+    </thead>
+    <tbody>
+    {% for name, code, agent_key in default_sections %}
+    <tr>
+      <td>{{ name }}</td>
+      <td><code>{{ code }}</code></td>
+      <td><code>{{ agent_key }}</code></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted" style="margin:0.65rem 0 0;font-size:0.82rem">
+    عند إنشاء طابعة في «الطابعات» ضع نفس <code>local_printer_key</code> (مثل <code>grill</code>) واربطها بالقسم أدناه.
+  </p>
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <h2 id="form-title">قسم جديد</h2>
+  <form method="post" action="/admin/printing/sections/save" id="section-form">
+    <input type="hidden" name="section_id" id="section_id" value="" />
+    <label>الاسم</label>
+    <input name="name" id="sec_name" required placeholder="شواء" />
+    <label>الرمز</label>
+    <input name="code" id="sec_code" required placeholder="GRILL" />
+    <label>الطابعة</label>
+    <select name="printer_id" id="sec_printer">
+      <option value="">— بدون طابعة (KDS فقط) —</option>
+      {% for p in printers %}
+      <option value="{{ p.id }}">{{ p.name }} ({{ p.code }})</option>
+      {% endfor %}
+    </select>
+    <p class="muted" style="font-size:0.85rem">عند الإرسال للمطبخ: تُطبع بنود هذا القسم فقط على الطابعة المرتبطة.</p>
+    <label><input type="checkbox" name="is_active" id="sec_active" value="on" checked /> نشط</label>
+    <button type="submit" class="btn btn-primary" style="margin-top:0.75rem">حفظ</button>
+  </form>
+</div>
+
+<table class="table" style="margin-top:1.5rem">
+  <thead><tr><th>الاسم</th><th>الرمز</th><th>الطابعة</th><th>نشط</th><th></th></tr></thead>
+  <tbody>
+  {% for s in sections %}
+  <tr>
+    <td>{{ s.name }}</td>
+    <td><code>{{ s.code }}</code></td>
+    <td>{% if s.printer %}{{ s.printer.name }}{% else %}—{% endif %}</td>
+    <td>{{ 'نعم' if s.is_active else 'لا' }}</td>
+    <td>
+      <button
+        type="button"
+        class="btn btn-edit-section"
+        data-id="{{ s.id }}"
+        data-name="{{ s.name|e }}"
+        data-code="{{ s.code|e }}"
+        data-printer-id="{{ s.printer_id or '' }}"
+        data-active="{{ '1' if s.is_active else '0' }}"
+      >تعديل</button>
+      <a class="btn" href="/admin/kds?section=sec:{{ s.id }}">KDS</a>
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="5" class="muted">أضف أقساماً واربط كل قسم بطابعة.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="muted" style="margin-top:1rem">اربط الفئات أو الأصناف من <a href="/catalog/categories">الفئات</a> و<a href="/catalog/products">الأصناف</a>.</p>
+<script>
+(function () {
+  function editSection(id, name, code, printerId, active) {
+    document.getElementById('form-title').textContent = 'تعديل قسم';
+    document.getElementById('section_id').value = id;
+    document.getElementById('sec_name').value = name;
+    document.getElementById('sec_code').value = code;
+    document.getElementById('sec_printer').value = printerId || '';
+    document.getElementById('sec_active').checked = !!active;
+    document.getElementById('section-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  document.querySelectorAll('.btn-edit-section').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var d = btn.dataset;
+      editSection(d.id, d.name || '', d.code || '', d.printerId || '', d.active === '1');
+    });
+  });
+})();
+</script>
+{% endblock %}

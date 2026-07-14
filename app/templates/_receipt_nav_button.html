@@ -1,0 +1,44 @@
+{# رجوع في نفس النافذة، أو إغلاق إذا فُتحت كتبويب/نافذة منبثقة #}
+<a class="btn" id="receipt-nav-back" href="{{ back_href|default('/pos') }}">{{ back_label|default('رجوع') }}</a>
+<button type="button" class="btn" id="receipt-nav-close" hidden>إغلاق</button>
+<script>
+(function () {
+  var back = document.getElementById("receipt-nav-back");
+  var closeBtn = document.getElementById("receipt-nav-close");
+  if (!back || !closeBtn) return;
+
+  function isPopupWindow() {
+    try {
+      if (new URLSearchParams(window.location.search).get("popup") === "1") return true;
+    } catch (e) {}
+    try {
+      if (window.opener && !window.opener.closed) return true;
+    } catch (e2) {}
+    try {
+      if (window.name === "pos-receipt") return true;
+    } catch (e3) {}
+    return false;
+  }
+
+  function closePopup() {
+    window.close();
+    setTimeout(function () {
+      if (!window.closed) {
+        closeBtn.textContent = "أغلق التبويب يدوياً";
+      }
+    }, 300);
+  }
+
+  if (!isPopupWindow()) return;
+
+  back.hidden = true;
+  back.style.display = "none";
+  closeBtn.hidden = false;
+  closeBtn.style.display = "";
+  closeBtn.addEventListener("click", closePopup);
+  back.addEventListener("click", function (e) {
+    e.preventDefault();
+    closePopup();
+  });
+})();
+</script>

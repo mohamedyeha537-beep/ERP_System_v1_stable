@@ -19,7 +19,7 @@
     <button onclick="navigator.share && navigator.share({title: document.title, text: document.querySelector('table') ? 'قائمة نواقص مخزن' : ''})">مشاركة (إن وُجدت)</button>
   </div>
   <h1>قائمة أصناف منخفضة المخزون</h1>
-  <p class="muted">المخزن: <strong>{{ warehouse.name_ar }}</strong> — {{ printed_at.strftime('%Y-%m-%d %H:%M') }} UTC</p>
+  <p class="muted">المخزن: <strong>{{ warehouse.name_ar }}</strong> — {{ pos_format_dt(printed_at, '%Y-%m-%d %H:%M') }}</p>
   <p class="muted">لتسليم مدير المخزن: صرف من الرئيسي أو إصدار أمر شراء.</p>
   {% if low_stock %}
   <table>
@@ -29,8 +29,8 @@
       <tr>
         <td>{{ loop.index }}</td>
         <td><strong>{{ p.name_ar }}</strong></td>
-        <td style="color:#b91c1c;font-weight:700">{{ qty }}</td>
-        <td>{{ p.reorder_level }}</td>
+        <td style="color:#b91c1c;font-weight:700">{{ pos_qty(qty) }}</td>
+        <td>{{ pos_qty(p.reorder_level) }}</td>
         <td>{{ p.unit }}</td>
       </tr>
       {% endfor %}

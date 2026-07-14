@@ -36,6 +36,10 @@ def backup_home(
         {
             "request": request,
             "is_sqlite": backup_service.is_sqlite(),
+            "is_postgresql": backup_service.is_postgresql(),
+            "is_mysql": backup_service.is_mysql(),
+            "is_server_db": backup_service.is_server_database(),
+            "db_kind": backup_service.db_kind_label_ar(),
             "db_path": backup_service.db_path_str(),
             "db_size": backup_service.db_size_human(),
             "backups": backups,
@@ -65,21 +69,16 @@ def backup_create(
 
 @router.get("/download/current")
 def backup_download_current(_: User = Depends(_perm)):
-    """ينزّل قاعدة البيانات الحالية مباشرة كملف."""
-    if not backup_service.is_sqlite():
-        return RedirectResponse(
-            "/admin/backup?error=" + "النسخ الاحتياطي يعمل لقواعد SQLite فقط.",
-            status_code=302,
-        )
-    # ننشئ نسخة Online Backup ثم نرسلها (أأمن من نسخ الملف مع كتابات متزامنة)
+    """ينزّل نسخة من القاعدة الحالية مباشرة."""
     try:
         tmp_dir = Path(tempfile.gettempdir()) / "pos-backup-tmp"
         tmp_dir.mkdir(parents=True, exist_ok=True)
         path = backup_service.make_backup(tmp_dir)
         ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        ext = path.suffix or backup_service.backup_file_suffix()
         return FileResponse(
             str(path),
-            filename=f"pos-backup-{ts}.db",
+            filename=f"pos-backup-{ts}{ext}",
             media_type="application/octet-stream",
         )
     except Exception as e:  # noqa: BLE001
@@ -126,16 +125,18 @@ async def backup_restore_uploaded(
     _: User = Depends(_perm),
 ):
     """يستعيد قاعدة البيانات من ملف يرفعه المستخدم. يأخذ نسخة أمان أولاً."""
-    if not backup_service.is_sqlite():
+    suffix = Path(file.filename or "").suffix.lower()
+    expected = backup_service.backup_file_suffix()
+    if suffix != expected:
         return RedirectResponse(
-            "/admin/backup?error=" + "الاستعادة تعمل لقواعد SQLite فقط.",
+            "/admin/backup?error=" + f"ارفع ملف {expected} فقط.",
             status_code=302,
         )
-    fd, tmp_path = tempfile.mkstemp(suffix=".db")
+    fd, tmp_path = tempfile.mkstemp(suffix=suffix or ".bak")
     try:
         with os.fdopen(fd, "wb") as out:
             shutil.copyfileobj(file.file, out)
-        safety = backup_service.restore_from_file(Path(tmp_path))
+        safety = backup_service.restore_backup(Path(tmp_path))
         return RedirectResponse(
             "/admin/backup?notice="
             + f"تمت الاستعادة. نسخة الأمان قبل الاستعادة: {safety.name}",
@@ -158,7 +159,7 @@ def backup_restore_existing(name: str, _: User = Depends(_perm)):
             "/admin/backup?error=" + "النسخة غير موجودة.", status_code=302
         )
     try:
-        safety = backup_service.restore_from_file(p)
+        safety = backup_service.restore_backup(p)
         return RedirectResponse(
             "/admin/backup?notice="
             + f"تمت استعادة {name}. نسخة الأمان: {safety.name}",
@@ -223,7 +224,13 @@ def reset_factory(
     _: User = Depends(_perm),
     confirm: str = Form(""),
 ):
-    """التصفير الكامل (مصنع) — يحذف ملف القاعدة. يحتاج إعادة تشغيل الخادم."""
+    """التصفير الكامل (مصنع) — SQLite: حذف الملف. PostgreSQL: غير متاح."""
+    if not backup_service.is_sqlite():
+        return RedirectResponse(
+            "/admin/backup?error="
+            + "التصفير الكامل (مصنع) متاح لـ SQLite فقط. على MySQL/PostgreSQL أنشئ قاعدة جديدة يدوياً.",
+            status_code=302,
+        )
     if confirm.strip() != "تصفير المصنع الكامل":
         return RedirectResponse(
             "/admin/backup?error="

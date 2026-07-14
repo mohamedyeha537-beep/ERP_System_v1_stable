@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button with context %}
+{% block title %}تقرير الإيرادات المحوري{% endblock %}
+{% block head_extra %}
+<style>
+  .matrix-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: flex-end;
+    margin: 0.75rem 0;
+  }
+  .matrix-controls label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.85rem;
+  }
+  .matrix-controls select {
+    min-width: 10rem;
+    padding: 0.4rem 0.55rem;
+    border-radius: 8px;
+    border: 1px solid var(--border, #e2e8f0);
+    background: #fff;
+  }
+  .granularity-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin: 0.5rem 0 0.25rem;
+  }
+  .granularity-tabs a {
+    padding: 0.35rem 0.8rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    text-decoration: none;
+    font-size: 0.9rem;
+  }
+  .granularity-tabs a.active {
+    background: #7c3aed;
+    color: #fff;
+    border-color: transparent;
+  }
+  .matrix-wrap {
+    overflow-x: auto;
+    margin-top: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: #fff;
+  }
+  .matrix-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 720px;
+  }
+  .matrix-table th,
+  .matrix-table td {
+    border: 1px solid #e2e8f0;
+    padding: 0.55rem 0.7rem;
+    text-align: center;
+    white-space: nowrap;
+  }
+  .matrix-table thead th {
+    background: #f5f3ff;
+    color: #5b21b6;
+    font-weight: 700;
+  }
+  .matrix-table thead tr.subhead th {
+    background: #ede9fe;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #6d28d9;
+  }
+  .matrix-table tbody th {
+    position: sticky;
+    right: 0;
+    background: #fafafa;
+    text-align: start;
+    min-width: 8rem;
+    z-index: 1;
+  }
+  .matrix-table tbody tr.total-row th,
+  .matrix-table tbody tr.total-row td {
+    background: #f5f3ff;
+    font-weight: 700;
+  }
+  .matrix-table td.amount {
+    font-variant-numeric: tabular-nums;
+  }
+  .matrix-table td.zero {
+    color: #94a3b8;
+  }
+</style>
+{% endblock %}
+{% block body %}
+<h1>تقرير الإيرادات المحوري{% if domain_label %} — {{ domain_label }}{% endif %}</h1>
+<p class="muted" style="margin-top:-0.35rem;margin-bottom:0.75rem">
+  عرض إيرادات المطعم والفندق في جدول محوري — يومي / أسبوعي / شهري مع تصدير Excel.
+</p>
+
+{{ reports_nav('revenue_matrix') }}
+{{ period_filter('/reports/revenue-matrix', period, period_labels, start, end, start_str, end_str, matrix_filter_extra) }}
+{{ report_export_format_help() }}
+
+<div class="export-bar">
+  <span class="label">Excel (.csv):</span>
+  {{ export_button('/reports/export/revenue-matrix.csv?' ~ matrix_qs, 'تقرير الإيرادات') }}
+  <span class="label no-print" style="margin-inline-start:0.75rem">PDF:</span>
+  {{ pdf_export_button() }}
+</div>
+
+<div class="card no-print">
+  <div class="granularity-tabs">
+    {% for code, label in granularity_labels.items() %}
+    <a href="/reports/revenue-matrix?{{ matrix_qs | replace('bucket=' ~ report.granularity, 'bucket=' ~ code) }}"
+      class="{% if report.granularity == code %}active{% endif %}">{{ label }}</a>
+    {% endfor %}
+  </div>
+
+  <form method="get" action="/reports/revenue-matrix" class="matrix-controls">
+    <input type="hidden" name="period" value="{{ period }}" />
+    <input type="hidden" name="bucket" value="{{ report.granularity }}" />
+    {% if segment and segment != 'all' %}<input type="hidden" name="segment" value="{{ segment }}" />{% endif %}
+    {% if period == 'custom' %}
+    <input type="hidden" name="start" value="{{ start_str }}" />
+    <input type="hidden" name="end" value="{{ end_str }}" />
+    {% endif %}
+    <label>
+      <span>المقياس</span>
+      <select name="measure" onchange="this.form.submit()">
+        {% for code, label in measure_labels.items() %}
+        <option value="{{ code }}" {% if report.measure == code %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% if show_segment_filter %}
+    <label>
+      <span>المجال</span>
+      <select name="segment" onchange="this.form.submit()">
+        <option value="all" {% if segment == 'all' %}selected{% endif %}>الكل (مطعم + فندق)</option>
+        <option value="restaurant" {% if segment == 'restaurant' %}selected{% endif %}>المطعم فقط</option>
+        <option value="hotel" {% if segment == 'hotel' %}selected{% endif %}>الفندق فقط</option>
+      </select>
+    </label>
+    {% endif %}
+    <button class="btn" type="submit">تطبيق</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">
+    {{ report.granularity_label }} · {{ report.measure_label }}
+    <span class="muted" style="font-size:0.85rem;font-weight:500">({{ report.from_date }} → {{ report.to_date }})</span>
+  </h2>
+
+  {% if report.columns %}
+  <div class="matrix-wrap">
+    <table class="matrix-table">
+      <thead>
+        <tr>
+          <th rowspan="2">البند</th>
+          {% for col in report.columns %}
+          <th>{{ col.label }}</th>
+          {% endfor %}
+          <th rowspan="2">المجموع</th>
+        </tr>
+        <tr class="subhead">
+          {% for col in report.columns %}
+          <th>{{ report.measure_label }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in report.rows %}
+        <tr class="{% if row.segment == 'total' %}total-row{% endif %}">
+          <th>{{ row.label_ar }}</th>
+          {% for col in report.columns %}
+          {% set val = row.values.get(col.key, 0) %}
+          <td class="amount {% if val == 0 %}zero{% endif %}">
+            {% if report.measure == 'count' %}{{ val }}{% else %}{{ pos_money(val) }}{% endif %}
+          </td>
+          {% endfor %}
+          <td class="amount">
+            {% if report.measure == 'count' %}{{ row.total }}{% else %}{{ pos_money(row.total) }}{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr class="total-row">
+          <th>مجموع الأعمدة</th>
+          {% for col in report.columns %}
+          {% set val = report.column_totals.get(col.key, 0) %}
+          <td class="amount">
+            {% if report.measure == 'count' %}{{ val }}{% else %}{{ pos_money(val) }}{% endif %}
+          </td>
+          {% endfor %}
+          <td class="amount">
+            {% if report.measure == 'count' %}{{ report.grand_total }}{% else %}{{ pos_money(report.grand_total) }}{% endif %}
+          </td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">لا توجد فترات في النطاق المحدد.</p>
+  {% endif %}
+
+  <p class="muted" style="margin:0.75rem 0 0;font-size:0.85rem">
+    {% if report.show_restaurant %}
+    <strong>المطعم:</strong> صافي التحصيل = المبيعات − المرتجعات.
+    {% endif %}
+    {% if report.show_hotel %}
+    <strong>الفندق:</strong> صافي التحصيل = مدفوعات الحجز − مرتجعات الحجز.
+    {% endif %}
+    للتفاصيل اليومية راجع
+    {% if report.show_restaurant %}<a href="/reports/sales?period={{ period }}">المبيعات</a>{% endif %}
+    {% if report.show_restaurant and report.show_hotel %} · {% endif %}
+    {% if report.show_hotel %}<a href="/reports/hotel-collections?period={{ period }}">تحصيلات الفندق</a>{% endif %}
+  </p>
+</div>
+{% endblock %}

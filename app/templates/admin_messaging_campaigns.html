@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}حملات المراسلات{% endblock %}
+{% block body %}
+<h1>الرسائل الدعائية — حملات</h1>
+<p class="muted">حملات محفوظة للعروض — تظهر في السجل كنوع <strong>دعائية</strong>. يمكن استهداف قائمة أرقام خارجية دون إنشاء عملاء.</p>
+<a class="btn" href="/admin/messaging">رجوع</a>
+{% if request.query_params.get('sent') %}
+<p class="muted">تمت جدولة إرسال لـ {{ request.query_params.get('sent') }} مستلم.</p>
+{% endif %}
+
+<div class="card" style="margin-top:1rem">
+  <h2>حملة جديدة</h2>
+  <form method="post" action="/admin/messaging/campaigns/save" enctype="multipart/form-data">
+    <label>الاسم</label>
+    <input name="name" required placeholder="عرض رمضان" />
+    <label>القالب</label>
+    <select name="template_id">
+      {% for t in templates %}
+      <option value="{{ t.id }}">{{ t.name }}</option>
+      {% endfor %}
+    </select>
+    <label>نص العرض (يُمرَّر كـ {message})</label>
+    <textarea name="message" rows="3" style="width:100%"></textarea>
+    <label>صورة الحملة (اختياري)</label>
+    <input type="file" name="image_file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" />
+    <details style="margin-top:0.35rem;font-size:0.88rem">
+      <summary style="cursor:pointer">أو رابط صورة خارجي</summary>
+      <input name="image_url" dir="ltr" placeholder="https://..." style="width:100%;max-width:36rem;margin-top:0.35rem" />
+    </details>
+    <label style="margin-top:0.5rem">المستهدفون</label>
+    <select name="segment" id="campaign-segment">
+      <option value="opt_in">الموافقون على المراسلات (افتراضي)</option>
+      <option value="all_whatsapp">كل العملاء النشطين — WhatsApp</option>
+      <option value="phone_list">قائمة أرقام خارجية</option>
+    </select>
+    <div id="campaign-phone-list" style="display:none;margin-top:0.5rem">
+      <label>قائمة الأرقام</label>
+      <select name="phone_list_id">
+        <option value="">— اختر —</option>
+        {% for pl in phone_lists %}
+        <option value="{{ pl.id }}">{{ pl.name }} ({{ pl.valid_count }})</option>
+        {% endfor %}
+      </select>
+      <p class="muted" style="font-size:0.85rem">ارفع القوائم من <a href="/admin/messaging/broadcast">الإرسال الجماعي</a>.</p>
+    </div>
+    <label>بداية (ISO اختياري)</label>
+    <input name="starts_at" placeholder="2026-06-01T00:00:00" dir="ltr" />
+    <label>نهاية (ISO اختياري)</label>
+    <input name="ends_at" placeholder="2026-06-30T23:59:59" dir="ltr" />
+    <label><input type="checkbox" name="is_active" style="width:auto" /> نشطة</label>
+    <div style="margin-top:0.5rem"><button type="submit" class="btn btn-primary">حفظ</button></div>
+  </form>
+</div>
+
+<table class="table">
+  <thead><tr><th>الاسم</th><th>القالب</th><th>المستهدفون</th><th>نشطة</th><th>آخر إرسال</th><th></th></tr></thead>
+  <tbody>
+  {% for c in campaigns %}
+  <tr>
+    <td>{{ c.name }}</td>
+    <td>{{ c.template.name if c.template else c.template_id }}</td>
+    <td class="muted" style="font-size:0.88rem">{{ segment_labels.get(c.id, 'موافقون') }}</td>
+    <td>{{ 'نعم' if c.is_active else 'لا' }}</td>
+    <td>{{ c.last_sent_at or '—' }}</td>
+    <td>
+      <form method="post" action="/admin/messaging/campaigns/{{ c.id }}/send" style="display:inline">
+        <button type="submit" class="btn">إرسال الآن</button>
+      </form>
+      <form method="post" action="/admin/messaging/campaigns/{{ c.id }}/toggle" style="display:inline">
+        <button type="submit" class="btn">{% if c.is_active %}إيقاف{% else %}تفعيل{% endif %}</button>
+      </form>
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="6" class="muted">لا حملات.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<script>
+(function () {
+  var seg = document.getElementById('campaign-segment');
+  var box = document.getElementById('campaign-phone-list');
+  if (!seg || !box) return;
+  function sync() {
+    box.style.display = seg.value === 'phone_list' ? 'block' : 'none';
+  }
+  seg.addEventListener('change', sync);
+  sync();
+})();
+</script>
+{% endblock %}

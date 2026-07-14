@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% block title %}دفتر الأستاذ العام (GL){% endblock %}
+{% block body %}
+<div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem">
+  <div>
+    <h1 style="margin:0">دفتر الأستاذ العام (GL)</h1>
+    {% if domain_label %}<p class="muted" style="margin:0.35rem 0 0">مجال الإعداد: <strong>{{ domain_label }}</strong></p>{% endif %}
+  </div>
+  <a class="btn btn-primary" href="/admin/gl/accounts">شجرة الحسابات ←</a>
+  <a class="btn btn-primary" href="/admin/gl/reports">التقارير المالية</a>
+  <a class="btn" href="/admin/gl/journal">قيود اليومية</a>
+  <a class="btn" href="/admin/gl/expense-maps">ربط المصروفات</a>
+  <a class="btn" href="/admin/gl/role-maps">ربط الأصول والإهلاك</a>
+  <a class="btn" href="/admin/gl/reconciliation">مطابقة GL</a>
+</div>
+
+{% if saved %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4">
+  <p style="margin:0">تم الحفظ. {% if status.production_ready %}GL جاهز للاعتماد على التقارير المالية.{% elif status.is_live %}وضع مباشر مفعّل — راجع قائمة الجاهزية أدناه.{% endif %}</p>
+</div>
+{% endif %}
+{% if err == 'cutover' %}
+<div class="card" style="border-color:#fca5a5;background:#fef2f2">
+  <p style="margin:0">تاريخ cutover غير صالح — استخدم صيغة YYYY-MM-DD.</p>
+</div>
+{% elif err == 'gl_off' %}
+<div class="card" style="border-color:#fca5a5;background:#fef2f2">
+  <p style="margin:0">فعّل GL أولاً قبل ترحيل الحركات السابقة.</p>
+</div>
+{% elif err == 'mode' %}
+<div class="card" style="border-color:#fca5a5;background:#fef2f2">
+  <p style="margin:0">تعذّر الحفظ — وضع الترحيل غير صالح.</p>
+</div>
+{% elif err %}
+<div class="card" style="border-color:#fca5a5;background:#fef2f2">
+  <p style="margin:0">{{ err }}</p>
+</div>
+{% endif %}
+
+<div class="card" style="border-color:{% if status.production_ready %}#86efac{% else %}#0ea5e9{% endif %};background:linear-gradient(180deg,{% if status.production_ready %}#f0fdf4{% else %}#e0f2fe{% endif %} 0%,#fff 60%)">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap">
+    <div>
+      <h2 style="margin-top:0">دفتر الأستاذ العام — النسخة التشغيلية</h2>
+      <p style="margin:0;line-height:1.65">
+        المصدر المحاسبي الموحّد: كل مبيعات ومصروفات وتحصيلات تُرحَّل تلقائياً إلى GL
+        وتظهر في <a href="/admin/gl/reports">التقارير المالية</a>.
+      </p>
+    </div>
+    {% if status.enabled and not status.is_live %}
+    <form method="post" action="/admin/gl/activate-production" style="margin:0" onsubmit="return confirm('تفعيل الوضع المباشر؟ ستصبح تقارير GL هي المرجع الرسمي للإدارة.')">
+      <button class="btn btn-primary" type="submit">تفعيل النسخة النهائية (مباشر)</button>
+    </form>
+    {% elif status.is_live and status.entry_count == 0 %}
+    <form method="post" action="/admin/gl/backfill" style="margin:0" onsubmit="return confirm('ترحيل الحركات السابقة إلى GL؟')">
+      <button class="btn btn-primary" type="submit">ترحيل الحركات السابقة</button>
+    </form>
+    {% elif status.production_ready %}
+    <a class="btn btn-primary" href="/admin/gl/reports">التقارير المالية ←</a>
+    {% endif %}
+  </div>
+
+  <ul style="margin:0.75rem 0 0;line-height:1.75;list-style:none;padding:0">
+    <li>
+      <strong>الحالة:</strong>
+      <span style="color:{{ status.status_color }};font-weight:700">{{ status.status_label }}</span>
+    </li>
+    <li>وضع الترحيل: <code>{{ status.post_mode }}</code></li>
+    <li>تاريخ cutover: {% if status.cutover_date %}<code>{{ status.cutover_date }}</code>{% else %}<span class="muted">غير محدّد — يُرحَّل كل شيء</span>{% endif %}</li>
+    <li>حسابات: {{ status.account_count }} — <a href="/admin/gl/accounts">الشجرة</a></li>
+    <li>قيود: {{ status.entry_count }} — <a href="/admin/gl/journal">اليومية</a></li>
+    <li>محافظ مربوطة: {{ status.wallet_map_count }}{% if status.unmapped_wallet_count > 0 %} — <strong style="color:#b45309">{{ status.unmapped_wallet_count }} غير مربوطة</strong>{% else %} ✓{% endif %}</li>
+  </ul>
+
+  <div style="margin-top:1rem;padding:0.75rem;background:#fff;border-radius:8px;border:1px solid var(--border)">
+    <strong style="font-size:0.88rem">قائمة الجاهزية للتشغيل:</strong>
+    <ul style="margin:0.5rem 0 0;line-height:1.65;font-size:0.88rem">
+      <li>{% if status.enabled %}✅{% else %}⬜{% endif %} GL مفعّل</li>
+      <li>{% if status.is_live %}✅{% else %}⬜{% endif %} وضع مباشر (live) — وليس مقارنة فقط</li>
+      <li>{% if status.unmapped_wallet_count == 0 and status.wallet_map_count > 0 %}✅{% else %}⬜{% endif %} كل المحافظ مربوطة بحسابات GL</li>
+      <li>{% if status.entry_count > 0 %}✅{% else %}⬜{% endif %} قيود مرحّلة (جديدة أو backfill)</li>
+      <li>{% if status.production_ready %}✅{% else %}⬜{% endif %} جاهز للاعتماد على P&amp;L والميزانية</li>
+    </ul>
+  </div>
+
+  <p class="muted" style="margin:0.75rem 0 0;font-size:0.88rem">
+    التقرير التشغيلي اليومي: <a href="/reports/financial-operational">financial-operational</a> — للمحافظ فقط، وليس بديلاً عن GL.
+  </p>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">إعدادات GL</h2>
+  <form method="post" action="/admin/gl/settings" class="row" style="flex-wrap:wrap;gap:1rem;align-items:flex-end">
+    <div>
+      <label style="display:flex;align-items:center;gap:0.4rem;cursor:pointer">
+        <input type="checkbox" name="gl_enabled" value="1" {% if status.enabled %}checked{% endif %} />
+        تفعيل دفتر الأستاذ والترحيل التلقائي من العمليات
+      </label>
+    </div>
+    <div>
+      <label class="muted" style="font-size:0.8rem;display:block">وضع الترحيل</label>
+      <select name="gl_post_mode">
+        {% for val, label in post_modes %}
+        <option value="{{ val }}" {% if status.post_mode == val %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="muted" style="font-size:0.8rem;display:block">تاريخ cutover (اختياري)</label>
+      <input type="date" name="gl_cutover_date" value="{{ status.cutover_date or '' }}" />
+      <p class="muted" style="margin:0.35rem 0 0;font-size:0.78rem">لا يُرحَّل تلقائياً ما قبل هذا التاريخ — مفيد لبدء GL في الإنتاج.</p>
+    </div>
+    <button class="btn btn-primary" type="submit">حفظ</button>
+  </form>
+  <p class="muted" style="margin:0.75rem 0 0;font-size:0.85rem">
+    للتشغيل الفعلي: فعّل GL + اختر «مباشر» + اربط المحافظ + نفّذ ترحيل الحركات السابقة مرة واحدة.
+  </p>
+</div>
+
+{% if wallet_maps or unmapped_methods %}
+<div class="card">
+  <h2 style="margin-top:0">ربط المحافظ بحسابات GL</h2>
+  {% if wallet_maps %}
+  <table style="width:100%;border-collapse:collapse;font-size:0.92rem;margin-bottom:1rem">
+    <thead>
+      <tr style="border-bottom:2px solid var(--border)">
+        <th style="text-align:right;padding:0.4rem">المحفظة</th>
+        <th style="text-align:right;padding:0.4rem">حساب GL</th>
+        <th style="text-align:right;padding:0.4rem">إجراء</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in wallet_maps %}
+      <tr style="border-bottom:1px dashed var(--border)">
+        <td style="padding:0.35rem">{{ m.payment_method.name_ar if m.payment_method else m.payment_method_id }}</td>
+        <td style="padding:0.35rem">
+          <form method="post" action="/admin/gl/wallet-maps" class="row" style="gap:0.4rem;align-items:center;flex-wrap:wrap;margin:0">
+            <input type="hidden" name="payment_method_id" value="{{ m.payment_method_id }}" />
+            <select name="gl_account_id" required>
+              {% for acc in cash_accounts %}
+              <option value="{{ acc.id }}" {% if m.gl_account_id == acc.id %}selected{% endif %}>{{ acc.code }} — {{ acc.name_ar }}</option>
+              {% endfor %}
+            </select>
+            <button class="btn" type="submit">حفظ التغيير</button>
+          </form>
+        </td>
+        <td style="padding:0.35rem">
+          <form method="post" action="/admin/gl/wallet-maps/delete" style="margin:0" onsubmit="return confirm('فك ربط هذه المحفظة من GL؟ يُسمح بذلك فقط إذا لم تُستخدم في معاملات.')">
+            <input type="hidden" name="payment_method_id" value="{{ m.payment_method_id }}" />
+            <button class="btn" type="submit">فك الربط</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {% if unmapped_methods %}
+  <p class="muted" style="margin:0 0 0.5rem;font-size:0.88rem">محافظ غير مربوطة — أضف ربطاً:</p>
+  <form method="post" action="/admin/gl/wallet-maps" class="row" style="flex-wrap:wrap;gap:0.75rem;align-items:flex-end">
+    <div>
+      <label class="muted" style="font-size:0.8rem;display:block">المحفظة</label>
+      <select name="payment_method_id" required>
+        {% for pm in unmapped_methods %}
+        <option value="{{ pm.id }}">{{ pm.name_ar }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="muted" style="font-size:0.8rem;display:block">حساب GL</label>
+      <select name="gl_account_id" required>
+        {% for acc in cash_accounts %}
+        <option value="{{ acc.id }}">{{ acc.code }} — {{ acc.name_ar }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button class="btn btn-primary" type="submit">ربط</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

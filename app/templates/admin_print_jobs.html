@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}مهام الطباعة{% endblock %}
+{% block body %}
+<h1>مهام الطباعة</h1>
+<a class="btn" href="/admin/printing">رجوع</a>
+{% if err %}
+<p class="alert alert-danger">{{ err }}</p>
+{% endif %}
+{% if retried %}
+<p class="alert alert-success">تمت إعادة {{ retried }} مهمة فاشلة إلى قائمة الانتظار.</p>
+{% endif %}
+{% if request.query_params.get('cleaned') %}
+<p class="alert alert-success">تم تنظيف {{ request.query_params.get('cleaned') }} مهمة طباعة معلّقة/فاشلة.</p>
+{% endif %}
+<form method="post" action="/admin/printing/jobs/cancel-open" style="margin:1rem 0"
+      onsubmit="return confirm('تنظيف كل مهام الطباعة المعلقة والفاشلة؟ لن يسحبها الوكيل مرة أخرى.');">
+  <button type="submit" class="btn btn-danger">تنظيف أوامر الطباعة العالقة</button>
+  <span class="muted" style="margin-right:0.5rem">استخدمه قبل تجربة الطباعة من جديد.</span>
+</form>
+{% if has_failed_jobs %}
+<form method="post" action="/admin/printing/jobs/retry-failed" style="margin:1rem 0">
+  <button type="submit" class="btn btn-primary">إعادة محاولة كل المهام الفاشلة</button>
+  <span class="muted" style="margin-right:0.5rem">تُستخدم بعد إصلاح الطابعة أو الشبكة — إعادة التشغيل وحدها لا تكفي.</span>
+</form>
+{% endif %}
+<div class="row" style="margin:1rem 0;gap:0.5rem">
+  <a class="btn {% if not status_filter %}btn-primary{% endif %}" href="/admin/printing/jobs">الكل</a>
+  {% for st in statuses %}
+  <a class="btn {% if status_filter == st.value %}btn-primary{% endif %}" href="/admin/printing/jobs?status={{ st.value }}">{{ st.value }}</a>
+  {% endfor %}
+</div>
+<table class="table">
+  <thead>
+    <tr><th>#</th><th>الطابعة</th><th>النوع</th><th>الحالة</th><th>محاولات</th><th>خطأ</th><th>أنشئت</th><th></th></tr>
+  </thead>
+  <tbody>
+  {% for j in jobs %}
+  <tr>
+    <td>{{ j.id }}</td>
+    <td>{{ j.printer.name if j.printer else j.printer_id }}{% if j.printer and j.printer.ip_address %} ({{ j.printer.ip_address }}){% endif %}</td>
+    <td>{{ j.job_type }}</td>
+    <td>{{ j.status }}</td>
+    <td>{{ j.attempts }}</td>
+    <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">{{ j.error_message or '—' }}</td>
+    <td>{{ j.created_at }}</td>
+    <td>
+      {% if j.status == 'failed' %}
+      <form method="post" action="/admin/printing/jobs/{{ j.id }}/retry" style="display:inline">
+        <button type="submit" class="btn">إعادة المحاولة</button>
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="8" class="muted">لا مهام.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

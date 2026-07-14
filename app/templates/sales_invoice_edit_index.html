@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}تعديل فواتير مكتملة{% endblock %}
+{% block body %}
+<div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap">
+  <div>
+    <h1 style="margin:0">تعديل فواتير مكتملة</h1>
+    <p class="muted pos-guide-intro" data-guide-title="ℹ️ كيفية الاستخدام" style="margin:0.35rem 0 0">ابحث برقم الفاتورة لتعديل الكمية أو السعر — يُعكس التعديل على المخزون والإجمالي والسجلات.</p>
+  </div>
+  <a class="btn" href="/pos">الرجوع إلى نقطة البيع</a>
+</div>
+
+{% if error %}
+<div class="card" style="margin-top:1rem;border-color:#fecaca;background:#fef2f2;color:#b91c1c">{{ error }}</div>
+{% endif %}
+
+<div class="card" style="margin-top:1rem">
+  <form method="get" action="/sales/invoices" class="row" style="gap:0.5rem;align-items:end;flex-wrap:wrap;margin:0">
+    <div style="min-width:260px;flex:1">
+      <label class="muted" style="font-size:0.82rem;display:block;margin-bottom:0.2rem">بحث برقم الفاتورة</label>
+      <input class="input" type="text" name="q" value="{{ q }}" placeholder="مثلاً: 125" />
+    </div>
+    <button class="btn btn-primary" type="submit">بحث</button>
+    {% if q %}<a class="btn" href="/sales/invoices">مسح</a>{% endif %}
+  </form>
+</div>
+
+{% if q %}
+<div class="card">
+  <h2 style="margin-top:0">نتائج البحث</h2>
+  {% if sales %}
+  <table>
+    <thead>
+      <tr>
+        <th>#الفاتورة</th>
+        <th>التاريخ</th>
+        <th>الإجمالي</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for sale in sales %}
+      <tr>
+        <td>#{{ sale.id }}</td>
+        <td>{{ pos_format_dt(sale.created_at, '%Y-%m-%d %H:%M') }}</td>
+        <td>{{ pos_money(sale.total) }} <span class="money-currency">د.ل</span></td>
+        <td>
+          <a class="btn btn-primary" href="/sales/invoices/{{ sale.id }}/edit">تعديل</a>
+          <a class="btn" href="/pos/receipt/{{ sale.id }}?popup=1" target="pos-receipt">عرض</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">لا توجد فاتورة مطابقة.</p>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

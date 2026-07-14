@@ -157,11 +157,14 @@
   </div>
 </div>
 <p class="muted" style="margin-top:0.2rem">
-  خصّص شكل النظام: ارفع شعارك وغيّر ألوان الهيدر والفوتر والأزرار.
-  التغييرات تُطبَّق فوراً لكل المستخدمين بعد الحفظ.
-  <strong>التغييرات التجريبية أدناه فورية بدون حفظ.</strong>
+  هويتان منفصلتان: <strong>المطعم (روف)</strong> و<strong>الفندق (بيتك)</strong>.
+  عند اختيار وضع المطعم يظهر اسم وشعار المطعم، وعند وضع الفندق يظهر اسم وشعار الفندق.
+  الوضع العام للتقارير المجمّعة فقط (من مركز الربح) — واختر أدناه أي شعار يُستخدم عند الطباعة/التصدير منه.
 </p>
 
+{% if shop_saved %}
+<div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0">✓ تم حفظ إعدادات المتجر. تحقّق من الروابط أدناه — إن لم تظهر أعد تشغيل السيرver (<code>start-server.bat</code>).</p></div>
+{% endif %}
 {% if saved %}
 <div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0">✓ تم الحفظ.</p></div>
 {% endif %}
@@ -206,68 +209,411 @@
   </div>
 </div>
 
-<!-- ============== رفع الشعار ============== -->
-<div class="card">
-  <h2 style="margin-top:0">🖼️ شعار المتجر</h2>
+<!-- ============== هوية المطعم ============== -->
+<div class="card" id="restaurant-branding">
+  <h2 style="margin-top:0">🍽️ هوية المطعم (روف)</h2>
+  <p class="muted" style="margin:0 0 0.75rem;font-size:0.88rem">
+    تظهر في الهيدر عند اختيار وضع <strong>مطعم</strong>، وفي فواتير نقطة البيع.
+  </p>
+  <h3 style="margin:0 0 0.5rem;font-size:0.95rem">شعار الواجهة</h3>
   {% if brand.logo_url %}
   <div style="display:flex;align-items:center;gap:1rem;margin-bottom:0.6rem">
     <img src="{{ brand.logo_url }}" alt="logo" style="max-height:82px;max-width:220px;object-fit:contain" />
     <div>
       <p class="muted" style="margin:0;font-size:0.85rem">الشعار الحالي: <code>{{ brand.logo_filename }}</code></p>
       <form method="post" action="/admin/branding/delete-logo" style="margin:0.3rem 0 0"
-            onsubmit="return confirm('حذف الشعار الحالي؟');">
+            onsubmit="return confirm('حذف شعار المطعم؟');">
         <button type="submit" class="btn" style="color:#b91c1c">🗑 حذف الشعار</button>
       </form>
     </div>
   </div>
   {% else %}
-  <p class="muted" style="margin:0 0 0.5rem">لا يوجد شعار. ارفع شعارك ليظهر في الهيدر بدلاً من الأيقونة الافتراضية.</p>
+  <p class="muted" style="margin:0 0 0.5rem">لا يوجد شعار للمطعم بعد.</p>
   {% endif %}
   <form method="post" action="/admin/branding/upload-logo" enctype="multipart/form-data">
     <div class="row" style="gap:0.5rem; align-items:flex-end; flex-wrap:wrap">
       <div style="flex:1;min-width:240px">
-        <label>اختر ملف الشعار</label>
+        <label>رفع شعار المطعم</label>
         <input type="file" name="logo" required accept=".png,.jpg,.jpeg,.webp,.svg,.gif" />
         <small class="muted" style="font-size:0.78rem;display:block;margin-top:0.2rem">
-          المدعوم: PNG, JPG, WebP, SVG, GIF — الحد الأقصى: 1 ميجابايت.
-          يُفضَّل خلفية شفّافة (PNG/SVG).
+          PNG, JPG, WebP, SVG, GIF — حد أقصى 1 ميجابايت.
         </small>
+      </div>
+      <button class="btn btn-primary" type="submit">⬆ رفع</button>
+    </div>
+  </form>
+
+  <hr style="margin:1.1rem 0;border:none;border-top:1px solid var(--border)" />
+  <h3 style="margin:0 0 0.5rem;font-size:0.95rem">شعار طباعة فواتير المطعم</h3>
+  <p class="muted" style="margin:0 0 0.5rem;font-size:0.84rem">
+    إن تُرك فارغاً يُستخدم شعار الواجهة (مع تحويله للطباعة الحرارية).
+  </p>
+  {% if brand.print_logo_url %}
+  <div style="display:flex;align-items:center;gap:1rem;margin-bottom:0.6rem">
+    <img src="{{ brand.print_logo_url }}" alt="print-logo" style="max-height:82px;max-width:220px;object-fit:contain" />
+    <div>
+      <p class="muted" style="margin:0;font-size:0.85rem">شعار الطباعة: <code>{{ brand.print_logo_filename }}</code></p>
+      <form method="post" action="/admin/branding/delete-print-logo" style="margin:0.3rem 0 0"
+            onsubmit="return confirm('حذف شعار طباعة المطعم؟');">
+        <button type="submit" class="btn" style="color:#b91c1c">🗑 حذف</button>
+      </form>
+    </div>
+  </div>
+  {% else %}
+  <p class="muted" style="margin:0 0 0.5rem">لا يوجد شعار طباعة مستقل للمطعم.</p>
+  {% endif %}
+  <form method="post" action="/admin/branding/upload-print-logo" enctype="multipart/form-data">
+    <div class="row" style="gap:0.5rem; align-items:flex-end; flex-wrap:wrap">
+      <div style="flex:1;min-width:240px">
+        <label>رفع شعار طباعة المطعم</label>
+        <input type="file" name="logo" required accept=".png,.jpg,.jpeg,.webp,.svg,.gif" />
       </div>
       <button class="btn btn-primary" type="submit">⬆ رفع</button>
     </div>
   </form>
 </div>
 
-<div class="card">
-  <h2 style="margin-top:0">🖨️ شعار الطباعة</h2>
-  <p class="muted" style="margin:0 0 0.5rem;font-size:0.84rem">
-    هذا الشعار يُستخدم داخل الفاتورة المطبوعة. إذا تركته فارغاً فسيُستخدم شعار الواجهة
-    نفسه مع تحويله تلقائياً إلى أسود للطباعة.
+<!-- ============== هوية الفندق ============== -->
+<div class="card" id="hotel-branding">
+  <h2 style="margin-top:0">🏨 هوية الفندق (بيتك للشقق الفندقية)</h2>
+  <p class="muted" style="margin:0 0 0.75rem;font-size:0.88rem">
+    تظهر في الهيدر عند اختيار وضع <strong>فندق</strong>.
   </p>
-  {% if brand.print_logo_url %}
+  <h3 style="margin:0 0 0.5rem;font-size:0.95rem">شعار الواجهة</h3>
+  {% if brand.hotel_logo_url %}
   <div style="display:flex;align-items:center;gap:1rem;margin-bottom:0.6rem">
-    <img src="{{ brand.print_logo_url }}" alt="print-logo" style="max-height:82px;max-width:220px;object-fit:contain" />
+    <img src="{{ brand.hotel_logo_url }}" alt="hotel-logo" style="max-height:82px;max-width:220px;object-fit:contain" />
     <div>
-      <p class="muted" style="margin:0;font-size:0.85rem">شعار الطباعة الحالي: <code>{{ brand.print_logo_filename }}</code></p>
-      <form method="post" action="/admin/branding/delete-print-logo" style="margin:0.3rem 0 0"
-            onsubmit="return confirm('حذف شعار الطباعة الحالي؟');">
-        <button type="submit" class="btn" style="color:#b91c1c">🗑 حذف شعار الطباعة</button>
+      <p class="muted" style="margin:0;font-size:0.85rem">الشعار الحالي: <code>{{ brand.hotel_logo_filename }}</code></p>
+      <form method="post" action="/admin/branding/delete-hotel-logo" style="margin:0.3rem 0 0"
+            onsubmit="return confirm('حذف شعار الفندق؟');">
+        <button type="submit" class="btn" style="color:#b91c1c">🗑 حذف الشعار</button>
       </form>
     </div>
   </div>
   {% else %}
-  <p class="muted" style="margin:0 0 0.5rem">لا يوجد شعار طباعة مستقل.</p>
+  <p class="muted" style="margin:0 0 0.5rem">لا يوجد شعار للفندق بعد — ارفعه ليظهر في وضع الفندق.</p>
   {% endif %}
-  <form method="post" action="/admin/branding/upload-print-logo" enctype="multipart/form-data">
+  <form method="post" action="/admin/branding/upload-hotel-logo" enctype="multipart/form-data">
     <div class="row" style="gap:0.5rem; align-items:flex-end; flex-wrap:wrap">
       <div style="flex:1;min-width:240px">
-        <label>اختر ملف شعار الطباعة</label>
+        <label>رفع شعار الفندق</label>
         <input type="file" name="logo" required accept=".png,.jpg,.jpeg,.webp,.svg,.gif" />
-        <small class="muted" style="font-size:0.78rem;display:block;margin-top:0.2rem">
-          يُفضّل رفع نسخة سوداء أو داكنة ومناسبة للإيصالات الحرارية.
-        </small>
       </div>
-      <button class="btn btn-primary" type="submit">⬆ رفع شعار الطباعة</button>
+      <button class="btn btn-primary" type="submit">⬆ رفع</button>
+    </div>
+  </form>
+
+  <hr style="margin:1.1rem 0;border:none;border-top:1px solid var(--border)" />
+  <h3 style="margin:0 0 0.5rem;font-size:0.95rem">شعار طباعة الفندق</h3>
+  {% if brand.hotel_print_logo_url %}
+  <div style="display:flex;align-items:center;gap:1rem;margin-bottom:0.6rem">
+    <img src="{{ brand.hotel_print_logo_url }}" alt="hotel-print-logo" style="max-height:82px;max-width:220px;object-fit:contain" />
+    <div>
+      <p class="muted" style="margin:0;font-size:0.85rem">شعار الطباعة: <code>{{ brand.hotel_print_logo_filename }}</code></p>
+      <form method="post" action="/admin/branding/delete-hotel-print-logo" style="margin:0.3rem 0 0"
+            onsubmit="return confirm('حذف شعار طباعة الفندق؟');">
+        <button type="submit" class="btn" style="color:#b91c1c">🗑 حذف</button>
+      </form>
+    </div>
+  </div>
+  {% else %}
+  <p class="muted" style="margin:0 0 0.5rem">لا يوجد شعار طباعة مستقل — يُستخدم شعار واجهة الفندق إن وُجد.</p>
+  {% endif %}
+  <form method="post" action="/admin/branding/upload-hotel-print-logo" enctype="multipart/form-data">
+    <div class="row" style="gap:0.5rem; align-items:flex-end; flex-wrap:wrap">
+      <div style="flex:1;min-width:240px">
+        <label>رفع شعار طباعة الفندق</label>
+        <input type="file" name="logo" required accept=".png,.jpg,.jpeg,.webp,.svg,.gif" />
+      </div>
+      <button class="btn btn-primary" type="submit">⬆ رفع</button>
+    </div>
+  </form>
+</div>
+
+<!-- ============== صفحة المتجر /shop ============== -->
+<div class="card" id="shop-branding">
+  <h2 style="margin-top:0">🛒 صفحة المتجر الإلكتروني</h2>
+  <p class="muted" style="margin:0 0 0.75rem;font-size:0.88rem">
+    اسم المتجر والشعار والألوان لصفحة <a href="/shop" target="_blank" rel="noopener">/shop</a>.
+    يتطلب صلاحية <strong>تخصيص الهويّة البصرية</strong>.
+  </p>
+
+  <div class="preview-frame" id="shop-preview-frame"
+       style="--pv-bg-from: {{ shop.header_bg_from }};
+              --pv-bg-to: {{ shop.header_bg_to }};
+              --pv-fg: {{ shop.header_fg }};
+              margin-bottom:1rem">
+    <div class="pv-header" style="min-height:64px">
+      {% if shop.icon_url %}
+      <img src="{{ shop.icon_url }}" alt="" style="width:40px;height:40px;object-fit:contain;border-radius:8px;background:rgba(255,255,255,0.12);padding:3px" id="shop-pv-icon" />
+      {% else %}
+      <span id="shop-pv-icon" hidden></span>
+      {% endif %}
+      <div class="pv-name">
+        <span id="shop-pv-name">{{ shop.store_name }}</span>
+        <small id="shop-pv-subtitle">{{ shop.subtitle }}</small>
+      </div>
+      <div class="pv-nav"><span id="shop-pv-cart">{{ shop.cart_emoji }}</span></div>
+    </div>
+  </div>
+
+  <h3 style="margin:0 0 0.65rem;font-size:0.95rem">اسم المتجر والشعار</h3>
+  <form method="post" action="/admin/branding/save-shop" id="shop-branding-form">
+    <div class="text-field">
+      <label for="shop_store_name">اسم المتجر (يظهر في هيدر /shop)</label>
+      <input id="shop_store_name" class="input" type="text" name="shop_store_name"
+             value="{{ shop.store_name_raw or shop.store_name }}" maxlength="120"
+             placeholder="مثال: مطعم ومقهى روف" />
+      <small class="muted" style="font-size:0.78rem;display:block;margin-top:0.25rem">
+        اتركه فارغاً لاستخدام اسم المتجر من <a href="/admin/settings">الإعدادات العامة</a>.
+      </small>
+    </div>
+
+    <label style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.75rem">
+      <input type="checkbox" name="shop_use_brand_colors" id="shop_use_brand_colors"
+             {% if shop.use_brand_colors %}checked{% endif %} />
+      استخدم ألوان هيدر الهوية العامة لهيدر المتجر
+    </label>
+
+    <div id="shop-custom-colors" {% if shop.use_brand_colors %}style="opacity:0.55"{% endif %}>
+      <div class="color-row">
+        <label>خلفية الهيدر (يسار)</label>
+        <input type="color" data-pair="shop_header_bg_from" value="{{ shop.header_bg_from }}" />
+        <input type="text" name="shop_header_bg_from" data-pair-text="shop_header_bg_from" value="{{ shop.header_bg_from }}" />
+      </div>
+      <div class="color-row">
+        <label>خلفية الهيدر (يمين)</label>
+        <input type="color" data-pair="shop_header_bg_to" value="{{ shop.header_bg_to }}" />
+        <input type="text" name="shop_header_bg_to" data-pair-text="shop_header_bg_to" value="{{ shop.header_bg_to }}" />
+      </div>
+      <div class="color-row">
+        <label>لون نص الهيدر</label>
+        <input type="color" data-pair="shop_header_fg" value="{{ shop.header_fg }}" />
+        <input type="text" name="shop_header_fg" data-pair-text="shop_header_fg" value="{{ shop.header_fg }}" />
+      </div>
+    </div>
+
+    <div class="text-field" style="margin-top:0.75rem">
+      <label for="shop_subtitle">النص تحت اسم المتجر</label>
+      <input id="shop_subtitle" class="input" type="text" name="shop_subtitle" value="{{ shop.subtitle }}" maxlength="120" />
+    </div>
+    <div class="text-field">
+      <label for="shop_cart_emoji">أيقونة زر السلة (emoji)</label>
+      <input id="shop_cart_emoji" class="input" type="text" name="shop_cart_emoji" value="{{ shop.cart_emoji }}" maxlength="8" style="max-width:6rem;font-size:1.4rem;text-align:center" />
+    </div>
+
+    <hr style="margin:1rem 0;border:none;border-top:1px solid var(--border)" />
+    <h3 style="margin:0 0 0.65rem;font-size:0.95rem">روابط التواصل الاجتماعي (هيدر المتجر)</h3>
+    <p class="muted" style="margin:0 0 0.65rem;font-size:0.85rem">اترك الحقل فارغاً لإخفاء الأيقونة. يمكن إدخال رابط كامل أو رقم واتساب.</p>
+    <div class="text-field">
+      <label for="shop_social_whatsapp">واتساب</label>
+      <input id="shop_social_whatsapp" class="input" type="text" name="shop_social_whatsapp" value="{{ shop.social_whatsapp }}" placeholder="https://wa.me/2189xxxxxxxx" dir="ltr" />
+    </div>
+    <div class="text-field">
+      <label for="shop_social_instagram">إنستغرام</label>
+      <input id="shop_social_instagram" class="input" type="text" name="shop_social_instagram" value="{{ shop.social_instagram }}" placeholder="https://instagram.com/..." dir="ltr" />
+    </div>
+    <div class="text-field">
+      <label for="shop_social_facebook">فيسبوك</label>
+      <input id="shop_social_facebook" class="input" type="text" name="shop_social_facebook" value="{{ shop.social_facebook }}" placeholder="https://facebook.com/..." dir="ltr" />
+    </div>
+
+    <h3 style="margin:1rem 0 0.65rem;font-size:0.95rem">قائمة الهيدر</h3>
+    <div class="row" style="gap:0.5rem;flex-wrap:wrap">
+      <div class="text-field" style="flex:1;min-width:140px">
+        <label for="shop_nav_menu_label">القائمة — النص</label>
+        <input id="shop_nav_menu_label" class="input" type="text" name="shop_nav_menu_label" value="{{ shop.nav_menu_label }}" maxlength="40" />
+      </div>
+      <div class="text-field" style="flex:2;min-width:180px">
+        <label for="shop_nav_menu_url">القائمة — الرابط</label>
+        <input id="shop_nav_menu_url" class="input" type="text" name="shop_nav_menu_url" value="{{ shop.nav_menu_url }}" placeholder="/shop" dir="ltr" />
+      </div>
+    </div>
+    <div style="border:1px solid var(--border);border-radius:10px;padding:0.75rem;margin-bottom:0.75rem;background:#fafafa">
+      <label style="display:flex;align-items:center;gap:0.45rem;font-weight:600;margin:0 0 0.55rem">
+        <input type="checkbox" name="shop_nav_offers_visible" {% if shop.nav_offers_visible %}checked{% endif %} />
+        إظهار صفحة «العروض» في هيدر المتجر
+      </label>
+      <div class="row" style="gap:0.5rem;flex-wrap:wrap">
+        <div class="text-field" style="flex:1;min-width:140px">
+          <label for="shop_nav_offers_label">النص في القائمة</label>
+          <input id="shop_nav_offers_label" class="input" type="text" name="shop_nav_offers_label" value="{{ shop.nav_offers_label }}" maxlength="40" />
+        </div>
+        <div class="text-field" style="flex:2;min-width:180px">
+          <label for="shop_nav_offers_url">الرابط (اختياري — الافتراضي /offers)</label>
+          <input id="shop_nav_offers_url" class="input" type="text" name="shop_nav_offers_url" value="{{ shop.nav_offers_url }}" placeholder="/offers" dir="ltr" />
+        </div>
+      </div>
+      <div class="text-field" style="margin-top:0.45rem">
+        <label for="shop_page_offers_title">عنوان الصفحة</label>
+        <input id="shop_page_offers_title" class="input" type="text" name="shop_page_offers_title" value="{{ shop.page_offers_title }}" maxlength="80" />
+      </div>
+      <div class="text-field" style="margin-top:0.45rem">
+        <label for="shop_page_offers_body">محتوى صفحة العروض</label>
+        <textarea id="shop_page_offers_body" class="input" name="shop_page_offers_body" rows="4" style="width:100%;resize:vertical">{{ shop.page_offers_body }}</textarea>
+      </div>
+    </div>
+
+    <div style="border:1px solid var(--border);border-radius:10px;padding:0.75rem;margin-bottom:0.75rem;background:#fafafa">
+      <label style="display:flex;align-items:center;gap:0.45rem;font-weight:600;margin:0 0 0.55rem">
+        <input type="checkbox" name="shop_nav_about_visible" {% if shop.nav_about_visible %}checked{% endif %} />
+        إظهار صفحة «من نحن» في هيدر المتجر
+      </label>
+      <div class="row" style="gap:0.5rem;flex-wrap:wrap">
+        <div class="text-field" style="flex:1;min-width:140px">
+          <label for="shop_nav_about_label">النص في القائمة</label>
+          <input id="shop_nav_about_label" class="input" type="text" name="shop_nav_about_label" value="{{ shop.nav_about_label }}" maxlength="40" />
+        </div>
+        <div class="text-field" style="flex:2;min-width:180px">
+          <label for="shop_nav_about_url">الرابط (اختياري — الافتراضي /about)</label>
+          <input id="shop_nav_about_url" class="input" type="text" name="shop_nav_about_url" value="{{ shop.nav_about_url }}" placeholder="/about" dir="ltr" />
+        </div>
+      </div>
+      <div class="text-field" style="margin-top:0.45rem">
+        <label for="shop_page_about_title">عنوان الصفحة</label>
+        <input id="shop_page_about_title" class="input" type="text" name="shop_page_about_title" value="{{ shop.page_about_title }}" maxlength="80" />
+      </div>
+      <div class="text-field" style="margin-top:0.45rem">
+        <label for="shop_page_about_body">محتوى صفحة من نحن</label>
+        <textarea id="shop_page_about_body" class="input" name="shop_page_about_body" rows="4" style="width:100%;resize:vertical">{{ shop.page_about_body }}</textarea>
+      </div>
+    </div>
+    <div class="row" style="gap:0.5rem;flex-wrap:wrap;margin-top:0.35rem">
+      <div class="text-field" style="flex:1;min-width:140px">
+        <label for="shop_login_label">دخول — النص</label>
+        <input id="shop_login_label" class="input" type="text" name="shop_login_label" value="{{ shop.login_label }}" maxlength="40" />
+      </div>
+      <div class="text-field" style="flex:2;min-width:180px">
+        <label for="shop_login_url">دخول — الرابط (فارغ = مخفي، مثلاً /chat)</label>
+        <input id="shop_login_url" class="input" type="text" name="shop_login_url" value="{{ shop.login_url }}" placeholder="/chat" dir="ltr" />
+      </div>
+    </div>
+
+    <button class="btn btn-primary" type="submit" style="margin-top:0.75rem">💾 حفظ إعدادات المتجر</button>
+  </form>
+
+  <hr style="margin:1.25rem 0;border:none;border-top:1px solid var(--border)" />
+
+  <h3 style="margin:0 0 0.5rem;font-size:0.95rem">شعار / أيقونة المتجر</h3>
+  <p class="muted" style="margin:0 0 0.65rem;font-size:0.85rem">
+    يظهر بجانب الاسم في هيدر المتجر. إن لم تُرفع أيقونة، يُستخدم الشعار العام من أعلى الصفحة.
+  </p>
+  {% if shop.icon_filename %}
+  <div style="display:flex;align-items:center;gap:1rem;margin-bottom:0.6rem;flex-wrap:wrap">
+    <img src="{{ shop.icon_url }}" alt="" style="max-height:64px;max-width:120px;object-fit:contain;border-radius:8px;border:1px solid var(--border);padding:4px;background:#fff" />
+    <form method="post" action="/admin/branding/delete-shop-icon" onsubmit="return confirm('حذف شعار المتجر؟');">
+      <button type="submit" class="btn" style="color:#b91c1c">🗑 حذف شعار المتجر</button>
+    </form>
+  </div>
+  {% elif shop.icon_url %}
+  <p class="muted" style="margin:0 0 0.65rem;font-size:0.85rem">
+    لا يوجد شعار مخصص للمتجر — يُستخدم الشعار العام حالياً. ارفع شعاراً أدناه لاستبداله.
+  </p>
+  {% endif %}
+  <form method="post" action="/admin/branding/upload-shop-icon" enctype="multipart/form-data">
+    <div class="row" style="gap:0.5rem;align-items:flex-end;flex-wrap:wrap">
+      <div style="flex:1;min-width:240px">
+        <label>رفع شعار المتجر</label>
+        <input type="file" name="icon" accept=".png,.jpg,.jpeg,.webp,.svg,.gif" {% if not shop.icon_filename and not shop.icon_url %}required{% endif %} />
+        <small class="muted" style="font-size:0.78rem;display:block;margin-top:0.2rem">PNG/SVG — حتى 1MB</small>
+      </div>
+      <button class="btn btn-primary" type="submit">⬆ رفع الشعار</button>
+    </div>
+  </form>
+
+  <hr style="margin:1.25rem 0;border:none;border-top:1px solid var(--border)" id="shop-banners" />
+
+  <h3 style="margin:0 0 0.35rem;font-size:0.95rem">بانرات إعلانية (أعلى المتجر)</h3>
+  <p class="muted" style="margin:0 0 0.75rem;font-size:0.85rem">
+    تظهر فوق أزرار الأقسام الرئيسية في <a href="/shop" target="_blank" rel="noopener">/shop</a>.
+  </p>
+  <p class="muted" style="margin:0 0 0.75rem;font-size:0.85rem;padding:0.55rem 0.7rem;background:#f8fafc;border:1px solid var(--border);border-radius:8px;line-height:1.55">
+    <strong>أبعاد البانر المُوصى بها:</strong>
+    صورة أفقية عريضة بنسبة تقريبية <strong>3:1</strong>
+    — الأفضل <strong>1200×400 بكسل</strong> (أو <strong>1680×480</strong> لشاشات أكبر).
+    تُقصّ الصورة تلقائياً لتملأ المساحة (<code>object-fit: cover</code>)، فتجنّب وضع نص مهم عند الحواف.
+    الصيغ المدعومة: JPG / PNG / WebP — الحد الأقصى للحجم <strong>2 م.ب</strong>.
+  </p>
+
+  <form method="post" action="/admin/branding/save-shop-banners" class="row" style="gap:0.75rem;align-items:flex-end;flex-wrap:wrap;margin-bottom:1rem">
+    <div>
+      <label for="banner_interval_seconds">مدة عرض كل بانر (ثانية)</label>
+      <input id="banner_interval_seconds" class="input" type="number" name="banner_interval_seconds" min="3" max="120"
+             value="{{ shop.banners_admin.interval_seconds }}" style="max-width:8rem" />
+    </div>
+    <button type="submit" class="btn">حفظ المدة</button>
+  </form>
+
+  {% if shop.banners_admin.banners %}
+  <div style="display:grid;gap:0.75rem;margin-bottom:1rem">
+    {% for b in shop.banners_admin.banners %}
+    <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;border:1px solid var(--border);border-radius:10px;padding:0.65rem;background:#fafafa">
+      <img src="{{ b.image_url }}" alt="" style="width:140px;height:46px;object-fit:cover;border-radius:8px;background:#e5e7eb" />
+      <div style="flex:1;min-width:160px">
+        {% if b.link_url %}
+        <p class="muted" style="margin:0;font-size:0.82rem">رابط: <code dir="ltr">{{ b.link_url }}</code></p>
+        {% else %}
+        <p class="muted" style="margin:0;font-size:0.82rem">بدون رابط</p>
+        {% endif %}
+      </div>
+      <form method="post" action="/admin/branding/delete-shop-banner/{{ b.id }}" onsubmit="return confirm('حذف هذا البانر؟');">
+        <button type="submit" class="btn" style="color:#b91c1c">حذف</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted" style="margin:0 0 1rem;font-size:0.85rem">لا توجد بانرات بعد.</p>
+  {% endif %}
+
+  <form method="post" action="/admin/branding/upload-shop-banner" enctype="multipart/form-data">
+    <div class="row" style="gap:0.5rem;align-items:flex-end;flex-wrap:wrap">
+      <div style="flex:1;min-width:200px">
+        <label>صورة بانر جديد</label>
+        <input type="file" name="banner_image" accept=".jpg,.jpeg,.png,.webp" required />
+        <p class="muted" style="margin:0.35rem 0 0;font-size:0.8rem">الأبعاد المُفضّلة: 1200×400 بكسل (نسبة 3:1)</p>
+      </div>
+      <div style="flex:2;min-width:220px">
+        <label for="banner_link_url">رابط عند الضغط (اختياري)</label>
+        <input id="banner_link_url" class="input" type="text" name="banner_link_url" placeholder="/shop أو https://..." dir="ltr" />
+      </div>
+      <button class="btn btn-primary" type="submit">➕ إضافة بانر</button>
+    </div>
+  </form>
+</div>
+
+<div class="card" id="hotel-banners">
+  <h2 style="margin-top:0">🏨 بانرات متجر الشقق</h2>
+  <p class="muted" style="font-size:0.85rem">تظهر أعلى <a href="/suites" target="_blank">/suites</a> — متجر حجز الشقق الأونلاين.</p>
+  {% if hotel_saved %}
+  <p style="color:#16a34a;margin:0 0 0.65rem">تم حفظ بانرات الفندق.</p>
+  {% endif %}
+  <form method="post" action="/admin/branding/save-hotel-banners" class="row" style="gap:0.75rem;align-items:flex-end;flex-wrap:wrap;margin-bottom:1rem">
+    <div>
+      <label>مدة عرض كل بانر (ثانية)</label>
+      <input type="number" name="hotel_banner_interval_seconds" min="3" max="120"
+             value="{{ hotel_banners_admin.interval_seconds }}" style="max-width:8rem" />
+    </div>
+    <button type="submit" class="btn">حفظ المدة</button>
+  </form>
+  {% if hotel_banners_admin.banners %}
+  <div style="display:grid;gap:0.65rem;margin-bottom:1rem">
+    {% for b in hotel_banners_admin.banners %}
+    <div style="display:flex;gap:0.65rem;align-items:center;border:1px solid var(--border);border-radius:10px;padding:0.55rem">
+      <img src="{{ b.image_url }}" alt="" style="width:120px;height:40px;object-fit:cover;border-radius:6px" />
+      <form method="post" action="/admin/branding/delete-hotel-banner/{{ b.id }}" onsubmit="return confirm('حذف؟');">
+        <button type="submit" class="btn" style="color:#b91c1c">حذف</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <form method="post" action="/admin/branding/upload-hotel-banner" enctype="multipart/form-data">
+    <div class="row" style="gap:0.5rem;align-items:flex-end;flex-wrap:wrap">
+      <div><label>صورة بانر</label><input type="file" name="banner_image" accept=".jpg,.jpeg,.png,.webp" required /></div>
+      <div style="flex:1;min-width:180px"><label>رابط (اختياري)</label><input name="link_url" dir="ltr" placeholder="/suites/room/1" /></div>
+      <button class="btn btn-primary" type="submit">إضافة بانر فندق</button>
     </div>
   </form>
 </div>
@@ -278,6 +624,10 @@
 
   <h3 style="margin-bottom:0.3rem;color:#475569;font-size:0.95rem">قوالب جاهزة (اضغط لتطبيقها فوراً)</h3>
   <div class="preset-row">
+    <button type="button" class="preset"
+            data-preset='{"header_bg_from":"#2a5240","header_bg_to":"#3d6b52","header_fg":"#ffffff","footer_bg":"#2a5240","footer_fg":"#d4b896","primary_color":"#d4a017","accent_color":"#c9a86c","_shop_use_brand_colors":true}'
+            style="background:linear-gradient(135deg,#2a5240 65%,#d4a017 100%);border-color:#c9a86c"
+            title="أخضر للهيدر والفوتر · ذهبي للأزرار · بيج كرافت للتمييز">روف ROOF</button>
     <button type="button" class="preset"
             data-preset='{"header_bg_from":"#0f172a","header_bg_to":"#1e293b","header_fg":"#ffffff","footer_bg":"#0f172a","footer_fg":"#94a3b8","primary_color":"#3b82f6","accent_color":"#8b5cf6"}'
             style="background:linear-gradient(135deg,#0f172a,#1e293b)">داكن كلاسيكي</button>
@@ -300,6 +650,10 @@
             data-preset='{"header_bg_from":"#0c4a6e","header_bg_to":"#0891b2","header_fg":"#ffffff","footer_bg":"#0c4a6e","footer_fg":"#a5f3fc","primary_color":"#0891b2","accent_color":"#06b6d4"}'
             style="background:linear-gradient(135deg,#0c4a6e,#0891b2)">سماوي</button>
   </div>
+  <p class="muted" style="margin:0 0 0.85rem;font-size:0.82rem">
+    قالب <strong>روف ROOF</strong>: أخضر غامق للهيدر والفوتر، ذهبي للأزرار والإجراءات، بيج كرافت للتمييز وخلفية المتجر.
+    بعد الاختيار اضغط «حفظ الهوية» ثم «حفظ إعدادات المتجر» إن لزم.
+  </p>
 
   <form method="post" action="/admin/branding/save" id="branding-form">
     <div class="brand-grid">
@@ -366,30 +720,53 @@
     </div>
 
     <div style="margin-top:1rem;border-top:1px solid var(--border);padding-top:1rem">
-      <h3 style="margin:0 0 0.6rem;color:#475569">النصوص والعناوين</h3>
+      <h3 style="margin:0 0 0.6rem;color:#475569">أسماء الهويات والنصوص</h3>
       <p class="muted" style="margin:0 0 0.8rem;font-size:0.85rem">
-        من هنا تستطيع تغيير النص الظاهر أعلى الهيدر، واسم زر/صفحة نقطة البيع،
-        وكذلك عبارات الهيدر والفوتر والطباعة. أما اسم المتجر المحاسبي العام فيبقى من الإعدادات العامة.
+        اسم المطعم يظهر في وضع المطعم، واسم الفندق في وضع الفندق.
+        اختر أيضاً أي هوية تُستخدم عند طباعة أو تصدير التقارير من الوضع العام.
       </p>
       <div class="text-stack">
         <div class="text-field">
-          <label for="pos_label">اسم صفحة/زر نقطة البيع</label>
-          <input id="pos_label" class="input" type="text" name="pos_label" value="{{ brand.pos_label }}" maxlength="80" placeholder="مثلاً: مطعم القصر" />
+          <label for="pos_label">اسم المطعم (روف)</label>
+          <input id="pos_label" class="input" type="text" name="pos_label" value="{{ brand.pos_label }}" maxlength="80" placeholder="مثلاً: مطعم روف" />
         </div>
         <div class="text-field">
-          <label for="header_tagline">النص الصغير تحت اسم المطعم في الهيدر</label>
-          <input id="header_tagline" class="input" type="text" name="header_tagline" value="{{ brand.header_tagline }}" maxlength="120" placeholder="مثلاً: مطعم ومقهى القصر" />
+          <label for="header_tagline">النص الصغير تحت اسم المطعم</label>
+          <input id="header_tagline" class="input" type="text" name="header_tagline" value="{{ brand.header_tagline }}" maxlength="120" placeholder="مثلاً: مطعم ومقهى" />
+        </div>
+        <div class="text-field">
+          <label for="hotel_name">اسم الفندق (بيتك)</label>
+          <input id="hotel_name" class="input" type="text" name="hotel_name" value="{{ brand.hotel_name }}" maxlength="80" placeholder="بيتك للشقق الفندقية" />
+        </div>
+        <div class="text-field">
+          <label for="hotel_header_tagline">النص الصغير تحت اسم الفندق</label>
+          <input id="hotel_header_tagline" class="input" type="text" name="hotel_header_tagline" value="{{ brand.hotel_header_tagline }}" maxlength="120" placeholder="إدارة الشقق الفندقية" />
+        </div>
+        <div class="text-field">
+          <label>شعار التقارير في الوضع العام (طباعة / تصدير)</label>
+          <div style="display:flex;flex-wrap:wrap;gap:1rem;margin-top:0.35rem">
+            <label style="display:flex;align-items:center;gap:0.35rem;font-weight:500">
+              <input type="radio" name="reports_identity" value="restaurant"
+                     {% if brand.reports_identity != 'hotel' %}checked{% endif %} />
+              شعار واسم المطعم
+            </label>
+            <label style="display:flex;align-items:center;gap:0.35rem;font-weight:500">
+              <input type="radio" name="reports_identity" value="hotel"
+                     {% if brand.reports_identity == 'hotel' %}checked{% endif %} />
+              شعار واسم الفندق
+            </label>
+          </div>
         </div>
         <div class="text-field">
           <label for="footer_tagline">وصف الفوتر</label>
           <textarea id="footer_tagline" class="input" name="footer_tagline" rows="3" maxlength="400" placeholder="نص وصفي يظهر أسفل الموقع">{{ brand.footer_tagline }}</textarea>
         </div>
         <div class="text-field">
-          <label for="receipt_title">عنوان الفاتورة المطبوعة</label>
+          <label for="receipt_title">عنوان فاتورة المطعم المطبوعة</label>
           <input id="receipt_title" class="input" type="text" name="receipt_title" value="{{ brand.receipt_title }}" maxlength="120" placeholder="مثلاً: فاتورة مطعم" />
         </div>
         <div class="text-field">
-          <label for="receipt_footer_text">عبارة أسفل الفاتورة المطبوعة</label>
+          <label for="receipt_footer_text">عبارة أسفل فاتورة المطعم</label>
           <input id="receipt_footer_text" class="input" type="text" name="receipt_footer_text" value="{{ brand.receipt_footer_text }}" maxlength="240" placeholder="مثلاً: نتشرّف بزيارتكم مرة أخرى" />
         </div>
       </div>
@@ -452,6 +829,16 @@
       try {
         const data = JSON.parse(btn.getAttribute("data-preset"));
         for (const [k, v] of Object.entries(data)) {
+          if (k.startsWith("_")) {
+            if (k === "_shop_use_brand_colors") {
+              const chk = document.getElementById("shop_use_brand_colors");
+              if (chk) {
+                chk.checked = !!v;
+                chk.dispatchEvent(new Event("change"));
+              }
+            }
+            continue;
+          }
           const c = document.querySelector('[data-pair="' + k + '"]');
           const t = document.querySelector('[data-pair-text="' + k + '"]');
           if (c) c.value = v;
@@ -491,6 +878,66 @@
   syncText("header_tagline", "pv-tagline");
   syncText("footer_tagline", "pv-footer-text");
   syncText("pos_label", "pv-pos-label");
+
+  // معاينة صفحة المتجر
+  const shopFrame = document.getElementById("shop-preview-frame");
+  const shopUseBrand = document.getElementById("shop_use_brand_colors");
+  const shopCustom = document.getElementById("shop-custom-colors");
+  const shopSubtitle = document.getElementById("shop_subtitle");
+  const shopPvSubtitle = document.getElementById("shop-pv-subtitle");
+  const shopStoreName = document.getElementById("shop_store_name");
+  const shopPvName = document.getElementById("shop-pv-name");
+  const shopCartEmoji = document.getElementById("shop_cart_emoji");
+  const shopPvCart = document.getElementById("shop-pv-cart");
+
+  function shopSetVar(name, val) {
+    if (shopFrame) shopFrame.style.setProperty(name, val);
+  }
+
+  function syncShopPair(key) {
+    const colorEl = document.querySelector('[data-pair="' + key + '"]');
+    const textEl = document.querySelector('[data-pair-text="' + key + '"]');
+    if (!colorEl || !textEl) return;
+    const map = {
+      shop_header_bg_from: "--pv-bg-from",
+      shop_header_bg_to: "--pv-bg-to",
+      shop_header_fg: "--pv-fg",
+    };
+    colorEl.addEventListener("input", function () {
+      textEl.value = colorEl.value;
+      if (map[key]) shopSetVar(map[key], colorEl.value);
+    });
+    textEl.addEventListener("input", function () {
+      const v = textEl.value.trim();
+      if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(v)) {
+        colorEl.value = v;
+        if (map[key]) shopSetVar(map[key], v);
+      }
+    });
+  }
+
+  ["shop_header_bg_from", "shop_header_bg_to", "shop_header_fg"].forEach(syncShopPair);
+
+  if (shopUseBrand && shopCustom) {
+    shopUseBrand.addEventListener("change", function () {
+      shopCustom.style.opacity = shopUseBrand.checked ? "0.55" : "1";
+    });
+  }
+  if (shopStoreName && shopPvName) {
+    shopStoreName.addEventListener("input", function () {
+      shopPvName.textContent = shopStoreName.value.trim() || shopPvName.textContent;
+    });
+  }
+  if (shopSubtitle && shopPvSubtitle) {
+    shopSubtitle.addEventListener("input", function () {
+      shopPvSubtitle.textContent = shopSubtitle.value.trim() || shopSubtitle.placeholder || "";
+    });
+  }
+  if (shopCartEmoji && shopPvCart) {
+    shopCartEmoji.addEventListener("input", function () {
+      shopPvCart.textContent = shopCartEmoji.value.trim() || "🛒";
+    });
+  }
 })();
 </script>
 {% endblock %}

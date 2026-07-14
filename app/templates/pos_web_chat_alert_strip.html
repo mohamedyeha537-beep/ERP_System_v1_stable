@@ -1,0 +1,30 @@
+{% set web_chat_pending = web_chat_pending_orders if web_chat_pending_orders is defined else [] %}
+{% set _ids = web_chat_pending|map(attribute='sale_id')|list|join(',') %}
+<div id="pos-web-chat-alert-strip"
+  class="pos-web-chat-alert-strip{% if web_chat_pending|length > 0 %} has-orders{% endif %}"
+  data-sale-ids="{{ _ids }}"
+  {% if hx_oob %}hx-swap-oob="outerHTML"{% endif %}>
+  {% if web_chat_pending|length > 0 %}
+  <div class="pos-web-chat-alert-strip__head">
+    <span class="pos-web-chat-alert-strip__pulse" aria-hidden="true"></span>
+    <h3 class="pos-web-chat-alert-strip__title">💬 طلب جديد من محادثة الويب</h3>
+    <span class="pos-web-chat-alert-strip__count">{{ web_chat_pending|length }}</span>
+  </div>
+  <div class="pos-web-chat-alert-strip__scroll" role="list">
+    {% for o in web_chat_pending %}
+    <button type="button" class="pos-web-chat-alert-chip" role="listitem"
+      data-open-order="{{ o.sale_id }}"
+      title="اضغط لفتح الطلب #{{ o.sale_id }} في POS">
+      <span class="pos-web-chat-alert-chip__icon" aria-hidden="true">🛒</span>
+      <span class="pos-web-chat-alert-chip__main">
+        <strong>#{{ o.sale_id }}</strong>
+        <span class="pos-web-chat-alert-chip__guest">{{ o.guest_name or 'زائر' }}{% if o.guest_phone %} · <span dir="ltr">{{ o.guest_phone }}</span>{% endif %}</span>
+        <span class="pos-web-chat-alert-chip__items muted">{{ o.cart_preview }}</span>
+      </span>
+      <span class="pos-web-chat-alert-chip__total">{{ o.sale_total }} د.ل</span>
+      <span class="pos-web-chat-alert-chip__action">فتح ←</span>
+    </button>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>

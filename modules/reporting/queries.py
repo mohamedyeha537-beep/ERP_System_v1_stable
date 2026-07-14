@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-from sqlalchemy import and_, exists, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, exists, func, or_, select
+from sqlalchemy.orm import Session, selectinload
 
 from modules.payments.models import RefundPayment, SalePayment
 from modules.refunds.models import SaleReturn, SaleReturnLine, SaleReturnStatus
@@ -27,16 +28,32 @@ def _range_utc(start: datetime, end: datetime):
     return start.astimezone(timezone.utc), end.astimezone(timezone.utc)
 
 
+def _sale_completed_at():
+    """وقت إتمام البيع للتقارير: آخر دفعة تحصيل، أو وقت إنشاء الفاتورة إن لم تُسجَّل دفعة."""
+    return func.coalesce(
+        select(func.max(SalePayment.created_at))
+        .where(SalePayment.sale_id == Sale.id)
+        .correlate(Sale)
+        .scalar_subquery(),
+        Sale.created_at,
+    )
+
+
+def _sale_in_period(s0, s1):
+    completed = _sale_completed_at()
+    return and_(
+        Sale.status == SaleStatus.COMPLETED,
+        completed >= s0,
+        completed < s1,
+    )
+
+
 def sales_summary(db: Session, start: datetime, end: datetime) -> SalesSummary:
     s0, s1 = _range_utc(start, end)
     sales_stmt = select(
         func.count(Sale.id),
         func.coalesce(func.sum(Sale.total), 0),
-    ).where(
-        Sale.status == SaleStatus.COMPLETED,
-        Sale.created_at >= s0,
-        Sale.created_at < s1,
-    )
+    ).where(_sale_in_period(s0, s1))
     returns_stmt = select(
         func.count(SaleReturn.id),
         func.coalesce(func.sum(SaleReturn.total), 0),
@@ -79,11 +96,7 @@ def _sales_product_map(
             func.coalesce(func.sum(SaleLine.line_total), 0),
         )
         .join(Sale, SaleLine.sale_id == Sale.id)
-        .where(
-            Sale.status == SaleStatus.COMPLETED,
-            Sale.created_at >= s0,
-            Sale.created_at < s1,
-        )
+        .where(_sale_in_period(s0, s1))
         .group_by(SaleLine.product_id)
     ).all()
     return {
@@ -199,48 +212,16 @@ def stock_movements_aggregate(
 
 
 def period_bounds(period: str) -> tuple[datetime, datetime]:
-    now = datetime.now(timezone.utc)
-    if period == "day":
-        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        end = start + timedelta(days=1)
-    elif period == "week":
-        start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
-        end = start + timedelta(days=7)
-    elif period == "month":
-        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        if start.month == 12:
-            end = start.replace(year=start.year + 1, month=1)
-        else:
-            end = start.replace(month=start.month + 1)
-    elif period == "year":
-        start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-        end = start.replace(year=start.year + 1)
-    else:
-        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        end = start + timedelta(days=1)
-    return start, end
+    from app.datetime_local import local_period_bounds
+
+    return local_period_bounds(period)
 
 
 def parse_custom_range(start_str: str | None, end_str: str | None) -> tuple[datetime, datetime] | None:
-    """يحلّل نص ISO/تاريخ بسيط ('YYYY-MM-DD') لبداية ونهاية الفترة (UTC).
-    end يكون نهاية اليوم (الفترة [start, end+1d) إن كان إدخال تاريخ فقط).
-    يعيد None إن كان أحد الإدخالين غير صالح."""
-    if not start_str or not end_str:
-        return None
-    try:
-        s = datetime.fromisoformat(start_str)
-        e = datetime.fromisoformat(end_str)
-    except ValueError:
-        return None
-    if s.tzinfo is None:
-        s = s.replace(tzinfo=timezone.utc)
-    if e.tzinfo is None:
-        e = e.replace(tzinfo=timezone.utc)
-    if len(end_str) == 10:
-        e = e + timedelta(days=1)
-    if e <= s:
-        return None
-    return s, e
+    """يحلّل نص ISO/تاريخ بسيط ('YYYY-MM-DD') لبداية ونهاية الفترة (تقويم محلي → UTC)."""
+    from app.datetime_local import parse_local_date_range
+
+    return parse_local_date_range(start_str, end_str)
 
 
 def sales_by_payment_method(
@@ -309,14 +290,27 @@ def sales_by_payment_method(
     ]
 
 
+def payment_flow_totals(rows) -> tuple[Decimal, Decimal, Decimal]:
+    cash_in = sum((row[2] for row in rows), Decimal("0"))
+    refunds_out = sum((row[4] for row in rows), Decimal("0"))
+    net = (cash_in - refunds_out).quantize(Decimal("0.001"))
+    return (
+        cash_in.quantize(Decimal("0.001")),
+        refunds_out.quantize(Decimal("0.001")),
+        net,
+    )
+
+
 def purchases_by_payment_method(
     db: Session,
     start: datetime,
     end: datetime,
     kind: "object | None" = None,
+    domain=None,
 ) -> list[tuple[str, int, Decimal]]:
     """فواتير الشراء/المصروفات لكل محفظة. مرّر `kind` للتصفية حسب النوع."""
     from modules.payments.models import PaymentMethod, Purchase, PurchasePayment
+    from modules.platform.business_domain import purchase_domain_db_values
 
     s0, s1 = _range_utc(start, end)
     stmt = (
@@ -333,6 +327,9 @@ def purchases_by_payment_method(
     )
     if kind is not None:
         stmt = stmt.where(Purchase.kind == kind)
+    domain_vals = purchase_domain_db_values(domain)
+    if domain_vals is not None:
+        stmt = stmt.where(Purchase.business_domain.in_(domain_vals))
     return [
         (str(name), int(cnt or 0), Decimal(str(total or 0)))
         for name, cnt, total in db.execute(stmt).all()
@@ -359,53 +356,79 @@ def purchases_summary(db: Session, start: datetime, end: datetime) -> PurchasesS
 
 
 def _purchases_summary_by_kind(
-    db: Session, start: datetime, end: datetime, kind
+    db: Session, start: datetime, end: datetime, kind, domain=None
 ) -> PurchasesSummary:
     from modules.payments.models import Purchase
+    from modules.platform.business_domain import purchase_domain_db_values
 
     s0, s1 = _range_utc(start, end)
-    cnt, total = db.execute(
-        select(
-            func.count(Purchase.id),
-            func.coalesce(func.sum(Purchase.amount), 0),
-        ).where(
-            Purchase.created_at >= s0,
-            Purchase.created_at < s1,
-            Purchase.kind == kind,
-        )
-    ).one()
+    stmt = select(
+        func.count(Purchase.id),
+        func.coalesce(func.sum(Purchase.amount), 0),
+    ).where(
+        Purchase.created_at >= s0,
+        Purchase.created_at < s1,
+        Purchase.kind == kind,
+    )
+    domain_vals = purchase_domain_db_values(domain)
+    if domain_vals is not None:
+        stmt = stmt.where(Purchase.business_domain.in_(domain_vals))
+    cnt, total = db.execute(stmt).one()
     return PurchasesSummary(count=int(cnt or 0), total=Decimal(str(total or 0)))
 
 
 def inventory_purchases_summary(
-    db: Session, start: datetime, end: datetime
+    db: Session, start: datetime, end: datetime, domain=None
 ) -> PurchasesSummary:
     from modules.payments.models import PurchaseKind
 
-    return _purchases_summary_by_kind(db, start, end, PurchaseKind.INVENTORY)
+    return _purchases_summary_by_kind(db, start, end, PurchaseKind.INVENTORY, domain=domain)
 
 
 def expenses_summary(
-    db: Session, start: datetime, end: datetime
+    db: Session, start: datetime, end: datetime, domain=None
 ) -> PurchasesSummary:
     from modules.payments.models import PurchaseKind
 
-    return _purchases_summary_by_kind(db, start, end, PurchaseKind.EXPENSE)
+    return _purchases_summary_by_kind(db, start, end, PurchaseKind.EXPENSE, domain=domain)
+
+
+def expenses_total_for_profit(
+    db: Session, start: datetime, end: datetime, domain=None
+) -> Decimal:
+    """مصروفات تُطرح من الربح — تستثني استحقاق نقاط الولاء (تُحسب منفصلة)."""
+    from modules.payments.models import Purchase, PurchaseKind
+    from modules.platform.business_domain import purchase_domain_db_values
+    from modules.pos_shifts.loyalty_settlement import LOYALTY_OPERATING_EXPENSE_CATEGORY
+
+    s0, s1 = _range_utc(start, end)
+    stmt = select(func.coalesce(func.sum(Purchase.amount), 0)).where(
+        Purchase.created_at >= s0,
+        Purchase.created_at < s1,
+        Purchase.kind == PurchaseKind.EXPENSE,
+        Purchase.expense_category != LOYALTY_OPERATING_EXPENSE_CATEGORY,
+    )
+    domain_vals = purchase_domain_db_values(domain)
+    if domain_vals is not None:
+        stmt = stmt.where(Purchase.business_domain.in_(domain_vals))
+    total = db.execute(stmt).scalar_one()
+    return Decimal(str(total or 0)).quantize(Decimal("0.001"))
 
 
 def assets_summary(
-    db: Session, start: datetime, end: datetime
+    db: Session, start: datetime, end: datetime, domain=None
 ) -> PurchasesSummary:
     from modules.payments.models import PurchaseKind
 
-    return _purchases_summary_by_kind(db, start, end, PurchaseKind.ASSET)
+    return _purchases_summary_by_kind(db, start, end, PurchaseKind.ASSET, domain=domain)
 
 
 def expenses_by_category(
-    db: Session, start: datetime, end: datetime
+    db: Session, start: datetime, end: datetime, domain=None
 ) -> list[tuple[str, int, Decimal]]:
     """ملخّص المصروفات حسب التصنيف."""
     from modules.payments.models import Purchase, PurchaseKind
+    from modules.platform.business_domain import purchase_domain_db_values
 
     s0, s1 = _range_utc(start, end)
     label = func.coalesce(Purchase.expense_category, "غير مصنّف")
@@ -423,6 +446,9 @@ def expenses_by_category(
         .group_by(label)
         .order_by(func.sum(Purchase.amount).desc())
     )
+    domain_vals = purchase_domain_db_values(domain)
+    if domain_vals is not None:
+        stmt = stmt.where(Purchase.business_domain.in_(domain_vals))
     return [
         (str(name), int(cnt or 0), Decimal(str(total or 0)))
         for name, cnt, total in db.execute(stmt).all()
@@ -430,8 +456,21 @@ def expenses_by_category(
 
 
 def avg_unit_cost_per_product(db: Session) -> dict[int, Decimal]:
-    """متوسط سعر شراء كل صنف من جميع فواتير الشراء (السعر الموزون بالكميات)."""
-    from modules.payments.models import PurchaseLine
+    """تكلفة الوحدة لكل صنف — FIFO (أقدم دفعة) مع احتياط المتوسط الموزون."""
+    from modules.inventory.costing import fifo_unit_cost_map
+
+    fifo = fifo_unit_cost_map(db)
+    if fifo:
+        legacy = _weighted_avg_unit_cost_per_product(db)
+        for pid, cost in legacy.items():
+            fifo.setdefault(pid, cost)
+        return fifo
+    return _weighted_avg_unit_cost_per_product(db)
+
+
+def _weighted_avg_unit_cost_per_product(db: Session) -> dict[int, Decimal]:
+    """متوسط سعر شراء كل صنف من فواتير شراء البضاعة (السعر الموزون بالكميات)."""
+    from modules.payments.models import Purchase, PurchaseKind, PurchaseLine
 
     stmt = (
         select(
@@ -439,7 +478,11 @@ def avg_unit_cost_per_product(db: Session) -> dict[int, Decimal]:
             func.coalesce(func.sum(PurchaseLine.line_total), 0),
             func.coalesce(func.sum(PurchaseLine.quantity), 0),
         )
-        .where(PurchaseLine.product_id.is_not(None))
+        .join(Purchase, Purchase.id == PurchaseLine.purchase_id)
+        .where(
+            PurchaseLine.product_id.is_not(None),
+            Purchase.kind == PurchaseKind.INVENTORY,
+        )
         .group_by(PurchaseLine.product_id)
     )
     out: dict[int, Decimal] = {}
@@ -491,6 +534,7 @@ def cogs_summary(db: Session, start: datetime, end: datetime) -> Decimal:
             continue
         unit_cost = _unit_cost_via_bom(db, int(pid), avg_costs)
         cogs += q * unit_cost
+    cogs += packaging_cogs_summary(db, start, end)
     return cogs.quantize(Decimal("0.001"))
 
 
@@ -514,32 +558,33 @@ def inventory_snapshot(
 ) -> list[InventoryRow]:
     """صورة للمخزون الحالي مع متوسط التكلفة وتنبيه الحد الأدنى."""
     from modules.catalog.models import Product, ProductKind
-    from modules.inventory.models import StockBalance
-    from modules.inventory.service import get_main_warehouse, resolve_warehouse_id
+    from modules.inventory.service import get_balance, get_main_warehouse, is_low_stock, resolve_warehouse_id
 
     wid = resolve_warehouse_id(db, warehouse_id) if warehouse_id is not None else get_main_warehouse(db).id
     stmt = (
-        select(Product, StockBalance.quantity)
-        .join(
-            StockBalance,
-            (StockBalance.product_id == Product.id) & (StockBalance.warehouse_id == wid),
-            isouter=True,
-        )
+        select(Product)
         .where(Product.is_active.is_(True))
-        .where(Product.kind == ProductKind.STOCK_ONLY)
+        .where(
+            (Product.kind == ProductKind.STOCK_ONLY)
+            | (
+                (Product.kind == ProductKind.FINAL_SELLABLE)
+                & Product.direct_purchase_enabled.is_(True)
+            )
+        )
         .order_by(Product.name_ar)
     )
     if search:
         like = f"%{search.strip()}%"
         stmt = stmt.where(Product.name_ar.like(like))
-    rows = db.execute(stmt).all()
+    products = list(db.scalars(stmt).all())
     avg_costs = avg_unit_cost_per_product(db)
     out: list[InventoryRow] = []
-    for p, qty in rows:
-        q = qty if qty is not None else Decimal("0")
-        is_low = bool(p.reorder_level and Decimal(str(p.reorder_level)) > 0 and q <= p.reorder_level)
+    for p in products:
+        q = get_balance(db, p.id, wid)
+        is_low = is_low_stock(q, p.reorder_level)
         if only_low and not is_low:
             continue
+        unit_cost = avg_costs.get(p.id, Decimal("0"))
         out.append(
             InventoryRow(
                 product_id=p.id,
@@ -548,7 +593,7 @@ def inventory_snapshot(
                 quantity=q,
                 reorder_level=p.reorder_level or Decimal("0"),
                 sell_price=p.sell_price,
-                avg_cost=avg_costs.get(p.id, Decimal("0")),
+                avg_cost=unit_cost,
                 is_low=is_low,
             )
         )
@@ -557,16 +602,33 @@ def inventory_snapshot(
 
 def inventory_value(db: Session, warehouse_id: int | None = None) -> Decimal:
     """قيمة المخزون = Σ(الكمية × متوسط التكلفة). بدون warehouse_id: كل المخازن."""
-    from modules.inventory.models import StockBalance
+    from modules.catalog.models import Product, ProductKind
+    from modules.inventory.service import get_balance, list_warehouses, resolve_warehouse_id
 
     avg_costs = avg_unit_cost_per_product(db)
-    stmt = select(StockBalance)
+    products = list(
+        db.scalars(
+            select(Product).where(
+                Product.is_active.is_(True),
+                (
+                    (Product.kind == ProductKind.STOCK_ONLY)
+                    | (
+                        (Product.kind == ProductKind.FINAL_SELLABLE)
+                        & Product.direct_purchase_enabled.is_(True)
+                    )
+                ),
+            )
+        ).all()
+    )
     if warehouse_id is not None:
-        stmt = stmt.where(StockBalance.warehouse_id == warehouse_id)
-    rows = db.scalars(stmt).all()
+        warehouse_ids = [resolve_warehouse_id(db, warehouse_id)]
+    else:
+        warehouse_ids = [w.id for w in list_warehouses(db)]
     val = Decimal("0")
-    for r in rows:
-        val += (r.quantity or Decimal("0")) * (avg_costs.get(r.product_id, Decimal("0")))
+    for p in products:
+        unit_cost = avg_costs.get(p.id, Decimal("0"))
+        for wid in warehouse_ids:
+            val += get_balance(db, p.id, wid) * unit_cost
     return val.quantize(Decimal("0.001"))
 
 
@@ -592,11 +654,16 @@ class ProfitRow:
 
 
 def _unit_cost_via_bom(
-    db: Session, product_id: int, avg_costs: dict[int, Decimal]
+    db: Session, product_id: int, avg_costs: dict[int, Decimal], *, _stack: frozenset[int] | None = None
 ) -> Decimal:
-    """تكلفة وحدة المنتج: لو له وصفة تركيب فالتكلفة = Σ(qty_per × cost(component)).
-    لو لا وصفة فهي متوسط شراء المنتج نفسه (للمنتجات البسيطة المُشتراة)."""
+    """تكلفة وحدة المنتج مع توسيع المنتجات الوسيطة (بدون مواد التغليف)."""
+    from modules.catalog.bom_explosion import product_has_recipe
     from modules.catalog.models import BillOfMaterialsLine
+
+    stack = _stack or frozenset()
+    if product_id in stack:
+        return Decimal("0")
+    stack = stack | {product_id}
 
     bom = list(
         db.scalars(
@@ -609,8 +676,148 @@ def _unit_cost_via_bom(
         return avg_costs.get(int(product_id), Decimal("0"))
     cost = Decimal("0")
     for b in bom:
-        cost += b.qty_per_parent * avg_costs.get(int(b.component_product_id), Decimal("0"))
+        if b.packaging_only:
+            continue
+        comp_id = int(b.component_product_id)
+        if product_has_recipe(db, comp_id):
+            unit = _unit_cost_via_bom(db, comp_id, avg_costs, _stack=stack)
+        else:
+            unit = avg_costs.get(comp_id, Decimal("0"))
+        cost += b.qty_per_parent * unit
     return cost.quantize(Decimal("0.001"))
+
+
+def _packaging_unit_cost_via_bom(
+    db: Session, product_id: int, avg_costs: dict[int, Decimal], *, _stack: frozenset[int] | None = None
+) -> Decimal:
+    """تكلفة مواد التغليف لوحدة واحدة من المنتج."""
+    from modules.catalog.bom_explosion import product_has_recipe
+    from modules.catalog.models import BillOfMaterialsLine
+
+    stack = _stack or frozenset()
+    if product_id in stack:
+        return Decimal("0")
+    stack = stack | {product_id}
+
+    bom = list(
+        db.scalars(
+            select(BillOfMaterialsLine).where(
+                BillOfMaterialsLine.parent_product_id == product_id,
+                BillOfMaterialsLine.packaging_only.is_(True),
+            )
+        ).all()
+    )
+    if not bom:
+        return Decimal("0")
+    cost = Decimal("0")
+    for b in bom:
+        comp_id = int(b.component_product_id)
+        if product_has_recipe(db, comp_id):
+            unit = _unit_cost_via_bom(db, comp_id, avg_costs, _stack=stack)
+        else:
+            unit = avg_costs.get(comp_id, Decimal("0"))
+        cost += b.qty_per_parent * unit
+    return cost.quantize(Decimal("0.001"))
+
+
+def packaging_cogs_summary(db: Session, start: datetime, end: datetime) -> Decimal:
+    """تكلفة مواد التغليف للطلبات التي تتطلب تغليفاً (أونلاين / استلام / توصيل)."""
+    from modules.catalog.models import Product  # noqa: F401
+    from modules.sales.models import Sale, SaleLine, SaleStatus
+    from modules.sales.packaging import sale_requires_packaging
+
+    s0, s1 = _range_utc(start, end)
+    sales = list(
+        db.scalars(
+            select(Sale)
+            .where(_sale_in_period(s0, s1))
+            .options(selectinload(Sale.lines))
+        ).all()
+    )
+    avg_costs = avg_unit_cost_per_product(db)
+    total = Decimal("0")
+    for sale in sales:
+        if not sale_requires_packaging(sale):
+            continue
+        for line in sale.lines:
+            if not line.product_id:
+                continue
+            unit = _packaging_unit_cost_via_bom(db, int(line.product_id), avg_costs)
+            if unit <= 0:
+                continue
+            total += Decimal(str(line.quantity or 0)) * unit
+    return total.quantize(Decimal("0.001"))
+
+
+@dataclass
+class PackagingCostRow:
+    product_id: int
+    name_ar: str
+    qty_used: Decimal
+    unit_cost: Decimal
+    total_cost: Decimal
+
+
+def packaging_cost_breakdown(
+    db: Session, start: datetime, end: datetime, limit: int = 50
+) -> list[PackagingCostRow]:
+    """تفصيل تكلفة التغليف حسب مكوّن التغليف المستخدم."""
+    from modules.catalog.models import BillOfMaterialsLine, Product
+    from modules.sales.models import Sale
+    from modules.sales.packaging import sale_requires_packaging
+
+    s0, s1 = _range_utc(start, end)
+    sales = list(
+        db.scalars(
+            select(Sale)
+            .where(_sale_in_period(s0, s1))
+            .options(selectinload(Sale.lines))
+        ).all()
+    )
+    avg_costs = avg_unit_cost_per_product(db)
+    comp_qty: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
+    for sale in sales:
+        if not sale_requires_packaging(sale):
+            continue
+        for line in sale.lines:
+            if not line.product_id:
+                continue
+            parent_id = int(line.product_id)
+            sold_qty = Decimal(str(line.quantity or 0))
+            if sold_qty <= 0:
+                continue
+            pkg_lines = db.scalars(
+                select(BillOfMaterialsLine).where(
+                    BillOfMaterialsLine.parent_product_id == parent_id,
+                    BillOfMaterialsLine.packaging_only.is_(True),
+                )
+            ).all()
+            for bl in pkg_lines:
+                comp_id = int(bl.component_product_id)
+                need = (Decimal(str(bl.qty_per_parent or 0)) * sold_qty).quantize(
+                    Decimal("0.0001")
+                )
+                comp_qty[comp_id] += need
+    out: list[PackagingCostRow] = []
+    for comp_id, qty in comp_qty.items():
+        if qty <= 0:
+            continue
+        prod = db.get(Product, comp_id)
+        unit = avg_costs.get(comp_id, Decimal("0"))
+        if unit <= 0 and prod and prod.reference_unit_cost:
+            unit = Decimal(str(prod.reference_unit_cost))
+        total = (qty * unit).quantize(Decimal("0.001"))
+        out.append(
+            PackagingCostRow(
+                product_id=comp_id,
+                name_ar=prod.name_ar if prod else f"#{comp_id}",
+                qty_used=qty,
+                unit_cost=unit,
+                total_cost=total,
+            )
+        )
+    out.sort(key=lambda r: r.total_cost, reverse=True)
+    return out[:limit]
 
 
 def profit_by_product(
@@ -685,26 +892,22 @@ class FinancialOperationalStatement:
 
 
 def _sale_period_conditions(s0, s1, filters: ReportFilters):
-    conds = [
-        Sale.status == SaleStatus.COMPLETED,
-        Sale.created_at >= s0,
-        Sale.created_at < s1,
-    ]
+    conds = [_sale_in_period(s0, s1)]
     if filters.user_id is not None:
         conds.append(Sale.created_by_id == filters.user_id)
     if filters.customer_id is not None:
         conds.append(Sale.customer_id == filters.customer_id)
     if filters.payment_method_id is not None:
-        conds.append(
-            exists(
-                select(1)
-                .select_from(SalePayment)
-                .where(
-                    SalePayment.sale_id == Sale.id,
-                    SalePayment.payment_method_id == filters.payment_method_id,
-                )
+        pm_exists = (
+            select(1)
+            .select_from(SalePayment)
+            .where(
+                SalePayment.sale_id == Sale.id,
+                SalePayment.payment_method_id == filters.payment_method_id,
             )
+            .correlate(Sale)
         )
+        conds.append(exists(pm_exists))
     return and_(*conds)
 
 
@@ -712,7 +915,7 @@ def financial_operational_statement(
     db: Session, start: datetime, end: datetime, filters: ReportFilters
 ) -> FinancialOperationalStatement:
     """ملخص مالي تشغيلي:
-    - الإيراد: مجموع ``Sale.total`` لفواتير **مكتملة** ضمن الفترة (أساس الاستحقاق على تاريخ إتمام الفاتورة).
+    - الإيراد: مجموع ``Sale.total`` لفواتير **مكتملة** ضمن الفترة (تاريخ الإتمام = آخر دفعة تحصيل أو إنشاء الفاتورة).
     - المرتجعات: مجموع ``SaleReturn.total`` لسندات **مرحّلة** ضمن الفترة (منفصلة — لا تُضاعف مع الإيراد الخام).
     - التحصيل: مجموع ``SalePayment.amount`` لدفعات فواتير تدخل ضمن نفس فلتر الفواتير أعلاه
       (بغض النظر عن ``created_at`` للدفعة — مرتبط بفاتورة أُنجزت في الفترة).
@@ -746,7 +949,7 @@ def financial_operational_statement(
 
     cnt_ret = db.execute(
         select(func.count(SaleReturn.id), func.coalesce(func.sum(SaleReturn.total), 0))
-        .select_from(ret_join)
+        .join(Sale, SaleReturn.original_sale_id == Sale.id)
         .where(and_(*ret_conds))
     ).one()
     return_count = int(cnt_ret[0] or 0)
@@ -797,8 +1000,63 @@ def financial_operational_statement(
 
 def financial_operational_logical_lines(
     stmt: FinancialOperationalStatement,
+    *,
+    source: str = "pos",
 ) -> list[tuple[str, str, Decimal, str]]:
     """صفوف توضيحية لعرض «منطق القيد» المشتق من الأرقام أعلاه (ليست قيوداً مرحّلة في دفتر)."""
+    if source == "hotel":
+        return [
+            (
+                "إيراد الإقامة (تحصيلات نقدية)",
+                "Credit",
+                stmt.gross_revenue,
+                "مصدر: hotel_booking_payments.amount",
+            ),
+            (
+                "مرتجعات تحصيلات الحجز",
+                "Debit",
+                stmt.returns_total,
+                "مصدر: hotel_booking_payment_refunds.amount",
+            ),
+            ("صافي إيراد التحصيل", "—", stmt.net_revenue, "تحصيل − مرتجعات"),
+            (
+                "تحصيلات طرق الدفع (فندق)",
+                "Debit",
+                stmt.collections_total,
+                "نفس إجمالي التحصيل — أساس نقدي",
+            ),
+            (
+                "ردود مبالغ التحصيل",
+                "Credit",
+                stmt.refunds_payment_total,
+                "مصدر: hotel_booking_payment_refunds",
+            ),
+            (
+                "صافي أثر نقدي تشغيلي",
+                "—",
+                stmt.net_cash_effect,
+                "للمقارنة مع خزائن الفندق",
+            ),
+        ]
+    if source == "combined":
+        return [
+            (
+                "إيراد تشغيلي (POS استحقاق + فندق تحصيل)",
+                "Credit",
+                stmt.gross_revenue,
+                "sales.total + hotel_booking_payments",
+            ),
+            (
+                "مرتجعات (POS + فندق)",
+                "Debit",
+                stmt.returns_total,
+                "sale_returns + hotel refunds",
+            ),
+            ("صافي الإيراد التشغيلي", "—", stmt.net_revenue, "gross − returns"),
+            ("مجموع التحصيل", "Debit", stmt.collections_total, "POS + فندق"),
+            ("مجموع الردود", "Credit", stmt.refunds_payment_total, "POS + فندق"),
+            ("صافي أثر نقدي", "—", stmt.net_cash_effect, "تحصيل − ردود"),
+        ]
     rows: list[tuple[str, str, Decimal, str]] = [
         ("إيراد مبيعات (استحقاق — فواتير مكتملة)", "Credit", stmt.gross_revenue, "مصدر: sales.total"),
         ("خصم مرتجعات بيع (سندات مرحّلة)", "Debit", stmt.returns_total, "مصدر: sale_returns.total"),
@@ -808,3 +1066,137 @@ def financial_operational_logical_lines(
         ("صافي أثر نقدي تشغيلي (تحصيل − ردود)", "—", stmt.net_cash_effect, "للمقارنة مع المحافظ — ليس قيداً متوازناً حتى يُبنى GL"),
     ]
     return rows
+
+
+def _merge_financial_operational_statements(
+    *parts: FinancialOperationalStatement,
+) -> FinancialOperationalStatement:
+    total = FinancialOperationalStatement(
+        invoice_count=0,
+        return_count=0,
+        gross_revenue=Decimal("0"),
+        returns_total=Decimal("0"),
+        net_revenue=Decimal("0"),
+        collections_total=Decimal("0"),
+        refunds_payment_total=Decimal("0"),
+        net_cash_effect=Decimal("0"),
+        taxes_included=Decimal("0"),
+        line_discounts_included=Decimal("0"),
+    )
+    for p in parts:
+        total.invoice_count += int(p.invoice_count or 0)
+        total.return_count += int(p.return_count or 0)
+        total.gross_revenue += Decimal(str(p.gross_revenue or 0))
+        total.returns_total += Decimal(str(p.returns_total or 0))
+        total.net_revenue += Decimal(str(p.net_revenue or 0))
+        total.collections_total += Decimal(str(p.collections_total or 0))
+        total.refunds_payment_total += Decimal(str(p.refunds_payment_total or 0))
+        total.net_cash_effect += Decimal(str(p.net_cash_effect or 0))
+    for field in (
+        "gross_revenue",
+        "returns_total",
+        "net_revenue",
+        "collections_total",
+        "refunds_payment_total",
+        "net_cash_effect",
+    ):
+        setattr(total, field, getattr(total, field).quantize(Decimal("0.001")))
+    return total
+
+
+def hotel_financial_operational_statement(
+    db: Session, start: datetime, end: datetime, filters: ReportFilters
+) -> FinancialOperationalStatement:
+    """ملخص تشغيلي للفندق — أساس نقدي (تحصيلات الحجز − مرتجعات)."""
+    from modules.hotel.booking_models import HotelBookingPayment, HotelBookingPaymentRefund
+
+    s0, s1 = _range_utc(start, end)
+    pay_conds = [
+        HotelBookingPayment.created_at >= s0,
+        HotelBookingPayment.created_at < s1,
+    ]
+    if filters.user_id is not None:
+        pay_conds.append(HotelBookingPayment.received_by_id == filters.user_id)
+    if filters.payment_method_id is not None:
+        pay_conds.append(
+            HotelBookingPayment.payment_method_id == filters.payment_method_id
+        )
+
+    pay_cnt, pay_total = db.execute(
+        select(
+            func.count(HotelBookingPayment.id),
+            func.coalesce(func.sum(HotelBookingPayment.amount), 0),
+        ).where(and_(*pay_conds))
+    ).one()
+    collections_total = Decimal(str(pay_total or 0)).quantize(Decimal("0.001"))
+
+    ref_conds = [
+        HotelBookingPaymentRefund.created_at >= s0,
+        HotelBookingPaymentRefund.created_at < s1,
+    ]
+    if filters.user_id is not None or filters.payment_method_id is not None:
+        ref_stmt = (
+            select(
+                func.count(HotelBookingPaymentRefund.id),
+                func.coalesce(func.sum(HotelBookingPaymentRefund.amount), 0),
+            )
+            .join(
+                HotelBookingPayment,
+                HotelBookingPayment.id == HotelBookingPaymentRefund.payment_id,
+            )
+            .where(and_(*ref_conds))
+        )
+        if filters.user_id is not None:
+            ref_stmt = ref_stmt.where(
+                HotelBookingPayment.received_by_id == filters.user_id
+            )
+        if filters.payment_method_id is not None:
+            ref_stmt = ref_stmt.where(
+                HotelBookingPayment.payment_method_id == filters.payment_method_id
+            )
+    else:
+        ref_stmt = select(
+            func.count(HotelBookingPaymentRefund.id),
+            func.coalesce(func.sum(HotelBookingPaymentRefund.amount), 0),
+        ).where(and_(*ref_conds))
+
+    ret_cnt, ret_total = db.execute(ref_stmt).one()
+    returns_total = Decimal(str(ret_total or 0)).quantize(Decimal("0.001"))
+    net_revenue = (collections_total - returns_total).quantize(Decimal("0.001"))
+
+    return FinancialOperationalStatement(
+        invoice_count=int(pay_cnt or 0),
+        return_count=int(ret_cnt or 0),
+        gross_revenue=collections_total,
+        returns_total=returns_total,
+        net_revenue=net_revenue,
+        collections_total=collections_total,
+        refunds_payment_total=returns_total,
+        net_cash_effect=net_revenue,
+        taxes_included=Decimal("0"),
+        line_discounts_included=Decimal("0"),
+    )
+
+
+def financial_operational_statement_for_domain(
+    db: Session,
+    start: datetime,
+    end: datetime,
+    filters: ReportFilters,
+    domain=None,
+) -> tuple[FinancialOperationalStatement, str]:
+    """return: (statement, source) where source is pos|hotel|combined."""
+    from modules.platform.business_domain import BusinessDomain
+
+    if domain == BusinessDomain.HOTEL:
+        return hotel_financial_operational_statement(db, start, end, filters), "hotel"
+    pos = financial_operational_statement(db, start, end, filters)
+    if domain == BusinessDomain.RESTAURANT:
+        return pos, "pos"
+    hotel = hotel_financial_operational_statement(db, start, end, filters)
+    if hotel.invoice_count == 0 and hotel.gross_revenue == 0 and pos.invoice_count > 0:
+        return pos, "pos"
+    if pos.invoice_count == 0 and pos.gross_revenue == 0 and hotel.invoice_count > 0:
+        return hotel, "hotel"
+    return _merge_financial_operational_statements(pos, hotel), "combined"
+

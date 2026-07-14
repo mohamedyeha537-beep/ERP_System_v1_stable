@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}تتبع — {{ product.name_ar }}{% endblock %}
+{% block body %}
+<div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:0.5rem;align-items:flex-start">
+  <div>
+    <h1 style="margin:0 0 0.35rem">تتبع الصنف: {{ product.name_ar }}</h1>
+    <p class="muted" style="margin:0">
+      {% if product.kind.value == 'STOCK_ONLY' %}
+      مكوّن مخزني — كل حركة إدخال/إخراج/جرد/هدر تُسجَّل أدناه.
+      {% elif product.direct_purchase_enabled %}
+      منتج نهائي قابل للشراء — يُباع من الكاشير ويمكن توريده وتتبع رصيده المباشر.
+      {% else %}
+      منتج نهائي — يُباع من الكاشير؛ المخزون يُخصم من مكوّنات التركيبة.
+      {% endif %}
+    </p>
+  </div>
+  <div class="row" style="gap:0.45rem">
+    <a class="btn" href="/catalog/products/{{ product.id }}/edit">تعديل الصنف</a>
+    {% if product.kind.value == 'FINAL_SELLABLE' %}
+    <a class="btn" href="/catalog/products/{{ product.id }}/bom">التركيبة</a>
+    {% endif %}
+    <a class="btn" href="/inventory?w={{ warehouse_id }}">المخزون</a>
+  </div>
+</div>
+
+{% if saved %}
+<div class="alert" style="background:#f0fdf4;border-color:#86efac;color:#15803d;margin-top:0.75rem">تم حفظ الحركة.</div>
+{% endif %}
+{% if error %}
+<div class="alert" style="margin-top:0.75rem">{{ error }}</div>
+{% endif %}
+
+<div class="row" style="gap:0.5rem;align-items:center;flex-wrap:wrap;margin:0.75rem 0">
+  <label for="wh-select" class="muted" style="margin:0">المخزن:</label>
+  <select id="wh-select" onchange="location.href='/inventory/products/{{ product.id }}?w='+this.value" style="max-width:14rem">
+    {% for wh in warehouses %}
+    <option value="{{ wh.id }}" {% if wh.id == warehouse_id %}selected{% endif %}>{{ wh.name_ar }}{% if wh.is_main %} ★{% endif %}</option>
+    {% endfor %}
+  </select>
+  {% if product.kind.value == 'STOCK_ONLY' or product.direct_purchase_enabled %}
+  <strong>الرصيد الحالي: {{ pos_qty(current_balance) }} {{ product.unit }}</strong>
+  {% if unit_cost is defined and unit_cost is not none %}
+  <span class="muted" style="margin-inline-start:0.75rem">
+    · متوسط التكلفة: {{ pos_money(unit_cost) }} د.ل/{{ product.unit }}
+    · القيمة المالية: <strong>{{ pos_money(inventory_value) }} د.ل</strong>
+  </span>
+  {% elif unit_cost is defined %}
+  <span class="muted" style="margin-inline-start:0.75rem">· لا توجد فواتير شراء مسجّلة لهذا الصنف</span>
+  {% endif %}
+  {% endif %}
+</div>
+
+{% if (product.kind.value == 'STOCK_ONLY' or product.direct_purchase_enabled) and bom_usage %}
+<div class="card" style="background:#f8fafc;border-color:#e2e8f0">
+  <h2 style="margin:0 0 0.5rem;font-size:0.95rem">يُستخدم في تركيبة:</h2>
+  <ul style="margin:0;padding-inline-start:1.2rem">
+    {% for parent, qty_per in bom_usage %}
+    <li>{{ parent.name_ar }} — {{ pos_qty(qty_per) }} {{ product.unit }} لكل وحدة</li>
+    {% endfor %}
+  </ul>
+  <p class="muted" style="margin:0.5rem 0 0;font-size:0.82rem">عند بيع أي منتج نهائي أعلاه يُخصم هذا المكوّن تلقائياً (يظهر في السجل كـ «خصم بيع»).</p>
+</div>
+{% endif %}
+
+{% if (product.kind.value == 'STOCK_ONLY' or product.direct_purchase_enabled) and product.expiry_tracked and inventory_lots %}
+<div class="card" style="background:#fffbeb;border-color:#fde68a">
+  <h2 style="margin-top:0;font-size:1rem">دفعات المخزون (FEFO — الأقدم صلاحية يُستهلك أولاً)</h2>
+  <table>
+    <thead>
+      <tr><th>رقم الدفعة</th><th>فاتورة</th><th>انتهاء</th><th>متبقي</th></tr>
+    </thead>
+    <tbody>
+      {% for lot in inventory_lots %}
+      <tr>
+        <td><code>{{ lot.lot_code }}</code></td>
+        <td><a href="/admin/purchases/{{ lot.purchase_id }}">#{{ lot.purchase_id }}</a></td>
+        <td>{{ lot.expiry_date.isoformat() if lot.expiry_date else '—' }}</td>
+        <td>{{ pos_qty(lot.qty_remaining) }} {{ product.unit }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if (product.kind.value == 'STOCK_ONLY' or product.direct_purchase_enabled) and can_adjust %}
+<div class="card" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1rem">
+  <div>
+    <h2 style="margin-top:0;font-size:1rem">جرد / تصحيح الرصيد</h2>
+    <p class="muted" style="font-size:0.85rem;margin:0 0 0.65rem">
+      أدخل الكمية الفعلية بعد العد. إن كان الرصيد الدفتري 10 والمعدود 8 يُسجَّل عجز قطعتين.
+    </p>
+    <form method="post" action="/inventory/products/{{ product.id }}/count">
+      <input type="hidden" name="warehouse_id" value="{{ warehouse_id }}" />
+      <label for="counted_qty">الكمية المعدودة ({{ product.unit }})</label>
+      <input id="counted_qty" name="counted_qty" type="number" step="0.0001" min="0" required
+        value="{{ pos_qty_plain(current_balance) }}" style="width:100%" />
+      <button type="submit" class="btn btn-primary" style="margin-top:0.65rem">حفظ الجرد</button>
+    </form>
+  </div>
+  <div>
+    <h2 style="margin-top:0;font-size:1rem">تسجيل هدر / هالك</h2>
+    <p class="muted" style="font-size:0.85rem;margin:0 0 0.65rem">
+      أدخل عدد القطع التالفة واختر السبب. <a href="/admin/settings#loss-reasons-section">إدارة أسباب الهدر</a>
+    </p>
+    <form method="post" action="/inventory/products/{{ product.id }}/waste">
+      <input type="hidden" name="warehouse_id" value="{{ warehouse_id }}" />
+      <label for="waste_qty">الكمية</label>
+      <input id="waste_qty" name="quantity" type="number" step="0.0001" min="0.0001" required style="width:100%" />
+      <label for="waste_reason" style="margin-top:0.45rem">السبب</label>
+      <select id="waste_reason" name="reason" required style="width:100%">
+        <option value="">— اختر —</option>
+        {% for r in loss_reasons %}
+        <option value="{{ r }}">{{ r }}</option>
+        {% endfor %}
+      </select>
+      <label for="waste_note" style="margin-top:0.45rem">ملاحظة (اختياري)</label>
+      <input id="waste_note" name="note" maxlength="200" style="width:100%" />
+      <button type="submit" class="btn" style="margin-top:0.65rem;background:#b91c1c;color:#fff;border-color:#991b1b">تسجيل الهدر</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{% if product.kind.value == 'FINAL_SELLABLE' and sales_history %}
+<div class="card">
+  <h2 style="margin-top:0">مبيعات هذا المنتج (أحدث {{ sales_history|length }})</h2>
+  <table>
+    <thead>
+      <tr><th>التاريخ</th><th>طلب</th><th>الكمية</th><th>الإجمالي</th></tr>
+    </thead>
+    <tbody>
+      {% for line, sale in sales_history %}
+      <tr>
+        <td>{{ pos_format_dt(sale.created_at, '%Y-%m-%d %H:%M') if sale.created_at else '—' }}</td>
+        <td>#{{ sale.id }}</td>
+        <td>{{ pos_qty(line.quantity) }}</td>
+        <td>{{ pos_money(line.line_total) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0">{% if product.kind.value == 'STOCK_ONLY' or product.direct_purchase_enabled %}سجل حركة المخزون{% else %}لا يوجد رصيد مخزني مباشر{% endif %}</h2>
+  {% if product.kind.value == 'STOCK_ONLY' or product.direct_purchase_enabled %}
+  {% if ledger_rows %}
+  <table>
+    <thead>
+      <tr>
+        <th>التاريخ</th>
+        <th>النوع</th>
+        <th>الكمية</th>
+        <th>الرصيد بعد</th>
+        <th>التفاصيل</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in ledger_rows %}
+      <tr>
+        <td style="white-space:nowrap;font-size:0.88rem">{{ pos_format_dt(row.created_at, '%Y-%m-%d %H:%M') if row.created_at else '—' }}</td>
+        <td>
+          <strong>{{ row.type_label }}</strong>
+          {% if row.reason_label %}
+          <div class="muted" style="font-size:0.78rem">{{ row.reason_label }}</div>
+          {% endif %}
+        </td>
+        <td style="font-weight:700;color:{% if row.quantity|float > 0 %}#15803d{% elif row.quantity|float < 0 %}#b91c1c{% else %}inherit{% endif %}">
+          {% if row.quantity|float > 0 %}+{% endif %}{{ pos_qty(row.quantity) }}
+        </td>
+        <td>{{ pos_qty(row.balance_after) }}</td>
+        <td style="font-size:0.85rem">
+          {{ row.detail or row.note or '—' }}
+          {% if row.purchase_id %}
+          · <a href="/admin/purchases">شراء #{{ row.purchase_id }}</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">لا توجد حركات مسجّلة لهذا الصنف في هذا المخزن بعد.</p>
+  {% endif %}
+  {% else %}
+  <p class="muted">تابع مكوّنات التركيبة من <a href="/catalog/products/{{ product.id }}/bom">صفحة التركيبة</a> — لكل مكوّن مخزني صفحة تتبع منفصلة.</p>
+  {% endif %}
+</div>
+{% endblock %}

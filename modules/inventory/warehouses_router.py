@@ -10,8 +10,19 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app.deps import DBSession, require_permission
 from app.jinja_env import templates
 from modules.authz.models import User
-from modules.authz.permissions import INVENTORY_VIEW, WAREHOUSES_MANAGE
+from modules.authz.permissions import INVENTORY_RECEIVE, INVENTORY_VIEW, WAREHOUSES_MANAGE
 from modules.catalog.service import list_stockable_products
+from modules.inventory.transfer_service import (
+    TransferError,
+    approve_transfer_line,
+    get_transfer,
+    line_status_label,
+    list_all_transfers,
+    list_transfers_for_warehouse,
+    reject_transfer_line,
+    request_transfer_line_modify,
+    transfer_status_label,
+)
 from modules.inventory.service import (
     InsufficientStock,
     WarehouseError,
@@ -29,6 +40,22 @@ from modules.inventory.service import (
 router = APIRouter(tags=["warehouses"])
 _wh_manage = require_permission(WAREHOUSES_MANAGE)
 _wh_view = require_permission(INVENTORY_VIEW)
+_wh_receive = require_permission(INVENTORY_RECEIVE)
+
+
+def _user_warehouse_id(user: User) -> int | None:
+    return getattr(user, "warehouse_id", None)
+
+
+def _resolve_recipient_warehouse(db, user: User, warehouse_id: int | None) -> int | None:
+    if warehouse_id is not None:
+        wh = get_warehouse(db, warehouse_id)
+        if wh is not None and wh.is_active and not wh.is_main:
+            return wh.id
+    uid_wh = _user_warehouse_id(user)
+    if uid_wh:
+        return uid_wh
+    return None
 
 
 @router.get("/admin/warehouses", response_class=HTMLResponse)
@@ -82,6 +109,7 @@ def warehouses_edit(
     _: User = Depends(_wh_manage),
     name_ar: str = Form(...),
     is_active: str = Form("1"),
+    deduct_sales_enabled: str = Form(""),
     notes: str = Form(""),
 ):
     try:
@@ -90,6 +118,7 @@ def warehouses_edit(
             wid,
             name_ar=name_ar,
             is_active=is_active == "1",
+            deduct_sales_enabled=deduct_sales_enabled == "1",
             notes=notes,
         )
         db.commit()
@@ -180,6 +209,114 @@ async def warehouses_transfer_submit(
             status_code=302,
         )
     return RedirectResponse("/admin/warehouses/transfer?saved=1", status_code=302)
+
+
+@router.get("/admin/warehouses/transfers", response_class=HTMLResponse)
+def warehouses_transfers_list(
+    request: Request,
+    db: DBSession,
+    _: User = Depends(_wh_manage),
+):
+    transfers = list_all_transfers(db)
+    return templates.TemplateResponse(
+        "admin_warehouse_transfers.html",
+        {
+            "request": request,
+            "transfers": transfers,
+            "line_status_label": line_status_label,
+            "transfer_status_label": transfer_status_label,
+        },
+    )
+
+
+@router.get("/inventory/transfers/inbox", response_class=HTMLResponse)
+def transfer_inbox(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_wh_receive),
+    warehouse_id: int | None = Query(None),
+    msg: str | None = Query(None),
+    err: str | None = Query(None),
+):
+    branches = list_branch_warehouses(db)
+    wid = _resolve_recipient_warehouse(db, user, warehouse_id)
+    transfers = list_transfers_for_warehouse(db, wid, pending_only=True) if wid else []
+    return templates.TemplateResponse(
+        "inventory_transfer_inbox.html",
+        {
+            "request": request,
+            "transfers": transfers,
+            "branches": branches,
+            "warehouse_id": wid,
+            "flash_msg": msg,
+            "flash_err": err,
+            "line_status_label": line_status_label,
+            "transfer_status_label": transfer_status_label,
+        },
+    )
+
+
+@router.post("/inventory/transfers/lines/{line_id}/approve", response_class=HTMLResponse)
+def transfer_line_approve(
+    line_id: int,
+    db: DBSession,
+    user: User = Depends(_wh_receive),
+    qty_received: str = Form(""),
+    warehouse_id: str = Form(""),
+):
+    back = "/inventory/transfers/inbox"
+    if warehouse_id.strip().isdigit():
+        back += f"?warehouse_id={warehouse_id.strip()}"
+    try:
+        qty = Decimal(qty_received.strip()) if qty_received.strip() else None
+        approve_transfer_line(db, line_id, user.id, qty_received=qty)
+        db.commit()
+        return RedirectResponse(back + ("&" if "?" in back else "?") + "msg=" + quote("تمت مصادقة الاستلام."), status_code=302)
+    except (TransferError, InvalidOperation, InsufficientStock, WarehouseError) as e:
+        db.rollback()
+        return RedirectResponse(back + ("&" if "?" in back else "?") + "err=" + quote(str(e)), status_code=302)
+
+
+@router.post("/inventory/transfers/lines/{line_id}/reject", response_class=HTMLResponse)
+def transfer_line_reject(
+    line_id: int,
+    db: DBSession,
+    user: User = Depends(_wh_receive),
+    note: str = Form(""),
+    warehouse_id: str = Form(""),
+):
+    back = "/inventory/transfers/inbox"
+    if warehouse_id.strip().isdigit():
+        back += f"?warehouse_id={warehouse_id.strip()}"
+    try:
+        reject_transfer_line(db, line_id, user.id, note=note)
+        db.commit()
+        return RedirectResponse(back + ("&" if "?" in back else "?") + "msg=" + quote("تم رفض البند وإرجاع الكمية."), status_code=302)
+    except (TransferError, WarehouseError) as e:
+        db.rollback()
+        return RedirectResponse(back + ("&" if "?" in back else "?") + "err=" + quote(str(e)), status_code=302)
+
+
+@router.post("/inventory/transfers/lines/{line_id}/modify", response_class=HTMLResponse)
+def transfer_line_modify(
+    line_id: int,
+    db: DBSession,
+    user: User = Depends(_wh_receive),
+    note: str = Form(...),
+    suggested_qty: str = Form(""),
+    warehouse_id: str = Form(""),
+):
+    back = "/inventory/transfers/inbox"
+    if warehouse_id.strip().isdigit():
+        back += f"?warehouse_id={warehouse_id.strip()}"
+    try:
+        sq = Decimal(suggested_qty.strip()) if suggested_qty.strip() else None
+        request_transfer_line_modify(db, line_id, user.id, note=note, suggested_qty=sq)
+        db.commit()
+        return RedirectResponse(back + ("&" if "?" in back else "?") + "msg=" + quote("تم إرسال طلب التعديل."), status_code=302)
+    except (TransferError, InvalidOperation) as e:
+        db.rollback()
+        return RedirectResponse(back + ("&" if "?" in back else "?") + "err=" + quote(str(e)), status_code=302)
 
 
 @router.get("/inventory/low-stock/print", response_class=HTMLResponse)

@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}تسوية مغادرة — {{ booking.reference }}{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/receipt_print.css?v=3" />
+<style>
+  @media print { .no-print { display: none !important; } }
+  .settle-table td, .settle-table th { padding: 0.35rem 0.5rem; border-bottom: 1px solid #e5e7eb; }
+</style>
+{% endblock %}
+{% block body %}
+<div class="no-print" style="margin-bottom:0.75rem">
+  <button class="btn btn-primary" onclick="window.print()">طباعة</button>
+  <a class="btn" href="/admin/hotel/bookings/{{ booking.id }}">عودة للحجز</a>
+</div>
+
+<div class="card" id="receipt-capture-root" style="max-width:720px;margin:0 auto">
+  <div style="text-align:center;margin-bottom:1rem">
+    <h1 style="margin:0">{{ store_name }}</h1>
+    <p class="muted" style="margin:0.25rem 0">تقرير تسوية المغادرة</p>
+    <p style="margin:0.35rem 0"><strong>مرجع الحجز:</strong> {{ booking.reference }}</p>
+    <p style="margin:0"><strong>النزيل:</strong> {{ booking.display_name }} · {{ booking.guest_phone or '' }}</p>
+  </div>
+
+  <table class="settle-table" style="width:100%;font-size:0.95rem">
+    <tr><td>تاريخ الوصول</td><td style="text-align:left">{{ preview.check_in }}</td></tr>
+    <tr><td>موعد المغادرة المحجوز</td><td style="text-align:left">{{ preview.scheduled_check_out }}</td></tr>
+    <tr><td>تاريخ المغادرة الفعلي</td><td style="text-align:left"><strong>{{ preview.actual_departure }}</strong></td></tr>
+    <tr><td>ليالي محجوزة</td><td style="text-align:left"><strong>{{ preview.booked_nights }}</strong></td></tr>
+    <tr><td>ليالي فعلية</td><td style="text-align:left"><strong>{{ preview.stayed_nights }}</strong></td></tr>
+    <tr><td>ليالي ملغاة</td><td style="text-align:left;color:#16a34a"><strong>{{ preview.cancelled_nights }}</strong></td></tr>
+  </table>
+
+  <h3 style="margin:1rem 0 0.5rem">تفاصيل المبالغ</h3>
+  <table class="settle-table" style="width:100%;font-size:0.95rem">
+    <tr><td>إقامة (حسب الحجز الأصلي)</td><td style="text-align:left">{{ preview.accommodation_booked }} د.ل</td></tr>
+    <tr><td>إقامة (حسب الإقامة الفعلية)</td><td style="text-align:left">{{ preview.accommodation_actual }} د.ل</td></tr>
+    <tr><td>فرق الإقامة (تخفيض)</td><td style="text-align:left;color:#16a34a">− {{ preview.accommodation_saved }} د.ل</td></tr>
+    {% if preview.services_total > 0 %}
+    <tr><td>خدمات إضافية</td><td style="text-align:left">{{ preview.services_total }} د.ل</td></tr>
+    {% endif %}
+    {% if preview.pos_total > 0 %}
+    <tr><td>مطعم / غرفة</td><td style="text-align:left">{{ preview.pos_total }} د.ل</td></tr>
+    {% endif %}
+    {% if preview.discount > 0 %}
+    <tr><td>خصم</td><td style="text-align:left">− {{ preview.discount }} د.ل</td></tr>
+    {% endif %}
+    <tr><th>إجمالي الحساب (فعلي)</th><th style="text-align:left">{{ preview.folio_total_actual }} د.ل</th></tr>
+    <tr><td>مدفوع</td><td style="text-align:left;color:#16a34a">{{ preview.paid_amount }} د.ل</td></tr>
+    {% if preview.refund_due > 0 %}
+    <tr><th style="color:#16a34a">يسترد للنزيل</th><th style="text-align:left;color:#16a34a">{{ preview.refund_due }} د.ل</th></tr>
+    {% elif preview.balance_due > 0 %}
+    <tr><th style="color:#b45309">متبقٍ على النزيل</th><th style="text-align:left;color:#b45309">{{ preview.balance_due }} د.ل</th></tr>
+    {% else %}
+    <tr><th>الحساب</th><th style="text-align:left">مُسوّى بالكامل</th></tr>
+    {% endif %}
+  </table>
+
+  <h3 style="margin:1rem 0 0.5rem">بنود كشف الحساب</h3>
+  <table class="settle-table" style="width:100%;font-size:0.9rem">
+    {% for line in folio.lines %}
+    <tr><td>{{ line.description }}</td><td style="text-align:left">{{ line.amount }} د.ل</td></tr>
+    {% endfor %}
+  </table>
+
+  <p class="muted" style="margin-top:1.25rem;font-size:0.82rem;text-align:center">
+    وثيقة تسوية — {{ booking.reference }} — {{ preview.actual_departure }}
+  </p>
+</div>
+{% endblock %}

@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}تقارير الفندق{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/hotel_dashboard.css?v=12" />
+{% endblock %}
+{% block body %}
+{% set active = 'reports' %}
+{% include "_hotel_nav.html" %}
+<h1 style="margin-top:0">تقارير الفندق</h1>
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+{% if saved %}<div class="alert" style="background:#ecfdf5">تم إقفال يوم {{ closing_date }} ✓</div>{% endif %}
+{% if saved and gl_enabled %}
+<div class="card" style="margin-top:0.75rem;border-color:{% if gl_gap is not none and gl_gap != 0 %}#fecaca{% else %}#6ee7b7{% endif %};background:linear-gradient(180deg,{% if gl_gap is not none and gl_gap != 0 %}#fef2f2{% else %}#ecfdf5{% endif %} 0%,#fff 55%)">
+  <h2 style="margin-top:0">مطابقة GL — حساب 4150</h2>
+  {% if gl_backfill > 0 %}
+  <p style="margin:0 0 0.5rem;font-size:0.9rem">تم ترحيل <strong>{{ gl_backfill }}</strong> حركة GL ناقصة لهذا اليوم.</p>
+  {% else %}
+  <p style="margin:0 0 0.5rem;font-size:0.9rem">جميع حركات اليوم موجودة في GL (أو لا توجد حركات جديدة).</p>
+  {% endif %}
+  {% if gl_gap is not none %}
+  <p style="margin:0;font-size:0.95rem">
+    فارق اليوم (تشغيل − GL):
+    <strong style="color:{% if gl_gap == 0 %}#15803d{% else %}#b91c1c{% endif %}">{{ gl_gap }} د.ل</strong>
+  </p>
+  {% endif %}
+  <p style="margin:0.65rem 0 0;font-size:0.85rem">
+    <a href="/reports/gl-reconciliation?period=custom&start={{ closing_date }}&end={{ closing_date }}">تقرير مطابقة GL ←</a>
+    · <a href="/reports/hotel-daily-close?period=month">الإقفال اليومي</a>
+  </p>
+</div>
+{% elif saved and not gl_enabled %}
+<div class="card no-print" style="margin-top:0.75rem;background:#fef3c7;border-color:#f59e0b">
+  <p style="margin:0;font-size:0.9rem">GL غير مفعّل — تم حفظ الإقفال التشغيلي فقط.</p>
+</div>
+{% endif %}
+<div class="card">
+  <h2>إشغال اليوم ({{ today }})</h2>
+  <p>الغرف: {{ occ.total_rooms }} · مشغولة: {{ occ.occupied }} · نسبة الإشغال: {{ occ.occupancy_rate }}%</p>
+</div>
+<div class="card" style="margin-top:1rem">
+  <h2>تقرير الجهات الأمنية</h2>
+  <p class="muted" style="margin-top:0">
+    تصدير بيانات النزلاء حسب الفترة والجهة المختارة. يمكن الطباعة أو حفظ PDF أو الإرسال عبر الوسيلة المحددة في بروفايل الجهة.
+  </p>
+  <p style="margin:0 0 0.75rem">
+    <a href="/admin/hotel/security-authorities">إدارة الجهات الأمنية ←</a>
+  </p>
+  {% if security_sent %}
+  <div class="alert" style="background:#ecfdf5;border-color:#10b981;color:#065f46;margin-bottom:0.75rem">
+    تم إرسال التقرير إلى {{ security_sent_authority }} عبر {{ security_sent_channel }} ✓
+  </div>
+  {% endif %}
+  <form id="security-report-form" method="get" action="/admin/hotel/reports/security" target="_blank"
+        style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:0.65rem;align-items:end">
+    <label>من تاريخ
+      <input name="from_date" type="date" value="{{ today }}" required />
+    </label>
+    <label>إلى تاريخ
+      <input name="to_date" type="date" value="{{ today }}" required />
+    </label>
+    <label>الجهة الأمنية
+      <select name="authority_id" id="security_authority_id">
+        <option value="">— الكل (بدون تصفية جنسية) —</option>
+        {% for a in security_authorities %}
+        <option value="{{ a.id }}">{{ a.name_ar }} ({{ a.guest_scope_label }})</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>الإجراء
+      <select name="action" id="security_report_action" required>
+        <option value="print">طباعة</option>
+        <option value="pdf">تصدير PDF</option>
+        <option value="send">إرسال للجهة</option>
+      </select>
+    </label>
+    <input type="hidden" name="print_view" id="security_print_view" value="0" />
+    <button class="btn btn-primary" type="submit" id="security_report_submit">عرض التقرير</button>
+  </form>
+  <form id="security-send-form" method="post" action="/admin/hotel/reports/security/send" style="display:none">
+    <input type="hidden" name="from_date" id="send_from_date" />
+    <input type="hidden" name="to_date" id="send_to_date" />
+    <input type="hidden" name="authority_id" id="send_authority_id" />
+  </form>
+  <p class="muted" style="margin:0.65rem 0 0;font-size:0.85rem">
+    عند اختيار جهة، يُصفّى التقرير تلقائياً حسب نطاق النزلاء المحدّد في بروفايلها (أجانب / ليبيون / الكل).
+    الإرسال يستخدم واتساب أو البريد حسب إعداد الجهة.
+  </p>
+</div>
+<script>
+(function () {
+  var mainForm = document.getElementById('security-report-form');
+  var sendForm = document.getElementById('security-send-form');
+  var actionSel = document.getElementById('security_report_action');
+  var printView = document.getElementById('security_print_view');
+  var submitBtn = document.getElementById('security_report_submit');
+  function syncAction() {
+    var action = actionSel.value;
+    if (action === 'send') {
+      submitBtn.textContent = 'إرسال للجهة';
+      mainForm.removeAttribute('target');
+    } else if (action === 'pdf') {
+      submitBtn.textContent = 'تصدير PDF';
+      mainForm.setAttribute('target', '_blank');
+      printView.value = '1';
+    } else {
+      submitBtn.textContent = 'طباعة';
+      mainForm.setAttribute('target', '_blank');
+      printView.value = '0';
+    }
+  }
+  actionSel.addEventListener('change', syncAction);
+  syncAction();
+  mainForm.addEventListener('submit', function (e) {
+    if (actionSel.value !== 'send') return;
+    e.preventDefault();
+    var auth = document.getElementById('security_authority_id').value;
+    if (!auth) {
+      alert('اختر الجهة الأمنية قبل الإرسال.');
+      return;
+    }
+    document.getElementById('send_from_date').value = mainForm.from_date.value;
+    document.getElementById('send_to_date').value = mainForm.to_date.value;
+    document.getElementById('send_authority_id').value = auth;
+    sendForm.submit();
+  });
+})();
+</script>
+{% if finance_on %}
+<div class="card" style="margin-top:1rem">
+  <h2>إقفال يومي</h2>
+  <form method="post" action="/admin/hotel/daily-close">
+    <input name="closing_date" type="date" value="{{ today }}" />
+    <input name="notes" placeholder="ملاحظات" />
+    <button class="btn btn-primary">إقفال اليوم</button>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

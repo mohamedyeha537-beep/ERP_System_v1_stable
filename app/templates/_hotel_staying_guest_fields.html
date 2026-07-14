@@ -1,0 +1,51 @@
+{# حقول نزيل واحد — يُستخدم داخل template للنسخ عبر JS #}
+{% set req = require_staying_guest_full | default(false) %}
+<div class="hotel-guest-fields" style="display:flex;flex-direction:column;gap:0.55rem">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0.55rem">
+    <div><label>الاسم الكامل *</label><input name="staying_guest_name" required placeholder="كما في الهوية" /></div>
+    <div><label>رقم الهوية / الجواز{% if req %} *{% endif %}</label><input name="staying_guest_id_number" dir="ltr" {% if req %}required{% endif %} /></div>
+    <div>
+      <label>نوع الوثيقة{% if req %} *{% endif %}</label>
+      <select name="staying_guest_id_type" {% if req %}required{% endif %}>
+        <option value="">— اختر —</option>
+        {% for t in guest_id_types %}
+        <option value="{{ t }}">{{ t }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>الجنسية{% if req %} *{% endif %}</label>
+      <div class="bom-combobox hotel-nationality-combobox" data-searchable-combobox data-min-chars="3" data-submit-on-select="false">
+        <input type="hidden" name="staying_guest_nationality" data-combobox-value value="{{ default_nationality }}" {% if req %}required{% endif %} />
+        <div class="bom-combobox-field">
+          <input
+            type="text"
+            class="bom-combobox-input"
+            data-combobox-input
+            value="{{ default_nationality }}"
+            placeholder="افتح القائمة أو اكتب 3 أحرف للبحث…"
+            autocomplete="off"
+            role="combobox"
+            aria-expanded="false"
+          />
+          <button type="button" class="bom-combobox-toggle" aria-label="فتح القائمة" tabindex="-1">▾</button>
+        </div>
+        <div class="bom-combobox-menu" data-combobox-menu hidden role="listbox">
+          {% for nat in nationalities %}
+          <button type="button" class="bom-combobox-option" role="option" data-value="{{ nat }}" data-label="{{ nat }}">{{ nat }}</button>
+          {% endfor %}
+          <p class="bom-combobox-empty muted" data-combobox-empty>اكتب 3 أحرف على الأقل للبحث عن الدولة</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0.55rem;align-items:end">
+    <div><label>الهاتف{% if req %} *{% endif %}</label><input name="staying_guest_phone" dir="ltr" {% if req %}required{% endif %} /></div>
+    <div><label>العنوان{% if req %} *{% endif %}</label><input name="staying_guest_address" {% if req %}required{% endif %} /></div>
+    <div>
+      <label>إرفاق الوثيقة{% if req %} *{% endif %}</label>
+      <input type="file" name="staying_guest_id_document" accept="image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf" style="font-size:0.82rem;max-width:100%" {% if req %}required{% endif %} />
+      <span class="muted" style="font-size:0.75rem;display:block;margin-top:0.2rem">صورة أو PDF — حتى 3 م.ب</span>
+    </div>
+  </div>
+</div>

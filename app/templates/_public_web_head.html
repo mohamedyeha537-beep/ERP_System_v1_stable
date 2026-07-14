@@ -1,0 +1,34 @@
+{# SEO + Open Graph + أكواد التتبع — يُمرَّر web_mkt من الراوتر #}
+{% if web_mkt is defined and web_mkt %}
+<title>{{ web_mkt.page_title }}</title>
+{% if web_mkt.meta_description %}
+<meta name="description" content="{{ web_mkt.meta_description }}" />
+{% endif %}
+{% if web_mkt.meta_keywords %}
+<meta name="keywords" content="{{ web_mkt.meta_keywords }}" />
+{% endif %}
+<meta name="robots" content="{{ web_mkt.robots or 'index,follow' }}" />
+{% if web_mkt.canonical_url %}
+<link rel="canonical" href="{{ web_mkt.canonical_url }}" />
+{% endif %}
+{% if web_mkt.google_site_verification %}
+<meta name="google-site-verification" content="{{ web_mkt.google_site_verification }}" />
+{% endif %}
+<meta property="og:type" content="{{ web_mkt.og_type or 'website' }}" />
+<meta property="og:title" content="{{ web_mkt.og_title or web_mkt.page_title }}" />
+{% if web_mkt.og_description %}
+<meta property="og:description" content="{{ web_mkt.og_description }}" />
+{% endif %}
+{% if web_mkt.canonical_url %}
+<meta property="og:url" content="{{ web_mkt.canonical_url }}" />
+{% endif %}
+{% if web_mkt.og_image_url %}
+<meta property="og:image" content="{{ web_mkt.og_image_url }}" />
+{% endif %}
+<meta name="twitter:card" content="{% if web_mkt.og_image_url %}summary_large_image{% else %}summary{% endif %}" />
+<meta name="twitter:title" content="{{ web_mkt.og_title or web_mkt.page_title }}" />
+{% if web_mkt.og_description %}
+<meta name="twitter:description" content="{{ web_mkt.og_description }}" />
+{% endif %}
+{% if web_mkt.tracking_head %}{{ web_mkt.tracking_head }}{% endif %}
+{% endif %}

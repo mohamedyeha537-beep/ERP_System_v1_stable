@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}أقسام العمل{% endblock %}
+{% block head_extra %}
+<style>
+  .hr-nav { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 1rem;
+            border-bottom: 1px solid var(--border); padding-bottom: 0.6rem; }
+  .hr-nav a { padding: 0.45rem 0.85rem; border-radius: 8px; border: 1px solid var(--border);
+              background: #fff; color: inherit; text-decoration: none; font-weight: 600; }
+  .hr-nav a.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem; }
+  @media (max-width: 760px) { .grid-3 { grid-template-columns: 1fr; } }
+</style>
+{% endblock %}
+{% block body %}
+<h1 style="margin-top:0">أقسام العمل</h1>
+
+<nav class="hr-nav">
+  <a href="/admin/employees">الموظفون</a>
+  <a href="/admin/departments" class="active">الأقسام</a>
+  <a href="/admin/work-shifts">الورديات</a>
+  <a href="/admin/attendance">الحضور والانصراف</a>
+  <a href="/admin/payroll">الرواتب</a>
+  <a href="/admin/advances">السلف</a>
+</nav>
+
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+{% if saved %}<div class="alert" style="background:#ecfdf5;border-color:#10b981;color:#065f46">تم الحفظ ✓</div>{% endif %}
+
+<div class="card pos-guide-panel" style="background:#f0f9ff;border:1px solid #bae6fd">
+  <p class="muted" style="margin:0;line-height:1.7">
+    أنشئ أقسام العمل (مقهى، مطعم، استقبال، تنظيف، حسابات، كاشير…)
+    ثم عيّن كل موظف لقسمه من <a href="/admin/employees">صفحة الموظفين</a>.
+    يمكنك تصفية قائمة الموظفين حسب القسم.
+  </p>
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <h2 id="form-title" style="margin-top:0">قسم جديد</h2>
+  <form method="post" action="/admin/departments/save" id="dept-form">
+    <input type="hidden" name="dept_id" id="dept_id" value="" />
+    <div class="grid-3">
+      <div>
+        <label for="name_ar">اسم القسم *</label>
+        <input id="name_ar" name="name_ar" required placeholder="مثال: المقهى" />
+      </div>
+      <div>
+        <label for="code">رمز (اختياري)</label>
+        <input id="code" name="code" placeholder="CAFE" dir="ltr" />
+      </div>
+      <div>
+        <label for="sort_order">ترتيب العرض</label>
+        <input id="sort_order" name="sort_order" type="number" min="0" value="0" />
+      </div>
+    </div>
+    <div style="margin-top:0.65rem">
+      <label for="notes">ملاحظات</label>
+      <input id="notes" name="notes" placeholder="اختياري" style="width:100%" />
+    </div>
+    <label style="display:block;margin-top:0.65rem">
+      <input type="checkbox" name="is_active" id="is_active" value="on" checked /> نشط
+    </label>
+    <button type="submit" class="btn btn-primary" style="margin-top:0.75rem">حفظ القسم</button>
+    <button type="button" class="btn" id="reset-form" style="margin-top:0.75rem">إلغاء التعديل</button>
+  </form>
+</div>
+
+<table style="margin-top:1rem">
+  <thead>
+    <tr>
+      <th>القسم</th>
+      <th>الرمز</th>
+      <th>الترتيب</th>
+      <th>الموظفون</th>
+      <th>الحالة</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for d in items %}
+  <tr {% if not d.is_active %}style="opacity:0.65"{% endif %}>
+    <td><strong>{{ d.name_ar }}</strong></td>
+    <td dir="ltr" style="font-family:monospace">{{ d.code or '—' }}</td>
+    <td>{{ d.sort_order }}</td>
+    <td>
+      {% set cnt = emp_counts.get(d.id, 0) %}
+      {% if cnt %}
+      <a href="/admin/employees?department_id={{ d.id }}">{{ cnt }} موظف</a>
+      {% else %}
+      <span class="muted">0</span>
+      {% endif %}
+    </td>
+    <td>{% if d.is_active %}<span style="color:#16a34a;font-weight:600">نشط</span>{% else %}<span class="muted">معطّل</span>{% endif %}</td>
+    <td class="row" style="gap:0.3rem;margin:0">
+      <button type="button" class="btn btn-edit-dept"
+        data-id="{{ d.id }}"
+        data-name="{{ d.name_ar|e }}"
+        data-code="{{ (d.code or '')|e }}"
+        data-order="{{ d.sort_order }}"
+        data-notes="{{ (d.notes or '')|e }}"
+        data-active="{{ '1' if d.is_active else '0' }}"
+      >تعديل</button>
+      {% if emp_counts.get(d.id, 0) == 0 %}
+      <form method="post" action="/admin/departments/{{ d.id }}/delete" style="display:inline" onsubmit="return confirm('حذف القسم؟')">
+        <button class="btn" type="submit" style="color:#b91c1c">حذف</button>
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="6" class="muted">لا توجد أقسام — أنشئ أقسام المقهى والمطعم والاستقبال على الأقل.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<script>
+(function () {
+  function resetForm() {
+    document.getElementById('form-title').textContent = 'قسم جديد';
+    document.getElementById('dept_id').value = '';
+    document.getElementById('dept-form').reset();
+    document.getElementById('is_active').checked = true;
+    document.getElementById('sort_order').value = '0';
+  }
+  document.getElementById('reset-form').addEventListener('click', resetForm);
+  document.querySelectorAll('.btn-edit-dept').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var d = btn.dataset;
+      document.getElementById('form-title').textContent = 'تعديل قسم';
+      document.getElementById('dept_id').value = d.id;
+      document.getElementById('name_ar').value = d.name || '';
+      document.getElementById('code').value = d.code || '';
+      document.getElementById('sort_order').value = d.order || '0';
+      document.getElementById('notes').value = d.notes || '';
+      document.getElementById('is_active').checked = d.active === '1';
+      document.getElementById('dept-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+})();
+</script>
+{% endblock %}

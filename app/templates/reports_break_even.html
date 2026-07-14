@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button with context %}
 {% block title %}تحليل التعادل (Break-Even / CVP){% endblock %}
 {% block head_extra %}
 <style>
@@ -21,7 +21,16 @@
 </style>
 {% endblock %}
 {% block body %}
-<h1>تحليل التعادل اليومي (Break-Even / CVP)</h1>
+<h1>تحليل التعادل اليومي (Break-Even / CVP){% if domain_label %} — {{ domain_label }}{% endif %}</h1>
+{% if burden.revenue_source == 'hotel' %}
+<p class="muted" style="margin-top:0;font-size:0.88rem">
+  إيراد وهامش المساهمة من <strong>تحصيلات الحجز</strong> (مدفوعات − مرتجعات)؛ التكلفة المتغيّرة = مصروفات ومشتريات مجال الفندق.
+</p>
+{% elif burden.revenue_source == 'combined' %}
+<p class="muted" style="margin-top:0;font-size:0.88rem">
+  إيراد مجمّع: مبيعات POS + تحصيلات الفندق.
+</p>
+{% endif %}
 {{ reports_nav('break-even') }}
 {{ period_filter('/reports/break-even', period, period_labels, start, end, start_str, end_str, '&days=' ~ operating_days) }}
 {{ report_export_format_help() }}
@@ -33,7 +42,7 @@
 </div>
 
 
-<div class="card" style="background:#eff6ff; border-color:#93c5fd">
+<div class="card pos-guide-panel" data-guide-title="ℹ️ ما هو تحليل التعادل؟" style="background:#eff6ff; border-color:#93c5fd">
   <h2 style="margin-top: 0; color:#1e3a8a">ما هو تحليل التعادل؟</h2>
   <p style="line-height: 1.8; margin: 0; color:#1e3a8a">
     تحليل التعادل (Break-Even Analysis) يحسب الحدّ الأدنى من الإيراد الذي يجب أن تحقّقه يومياً لتغطية كل تكاليفك (الثابتة والمتغيّرة)

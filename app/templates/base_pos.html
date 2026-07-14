@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    {% set brand = pos_brand(request) %}
+    <title>{% block title %}{{ brand.pos_label }}{% endblock %} · {{ pos_display_name(request) }}</title>
+    <link rel="stylesheet" href="/static/fonts.css?v=1" />
+    <style>
+      :root {
+        --pos-font-arabic: "IBM Plex Sans Arabic", "Noto Sans Arabic", "Segoe UI",
+          "Tahoma", system-ui, sans-serif;
+        --pos-font-display: "Cairo", "IBM Plex Sans Arabic", "Noto Sans Arabic",
+          "Segoe UI", sans-serif;
+        --brand-header-from: {{ brand.header_bg_from }};
+        --brand-header-to: {{ brand.header_bg_to }};
+        --brand-header-fg: {{ brand.header_fg }};
+        --brand-primary: {{ brand.primary_color }};
+        --pos-topbar-h: 58px;
+        --primary: var(--brand-primary);
+      }
+      html, body {
+        font-family: var(--pos-font-arabic);
+        margin: 0;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+      h1, h2, h3, .brand {
+        font-family: var(--pos-font-display);
+      }
+      body.pos-mode {
+        background: #f1f5f9;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      .pos-topbar {
+        height: var(--pos-topbar-h);
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0 1rem;
+        background: linear-gradient(135deg, var(--brand-header-from) 0%, var(--brand-header-to) 100%);
+        color: var(--brand-header-fg);
+        box-shadow: 0 2px 10px rgba(15, 23, 42, 0.15);
+        position: sticky;
+        top: 0;
+        z-index: 100;
+      }
+      .pos-brand-menu {
+        position: relative;
+        min-width: 0;
+      }
+      .pos-brand-menu[open] .pos-brand {
+        background: rgba(255, 255, 255, 0.14);
+      }
+      .pos-brand {
+        display: flex;
+        align-items: center;
+        gap: 0.65rem;
+        color: inherit;
+        text-decoration: none;
+        min-width: 0;
+        cursor: pointer;
+        list-style: none;
+        border-radius: 10px;
+        padding: 0.2rem 0.3rem;
+      }
+      .pos-brand::-webkit-details-marker { display: none; }
+      .pos-brand:hover { opacity: 0.9; }
+      .pos-brand .logo {
+        width: 42px;
+        height: 42px;
+        display: grid;
+        place-items: center;
+        flex-shrink: 0;
+      }
+      .pos-brand .logo img { width: 100%; height: 100%; object-fit: contain; }
+      .pos-brand .logo svg { width: 28px; height: 28px; }
+      .pos-brand-text {
+        line-height: 1.15;
+        min-width: 0;
+      }
+      .pos-brand-text strong {
+        display: block;
+        font-size: 1rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .pos-brand-text small {
+        display: block;
+        font-size: 0.72rem;
+        opacity: 0.8;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .pos-brand-dropdown {
+        position: absolute;
+        top: calc(100% + 0.45rem);
+        inset-inline-start: 0;
+        min-width: 190px;
+        padding: 0.35rem;
+        border-radius: 12px;
+        background: #fff;
+        color: #0f172a;
+        border: 1px solid #dbe3ef;
+        box-shadow: 0 18px 40px rgba(15, 23, 42, 0.22);
+        z-index: 250;
+      }
+      .pos-brand-dropdown a {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        padding: 0.55rem 0.65rem;
+        border-radius: 9px;
+        color: #0f172a;
+        text-decoration: none;
+        font-size: 0.88rem;
+        font-weight: 700;
+      }
+      .pos-brand-dropdown a:hover { background: #f1f5f9; }
+      .pos-brand-dropdown a.logout { color: #b91c1c; }
+      .pos-topbar-search {
+        flex: 1;
+        min-width: 0;
+        max-width: 420px;
+        margin: 0 0.5rem;
+      }
+      .pos-topbar-search input[type="search"] {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 0.42rem 0.75rem;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        background: rgba(255, 255, 255, 0.14);
+        color: var(--brand-header-fg);
+        font-size: 0.9rem;
+        font-family: inherit;
+      }
+      .pos-topbar-search input[type="search"]::placeholder {
+        color: rgba(255, 255, 255, 0.65);
+      }
+      .pos-topbar-search input[type="search"]:focus {
+        outline: none;
+        background: rgba(255, 255, 255, 0.22);
+        border-color: rgba(255, 255, 255, 0.45);
+      }
+      .pos-topbar-end {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+      .pos-topbar-btn {
+        color: var(--brand-header-fg);
+        text-decoration: none;
+        padding: 0.35rem 0.65rem;
+        border-radius: 8px;
+        font-size: 0.82rem;
+        font-weight: 600;
+        white-space: nowrap;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        transition: background 0.15s;
+        cursor: pointer;
+        font-family: inherit;
+      }
+      .pos-topbar-btn:hover { background: rgba(255, 255, 255, 0.2); }
+      .pos-topbar-btn.primary { background: rgba(255, 255, 255, 0.22); }
+      .pos-shift-meta {
+        font-size: 0.78rem;
+        opacity: 0.88;
+        padding: 0 0.35rem;
+        white-space: nowrap;
+      }
+      .pos-main-wrap {
+        flex: 1;
+        width: 100%;
+        max-width: 100%;
+        padding: 0.65rem 0.75rem 0.75rem;
+        box-sizing: border-box;
+      }
+      .pos-main-wrap > .pos-shell {
+        max-width: 100%;
+        margin: 0 auto;
+        padding: 0;
+      }
+    </style>
+    <link rel="stylesheet" href="/static/app.css" />
+    <script src="/static/vendor/htmx.min.js"></script>
+    {% block head_extra %}{% endblock %}
+  </head>
+  <body class="pos-mode">
+    <header class="pos-topbar">
+      <details class="pos-brand-menu">
+      <summary class="pos-brand" title="{{ brand.pos_label }}" aria-label="قائمة النظام">
+        {% if brand.show_logo_in_header and brand.logo_url %}
+        <span class="logo"><img src="{{ brand.logo_url }}" alt="" /></span>
+        {% else %}
+        <span class="logo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="2" y="6" width="20" height="12" rx="2"></rect>
+            <path d="M2 10h20"></path>
+          </svg>
+        </span>
+        {% endif %}
+        <span class="pos-brand-text">
+          <strong>{{ pos_display_name(request) }}</strong>
+          <small>{{ brand.pos_label }}{% if pos_operator_name is defined and pos_operator_name %} · {{ pos_operator_name }}{% endif %}</small>
+        </span>
+      </summary>
+      <div class="pos-brand-dropdown" role="menu">
+        <a href="/pos" role="menuitem">الرئيسية</a>
+        <a class="logout" href="/auth/logout" role="menuitem">تسجيل الخروج</a>
+      </div>
+      </details>
+      <div class="pos-topbar-search">
+        <input type="search" id="product-search" placeholder="بحث بالاسم…" autocomplete="off" aria-label="بحث بالاسم" />
+      </div>
+      <div class="pos-topbar-end">
+        {% block pos_topbar %}
+        {% if open_pos_shift is defined and open_pos_shift %}
+        <span class="pos-shift-meta">#{{ open_pos_shift.id }}</span>
+        <a class="pos-topbar-btn primary" href="/pos/shift">إدارة وإغلاق الجلسة</a>
+        <a class="pos-topbar-btn" href="/pos/shift/{{ open_pos_shift.id }}/report" target="_blank">تقرير الجلسة</a>
+        {% endif %}
+        {% endblock %}
+      </div>
+    </header>
+    <main class="pos-main-wrap">
+      {% if not page_trail_hide|default(false) %}
+      <div class="pos-page-trail-wrap">
+        {% include "_page_trail.html" %}
+      </div>
+      {% endif %}
+      {% block body %}{% endblock %}
+    </main>
+    <script src="/static/pos_guides.js"></script>
+    <script>
+      (function () {
+        var menu = document.querySelector(".pos-brand-menu");
+        if (!menu) return;
+        document.addEventListener("click", function (ev) {
+          if (!menu.contains(ev.target)) menu.removeAttribute("open");
+        });
+        document.addEventListener("keydown", function (ev) {
+          if (ev.key === "Escape") menu.removeAttribute("open");
+        });
+      })();
+    </script>
+  </body>
+</html>

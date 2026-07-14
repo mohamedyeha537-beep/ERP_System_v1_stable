@@ -1,17 +1,49 @@
 {% extends "base.html" %}
+{% from "_admin_ui_visibility_fields.html" import ui_visibility_fields with context %}
 {% block title %}المستخدمون{% endblock %}
 {% block body %}
+{% set _default_scope_opts = [
+  ('restaurant', 'مطعم فقط'),
+  ('hotel', 'فندق فقط'),
+  ('both', 'المطعم والفندق')
+] %}
+{% set scope_opts = view_scope_options if (view_scope_options is defined and view_scope_options|length > 0) else _default_scope_opts %}
+
 <h1>المستخدمون</h1>
 {% if error %}
 <div class="alert">{{ error }}</div>
 {% endif %}
+
 <div class="card">
   <h2 style="margin-top: 0">مستخدم جديد</h2>
-  <form method="post" action="/admin/users">
+  <form method="post" action="/admin/users" class="js-user-scope-form">
     <label for="username">اسم المستخدم</label>
     <input id="username" name="username" required autocomplete="off" />
     <label for="password">كلمة المرور</label>
     <input id="password" name="password" type="password" required autocomplete="new-password" />
+
+    <label for="view_scope">نطاق الواجهة (مطعم / فندق)</label>
+    <select id="view_scope" name="view_scope" required style="min-width:260px" class="js-view-scope-select">
+      {% for code, label in scope_opts %}
+      <option value="{{ code }}" {% if code == 'restaurant' %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <p class="muted" style="font-size:0.88rem;margin-top:0.35rem">
+      يحدّد ما يراه المستخدم: <strong>مطعم فقط</strong>، <strong>فندق فقط</strong>، أو <strong>المطعم والفندق</strong>.
+    </p>
+
+    <div class="js-kds-scope-wrap">
+      <label for="kds_scope">نطاق شاشة المطبخ KDS</label>
+      <select id="kds_scope" name="kds_scope" style="min-width:260px">
+        {% for code, label in kds_scope_options %}
+        <option value="{{ code }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+      <p class="muted" style="font-size:0.88rem;margin-top:0.25rem">يظهر فقط لمستخدمي المطعم أو من يرون الاثنين.</p>
+    </div>
+
+    {{ ui_visibility_fields() }}
+
     <h3 style="margin-bottom: 0.25rem">الأدوار</h3>
     {% for r in roles %}
     <label style="display: flex; gap: 0.5rem; align-items: center; max-width: none">
@@ -24,13 +56,40 @@
     </div>
   </form>
 </div>
+
 <div class="card">
   <h2 style="margin-top: 0">القائمة</h2>
   {% for u in users %}
   <div style="border-bottom: 1px solid var(--border); padding: 0.75rem 0">
     <strong>{{ u.username }}</strong>
     <span class="muted">{% if u.is_active %}نشط{% else %}معطّل{% endif %}</span>
-    <form method="post" action="/admin/users/{{ u.id }}/roles" style="margin-top: 0.5rem">
+    {% set current_view_scope = u.view_scope or 'both' %}
+    <span class="muted">· {% for code, label in scope_opts %}{% if current_view_scope == code %}{{ label }}{% endif %}{% endfor %}</span>
+
+    <form method="post" action="/admin/users/{{ u.id }}/roles" style="margin-top: 0.5rem" class="js-user-scope-form">
+      <label style="display:block;margin-bottom:0.35rem">
+        <span style="display:block;margin-bottom:0.2rem">نطاق الواجهة</span>
+        <select name="view_scope" style="min-width:260px;display:block" class="js-view-scope-select">
+          {% for code, label in scope_opts %}
+          <option value="{{ code }}" {% if current_view_scope == code %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <div class="js-kds-scope-wrap"{% if current_view_scope == 'hotel' %} hidden{% endif %}>
+        <label style="display:block;margin-bottom:0.35rem">
+          <span style="display:block;margin-bottom:0.2rem">نطاق شاشة المطبخ</span>
+          <select name="kds_scope" style="min-width:260px;display:block">
+            {% set current_scope = u.kds_scope or 'ALL' %}
+            {% for code, label in kds_scope_options %}
+            <option value="{{ code }}" {% if current_scope == code %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+
+      {{ ui_visibility_fields(u) }}
+
       {% for r in roles %}
       <label style="display: inline-flex; gap: 0.35rem; margin-inline-end: 0.75rem">
         <input
@@ -42,9 +101,52 @@
         {{ r.name_ar }}
       </label>
       {% endfor %}
-      <button class="btn btn-primary" type="submit" style="margin-top: 0.5rem">تحديث أدوار {{ u.username }}</button>
+      <button class="btn btn-primary" type="submit" style="margin-top: 0.5rem">تحديث {{ u.username }}</button>
+    </form>
+
+    <form method="post" action="/admin/users/{{ u.id }}/password" style="margin-top:0.65rem;display:flex;gap:0.45rem;align-items:end;flex-wrap:wrap">
+      <label style="display:block">
+        كلمة مرور جديدة
+        <input name="password" type="password" required minlength="4" autocomplete="new-password" style="min-width:220px" />
+      </label>
+      <button class="btn" type="submit">تغيير كلمة المرور</button>
     </form>
   </div>
   {% endfor %}
 </div>
+
+<script>
+(function () {
+  function syncKdsScope(form) {
+    var viewSel = form.querySelector(".js-view-scope-select");
+    var kdsWrap = form.querySelector(".js-kds-scope-wrap");
+    if (!viewSel || !kdsWrap) return;
+    var hotelOnly = viewSel.value === "hotel";
+    kdsWrap.hidden = hotelOnly;
+    kdsWrap.querySelectorAll("select").forEach(function (sel) {
+      sel.disabled = hotelOnly;
+    });
+  }
+  document.querySelectorAll(".js-user-scope-form").forEach(function (form) {
+    var viewSel = form.querySelector(".js-view-scope-select");
+    if (!viewSel) return;
+    viewSel.addEventListener("change", function () { syncKdsScope(form); });
+    syncKdsScope(form);
+  });
+  document.querySelectorAll(".js-ui-vis-all").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var panel = btn.closest(".ui-vis-panel");
+      if (!panel) return;
+      panel.querySelectorAll(".js-ui-vis-chk").forEach(function (c) { c.checked = true; });
+    });
+  });
+  document.querySelectorAll(".js-ui-vis-none").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var panel = btn.closest(".ui-vis-panel");
+      if (!panel) return;
+      panel.querySelectorAll(".js-ui-vis-chk").forEach(function (c) { c.checked = false; });
+    });
+  });
+})();
+</script>
 {% endblock %}

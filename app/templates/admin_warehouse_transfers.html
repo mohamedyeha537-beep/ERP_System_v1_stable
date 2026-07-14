@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}مستندات الصرف{% endblock %}
+{% block body %}
+<div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem">
+  <h1 style="margin:0">مستندات الصرف للمخازن الفرعية</h1>
+  <div class="row" style="gap:0.4rem">
+    <a class="btn btn-primary" href="/admin/warehouses/transfer">صرف جديد</a>
+    <a class="btn" href="/admin/warehouses">المخازن</a>
+  </div>
+</div>
+
+<p class="muted">الصرف يُخصم من الرئيسي فوراً ويبقى بانتظار مصادقة المستلم على كل بند.</p>
+
+<div class="card">
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>التاريخ</th>
+        <th>من</th>
+        <th>إلى</th>
+        <th>الحالة</th>
+        <th>البنود</th>
+        <th>مصادَق</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in transfers %}
+      {% set approved = t.lines | selectattr('line_status.value', 'equalto', 'APPROVED') | list | length %}
+      <tr>
+        <td>{{ t.id }}</td>
+        <td>{{ pos_format_dt(t.created_at, '%Y-%m-%d %H:%M') }}</td>
+        <td>{{ t.from_warehouse.name_ar }}</td>
+        <td>{{ t.to_warehouse.name_ar }}</td>
+        <td>{{ transfer_status_label(t.status) }}</td>
+        <td>{{ t.lines | length }}</td>
+        <td>{{ approved }} / {{ t.lines | length }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="muted">لا توجد مستندات صرف بعد.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

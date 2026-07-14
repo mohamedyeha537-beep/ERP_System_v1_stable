@@ -1,0 +1,52 @@
+{# عرض موحّد لساعات الحضور والإضافي #}
+{% macro attendance_hours_cell(r) %}
+{% if r.check_out %}
+  <div class="att-hours-counted{% if r.overtime_minutes > 0 and r.overtime_approval_status.value == 'REJECTED' %} att-hours-counted--payroll{% endif %}" title="{% if r.overtime_minutes > 0 and r.overtime_approval_status.value == 'REJECTED' %}ساعات الوردية المحتسبة — الإضافي مرفوض{% else %}ساعات الحضور{% endif %}">
+    <span class="att-hours-num" dir="ltr">{{ pos_payroll_hours(r) }}</span><span class="att-hours-unit">س</span>
+    {% if r.overtime_minutes > 0 and r.overtime_approval_status.value == 'REJECTED' %}
+    <div class="att-hours-sub muted">{{ pos_qty_plain(r.hours_worked) }} فعلي</div>
+    {% elif r.overtime_minutes > 0 and r.overtime_approval_status.value == 'PENDING' %}
+    <div class="att-hours-sub muted">+{{ '%.1f'|format(r.overtime_minutes / 60) }} إضافي ⏳</div>
+    {% endif %}
+  </div>
+{% else %}—{% endif %}
+{% endmacro %}
+
+{% macro attendance_ot_cell(r) %}
+{% if r.check_out and r.overtime_minutes > 0 %}
+  {% if r.overtime_approval_status.value == 'APPROVED' %}
+  <span dir="ltr" style="font-weight:700;color:#16a34a">{{ '%.1f'|format(r.approved_overtime_minutes / 60) }} س ✓</span>
+  {% elif r.overtime_approval_status.value == 'REJECTED' %}
+  <span dir="ltr" style="color:#b91c1c;text-decoration:line-through" title="إضافي مرفوض — لا يُحسب">{{ '%.1f'|format(r.overtime_minutes / 60) }} س</span>
+  {% else %}
+  <span dir="ltr" style="color:#b45309">{{ '%.1f'|format(r.overtime_minutes / 60) }} س ⏳</span>
+  {% endif %}
+{% else %}—{% endif %}
+{% endmacro %}
+
+{% macro attendance_approval_cell(r, can_manage) %}
+{% if can_manage and r.check_out and r.overtime_minutes > 0 and r.overtime_approval_status.value == 'PENDING' %}
+<form method="post" action="/admin/attendance/{{ r.id }}/overtime-approve" style="display:inline-flex; gap:0.2rem; align-items:center; flex-wrap:wrap">
+  <input type="number" name="approved_minutes" min="0" value="{{ r.overtime_minutes }}"
+         style="width:3.5rem; font-size:0.78rem" title="دقائق إضافي معتمدة" />
+  <button class="btn" type="submit" style="padding:0.1rem 0.4rem; font-size:0.75rem; background:#16a34a; color:#fff" title="اعتماد الإضافي">✓</button>
+</form>
+<form method="post" action="/admin/attendance/{{ r.id }}/overtime-reject" style="display:inline"
+      onsubmit="return confirm('رفض {{ '%.1f'|format(r.overtime_minutes / 60) }} س إضافي؟\n{{ pos_payroll_hours(r) }} س وردية تبقى محتسبة.')">
+  <button class="btn" type="submit" style="padding:0.1rem 0.4rem; font-size:0.75rem; color:#b91c1c" title="رفض الإضافي فقط">✗</button>
+</form>
+{% else %}—{% endif %}
+{% endmacro %}
+
+{% macro attendance_approval_cell_compact(r, can_manage) %}
+{% if can_manage and r.check_out and r.overtime_minutes > 0 and r.overtime_approval_status.value == 'PENDING' %}
+<form method="post" action="/admin/attendance/{{ r.id }}/overtime-approve" style="display:inline-flex; gap:0.2rem">
+  <input type="number" name="approved_minutes" min="0" value="{{ r.overtime_minutes }}" style="width:3rem; font-size:0.75rem" />
+  <button class="btn" type="submit" style="padding:0.1rem 0.35rem; font-size:0.72rem; background:#16a34a; color:#fff">✓</button>
+</form>
+<form method="post" action="/admin/attendance/{{ r.id }}/overtime-reject" style="display:inline"
+      onsubmit="return confirm('رفض {{ '%.1f'|format(r.overtime_minutes / 60) }} س إضافي؟\n{{ pos_payroll_hours(r) }} س وردية تبقى محتسبة.')">
+  <button class="btn" type="submit" style="padding:0.1rem 0.35rem; font-size:0.72rem; color:#b91c1c">✗</button>
+</form>
+{% else %}—{% endif %}
+{% endmacro %}

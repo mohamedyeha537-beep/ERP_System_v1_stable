@@ -1,0 +1,87 @@
+{% extends "base_pos.html" %}
+{% block title %}دخول جلسة الكاشير{% endblock %}
+{% block pos_topbar %}{% endblock %}
+{% block head_extra %}
+<style>
+  .pin-wrap { max-width: 380px; margin: 2rem auto; text-align: center; }
+  .pin-display {
+    font-size: 2rem; letter-spacing: 0.65rem; font-weight: 700;
+    padding: 0.85rem; border: 2px solid #cbd5e1; border-radius: 12px;
+    background: #fff; min-height: 3rem; margin-bottom: 1rem; direction: ltr;
+  }
+  .pin-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; }
+  .pin-pad button {
+    font-size: 1.35rem; padding: 0.85rem; border-radius: 10px;
+    border: 1px solid #e2e8f0; background: #f8fafc; cursor: pointer; font-weight: 600;
+  }
+  .pin-pad button:hover { background: #e2e8f0; }
+  .pin-pad button.action { background: #dbeafe; color: #1e40af; }
+  .pin-pad button.enter {
+    background: #16a34a; color: #fff; border-color: #15803d; grid-column: span 3;
+  }
+  .pin-pad button:disabled.enter { opacity: 0.5; cursor: not-allowed; }
+</style>
+{% endblock %}
+{% block body %}
+<div class="pin-wrap">
+  <h1 style="margin-top:0">جلسة الكاشير</h1>
+  <p class="muted">أدخل الرقم السري — ثم ستُطلب منك إدخال رصيد الدرج</p>
+
+  {% if request.query_params.get('closed') %}
+  <div class="alert" style="background:#ecfdf5;border-color:#6ee7b7;margin-bottom:1rem">
+    تم إغلاق الجلسة #{{ request.query_params.get('closed') }}. أدخل رقمك لبدء وردية جديدة، أو
+    <a href="/auth/logout" style="font-weight:600;color:#15803d">سجّل الخروج من النظام</a>.
+  </div>
+  {% endif %}
+
+  {% if error %}
+  <div class="alert" style="background:#fef2f2;border-color:#fecaca;margin-bottom:1rem">{{ error }}</div>
+  {% endif %}
+
+  <form method="post" action="/pos/pin/verify" id="pinForm">
+    <input type="hidden" name="pin" id="pinInput" value="" />
+    <div class="pin-display" id="pinDisplay" aria-label="الرقم السري">○○○○</div>
+    <div class="pin-pad" dir="ltr">
+      <button type="button" data-digit="1">1</button>
+      <button type="button" data-digit="2">2</button>
+      <button type="button" data-digit="3">3</button>
+      <button type="button" data-digit="4">4</button>
+      <button type="button" data-digit="5">5</button>
+      <button type="button" data-digit="6">6</button>
+      <button type="button" data-digit="7">7</button>
+      <button type="button" data-digit="8">8</button>
+      <button type="button" data-digit="9">9</button>
+      <button type="button" class="action" id="pinClear">مسح</button>
+      <button type="button" data-digit="0">0</button>
+      <button type="submit" class="enter" id="pinSubmit" disabled>دخول</button>
+    </div>
+  </form>
+  <p style="margin-top:1.25rem;font-size:0.9rem">
+    <a href="/auth/logout" class="muted">تسجيل الخروج من النظام</a>
+  </p>
+</div>
+<script>
+(function () {
+  var pin = "", maxLen = 4;
+  var display = document.getElementById("pinDisplay");
+  var input = document.getElementById("pinInput");
+  var submit = document.getElementById("pinSubmit");
+  function render() {
+    var dots = "";
+    for (var i = 0; i < maxLen; i++) dots += i < pin.length ? "●" : "○";
+    display.textContent = dots;
+    input.value = pin;
+    submit.disabled = pin.length !== maxLen;
+  }
+  document.querySelectorAll("[data-digit]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      if (pin.length >= maxLen) return;
+      pin += btn.getAttribute("data-digit");
+      render();
+    });
+  });
+  document.getElementById("pinClear").addEventListener("click", function () { pin = ""; render(); });
+  render();
+})();
+</script>
+{% endblock %}

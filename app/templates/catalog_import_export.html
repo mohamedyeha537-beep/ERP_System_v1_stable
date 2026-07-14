@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}استيراد وتصدير الكتالوج{% endblock %}
+{% block body %}
+<h1>استيراد وتصدير الكتالوج (CSV)</h1>
+<p class="muted pos-guide-intro" data-guide-title="ℹ️ دليل الاستيراد">لنقل البيانات من نظام آخر: حمّل القالب، عبّئه في Excel، ثم ارفعه. يفضّل الاستيراد بالترتيب: فئات → أصناف → وصفات التركيب.</p>
+
+<div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem">
+  <a class="btn" href="/catalog/categories">فئات الأصناف</a>
+  <a class="btn" href="/catalog/products">الأصناف</a>
+</div>
+
+{% if err %}
+<div class="alert" style="background:#fef2f2;border-color:#fecaca">{{ err }}</div>
+{% endif %}
+{% if msg %}
+<div class="alert" style="background:#ecfdf5;border-color:#6ee7b7">{{ msg }}</div>
+{% endif %}
+
+{% if result %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4;margin-bottom:1rem">
+  <h2 style="margin-top:0">نتيجة الاستيراد — {{ import_kind }}</h2>
+  <p>أُنشئ: <strong>{{ result.created }}</strong> · حُدّث: <strong>{{ result.updated }}</strong> · تُخطّى: <strong>{{ result.skipped }}</strong></p>
+  {% if result.errors %}
+  <p style="color:#b91c1c;font-weight:600">أخطاء ({{ result.errors|length }}):</p>
+  <ul style="max-height:200px;overflow:auto;font-size:0.85rem">
+    {% for e in result.errors[:50] %}
+    <li>{{ e }}</li>
+    {% endfor %}
+  </ul>
+  {% if result.errors|length > 50 %}
+  <p class="muted">… و{{ result.errors|length - 50 }} خطأ آخر</p>
+  {% endif %}
+  {% else %}
+  <p style="color:#15803d">اكتمل بدون أخطاء.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card" style="margin-bottom:1rem">
+  <h2 style="margin-top:0">1 — الفئات</h2>
+  <p class="muted" style="font-size:0.9rem">parent_name فارغ = فئة رئيسية. parent_name + name_ar = فئة فرعية.</p>
+  <div class="row" style="gap:0.5rem;flex-wrap:wrap;margin:0.75rem 0">
+    <a class="btn btn-primary" href="/catalog/import-export/template/categories">تحميل قالب فارغ</a>
+    <a class="btn" href="/catalog/import-export/export/categories">تصدير البيانات الحالية</a>
+  </div>
+  <form method="post" action="/catalog/import-export/import/categories" enctype="multipart/form-data">
+    <label>ملف CSV</label>
+    <input type="file" name="file" accept=".csv,text/csv" required />
+    <label style="display:block;margin-top:0.5rem">
+      <input type="checkbox" name="update_existing" value="on" checked /> تحديث السجلات الموجودة
+    </label>
+    <button type="submit" class="btn btn-primary" style="margin-top:0.5rem">استيراد الفئات</button>
+  </form>
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <h2 style="margin-top:0">2 — الأصناف</h2>
+  <p class="muted" style="font-size:0.9rem">kind: FINAL_SELLABLE (وجبة) أو STOCK_ONLY (مكوّن). category_path مثل: مطعم/برجر</p>
+  <div class="row" style="gap:0.5rem;flex-wrap:wrap;margin:0.75rem 0">
+    <a class="btn btn-primary" href="/catalog/import-export/template/products">تحميل قالب فارغ</a>
+    <a class="btn" href="/catalog/import-export/export/products">تصدير البيانات الحالية</a>
+  </div>
+  <form method="post" action="/catalog/import-export/import/products" enctype="multipart/form-data">
+    <label>ملف CSV</label>
+    <input type="file" name="file" accept=".csv,text/csv" required />
+    <label style="display:block;margin-top:0.5rem">
+      <input type="checkbox" name="update_existing" value="on" checked /> تحديث السجلات الموجودة (حسب SKU أو الاسم)
+    </label>
+    <button type="submit" class="btn btn-primary" style="margin-top:0.5rem">استيراد الأصناف</button>
+  </form>
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <h2 style="margin-top:0">3 — وصفات التركيب (BOM)</h2>
+  <p class="muted" style="font-size:0.9rem">parent = الوجبة، component = مكوّن مخزني. يُفضّل استخدام SKU.</p>
+  <div class="row" style="gap:0.5rem;flex-wrap:wrap;margin:0.75rem 0">
+    <a class="btn btn-primary" href="/catalog/import-export/template/bom">تحميل قالب فارغ</a>
+    <a class="btn" href="/catalog/import-export/export/bom">تصدير البيانات الحالية</a>
+  </div>
+  <form method="post" action="/catalog/import-export/import/bom" enctype="multipart/form-data">
+    <label>ملف CSV</label>
+    <input type="file" name="file" accept=".csv,text/csv" required />
+    <label style="display:block;margin-top:0.5rem">
+      <input type="checkbox" name="update_existing" value="on" checked /> تحديث الكميات للصفوف الموجودة
+    </label>
+    <button type="submit" class="btn btn-primary" style="margin-top:0.5rem">استيراد الوصفات</button>
+  </form>
+</div>
+
+<div class="card pos-guide-panel" data-guide-title="ℹ️ ملاحظات Excel" style="background:#eff6ff;border-color:#93c5fd">
+  <h3 style="margin-top:0">ملاحظات Excel</h3>
+  <ul class="muted" style="font-size:0.88rem;margin:0;padding-inline-start:1.2rem">
+    <li>احفظ الملف بصيغة <strong>CSV UTF-8</strong>.</li>
+    <li>لا تحذف صف العناوين (السطر الأول).</li>
+    <li>kitchen_section_code = رمز قسم المطبخ من إعداد الطباعة.</li>
+    <li>استورد STOCK_ONLY أولاً، ثم FINAL_SELLABLE، ثم BOM.</li>
+  </ul>
+</div>
+{% endblock %}

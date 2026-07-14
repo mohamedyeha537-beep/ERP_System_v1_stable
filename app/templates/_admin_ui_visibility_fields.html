@@ -1,0 +1,34 @@
+{# حقول إظهار/إخفاء أجزاء الواجهة — يُضمَّن في نموذج المستخدم #}
+{% macro ui_visibility_fields(user=none) %}
+{% set hidden = pos_user_ui_hidden(user) if user else [] %}
+<details class="ui-vis-panel" style="margin:0.75rem 0 1rem;border:1px solid var(--border);border-radius:10px;padding:0.65rem 0.85rem;background:#f8fafc">
+  <summary style="cursor:pointer;font-weight:600;font-size:0.92rem">
+    أجزاء الواجهة — إظهار / إخفاء
+    <span class="muted" style="font-weight:400;font-size:0.8rem"> (ما يراه الموظف في لوحة التحكم والقائمة)</span>
+  </summary>
+  <p class="muted" style="font-size:0.82rem;margin:0.55rem 0 0.75rem">
+    أزل التحديد لإخفاء جزء. الصلاحيات (الأدوار) تبقى كما هي — الإخفاء للواجهة فقط.
+  </p>
+  <div style="display:flex;gap:0.45rem;flex-wrap:wrap;margin-bottom:0.65rem">
+    <button type="button" class="btn js-ui-vis-all" style="padding:0.25rem 0.55rem;font-size:0.8rem">تحديد الكل</button>
+    <button type="button" class="btn js-ui-vis-none" style="padding:0.25rem 0.55rem;font-size:0.8rem">إلغاء الكل</button>
+  </div>
+  {% for group_id, group_label in ui_block_groups %}
+  <div style="margin-bottom:0.85rem">
+    <div style="font-size:0.84rem;font-weight:600;color:#475569;margin-bottom:0.35rem">{{ group_label }}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:0.35rem 0.75rem">
+      {% for block in ui_blocks_by_group[group_id] %}
+      <label style="display:flex;gap:0.4rem;align-items:flex-start;font-size:0.84rem;max-width:none">
+        <input type="checkbox" name="ui_show" value="{{ block.id }}" class="js-ui-vis-chk"
+               {% if block.id not in hidden %}checked{% endif %} />
+        <span>
+          {{ block.label_ar }}
+          {% if block.hint %}<small class="muted" style="display:block;font-size:0.76rem">{{ block.hint }}</small>{% endif %}
+        </span>
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</details>
+{% endmacro %}

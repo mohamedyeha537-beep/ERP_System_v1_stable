@@ -1,0 +1,53 @@
+﻿{% extends "base.html" %}
+{% block title %}حجوزات الفندق{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/hotel_dashboard.css?v=12" />
+{% endblock %}
+{% block body %}
+<div class="row" style="justify-content:space-between;align-items:center;margin-bottom:0.75rem">
+  <h1 style="margin:0">🏨 حجوزات الشقق{% if room_filter %} — {{ room_filter.name_ar or room_filter.number }}{% endif %}</h1>
+  <div class="row" style="gap:0.4rem">
+    {% if room_filter %}
+    <a class="btn btn-primary" href="/admin/hotel/bookings/new{% if room_filter %}?room_id={{ room_filter.id }}{% endif %}">+ حجز جديد</a>
+    {% else %}
+    <a class="btn btn-primary" href="/admin/hotel/dashboard">اختر شقة للحجز</a>
+    {% endif %}
+  </div>
+</div>
+{% set active = 'bookings' %}
+{% include "_hotel_nav.html" %}
+{% if room_filter %}
+<p><a class="btn" href="/admin/hotel/bookings">← كل الحجوزات</a> · <a class="btn" href="/admin/hotel/dashboard">لوحة الشقق</a></p>
+{% endif %}
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+{% if saved %}<div class="alert" style="background:#ecfdf5;border-color:#10b981">تم الحفظ ✓</div>{% endif %}
+
+<div class="row" style="gap:1rem;margin-bottom:1rem">
+  <div class="card" style="flex:1"><strong>وصول اليوم:</strong> {{ arrivals|length }}</div>
+  <div class="card" style="flex:1"><strong>مغادرة اليوم:</strong> {{ departures|length }}</div>
+</div>
+
+<div class="card">
+  <table>
+    <thead><tr><th>المرجع</th><th>النزيل</th><th>النوع</th><th>الغرفة</th><th>من</th><th>إلى</th><th>الحالة</th><th>الدفع</th><th></th></tr></thead>
+    <tbody>
+    {% for b in items %}
+    <tr>
+      <td><strong>{{ b.reference }}</strong></td>
+      <td>{% if b.guest_type.value == 'COMPANY' %}🏢{% else %}👤{% endif %} {{ b.display_name if b.display_name is defined else b.guest_name }}<br><span class="muted">{{ b.guest_phone or '' }}</span></td>
+      <td>{{ b.room_type.name_ar if b.room_type else '—' }}</td>
+      <td>{% if b.room %}#{{ b.room.number }}{% else %}—{% endif %}</td>
+      <td>{{ b.check_in }}</td>
+      <td>{{ b.check_out }}</td>
+      <td>{{ b.booking_status.value }}</td>
+      <td>{{ b.payment_status.value }}</td>
+      <td><a class="btn" href="/admin/hotel/bookings/{{ b.id }}">تفاصيل</a></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="9" class="muted">لا توجد حجوزات.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="muted"><a href="/suites" target="_blank">متجر الشقق /suites</a></p>
+{% endblock %}

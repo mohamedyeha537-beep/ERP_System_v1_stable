@@ -1,0 +1,267 @@
+{% extends "base.html" %}
+{% block title %}تعديل فاتورة أصول #{{ purchase.id }}{% endblock %}
+{% block head_extra %}
+<style>
+  .pl-line {
+    display: grid;
+    grid-template-columns: 1.8fr 0.7fr 0.6fr 0.7fr 1.05fr 0.85fr 0.75fr 0.85fr auto;
+    gap: 0.35rem;
+    align-items: end;
+    padding: 0.4rem 0;
+    border-bottom: 1px dashed var(--border);
+  }
+  .pl-line .field-life { background: #fef3c7; padding: 0.25rem; border-radius: 8px; }
+  .pl-line .field-salvage { background: #ecfeff; padding: 0.25rem; border-radius: 8px; }
+  .pl-line .pl-total {
+    background: #f8fafc;
+    padding: 0.45rem 0.55rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    text-align: center;
+    font-weight: 600;
+  }
+  .pl-line .icon-btn {
+    background: transparent;
+    color: var(--danger);
+    border: 1px solid var(--danger);
+    padding: 0.4rem;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .pl-grand {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 0.85rem;
+    padding-top: 0.85rem;
+    border-top: 2px solid var(--border);
+    font-size: 1.25rem;
+    font-weight: 700;
+  }
+</style>
+{% endblock %}
+{% block body %}
+<div class="row" style="justify-content: space-between; align-items: center; flex-wrap: wrap">
+  <div>
+    <h1 style="margin: 0">تعديل فاتورة أصول #{{ purchase.id }}</h1>
+    <p class="muted" style="margin: 0.35rem 0 0">عدّل البنود أو بيانات الفاتورة — يُحدَّث الإجمالي والدفع من المحفظة تلقائياً عند توافق المبالغ.</p>
+  </div>
+  <div class="row" style="gap: 0.5rem">
+    <a class="btn" href="/admin/assets/{{ purchase.id }}">عرض الفاتورة</a>
+    <a class="btn" href="/admin/assets">القائمة</a>
+  </div>
+</div>
+
+{% if saved %}
+<div class="card" style="margin-top: 1rem; border-color: #86efac; background: #f0fdf4">
+  <strong style="color: #166534">تم حفظ التعديلات.</strong>
+</div>
+{% endif %}
+{% if error %}
+<div class="alert" style="margin-top: 1rem">{{ error }}</div>
+{% endif %}
+
+<div class="card" style="margin-top: 1rem">
+  <div class="stat-grid">
+    <div class="stat-card"><div class="label">الإجمالي الحالي</div><div class="value">{{ purchase.amount }} د.ل</div></div>
+    <div class="stat-card"><div class="label">المبلغ المدفوع</div><div class="value">{{ paid_total }} د.ل</div></div>
+    <div class="stat-card"><div class="label">عدد الدفعات</div><div class="value">{{ payment_count }}</div></div>
+  </div>
+  {% if payment_count > 1 %}
+  <p class="muted" style="margin: 0.75rem 0 0">توجد أكثر من دفعة — قد يفشل الحفظ إذا لم تطابق المبالغ.</p>
+  {% elif paid_total > 0 and paid_total != purchase.amount %}
+  <p class="muted" style="margin: 0.75rem 0 0">مبلغ الدفع لا يطابق الإجمالي — راجع المحاسبة قبل التعديل.</p>
+  {% endif %}
+</div>
+
+<form method="post" action="/admin/assets/{{ purchase.id }}/edit" id="asset-form" enctype="multipart/form-data" style="margin-top: 1rem">
+  <div class="card">
+    <h2 style="margin-top: 0">بيانات الفاتورة</h2>
+    <div class="row" style="gap: 0.6rem; align-items: flex-end; flex-wrap: wrap">
+      <div>
+        <label for="payment_method_id">الدفع من المحفظة</label>
+        <select id="payment_method_id" name="payment_method_id" required style="max-width: 14rem">
+          {% for m in methods if pos_is_main_treasury_wallet(m) %}
+          <option value="{{ m.id }}" {% if m.id == purchase.payment_method_id %}selected{% endif %}>{{ m.name_ar }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="supplier">المورّد</label>
+        <input id="supplier" name="supplier" value="{{ purchase.supplier or '' }}" style="max-width: 14rem" />
+      </div>
+      <div>
+        <label for="supplier_invoice_ref">رقم فاتورة المورّد</label>
+        <input id="supplier_invoice_ref" name="supplier_invoice_ref" value="{{ purchase.supplier_invoice_ref or '' }}" style="max-width: 16rem" />
+      </div>
+      <div>
+        <label for="purchase_date">تاريخ الفاتورة</label>
+        <input id="purchase_date" name="purchase_date" type="datetime-local"
+               value="{{ pos_format_dt(purchase.created_at, '%Y-%m-%dT%H:%M') }}" />
+      </div>
+      <div style="flex: 1; min-width: 16rem">
+        <label for="note">ملاحظة</label>
+        <input id="note" name="note" value="{{ purchase.note or '' }}" />
+      </div>
+    </div>
+    <div style="margin-top: 0.85rem">
+      {% if purchase.invoice_image_filename %}
+      <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.35rem">
+        صورة حالية:
+        <a href="/static/{{ purchase.invoice_image_filename }}" target="_blank" rel="noopener">فتح</a>
+      </p>
+      <label style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; margin-bottom: 0.5rem">
+        <input type="checkbox" name="remove_invoice_image" value="on" />
+        حذف الصورة الحالية
+      </label>
+      {% endif %}
+      <label for="invoice_image" class="muted" style="font-size: 0.82rem">صورة جديدة (اختياري)</label>
+      <input id="invoice_image" name="invoice_image" type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" />
+    </div>
+    <div style="margin-top: 0.85rem">
+      <label for="reason">سبب التعديل <span style="color: #b91c1c">*</span></label>
+      <input id="reason" name="reason" required placeholder="مثلاً: تصحيح سعر البند أو تاريخ الشراء" style="width: 100%; max-width: 36rem" />
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content: space-between; align-items: center">
+      <h2 style="margin: 0">بنود الفاتورة</h2>
+      <button type="button" class="btn btn-primary" id="add-line-btn">إضافة بند</button>
+    </div>
+    <div id="lines-wrap" style="margin-top: 0.6rem">
+      {% for ln in purchase.lines %}
+      <div class="pl-line" data-line>
+        <div>
+          <label class="muted" style="font-size: 0.8rem">اسم الأداة/الأصل</label>
+          <input name="item_name" required value="{{ ln.item_name or ln.display_name }}" />
+        </div>
+        <div>
+          <label class="muted" style="font-size: 0.8rem">الوحدة</label>
+          <input name="unit" value="{{ ln.unit or '' }}" />
+        </div>
+        <div>
+          <label class="muted" style="font-size: 0.8rem">الكمية</label>
+          <input name="quantity" type="number" step="0.0001" min="0.0001" required value="{{ pos_qty_plain(ln.quantity) }}" data-qty />
+        </div>
+        <div>
+          <label class="muted" style="font-size: 0.8rem">سعر الوحدة</label>
+          <input name="unit_cost" type="number" step="0.001" min="0" required value="{{ ln.unit_cost }}" data-cost />
+        </div>
+        <div class="field-life">
+          <label class="muted" style="font-size: 0.78rem">العمر (شهر)</label>
+          <select name="useful_life_months" data-life>
+            {% for opt in life_presets %}
+            <option value="{{ opt }}" {% if ln.useful_life_months == opt %}selected{% endif %}>
+              {% if opt == 0 %}0 — مستهلك{% else %}{{ opt }}{% endif %}
+            </option>
+            {% endfor %}
+            {% if ln.useful_life_months not in life_presets %}
+            <option value="{{ ln.useful_life_months }}" selected>{{ ln.useful_life_months }}</option>
+            {% endif %}
+          </select>
+        </div>
+        <div class="field-salvage">
+          <label class="muted" style="font-size: 0.78rem">الخردة</label>
+          <input name="salvage_value" type="number" step="0.001" min="0" value="{{ ln.salvage_value or 0 }}" data-salvage />
+        </div>
+        <div>
+          <label class="muted" style="font-size: 0.8rem">الإجمالي</label>
+          <div class="pl-total" data-total>0.000</div>
+        </div>
+        <div>
+          <label class="muted" style="font-size: 0.78rem">إهلاك/شهر</label>
+          <div class="pl-total" data-mdepr style="background: #fef3c7">0.000</div>
+        </div>
+        <button type="button" class="icon-btn" data-remove aria-label="حذف">×</button>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="pl-grand">
+      <span>إجمالي الفاتورة</span>
+      <span><span id="grand-total">0.000</span> د.ل</span>
+    </div>
+  </div>
+
+  <div class="row" style="gap: 0.5rem">
+    <button class="btn btn-primary" type="submit">حفظ التعديلات</button>
+    <a class="btn" href="/admin/assets/{{ purchase.id }}">إلغاء</a>
+  </div>
+</form>
+
+<template id="line-template">
+  <div class="pl-line" data-line>
+    <div><label class="muted" style="font-size: 0.8rem">اسم الأداة/الأصل</label><input name="item_name" required /></div>
+    <div><label class="muted" style="font-size: 0.8rem">الوحدة</label><input name="unit" /></div>
+    <div><label class="muted" style="font-size: 0.8rem">الكمية</label><input name="quantity" type="number" step="0.0001" min="0.0001" required value="1" data-qty /></div>
+    <div><label class="muted" style="font-size: 0.8rem">سعر الوحدة</label><input name="unit_cost" type="number" step="0.001" min="0" required value="0" data-cost /></div>
+    <div class="field-life">
+      <label class="muted" style="font-size: 0.78rem">العمر (شهر)</label>
+      <select name="useful_life_months" data-life>
+        <option value="0">0 — مستهلك</option>
+        <option value="12">12</option>
+        <option value="24">24</option>
+        <option value="36">36</option>
+        <option value="60">60</option>
+        <option value="84">84</option>
+        <option value="120">120</option>
+      </select>
+    </div>
+    <div class="field-salvage">
+      <label class="muted" style="font-size: 0.78rem">الخردة</label>
+      <input name="salvage_value" type="number" step="0.001" min="0" value="0" data-salvage />
+    </div>
+    <div><label class="muted" style="font-size: 0.8rem">الإجمالي</label><div class="pl-total" data-total>0.000</div></div>
+    <div><label class="muted" style="font-size: 0.78rem">إهلاك/شهر</label><div class="pl-total" data-mdepr style="background: #fef3c7">0.000</div></div>
+    <button type="button" class="icon-btn" data-remove aria-label="حذف">×</button>
+  </div>
+</template>
+
+<script>
+(function () {
+  var wrap = document.getElementById("lines-wrap");
+  var tmpl = document.getElementById("line-template");
+  var addBtn = document.getElementById("add-line-btn");
+  var grand = document.getElementById("grand-total");
+  function recalc() {
+    var sum = 0;
+    wrap.querySelectorAll("[data-line]").forEach(function (line) {
+      var q = parseFloat(line.querySelector("[data-qty]").value || "0");
+      var c = parseFloat(line.querySelector("[data-cost]").value || "0");
+      var t = (q || 0) * (c || 0);
+      line.querySelector("[data-total]").textContent = t.toFixed(3);
+      sum += t;
+      var lifeEl = line.querySelector("[data-life]");
+      var salvageEl = line.querySelector("[data-salvage]");
+      var mEl = line.querySelector("[data-mdepr]");
+      if (lifeEl && mEl) {
+        var life = parseInt(lifeEl.value || "0", 10);
+        var salvage = parseFloat((salvageEl && salvageEl.value) || "0");
+        var base = Math.max(0, t - salvage);
+        mEl.textContent = (life > 0 ? base / life : 0).toFixed(3);
+      }
+    });
+    grand.textContent = sum.toFixed(3);
+  }
+  function bind(line) {
+    line.querySelector("[data-qty]").addEventListener("input", recalc);
+    line.querySelector("[data-cost]").addEventListener("input", recalc);
+    var lifeEl = line.querySelector("[data-life]");
+    if (lifeEl) lifeEl.addEventListener("change", recalc);
+    var salvageEl = line.querySelector("[data-salvage]");
+    if (salvageEl) salvageEl.addEventListener("input", recalc);
+    line.querySelector("[data-remove]").addEventListener("click", function () {
+      if (wrap.querySelectorAll("[data-line]").length > 1) { line.remove(); recalc(); }
+    });
+  }
+  wrap.querySelectorAll("[data-line]").forEach(bind);
+  addBtn.addEventListener("click", function () {
+    var node = tmpl.content.firstElementChild.cloneNode(true);
+    wrap.appendChild(node);
+    bind(node);
+    recalc();
+  });
+  recalc();
+})();
+</script>
+{% endblock %}

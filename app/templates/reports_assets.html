@@ -1,8 +1,8 @@
 {% extends "base.html" %}
-{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button with context %}
 {% block title %}تقرير الأصول/الأدوات{% endblock %}
 {% block body %}
-<h1>تقرير أصول وأدوات الشركة</h1>
+<h1>تقرير أصول وأدوات الشركة{% if domain_label %} — {{ domain_label }}{% endif %}</h1>
 {{ reports_nav('assets') }}
 {{ period_filter('/reports/assets', period, period_labels, start, end, start_str, end_str) }}
 {{ report_export_format_help() }}
@@ -11,6 +11,55 @@
   {{ export_button('/reports/export/assets.csv?period=' ~ period, 'الأصول') }}
   <span class="label no-print" style="margin-inline-start:0.75rem">PDF:</span>
   {{ pdf_export_button() }}
+</div>
+
+{% if request.query_params.get('depr_posted') %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4">
+  <p style="margin:0">تم ترحيل إهلاك الفترة إلى GL ({{ request.query_params.get('depr_posted') }} قيد).</p>
+</div>
+{% endif %}
+
+<div class="card" style="border-color:#0ea5e9;background:linear-gradient(180deg,#e0f2fe 0%,#fff 55%)">
+  <h2 style="margin-top:0">المصدر المحاسبي — شجرة الحسابات (GL)</h2>
+  <p style="margin:0 0 0.75rem;line-height:1.65">
+    هذا التقرير <strong>سجل تشغيلي</strong> (فواتير، عمر إنتاجي، خردة). للأرقام الرسمية في الميزانية وقائمة الدخل استخدم
+    <a href="/admin/gl/reports?report=pl">تقارير GL</a>.
+    حدّد أي حساب في الشجرة يُستخدم لكل عملية من
+    <a href="/admin/gl/role-maps">ربط الأصول والإهلاك</a> — كما كنت تربط المحافظ سابقاً، بدون تكرار حسابات.
+    حساب <strong>1000 الأصول</strong> رأسٌ تجميعي فقط؛ الأرصدة الحقيقية في الحسابات الفرعية أدناه.
+  </p>
+  {% if gl_asset.enabled and gl_asset.roles %}
+  <table style="margin:0 0 0.75rem">
+    <thead>
+      <tr><th>الدور</th><th>حساب GL</th><th>رصيد حتى نهاية الفترة</th><th>مدين الفترة</th><th>دائن الفترة</th></tr>
+    </thead>
+    <tbody>
+      {% for r in gl_asset.roles %}
+      <tr>
+        <td>{{ r.desc }}</td>
+        <td>
+          {% if r.account_id %}
+          <a href="/admin/gl/accounts/{{ r.account_id }}">{{ r.code }} — {{ r.name }}</a>
+          {% else %}
+          {{ r.code }} <span class="muted">(غير موجود — أنشئه من شجرة الحسابات)</span>
+          {% endif %}
+        </td>
+        <td>{% if r.balance is not none %}{{ r.balance }} د.ل{% else %}—{% endif %}</td>
+        <td>{% if r.period_debit is not none %}{{ r.period_debit }} د.ل{% else %}—{% endif %}</td>
+        <td>{% if r.period_credit is not none %}{{ r.period_credit }} د.ل{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% elif not gl_asset.enabled %}
+  <p class="muted" style="margin:0 0 0.75rem">فعّل GL من <a href="/admin/gl">إعدادات الدفتر</a> لربط الأصول بالشجرة.</p>
+  {% endif %}
+  <form method="post" action="/admin/gl/post-depreciation" class="row" style="flex-wrap:wrap;gap:0.5rem;align-items:flex-end;margin:0">
+    <input type="hidden" name="start" value="{{ start_str }}" />
+    <input type="hidden" name="end" value="{{ end_str }}" />
+    <input type="hidden" name="redirect_to" value="/reports/assets?period={{ period }}&start={{ start_str }}&end={{ end_str }}" />
+    <button class="btn btn-primary" type="submit">ترحيل إهلاك هذه الفترة إلى GL</button>
+  </form>
 </div>
 
 
@@ -27,8 +76,8 @@
     <ul style="margin: 0.3rem 0; padding-inline-start: 1.2rem">
       <li><strong>«إجمالي ما صُرف نقداً»</strong> = ما خرج من المحفظة في الفترة (يؤثّر على التدفق النقدي).</li>
       <li><strong>«مستلزمات استهلاكية»</strong> (أكياس، ورق، تنظيف): تُخصم بالكامل في شهر شرائها.</li>
-      <li><strong>«إهلاك أصول ثابتة»</strong>: حصة هذه الفترة فقط من قسط الإهلاك للأصول التي عمرها &gt; 0 (فرن، أثاث، طابعة...). لا يُخصم الأصل ضربةً واحدة بل يُوزَّع على عمره الإنتاجي وفق المعيار الدولي IAS 16.</li>
-      <li><strong>صافي الربح</strong> يُخصم منه: المستلزمات + الإهلاك (وليس إجمالي الصرف).</li>
+      <li><strong>«إهلاك أصول ثابتة»</strong>: حصة هذه الفترة من القسط الثابت (IAS 16). بعد الضغط على «ترحيل إهلاك هذه الفترة» يُسجَّل نفس المبلغ في حساب <strong>مصروف إهلاك</strong> في GL — وليس في حساب 1000 الرئيسي.</li>
+      <li><strong>صافي الربح الرسمي</strong> من <a href="/admin/gl/reports?report=pl">قائمة الدخل (GL)</a>؛ الأرقام أعلاه للمراجعة التشغيلية فقط.</li>
     </ul>
     لتفاصيل سجل الأصول الثابتة: <a href="/reports/fixed-assets">سجل الأصول الثابتة وحسابات الإهلاك</a>.
   </div>
@@ -57,7 +106,7 @@
       {% for p in items %}
       <tr>
         <td>{{ p.id }}</td>
-        <td>{{ p.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td>{{ pos_format_dt(p.created_at, '%Y-%m-%d %H:%M') }}</td>
         <td>{{ p.supplier or '—' }}</td>
         <td>{{ p.lines|length }}</td>
         <td>{{ p.amount }} د.ل</td>

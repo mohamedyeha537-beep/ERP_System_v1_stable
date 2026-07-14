@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}الطباعة والوكيل المحلي{% endblock %}
+{% block body %}
+<h1>الطباعة والوكيل المحلي</h1>
+<div class="pos-guide-panel" data-guide-title="ℹ️ دليل الطباعة والوكيل">
+<p class="muted">السيرفر ينشئ مهام طباعة؛ برنامج الوكيل داخل المطعم يسحبها ويطبع على الطابعات المحلية.</p>
+<div class="muted" style="margin-top:0.5rem">
+  <strong>أدلة خطوة بخطوة:</strong>
+  <ul style="margin:0.35rem 0 0;padding-right:1.25rem">
+    <li><strong>ثلاث طابعات + توزيع الطلب:</strong> <code>tools/print_agent/دليل-ثلاث-طابعات-وتوزيع-الطلب.md</code></li>
+    <li>الوكيل المحلي (سحابة / شبكة): <code>tools/print_agent/دليل-وكيل-الطباعة-المحلي.md</code></li>
+  </ul>
+</div>
+</div>
+<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1rem;margin-top:1.5rem">
+  <a class="card" href="/admin/printing/agents" style="text-decoration:none;color:inherit;padding:1rem">
+    <strong>وكلاء الطباعة</strong>
+    <div class="muted" style="font-size:0.9rem;display:block;margin-top:0.35rem">إنشاء رموز الوكيل</div>
+  </a>
+  <a class="card" href="/admin/printing/printers" style="text-decoration:none;color:inherit;padding:1rem">
+    <strong>الطابعات</strong>
+    <div class="muted" style="font-size:0.9rem;display:block;margin-top:0.35rem">ربط بالوكيل + اختبار</div>
+  </a>
+  <a class="card" href="/admin/printing/sections" style="text-decoration:none;color:inherit;padding:1rem">
+    <strong>أقسام المطبخ</strong>
+    <div class="muted" style="font-size:0.9rem;display:block;margin-top:0.35rem">قسم → طابعة</div>
+  </a>
+  <a class="card" href="/admin/printing/jobs" style="text-decoration:none;color:inherit;padding:1rem">
+    <strong>مهام الطباعة</strong>
+    <div class="muted" style="font-size:0.9rem;display:block;margin-top:0.35rem">متابعة وإعادة محاولة</div>
+  </a>
+</div>
+{% endblock %}

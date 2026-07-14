@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% from "_reports_macros.html" import reports_nav, export_button with context %}
+{% block title %}جلسات الكاشير{% endblock %}
+{% block body %}
+<h1>جلسات الكاشير</h1>
+{{ reports_nav('shifts') }}
+
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+{% if saved %}<div class="alert" style="background:#ecfdf5;border-color:#10b981;color:#065f46">تم الحفظ ✓</div>{% endif %}
+
+{% if pending_handoff_count and pending_handoff_count > 0 %}
+<div class="card" style="margin-bottom:1rem;background:#eff6ff;border:1px solid #93c5fd">
+  <strong style="color:#1d4ed8">{{ pending_handoff_count }} جلسة مغلقة بانتظار اعتماد الخزينة</strong>
+  <p class="muted" style="margin:0.35rem 0 0;line-height:1.6">
+    «بانتظار» في عمود الاعتماد = الجلسة <strong>أُغلقت</strong> لكن إيرادها لم يُحوَّل للخزينة الرئيسية بعد.
+    اعتمد بالترتيب من <a href="/reports/sales">تقرير المبيعات</a> أو من <strong>تفاصيل</strong> أقدم جلسة بانتظار.
+  </p>
+</div>
+{% endif %}
+
+{% if stale_count and stale_count > 0 %}
+<div class="card" style="margin-bottom:1rem;background:#fff7ed;border:1px solid #fdba74">
+  <strong style="color:#c2410c">⚠ {{ stale_count }} جلسة مفتوحة منذ أكثر من 24 ساعة</strong>
+  <p class="muted" style="margin:0.35rem 0 0;line-height:1.6">
+    الإغلاق العادي يتم من حساب الكاشير نفسه في «جلسة الكاشير». للجلسات القديمة العالقة استخدم
+    <strong>تفاصيل → إغلاق إداري</strong>{% if not can_admin_close %} (يتطلب صلاحية إدارة المدفوعات){% endif %}.
+  </p>
+</div>
+{% endif %}
+
+<p class="muted pos-guide-intro" data-guide-title="ℹ️ عن هذا التقرير" style="margin:0 0 1rem;line-height:1.55">
+  مراجعة كل جلسة بيع على حدة: الإيراد، الفواتير، طرق الدفع، العجز، الفائض، واعتماد الخزينة.
+</p>
+
+<div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:1rem">
+  <a class="btn {% if status_filter == 'all' %}btn-primary{% endif %}" href="/reports/shifts?status=all">الكل</a>
+  <a class="btn {% if status_filter == 'closed' %}btn-primary{% endif %}" href="/reports/shifts?status=closed">مغلقة</a>
+  <a class="btn {% if status_filter == 'open' %}btn-primary{% endif %}" href="/reports/shifts?status=open">مفتوحة</a>
+  <span style="flex:1"></span>
+  {{ export_button('/reports/export/shifts.csv?status=' ~ status_filter, 'تصدير القائمة') }}
+</div>
+
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.75rem">
+    <h2 style="margin:0">قائمة الجلسات</h2>
+    <span class="muted" style="font-size:0.88rem">{{ total }} جلسة</span>
+  </div>
+  <div style="overflow-x:auto">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>الكاشير</th>
+          <th>الحالة</th>
+          <th>فتح</th>
+          <th>إغلاق</th>
+          <th>فواتير</th>
+          <th>إجمالي مبيعات</th>
+          <th>كاش معدود</th>
+          <th>مصرف معدود</th>
+          <th>عجز</th>
+          <th>فائض</th>
+          <th>نقاط ولاء</th>
+          <th>اعتماد الخزينة</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr{% if r.status == 'OPEN' and r.shift_id in stale_ids %} style="background:#fff7ed"{% endif %}>
+          <td><strong>{{ r.shift_id }}</strong></td>
+          <td>
+            {{ r.cashier_label }}
+            {% if r.status == 'OPEN' and r.shift_id in stale_ids %}
+            <div style="font-size:0.75rem;color:#c2410c;font-weight:600">جلسة قديمة — تحتاج إغلاق</div>
+            {% endif %}
+            {% if r.user_label and r.user_label != r.cashier_label %}
+            <div class="muted" style="font-size:0.78rem">{{ r.user_label }}</div>
+            {% endif %}
+          </td>
+          <td>
+            {% if r.status == 'OPEN' %}
+            <span class="badge" style="background:#dbeafe;color:#1d4ed8">مفتوحة</span>
+            {% else %}
+            <span class="badge" style="background:#f1f5f9;color:#475569">مغلقة</span>
+            {% endif %}
+          </td>
+          <td>{% if r.opened_at %}{{ pos_format_dt(r.opened_at, '%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+          <td>{% if r.closed_at %}{{ pos_format_dt(r.closed_at, '%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+          <td>{{ r.sales_count }}</td>
+          <td>{{ pos_money(r.sales_total) }} <span class="money-currency">د.ل</span></td>
+          <td>{% if r.counted_cash is not none %}{{ pos_money(r.counted_cash) }}{% else %}—{% endif %}</td>
+          <td>{% if r.counted_bank is not none %}{{ pos_money(r.counted_bank) }}{% else %}—{% endif %}</td>
+          <td>
+            {% if r.shortage_total > 0 %}
+            <span style="color:#b91c1c;font-weight:600">{{ pos_money(r.shortage_total) }}</span>
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% set _surplus = r.surplus_total|default(0) %}
+            {% if _surplus > 0 %}
+            <span style="color:#15803d;font-weight:600">{{ pos_money(_surplus) }}</span>
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if r.loyalty_dinar_cost > 0 %}
+            <a href="/reports/shifts/{{ r.shift_id }}/loyalty" style="color:#c2410c;font-weight:600;text-decoration:none">
+              {{ pos_money(r.loyalty_dinar_cost) }} <span class="money-currency">د.ل</span>
+            </a>
+            <div class="muted" style="font-size:0.75rem">{{ r.loyalty_redeem_count }} عملية</div>
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if r.handoff_at %}
+            <span style="color:#15803d;font-size:0.82rem">✓ {{ pos_format_dt(r.handoff_at, '%m-%d %H:%M') }}</span>
+            {% elif r.status == 'CLOSED' %}
+            <span class="muted" style="font-size:0.82rem">بانتظار</span>
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            <a class="btn btn-primary" style="padding:0.25rem 0.55rem;font-size:0.82rem;white-space:nowrap"
+               href="/reports/shifts/{{ r.shift_id }}">تفاصيل</a>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="13" class="muted" style="text-align:center;padding:1.5rem">لا توجد جلسات.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if total_pages > 1 %}
+  <div style="display:flex;gap:0.5rem;justify-content:center;margin-top:1rem;flex-wrap:wrap">
+    {% if page > 1 %}
+    <a class="btn" href="/reports/shifts?status={{ status_filter }}&page={{ page - 1 }}">← السابق</a>
+    {% endif %}
+    <span class="muted" style="align-self:center;font-size:0.88rem">صفحة {{ page }} من {{ total_pages }}</span>
+    {% if page < total_pages %}
+    <a class="btn" href="/reports/shifts?status={{ status_filter }}&page={{ page + 1 }}">التالي →</a>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

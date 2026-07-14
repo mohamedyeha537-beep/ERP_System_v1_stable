@@ -1,0 +1,54 @@
+{# نموذج إعدادات الولاء والإحالة — domain_label: "المطعم" أو "الفندق" #}
+{% set max_redeem_pct = loyalty.max_redeem_percent_of_sale | default(0) %}
+<div class="row" style="gap:1rem; flex-wrap:wrap">
+  <label style="display:flex;align-items:center;gap:0.4rem;font-weight:600;flex:1;min-width:200px">
+    <input type="checkbox" name="enabled" {% if loyalty.enabled %}checked{% endif %} />
+    تفعيل نظام الولاء — {{ domain_label }}
+  </label>
+</div>
+<hr style="margin:1rem 0">
+<div class="row" style="gap:0.6rem; align-items:flex-end; flex-wrap:wrap">
+  <div style="flex:1; min-width:220px">
+    <label>عدد النقاط لكل دينار مدفوع</label>
+    <input name="earn_per_dinar" type="number" step="0.001" min="0" value="{{ '%.3f' % loyalty.earn_per_dinar }}" />
+  </div>
+  <div style="flex:1; min-width:220px">
+    <label>قيمة النقطة بالدينار (للاسترداد)</label>
+    <input name="redeem_value_per_point" type="number" step="0.001" min="0" value="{{ '%.3f' % loyalty.redeem_value_per_point }}" />
+  </div>
+  <div style="flex:1; min-width:220px">
+    <label>الحد الأدنى للنقاط للاستخدام</label>
+    <input name="min_points_to_redeem" type="number" step="1" min="0" value="{{ '%.0f' % loyalty.min_points_to_redeem }}" />
+  </div>
+  <div style="flex:1; min-width:220px">
+    <label>أقصى نسبة خصم بالنقاط (%)</label>
+    <input name="loyalty_max_redeem_percent" type="number" step="1" min="0" max="100"
+           value="{% if max_redeem_pct > 0 %}{{ '%.0f' % max_redeem_pct }}{% endif %}"
+           placeholder="0 = معطّل" />
+  </div>
+</div>
+<hr style="margin:1.25rem 0">
+<h3 style="margin:0 0 0.75rem;color:#1e40af">نظام الإحالة — {{ domain_label }}</h3>
+<label style="display:flex;align-items:center;gap:0.4rem;font-weight:600;margin-bottom:0.75rem">
+  <input type="checkbox" name="referral_enabled" {% if loyalty.referral_enabled %}checked{% endif %} />
+  تفعيل الإحالة (كود الدعوة)
+</label>
+<div class="row" style="gap:0.6rem;flex-wrap:wrap">
+  <div style="flex:1;min-width:200px">
+    <label>نقاط المحيل</label>
+    <input name="referral_referrer_points" type="number" step="1" min="0" value="{{ '%.0f' % loyalty.referrer_points }}" />
+  </div>
+  <div style="flex:1;min-width:200px">
+    <label>نقاط المشتري الجديد</label>
+    <input name="referral_buyer_points" type="number" step="1" min="0" value="{{ '%.0f' % loyalty.buyer_points }}" />
+  </div>
+  <div style="flex:1;min-width:200px">
+    <label>حد أدنى لمبلغ الفاتورة (د.ل)</label>
+    <input name="referral_min_sale_total" type="number" step="0.001" min="0" value="{{ '%.3f' % loyalty.min_sale_total }}" />
+  </div>
+  <div style="flex:1;min-width:200px">
+    <label>مرات استخدام نفس الكود لكل زبون</label>
+    <input name="referral_max_uses_per_code" type="number" step="1" min="0" required
+           value="{{ loyalty.referral_max_uses_per_code | default('1') }}" />
+  </div>
+</div>

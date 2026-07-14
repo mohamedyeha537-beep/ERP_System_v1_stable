@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}استلام الصرف{% endblock %}
+{% block body %}
+<div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem">
+  <h1 style="margin:0">استلام الصرف — مصادقة المخزن</h1>
+  <a class="btn" href="/inventory">المخزون</a>
+</div>
+
+{% if flash_msg %}<div class="alert good">{{ flash_msg }}</div>{% endif %}
+{% if flash_err %}<div class="alert">{{ flash_err }}</div>{% endif %}
+
+<p class="muted">
+  راجع الكميات المصروفة من الرئيسي. الموافقة تعني تحمّل مسؤولية الاستلام في مخزنك.
+  الرفض يُعيد الكمية للمخزن الرئيسي.
+</p>
+
+{% if branches and not warehouse_id %}
+<form method="get" action="/inventory/transfers/inbox" class="card" style="margin-bottom:0.75rem">
+  <label for="warehouse_id">اختر مخزنك الفرعي</label>
+  <select id="warehouse_id" name="warehouse_id" required>
+    <option value="">— اختر —</option>
+    {% for b in branches %}
+    <option value="{{ b.id }}">{{ b.name_ar }}</option>
+    {% endfor %}
+  </select>
+  <button class="btn btn-primary" type="submit" style="margin-top:0.5rem">عرض الصرف المعلق</button>
+</form>
+{% elif warehouse_id %}
+{% for t in transfers %}
+<div class="card" style="margin-bottom:1rem">
+  <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:0.35rem;margin-bottom:0.75rem">
+    <div>
+      <strong>صرف #{{ t.id }}</strong>
+      · {{ pos_format_dt(t.created_at, '%Y-%m-%d %H:%M') }}
+      · من {{ t.from_warehouse.name_ar }}
+    </div>
+    <span class="pill-btn active" style="cursor:default">{{ transfer_status_label(t.status) }}</span>
+  </div>
+  {% if t.note %}<p class="muted" style="margin:0 0 0.75rem;font-size:0.88rem">ملاحظة: {{ t.note }}</p>{% endif %}
+  <table>
+    <thead>
+      <tr>
+        <th>الصنف</th>
+        <th>مصروف</th>
+        <th>الحالة</th>
+        <th>إجراء</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ln in t.lines %}
+      <tr>
+        <td>{{ ln.product.name_ar if ln.product else ln.product_id }}</td>
+        <td>{{ pos_qty(ln.qty_sent) }} {{ ln.product.unit if ln.product else '' }}</td>
+        <td>{{ line_status_label(ln.line_status) }}</td>
+        <td style="min-width:14rem">
+          {% if ln.line_status.value in ['PENDING', 'MODIFY_REQUESTED'] %}
+          <form method="post" action="/inventory/transfers/lines/{{ ln.id }}/approve" style="display:inline;margin:0">
+            <input type="hidden" name="warehouse_id" value="{{ warehouse_id }}" />
+            <input name="qty_received" type="text" inputmode="decimal" value="{{ pos_qty_plain(ln.qty_sent) }}" style="width:4rem;padding:0.2rem" title="كمية الاستلام" />
+            <button type="submit" class="btn btn-primary" style="padding:0.25rem 0.5rem;font-size:0.82rem">موافقة</button>
+          </form>
+          <form method="post" action="/inventory/transfers/lines/{{ ln.id }}/reject" style="display:inline;margin:0" onsubmit="return confirm('رفض استلام هذا البند؟');">
+            <input type="hidden" name="warehouse_id" value="{{ warehouse_id }}" />
+            <button type="submit" class="btn" style="padding:0.25rem 0.5rem;font-size:0.82rem;color:#b91c1c">رفض</button>
+          </form>
+          <details style="display:inline-block;margin-top:0.25rem">
+            <summary class="btn" style="padding:0.25rem 0.5rem;font-size:0.82rem;cursor:pointer;display:inline">طلب تعديل</summary>
+            <form method="post" action="/inventory/transfers/lines/{{ ln.id }}/modify" style="margin-top:0.35rem;padding:0.5rem;background:#f8fafc;border-radius:8px">
+              <input type="hidden" name="warehouse_id" value="{{ warehouse_id }}" />
+              <input name="suggested_qty" type="text" inputmode="decimal" placeholder="كمية مقترحة" style="width:5rem;margin-left:0.25rem" />
+              <textarea name="note" rows="2" required placeholder="سبب طلب التعديل" style="width:100%;margin-top:0.35rem"></textarea>
+              <button type="submit" class="btn" style="margin-top:0.35rem">إرسال طلب التعديل</button>
+            </form>
+          </details>
+          {% elif ln.line_status.value == 'APPROVED' %}
+          <span class="muted">استلم {{ pos_qty(ln.qty_received or ln.qty_sent) }}</span>
+          {% elif ln.recipient_note %}
+          <span class="muted">{{ ln.recipient_note }}</span>
+          {% else %}
+          <span class="muted">—</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="muted">لا صرف معلق بانتظار المصادقة.</p>
+{% endfor %}
+{% else %}
+<p class="muted">لا مخازن فرعية. أضف مخزناً من <a href="/admin/warehouses">إدارة المخازن</a>.</p>
+{% endif %}
+{% endblock %}

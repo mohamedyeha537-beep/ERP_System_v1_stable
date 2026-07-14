@@ -1,0 +1,294 @@
+{% extends "base.html" %}
+
+{% block title %}قواعد الرسائل التلقائية{% endblock %}
+
+{% block body %}
+
+<h1>الرسائل التلقائية — القواعد</h1>
+
+<a class="btn" href="/admin/messaging">رجوع</a>
+
+<a class="btn" href="/admin/messaging/broadcast">الرسائل الدعائية ←</a>
+
+{% if saved %}
+
+<p class="muted" style="color:#047857;margin:0.75rem 0">تم حفظ التعديلات.</p>
+
+{% endif %}
+
+{% if request.query_params.get('err') %}
+
+<div class="alert">{{ request.query_params.get('err') }}</div>
+
+{% endif %}
+
+
+
+<div class="card pos-guide-panel" data-guide-title="ℹ️ الفرق بين التلقائية والدعائية" style="margin-top:1rem;background:#eff6ff;border-color:#93c5fd">
+
+  <p style="margin:0;font-size:0.9rem">
+
+    <strong>تلقائية:</strong> تُرسل عند <a href="/admin/messaging/events">حدث</a> مربوط بـ <a href="/admin/messaging/rules">قاعدة</a> و<a href="/admin/messaging/templates">قالب</a>.<br>
+
+    <strong>دعائية:</strong> من <a href="/admin/messaging/broadcast">إرسال جماعي</a> أو <a href="/admin/messaging/campaigns">الحملات</a> فقط — لا تُضاف هنا.
+
+  </p>
+
+</div>
+
+
+
+<p class="muted pos-guide-intro" data-guide-title="ℹ️ تنبيهات الإدارة" style="font-size:0.88rem;margin-top:0.5rem">
+
+  تنبيهات الإدارة (مخزون/صلاحية) تُرسل لـ <strong>رقم الإدارة</strong> عبر WhatsApp فقط.
+
+</p>
+
+
+
+<div class="card" style="margin-top:1rem">
+
+  <h2>قاعدة تلقائية جديدة</h2>
+
+  <form method="post" action="/admin/messaging/rules/save">
+
+    <label>الاسم</label>
+
+    <input name="name" required />
+
+    <label>الحدث (تلقائي فقط)</label>
+
+    <select name="event_type">
+
+      {% for code, label in event_types %}
+
+      <option value="{{ code }}">{{ label }}</option>
+
+      {% endfor %}
+
+    </select>
+
+    <label>القالب</label>
+
+    <select name="template_id">
+
+      {% for t in templates %}
+
+      <option value="{{ t.id }}">{{ t.name }} ({{ t.code }})</option>
+
+      {% endfor %}
+
+    </select>
+
+    <label>القنوات (للعملاء)</label>
+
+    <select name="channels">
+
+      <option value="whatsapp">whatsapp</option>
+
+      <option value="telegram">telegram</option>
+
+      <option value="whatsapp,telegram">whatsapp + telegram</option>
+
+    </select>
+
+    <label>الجمهور</label>
+
+    <select name="audience">
+
+      <option value="customer">عميل</option>
+
+      <option value="admin">إدارة (WhatsApp فقط)</option>
+
+    </select>
+
+    <label>الأولوية (أقل = أسبق)</label>
+
+    <input name="priority" type="number" value="100" />
+
+    <label><input type="checkbox" name="is_active" checked style="width:auto" /> نشطة</label>
+
+    <div style="margin-top:0.5rem"><button type="submit" class="btn btn-primary">إضافة</button></div>
+
+  </form>
+
+</div>
+
+
+
+<table class="table">
+
+  <thead><tr><th>الاسم</th><th>الحدث</th><th>النوع</th><th>القالب</th><th>قنوات</th><th>جمهور</th><th>نشطة</th><th></th></tr></thead>
+
+  <tbody>
+
+  {% for r in rules %}
+
+  <tr>
+
+    <td>{{ r.name }}</td>
+
+    <td>{{ r.event_type }}</td>
+
+    <td><span style="color:#1d4ed8;font-size:0.85rem">تلقائية</span></td>
+
+    <td>{{ r.template.name if r.template else r.template_id }}</td>
+
+    <td>
+
+      {% if r.audience == 'admin' %}
+
+      <span class="muted">whatsapp (ثابت)</span>
+
+      {% else %}
+
+      <form method="post" action="/admin/messaging/rules/save" style="display:flex;gap:0.35rem;align-items:center;flex-wrap:wrap;margin:0">
+
+        <input type="hidden" name="rule_id" value="{{ r.id }}" />
+
+        <input type="hidden" name="name" value="{{ r.name }}" />
+
+        <input type="hidden" name="event_type" value="{{ r.event_type }}" />
+
+        <input type="hidden" name="template_id" value="{{ r.template_id }}" />
+
+        <input type="hidden" name="audience" value="{{ r.audience }}" />
+
+        <input type="hidden" name="priority" value="{{ r.priority }}" />
+
+        {% if r.is_active %}<input type="hidden" name="is_active" value="on" />{% endif %}
+
+        <select name="channels" style="min-width:6.5rem;font-size:0.88rem">
+
+          <option value="whatsapp" {% if r.channels == 'whatsapp' %}selected{% endif %}>whatsapp</option>
+
+          <option value="telegram" {% if r.channels == 'telegram' %}selected{% endif %}>telegram</option>
+
+          <option value="whatsapp,telegram" {% if r.channels == 'whatsapp,telegram' %}selected{% endif %}>كلاهما</option>
+
+        </select>
+
+        <button type="submit" class="btn" style="padding:0.15rem 0.45rem;font-size:0.82rem">حفظ</button>
+
+      </form>
+
+      {% endif %}
+
+    </td>
+
+    <td>{{ r.audience }}</td>
+
+    <td>
+
+      <form method="post" action="/admin/messaging/rules/save" style="display:inline;margin:0">
+
+        <input type="hidden" name="rule_id" value="{{ r.id }}" />
+
+        <input type="hidden" name="name" value="{{ r.name }}" />
+
+        <input type="hidden" name="event_type" value="{{ r.event_type }}" />
+
+        <input type="hidden" name="template_id" value="{{ r.template_id }}" />
+
+        <input type="hidden" name="channels" value="{{ r.channels }}" />
+
+        <input type="hidden" name="audience" value="{{ r.audience }}" />
+
+        <input type="hidden" name="priority" value="{{ r.priority }}" />
+
+        <label style="display:inline-flex;align-items:center;gap:0.25rem;cursor:pointer;font-size:0.88rem">
+
+          <input type="checkbox" name="is_active" {% if r.is_active %}checked{% endif %} style="width:auto" onchange="this.form.submit()" />
+
+          {{ 'نعم' if r.is_active else 'لا' }}
+
+        </label>
+
+      </form>
+
+    </td>
+
+    <td>
+
+      <details>
+
+        <summary style="cursor:pointer;font-size:0.88rem">تعديل</summary>
+
+        <form method="post" action="/admin/messaging/rules/save" style="margin-top:0.5rem;min-width:14rem">
+
+          <input type="hidden" name="rule_id" value="{{ r.id }}" />
+
+          <label style="font-size:0.78rem">الاسم</label>
+
+          <input name="name" value="{{ r.name }}" required style="width:100%" />
+
+          <label style="font-size:0.78rem">الحدث</label>
+
+          <select name="event_type" style="width:100%">
+
+            {% for code, label in event_types %}
+
+            <option value="{{ code }}" {% if r.event_type == code %}selected{% endif %}>{{ label }}</option>
+
+            {% endfor %}
+
+          </select>
+
+          <label style="font-size:0.78rem">القالب</label>
+
+          <select name="template_id" style="width:100%">
+
+            {% for t in templates %}
+
+            <option value="{{ t.id }}" {% if r.template_id == t.id %}selected{% endif %}>{{ t.name }}</option>
+
+            {% endfor %}
+
+          </select>
+
+          {% if r.audience != 'admin' %}
+
+          <label style="font-size:0.78rem">القنوات</label>
+
+          <input name="channels" value="{{ r.channels }}" style="width:100%" dir="ltr" />
+
+          {% endif %}
+
+          <label style="font-size:0.78rem">الجمهور</label>
+
+          <select name="audience" style="width:100%">
+
+            <option value="customer" {% if r.audience == 'customer' %}selected{% endif %}>عميل</option>
+
+            <option value="admin" {% if r.audience == 'admin' %}selected{% endif %}>إدارة</option>
+
+          </select>
+
+          <label style="font-size:0.78rem">الأولوية</label>
+
+          <input name="priority" type="number" value="{{ r.priority }}" style="width:100%" />
+
+          <label style="display:inline-flex;gap:0.3rem;margin-top:0.35rem;font-size:0.82rem">
+
+            <input type="checkbox" name="is_active" {% if r.is_active %}checked{% endif %} style="width:auto" /> نشطة
+
+          </label>
+
+          <div style="margin-top:0.4rem"><button type="submit" class="btn">حفظ</button></div>
+
+        </form>
+
+      </details>
+
+    </td>
+
+  </tr>
+
+  {% endfor %}
+
+  </tbody>
+
+</table>
+
+{% endblock %}
+

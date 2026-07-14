@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}إعدادات الحجز{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/hotel_dashboard.css?v=16" />
+{% endblock %}
+{% block body %}
+<h1 style="margin-top:0">⚙️ إعدادات الحجز</h1>
+{% set active = 'settings' %}
+{% include "_hotel_nav.html" %}
+
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+{% if saved == 'store' %}
+<div class="alert" style="background:#ecfdf5;margin:0.75rem 0">تم حفظ إعدادات المتجر ✓</div>
+{% elif saved == 'id_types' %}
+<div class="alert" style="background:#ecfdf5;margin:0.75rem 0">تم حفظ أنواع الوثائق ✓</div>
+{% elif saved == 'loyalty' %}
+<div class="alert" style="background:#ecfdf5;margin:0.75rem 0">تم حفظ إعدادات الولاء والإحالة للفندق ✓</div>
+{% elif saved == 'print' %}
+<div class="alert" style="background:#ecfdf5;margin:0.75rem 0">تم حفظ إعدادات الطباعة للفندق ✓</div>
+{% elif saved == 'services' %}
+<div class="alert" style="background:#ecfdf5;margin:0.75rem 0">تم حفظ الخدمات الإضافية ✓</div>
+{% elif saved %}
+<div class="alert" style="background:#ecfdf5;margin:0.75rem 0">تم الحفظ ✓</div>
+{% endif %}
+
+<div class="hotel-settings-grid">
+  <div class="card">
+    <h2 style="margin-top:0;font-size:1.05rem">متجر الشقق الأونلاين</h2>
+    <p class="muted" style="font-size:0.9rem;margin:0 0 0.85rem">
+      الرابط العام: <a href="/suites" target="_blank"><strong>/suites</strong></a> —
+      البانرات من <a href="/admin/branding#hotel-banners">الهوية والعلامة</a>.
+      فعّل «عرض أونلاين» لكل شقة من <a href="/admin/hotel/rooms">إعداد الشقق</a>.
+    </p>
+    <form method="post" action="/admin/hotel/settings">
+      <input type="hidden" name="section" value="store" />
+      <label>هاتف واتساب الموظف لطلبات الحجز الأونلاين</label>
+      <input name="hotel_online_staff_phone" dir="ltr" value="{{ hotel_online_staff_phone }}" placeholder="0912345678" style="max-width:240px;display:block;margin:0.35rem 0 0.75rem" />
+      <p class="muted" style="font-size:0.82rem;margin:0 0 0.65rem">يُرسل إشعار فوري عند طلب حجز من المتجر — للتواصل مع الزبون قبل التأكيد.</p>
+      <button class="btn btn-primary" type="submit">حفظ إعدادات المتجر</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0;font-size:1.05rem">أنواع وثائق النزلاء</h2>
+    <p class="muted" style="font-size:0.9rem;margin:0 0 0.85rem">
+      تظهر في قائمة «نوع الوثيقة» عند الحجز. سطر واحد لكل نوع — يمكنك الإضافة والتعديل والحذف.
+    </p>
+    <form method="post" action="/admin/hotel/settings">
+      <input type="hidden" name="section" value="id_types" />
+      <label>الأنواع (سطر لكل نوع)</label>
+      <textarea name="hotel_guest_id_types" rows="6" style="width:100%;font-family:inherit">{{ guest_id_types_text }}</textarea>
+      <p class="muted" style="font-size:0.82rem;margin:0.35rem 0 0.65rem">الافتراضي: جواز سفر، بطاقة شخصية، كتيب عائلة، وثيقة زواج</p>
+      <button class="btn btn-primary" type="submit">حفظ أنواع الوثائق</button>
+    </form>
+  </div>
+
+  <div class="hotel-settings-stack">
+    <div class="card">
+      <h2 style="margin-top:0;font-size:1.05rem">الحد الأدنى للدفع عند الحجز</h2>
+      <p class="muted" style="font-size:0.9rem;margin:0 0 0.85rem">
+        يُطبَّق على الحجز من الاستقبال وتحويل عروض الأسعار.
+        حجز الزوار أونلاين عبر <a href="/suites" target="_blank">/suites</a>.
+        <strong>طلبات المتجر الأونلاين</strong> تبقى معلّقة حتى يؤكدها الموظف بعد التواصل.
+      </p>
+      <form method="post" action="/admin/hotel/settings">
+        <input type="hidden" name="section" value="prepay" />
+        <label for="prepayment_percent">نسبة الدفع المطلوبة</label>
+        <select id="prepayment_percent" name="prepayment_percent" style="min-width:100%;display:block;margin-top:0.25rem">
+          {% for pct, label in prepayment_choices %}
+          <option value="{{ pct }}" {% if prepayment_percent == pct %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn btn-primary" type="submit" style="margin-top:0.85rem">حفظ سياسة العربون</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2 style="margin-top:0;font-size:1.05rem">الطباعة — الفندق</h2>
+      <p class="muted" style="font-size:0.9rem;margin:0 0 0.85rem">
+        مقاس ورق وطابعة فواتير الحجز وتسوية الغرف. إعدادات الكاشير من
+        <a href="/admin/settings">الإعدادات العامة</a>.
+      </p>
+      <form method="post" action="/admin/hotel/settings">
+        <input type="hidden" name="section" value="print" />
+        <label for="hotel_print_paper_size">مقاس الورق الافتراضي — فواتير الفندق</label>
+        <select id="hotel_print_paper_size" name="hotel_print_paper_size" style="min-width:100%;display:block;margin:0.35rem 0 0.75rem">
+          {% for code, label in paper_sizes %}
+          <option value="{{ code }}" {% if hotel_print_paper == code %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <label for="hotel_receipt_printer_id">طابعة الاستقبال (طباعة مباشرة)</label>
+        <select id="hotel_receipt_printer_id" name="hotel_receipt_printer_id" style="min-width:100%;display:block;margin:0.35rem 0 0.75rem">
+          <option value="">— معاينة المتصفح —</option>
+          {% for p in receipt_printers %}
+          <option value="{{ p.id }}" {% if hotel_receipt_printer_id == p.id %}selected{% endif %}>
+            {{ p.name }} ({{ p.code }})
+          </option>
+          {% endfor %}
+        </select>
+        <p class="muted" style="font-size:0.82rem;margin:0 0 0.65rem">
+          مثال: A4 أو A5 لفواتير الحجز، أو 80 ملم لإيصال حراري في الاستقبال.
+        </p>
+        <button class="btn btn-primary" type="submit">حفظ إعدادات الطباعة</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0;font-size:1.05rem">الولاء والإحالة — الفندق</h2>
+    <p class="muted" style="font-size:0.9rem;margin:0 0 0.85rem">
+      إعدادات منفصلة عن المطعم/الكاشير. تُطبَّق عند تسوية حساب الشقة والحجوزات.
+      إعدادات المطعم من <a href="/admin/loyalty">إعدادات الولاء — المطعم</a>.
+    </p>
+    <form method="post" action="/admin/hotel/settings">
+      <input type="hidden" name="section" value="loyalty" />
+      {% include "_loyalty_domain_settings_form.html" %}
+      <button class="btn btn-primary" type="submit" style="margin-top:1rem">حفظ إعدادات الولاء</button>
+    </form>
+  </div>
+
+  <div class="card card--wide" id="hotel-extra-services">
+    <h2 style="margin-top:0;font-size:1.05rem">الخدمات الإضافية للحجز</h2>
+    <p class="muted" style="font-size:0.9rem;margin:0 0 0.85rem">
+      الخدمات التي تظهر في قائمة منسدلة عند إضافة خدمة على حجز (غسيل، مواصلات، إفطار إضافي، …).
+      الخدمات <strong>المعطّلة</strong> لا تظهر في الحجز الجديد.
+    </p>
+    <form method="post" action="/admin/hotel/extra-services/save" class="booking-detail-inline-form" style="margin-bottom:1rem">
+      <label class="booking-detail-inline-form__field booking-detail-inline-form__field--grow">
+        <span class="booking-detail-inline-form__label">اسم الخدمة *</span>
+        <input name="name_ar" placeholder="مثال: غسيل ملابس" required />
+      </label>
+      <label class="booking-detail-inline-form__field booking-detail-inline-form__field--price">
+        <span class="booking-detail-inline-form__label">السعر (د.ل)</span>
+        <input name="default_price" type="number" step="0.001" min="0" value="0" required />
+      </label>
+      <label class="booking-detail-inline-form__field booking-detail-inline-form__field--qty">
+        <span class="booking-detail-inline-form__label">الترتيب</span>
+        <input name="sort_order" type="number" value="0" />
+      </label>
+      <button class="btn btn-primary booking-detail-inline-form__btn" type="submit">إضافة</button>
+    </form>
+    {% if service_catalog %}
+    <table>
+      <thead>
+        <tr>
+          <th>الاسم</th>
+          <th>السعر</th>
+          <th>الترتيب</th>
+          <th>الحالة</th>
+          <th>إجراء</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for s in service_catalog %}
+      <tr{% if not s.is_active %} style="opacity:0.72;background:#f9fafb"{% endif %}>
+        <td><strong>{{ s.name_ar }}</strong></td>
+        <td>{{ '%.3f'|format(s.default_price) }} د.ل</td>
+        <td>{{ s.sort_order }}</td>
+        <td>{% if s.is_active %}<span class="hotel-badge hotel-badge--ok">متاح</span>{% else %}<span class="hotel-badge hotel-badge--muted">معطّل</span>{% endif %}</td>
+        <td>
+          <div style="display:flex;flex-wrap:wrap;gap:0.35rem">
+            <details>
+              <summary class="btn" style="cursor:pointer;display:inline-block">تعديل</summary>
+              <form method="post" action="/admin/hotel/extra-services/save" style="margin-top:0.5rem;display:flex;flex-direction:column;gap:0.35rem;min-width:220px">
+                <input type="hidden" name="item_id" value="{{ s.id }}" />
+                <input name="name_ar" value="{{ s.name_ar }}" required />
+                <input name="default_price" type="number" step="0.001" min="0" value="{{ s.default_price }}" required />
+                <input name="sort_order" type="number" value="{{ s.sort_order }}" />
+                <label style="font-size:0.85rem"><input type="checkbox" name="is_active" value="1" {% if s.is_active %}checked{% endif %} /> متاح في الحجز</label>
+                <button class="btn btn-primary" type="submit">حفظ</button>
+              </form>
+            </details>
+            <form method="post" action="/admin/hotel/extra-services/{{ s.id }}/toggle">
+              <input type="hidden" name="active" value="{% if s.is_active %}0{% else %}1{% endif %}" />
+              <button class="btn" type="submit">{% if s.is_active %}تعطيل{% else %}تفعيل{% endif %}</button>
+            </form>
+            <form method="post" action="/admin/hotel/extra-services/{{ s.id }}/delete" onsubmit="return confirm('حذف الخدمة؟');">
+              <button class="btn" type="submit" style="color:#b91c1c">حذف</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted" style="margin:0">لا توجد خدمات بعد — أضف خدمة أعلاه لتظهر في صفحة الحجز.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

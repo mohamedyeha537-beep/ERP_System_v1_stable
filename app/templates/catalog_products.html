@@ -3,58 +3,414 @@
 {% block body %}
 <div class="row" style="justify-content: space-between; flex-wrap: wrap; gap: 0.5rem">
   <h1 style="margin: 0">الأصناف</h1>
-  <div class="row" style="gap: 0.5rem">
+  <div class="row" style="gap: 0.5rem; flex-wrap: wrap">
+    <form method="post" action="/catalog/products/fill-reference-costs" style="margin:0" onsubmit="return confirm('نسخ متوسط سعر الشراء من فواتير المخزون إلى التكلفة المرجعية للأصناف التي لا مرجع لها؟');">
+      <button type="submit" class="btn" title="من فواتير الشراء فقط">⚡ تعبئة التكلفة من الشراء</button>
+    </form>
+    <a class="btn" href="/catalog/import-export">استيراد / تصدير CSV</a>
     <a class="btn" href="/catalog/categories">فئات وفرعية</a>
     <a class="btn btn-primary" href="/catalog/products/new">صنف جديد</a>
   </div>
 </div>
-<div class="card">
+<p class="muted" style="margin: 0.35rem 0 0; font-size: 0.85rem">
+  <strong>سعر التكلفة:</strong> يُسجَّل في <a href="/catalog/products/new">كرت الصنف</a> (مرجع ثابت) أو في <a href="/admin/purchases/new">فاتورة الشراء</a> (سعر الوحدة لكل بند). زر «تعبئة من الشراء» ينسخ المتوسط للأصناف التي وُردت سابقاً.
+</p>
+
+{% if flash_msg %}
+<div class="alert good" style="margin-top: 0.75rem">{{ flash_msg }}</div>
+{% endif %}
+{% if flash_err %}
+<div class="alert" style="margin-top: 0.75rem">{{ flash_err }}</div>
+{% endif %}
+
+{% set qparam = ('q=' ~ (search_q|urlencode) ~ '&') if search_q else '' %}
+
+{% if pricing_error_count and pricing_error_count > 0 %}
+<div class="alert" style="margin-top:0.75rem;border-color:#fecaca;background:#fef2f2;color:#991b1b">
+  <strong>تنبيه تسعير:</strong> {{ pricing_error_count }} صنفاً بيعه أقل من التكلفة — تظهر في أعلى الجدول بخلفية حمراء.
+</div>
+{% endif %}
+
+<form method="get" action="/catalog/products" class="card" style="margin: 0.75rem 0; padding: 0.75rem 1rem">
+  {% if kind_filter != 'all' %}<input type="hidden" name="kind" value="{{ kind_filter }}" />{% endif %}
+  {% if category_filter != 'all' %}<input type="hidden" name="category" value="{{ category_filter }}" />{% endif %}
+  {% if pos_filter != 'all' %}<input type="hidden" name="pos" value="{{ pos_filter }}" />{% endif %}
+  {% if page_size != 50 %}<input type="hidden" name="page_size" value="{{ page_size }}" />{% endif %}
+  <div class="row" style="gap: 0.5rem; flex-wrap: wrap; align-items: flex-end">
+    <div style="flex: 1; min-width: min(100%, 16rem)">
+      <label for="product-search-q" class="muted" style="font-size: 0.85rem; display: block; margin-bottom: 0.25rem">بحث بالاسم أو SKU أو الباركود</label>
+      <input id="product-search-q" type="search" name="q" value="{{ search_q }}" placeholder="مثال: ورق سحب، برجر…" style="width: 100%; max-width: 28rem" />
+    </div>
+    <button class="btn btn-primary" type="submit">بحث</button>
+    {% if search_q %}
+    <a class="btn" href="/catalog/products{% if filters_query %}?{{ filters_query }}{% endif %}">إلغاء البحث</a>
+    {% endif %}
+  </div>
+  {% if search_q %}
+  <p class="muted" style="margin: 0.5rem 0 0; font-size: 0.85rem">نتائج البحث عن «{{ search_q }}»: {{ total_count }} صنف</p>
+  {% endif %}
+</form>
+
+<div class="row" style="gap: 0.5rem; margin: 0 0 0.75rem; flex-wrap: wrap; align-items: center">
+  <span class="muted" style="font-size: 0.9rem">النوع:</span>
+  <a class="pill-btn {% if kind_filter == 'all' %}active{% endif %}" href="/catalog/products?{{ qparam }}{% if category_filter != 'all' %}category={{ category_filter }}&{% endif %}{% if pos_filter != 'all' %}pos={{ pos_filter }}{% endif %}">الكل</a>
+  <a class="pill-btn {% if kind_filter == 'FINAL_SELLABLE' %}active{% endif %}" href="/catalog/products?{{ qparam }}kind=FINAL_SELLABLE{% if category_filter != 'all' %}&category={{ category_filter }}{% endif %}{% if pos_filter != 'all' %}&pos={{ pos_filter }}{% endif %}">نهائي</a>
+  <a class="pill-btn {% if kind_filter == 'STOCK_ONLY' %}active{% endif %}" href="/catalog/products?{{ qparam }}kind=STOCK_ONLY{% if category_filter != 'all' %}&category={{ category_filter }}{% endif %}{% if pos_filter != 'all' %}&pos={{ pos_filter }}{% endif %}">مخزني</a>
+</div>
+<div class="row" style="gap: 0.5rem; margin: 0 0 0.75rem; flex-wrap: wrap; align-items: center">
+  <span class="muted" style="font-size: 0.9rem">الفئة:</span>
+  <a class="pill-btn {% if category_filter == 'all' %}active{% endif %}" href="/catalog/products?{{ qparam }}{% if kind_filter != 'all' %}kind={{ kind_filter }}&{% endif %}{% if pos_filter != 'all' %}pos={{ pos_filter }}{% endif %}">الكل</a>
+  <a class="pill-btn {% if category_filter == 'none' %}active{% endif %}" href="/catalog/products?{{ qparam }}category=none{% if kind_filter != 'all' %}&kind={{ kind_filter }}{% endif %}{% if pos_filter != 'all' %}&pos={{ pos_filter }}{% endif %}">بدون فئة</a>
+  {% if category_filter == 'none' %}
+  <form method="post" action="/catalog/products/hide-uncategorized-from-pos" style="display: inline; margin: 0" onsubmit="return confirm('إخفاء كل الأصناف بدون فئة من نقطة البيع؟');">
+    <button type="submit" class="btn" style="padding: 0.35rem 0.75rem; font-size: 0.85rem">⚡ إخفاء الكل من POS</button>
+  </form>
+  {% endif %}
+</div>
+<div class="row" style="gap: 0.5rem; margin: 0 0 0.75rem; flex-wrap: wrap; align-items: center">
+  <span class="muted" style="font-size: 0.9rem">جلسة البيع:</span>
+  <a class="pill-btn {% if pos_filter == 'all' %}active{% endif %}" href="/catalog/products?{{ qparam }}{% if kind_filter != 'all' %}kind={{ kind_filter }}&{% endif %}{% if category_filter != 'all' %}category={{ category_filter }}{% endif %}">الكل</a>
+  <a class="pill-btn {% if pos_filter == 'in_pos' %}active{% endif %}" href="/catalog/products?{{ qparam }}pos=in_pos{% if kind_filter != 'all' %}&kind={{ kind_filter }}{% endif %}{% if category_filter != 'all' %}&category={{ category_filter }}{% endif %}">معروض في POS</a>
+  <a class="pill-btn {% if pos_filter == 'hidden' %}active{% endif %}" href="/catalog/products?{{ qparam }}pos=hidden{% if kind_filter != 'all' %}&kind={{ kind_filter }}{% endif %}{% if category_filter != 'all' %}&category={{ category_filter }}{% endif %}">مخفي من POS</a>
+</div>
+
+<form method="post" action="/catalog/products/bulk" id="products-bulk-form">
+  <input type="hidden" name="kind" value="{{ kind_filter }}" />
+  <input type="hidden" name="category" value="{{ category_filter }}" />
+  <input type="hidden" name="pos" value="{{ pos_filter }}" />
+  <input type="hidden" name="q" value="{{ search_q }}" />
+  <input type="hidden" name="page" value="{{ page }}" />
+  <input type="hidden" name="page_size" value="{{ page_size }}" />
+  <div class="card" style="margin-bottom: 0.75rem; padding: 0.75rem 1rem">
+    <div class="row" style="gap: 0.5rem; flex-wrap: wrap; align-items: center">
+      <span class="muted" style="font-size: 0.9rem">إجراء جماعي على المحدّد:</span>
+      <button class="btn" type="submit" name="action" value="hide_pos">إخفاء من جلسة البيع</button>
+      <button class="btn" type="submit" name="action" value="show_pos">إظهار في جلسة البيع</button>
+      <button class="btn" type="submit" name="action" value="stock_only">تحويل إلى مخزني</button>
+      <button class="btn" type="submit" name="action" value="deactivate">تعطيل (غير نشط)</button>
+      <button class="btn" type="submit" name="action" value="delete" style="color: #b91c1c" onclick="return confirm('حذف الأصناف المحدّدة التي لا حركات عليها؟');">حذف (بدون حركات فقط)</button>
+      {% if category_filter == 'none' %}
+      <button class="btn btn-primary" type="button" id="select-uncat-all">تحديد كل «بدون فئة»</button>
+      {% endif %}
+    </div>
+    <p class="muted" style="margin: 0.5rem 0 0; font-size: 0.85rem">
+      الحذف مسموح فقط للأصناف بلا فواتير ولا مخزون. إن وُجدت حركات: استخدم «إخفاء من جلسة البيع» أو «تحويل إلى مخزني».
+    </p>
+  </div>
+</form>
+
+<div class="card" id="catalog-products-table">
+  {% if total_count %}
+  <p class="muted" style="margin: 0 0 0.75rem; padding: 0 0.25rem; font-size: 0.88rem">
+    عرض {{ page_from }}–{{ page_to }} من {{ total_count }} صنف
+    {% if total_pages > 1 %} · صفحة {{ page }} من {{ total_pages }}{% endif %}
+  </p>
+  {% endif %}
   <table>
     <thead>
       <tr>
+        <th style="width: 2rem">
+          <input type="checkbox" id="select-all-products" title="تحديد الكل" />
+        </th>
         <th>#</th>
         <th>صورة</th>
         <th>الاسم</th>
         <th>الفئة</th>
         <th>النوع</th>
-        <th>السعر</th>
-        <th>الباركود</th>
-        <th>حد التنبيه</th>
+        <th>في POS</th>
+        <th>سعر البيع</th>
+        <th>سعر التكلفة</th>
+        <th title="سعر البيع − سعر التكلفة">الفارق</th>
+        <th title="الحد الأدنى لطلب الشراء — عند الوصول له يُنصح بإنشاء فاتورة شراء">حد طلب الشراء</th>
         <th>نشط</th>
         <th></th>
       </tr>
     </thead>
     <tbody>
       {% for p in products %}
-      <tr>
+      {% set pr = product_pricing.get(p.id) if product_pricing is defined else none %}
+      <tr{% if pr and pr.pricing_error %} class="pricing-error-row"{% endif %}>
+        <td>
+          <input type="checkbox" form="products-bulk-form" name="product_ids" value="{{ p.id }}" class="product-row-check" />
+        </td>
         <td>{{ p.id }}</td>
         <td>
           {% if p.image_filename %}
-          <img src="/static/{{ p.image_filename }}" alt="" style="width: 40px; height: 40px; object-fit: cover; border-radius: 6px" />
+          <img src="{{ product_image_url(p.image_filename) }}" alt="" style="width: 40px; height: 40px; object-fit: cover; border-radius: 6px" />
           {% else %}
           <span class="muted">—</span>
           {% endif %}
         </td>
-        <td>{{ p.name_ar }}</td>
-        <td>{% if p.category %}{{ p.category.name_ar }}{% else %}—{% endif %}</td>
-        <td>{% if p.kind.value == 'FINAL_SELLABLE' %}نهائي{% else %}مخزني{% endif %}</td>
-        <td>{% if p.sell_price is not none %}{{ p.sell_price }} د.ل{% else %}—{% endif %}</td>
-        <td>{{ p.barcode or "—" }}</td>
-        <td>{{ p.reorder_level }}</td>
-        <td>{% if p.is_active %}نعم{% else %}لا{% endif %}</td>
         <td>
+          {{ p.name_ar }}
+          {% if p.kind.value == 'FINAL_SELLABLE' and p.direct_purchase_enabled %}
+          <span class="muted" title="يظهر في فاتورة الشراء"> · قابل للشراء</span>
+          {% endif %}
+        </td>
+        <td>{% if p.category %}{{ p.category.name_ar }}{% else %}<span class="muted">بدون فئة</span>{% endif %}</td>
+        <td>{% if p.kind.value == 'FINAL_SELLABLE' %}نهائي{% else %}مخزني{% endif %}</td>
+        <td>
+          {% if p.kind.value == 'FINAL_SELLABLE' %}
+          {% if p.show_in_pos %}نعم{% else %}<span class="muted">لا</span>{% endif %}
+          {% else %}
+          <span class="muted">—</span>
+          {% endif %}
+        </td>
+        <td>{% if p.sell_price is not none %}{{ pos_money(p.sell_price) }} <span class="money-currency">د.ل</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td>{% if pr and pr.unit_cost is not none %}{{ pos_money(pr.unit_cost) }} <span class="money-currency">د.ل</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td>
+          {% if pr and pr.margin is not none %}
+          <span class="{% if pr.pricing_error %}pricing-bad{% else %}pricing-ok{% endif %}">{{ pos_money(pr.margin) }} <span class="money-currency">د.ل</span></span>
+          {% else %}
+          <span class="muted">—</span>
+          {% endif %}
+        </td>
+        <td style="min-width: 7.5rem">
+          <div class="reorder-inline-wrap">
+            <input
+              class="reorder-inline-input"
+              type="text"
+              inputmode="decimal"
+              autocomplete="off"
+              data-product-id="{{ p.id }}"
+              value="{{ pos_qty_plain(p.reorder_level or 0) }}"
+              title="الحد الأدنى لطلب الشراء ({{ p.unit }}) — Enter أو الخروج من الحقل للحفظ"
+              aria-label="حد طلب الشراء — {{ p.name_ar }}"
+            />
+            <span class="reorder-inline-unit muted">{{ p.unit }}</span>
+            <span class="reorder-inline-status" aria-hidden="true"></span>
+          </div>
+        </td>
+        <td>{% if p.is_active %}نعم{% else %}<span class="muted">لا</span>{% endif %}</td>
+        <td style="white-space: nowrap">
           <a href="/catalog/products/{{ p.id }}/edit">تعديل</a>
+          · <a href="/inventory/products/{{ p.id }}">تتبع</a>
           {% if p.kind.value == 'FINAL_SELLABLE' %}
           · <a href="/catalog/products/{{ p.id }}/bom">التركيبة</a>
+          {% else %}
+          · <a href="/catalog/products/{{ p.id }}/bom">وصفة / وسيط</a>
+          {% endif %}
+          {% if deletable.get(p.id) %}
+          ·
+          <form method="post" action="/catalog/products/{{ p.id }}/delete" style="display: inline" onsubmit="return confirm('حذف «{{ p.name_ar|e }}»؟');">
+            <input type="hidden" name="kind" value="{{ kind_filter }}" />
+            <input type="hidden" name="category" value="{{ category_filter }}" />
+            <input type="hidden" name="pos" value="{{ pos_filter }}" />
+            <input type="hidden" name="q" value="{{ search_q }}" />
+            <input type="hidden" name="page" value="{{ page }}" />
+            <input type="hidden" name="page_size" value="{{ page_size }}" />
+            <button type="submit" class="linkish" style="color: #b91c1c; background: none; border: none; padding: 0; cursor: pointer; font: inherit">حذف</button>
+          </form>
+          {% else %}
+          <span class="muted" title="لا يُحذف لوجود حركات — استخدم إخفاء من POS"> · 🔒</span>
           {% endif %}
         </td>
       </tr>
       {% else %}
       <tr>
-        <td colspan="10" class="muted">لا توجد أصناف بعد.</td>
+        <td colspan="13" class="muted">لا توجد أصناف مطابقة للفلتر.</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+
+  {% if total_pages > 1 %}
+  <div style="display:flex;gap:0.5rem;justify-content:center;margin-top:1rem;flex-wrap:wrap;align-items:center">
+    {% if page > 1 %}
+    <a class="btn" href="/catalog/products?{{ list_base_query }}{% if list_base_query %}&{% endif %}page={{ page - 1 }}">← السابق</a>
+    {% endif %}
+    <span class="muted" style="font-size:0.88rem">صفحة {{ page }} من {{ total_pages }}</span>
+    {% if page < total_pages %}
+    <a class="btn" href="/catalog/products?{{ list_base_query }}{% if list_base_query %}&{% endif %}page={{ page + 1 }}">التالي →</a>
+    {% endif %}
+    <span class="muted" style="font-size:0.82rem">|</span>
+    {% for ps in page_size_options %}
+    <a class="pill-btn {% if page_size == ps %}active{% endif %}" href="/catalog/products?{% if list_base_query %}{{ list_base_query }}&{% endif %}page_size={{ ps }}">{{ ps }}</a>
+    {% endfor %}
+    <span class="muted" style="font-size:0.82rem">لكل صفحة</span>
+  </div>
+  {% endif %}
 </div>
+<script type="application/json" id="catalog-products-cfg">
+{"kind":{{ kind_filter | tojson }},"category":{{ category_filter | tojson }},"pos":{{ pos_filter | tojson }},"q":{{ search_q | tojson }},"page":{{ page }},"page_size":{{ page_size }}}
+</script>
+<script>
+(function () {
+  var master = document.getElementById("select-all-products");
+  var rows = document.querySelectorAll(".product-row-check");
+  if (master) {
+    master.addEventListener("change", function () {
+      rows.forEach(function (cb) { cb.checked = master.checked; });
+    });
+  }
+  var uncatBtn = document.getElementById("select-uncat-all");
+  if (uncatBtn) {
+    uncatBtn.addEventListener("click", function () {
+      rows.forEach(function (cb) { cb.checked = true; });
+      if (master) master.checked = rows.length > 0;
+    });
+  }
+})();
+</script>
+<style>
+  .reorder-inline-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    flex-wrap: nowrap;
+  }
+  .reorder-inline-input {
+    width: 4.5rem;
+    max-width: 100%;
+    padding: 0.25rem 0.35rem;
+    font-size: 0.88rem;
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 6px;
+  }
+  .reorder-inline-input:focus {
+    border-color: var(--primary, #2563eb);
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+  }
+  .reorder-inline-input.is-saved {
+    border-color: #22c55e;
+    background: #f0fdf4;
+  }
+  .reorder-inline-input.is-error {
+    border-color: #ef4444;
+    background: #fef2f2;
+  }
+  .reorder-inline-input.is-saving {
+    opacity: 0.65;
+  }
+  .reorder-inline-unit {
+    font-size: 0.75rem;
+    white-space: nowrap;
+  }
+  .reorder-inline-status {
+    font-size: 0.72rem;
+    color: var(--muted, #64748b);
+    min-width: 1rem;
+  }
+  .reorder-inline-status.is-busy::after {
+    content: "…";
+    color: var(--primary, #2563eb);
+  }
+  .reorder-inline-status.is-ok::after {
+    content: "✓";
+    color: #22c55e;
+  }
+  tr.pricing-error-row {
+    background: #fef2f2;
+  }
+  tr.pricing-error-row:hover {
+    background: #fee2e2;
+  }
+  .pricing-bad {
+    color: #b91c1c;
+    font-weight: 700;
+  }
+  .pricing-ok {
+    color: #15803d;
+    font-weight: 600;
+  }
+</style>
+<script>
+(function () {
+  var cfgEl = document.getElementById("catalog-products-cfg");
+  if (!cfgEl) return;
+  var cfg = JSON.parse(cfgEl.textContent || "{}");
+  var initialByInput = new WeakMap();
+  var saving = new WeakSet();
+
+  function statusEl(input) {
+    var wrap = input.closest(".reorder-inline-wrap");
+    return wrap ? wrap.querySelector(".reorder-inline-status") : null;
+  }
+
+  function saveInput(input) {
+    if (saving.has(input)) return;
+    var initial = initialByInput.has(input) ? initialByInput.get(input) : input.value;
+    if (input.value.trim() === String(initial).trim()) return;
+
+    var fd = new FormData();
+    fd.append("reorder_level", input.value.trim() || "0");
+    fd.append("kind", cfg.kind || "all");
+    fd.append("category", cfg.category || "all");
+    fd.append("pos", cfg.pos || "all");
+    fd.append("q", cfg.q || "");
+    fd.append("page", String(cfg.page || 1));
+    fd.append("page_size", String(cfg.page_size || 50));
+
+    saving.add(input);
+    input.classList.add("is-saving");
+    var st = statusEl(input);
+    if (st) {
+      st.className = "reorder-inline-status is-busy";
+    }
+
+    fetch("/catalog/products/" + input.dataset.productId + "/reorder-level", {
+      method: "POST",
+      body: fd,
+      headers: { "X-Inline-Save": "1", "Accept": "application/json" },
+      credentials: "same-origin",
+    })
+      .then(function (r) {
+        return r.json().then(function (data) {
+          return { ok: r.ok, data: data };
+        }).catch(function () {
+          return { ok: r.ok, data: null };
+        });
+      })
+      .then(function (res) {
+        saving.delete(input);
+        input.classList.remove("is-saving");
+        if (res.ok && res.data && res.data.ok) {
+          if (res.data.value !== undefined) input.value = res.data.value;
+          initialByInput.set(input, input.value);
+          input.classList.remove("is-error");
+          input.classList.add("is-saved");
+          if (st) st.className = "reorder-inline-status is-ok";
+          setTimeout(function () {
+            input.classList.remove("is-saved");
+            if (st) st.className = "reorder-inline-status";
+          }, 1400);
+        } else {
+          input.value = initial;
+          input.classList.add("is-error");
+          if (st) st.className = "reorder-inline-status";
+          window.alert("تعذّر حفظ حد طلب الشراء.");
+        }
+      })
+      .catch(function () {
+        saving.delete(input);
+        input.classList.remove("is-saving");
+        input.value = initial;
+        input.classList.add("is-error");
+        if (st) st.className = "reorder-inline-status";
+        window.alert("تعذّر الاتصال بالخادم.");
+      });
+  }
+
+  document.getElementById("catalog-products-table").addEventListener("focusin", function (e) {
+    if (e.target.classList.contains("reorder-inline-input")) {
+      initialByInput.set(e.target, e.target.value);
+      e.target.classList.remove("is-error");
+    }
+  });
+
+  document.getElementById("catalog-products-table").addEventListener("focusout", function (e) {
+    if (e.target.classList.contains("reorder-inline-input")) {
+      saveInput(e.target);
+    }
+  });
+
+  document.getElementById("catalog-products-table").addEventListener("keydown", function (e) {
+    if (e.target.classList.contains("reorder-inline-input") && e.key === "Enter") {
+      e.preventDefault();
+      e.target.blur();
+    }
+  });
+})();
+</script>
 {% endblock %}

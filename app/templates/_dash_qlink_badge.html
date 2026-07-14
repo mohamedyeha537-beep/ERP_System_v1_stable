@@ -1,0 +1,5 @@
+{% macro dash_badge(counts, section) -%}
+{% if counts and counts.get(section, 0) > 0 %}
+<span class="ql-badge" title="{% if section == 'kds' %}تذاكر مطبخ — تُزال بعد إنجاز التحضير{% elif section == 'inventory' %}نفاد مخزون أو حركات جديدة — النفاد يبقى حتى إعادة التخزين{% elif section == 'purchases' %}فواتير شراء بانتظار السداد{% elif section == 'assets' %}أصول جديدة — راجع السجل واعتمدها{% elif section == 'messaging_inbox' %}عملاء بانتظار رد — تُزال بعد الرد{% elif section == 'messaging_chat_orders' %}طلبات شات بانتظار تأكيد الكاشير{% elif section == 'hotel_settle' %}غرف بانتظار تسوية{% else %}إشعار — يُمسح بفتح القسم{% endif %}">{{ counts[section] }}</span>
+{% endif %}
+{%- endmacro %}

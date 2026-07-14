@@ -1,0 +1,40 @@
+{
+  "id": "receipt-print-stable-v4",
+  "label_ar": "إعدادات الطباعة الحرارية المعتمدة (حجم كامل + فاتورة مكتملة)",
+  "saved_at": "2026-02-06",
+  "capture_js_query_version": 4,
+  "thermal_80mm_css_width_px": 302,
+  "thermal_58mm_css_width_px": 219,
+  "thermal_80mm_paper_dots": 576,
+  "thermal_58mm_paper_dots": 384,
+  "side_padding_mm": 5,
+  "height_extra_px": 96,
+  "forbidden_patterns": [
+    "centerThermalCanvas",
+    "trimCanvasWhitespace",
+    "fitCanvasWidth"
+  ],
+  "required_markers": {
+    "app/static/receipt_capture.js": [
+      "return 302",
+      "measureContentHeight",
+      "paddingLeft = \"5mm\""
+    ],
+    "app/static/receipt_print.css": [
+      "padding: 3mm 5mm",
+      "max-width: 80mm"
+    ],
+    "app/templates/_receipt_print_actions.html": [
+      "receipt_capture.js?v=4"
+    ],
+    "tools/print_agent/escpos_raster.py": [
+      "_pad_image_center",
+      "RECEIPT_SIDE_MARGIN_MM = 4"
+    ]
+  },
+  "files_in_reference_folder": [
+    "receipt_capture.js",
+    "receipt_print.css",
+    "escpos_raster.py"
+  ]
+}

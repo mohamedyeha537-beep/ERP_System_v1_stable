@@ -4,7 +4,7 @@
 <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap">
   <div>
     <h1 style="margin:0">استرداد وترجيع المبيعات</h1>
-    <p class="muted" style="margin:0.35rem 0 0">ابحث عن <strong>فاتورة مكتملة</strong> لتنفيذ استرداد نقدي أو تخفيض مستحق؛ سند الاسترداد يظهر أسفل بعد التنفيذ الفعلي.</p>
+    <p class="muted pos-guide-intro" data-guide-title="ℹ️ كيفية الاستخدام" style="margin:0.35rem 0 0">ابحث عن <strong>فاتورة مكتملة</strong> لتنفيذ استرداد نقدي أو تخفيض مستحق؛ سند الاسترداد يظهر أسفل بعد التنفيذ الفعلي.</p>
   </div>
   <a class="btn" href="/pos">الرجوع إلى نقطة البيع</a>
 </div>
@@ -43,7 +43,7 @@
       {% set sale = row.sale %}
       <tr>
         <td><strong>#{{ sale.id }}</strong></td>
-        <td>{{ sale.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td>{{ pos_format_dt(sale.created_at, '%Y-%m-%d %H:%M') }}</td>
         <td>
           {% if sale.context_type.value == 'ROOM' %}شقة
           {% elif sale.context_type.value == 'EXTERNAL' %}خارجي
@@ -51,7 +51,12 @@
         </td>
         <td>{{ pos_money(sale.total) }} <span class="money-currency">د.ل</span></td>
         <td>{{ pos_money(row.net_total) }} <span class="money-currency">د.ل</span></td>
-        <td><a class="btn btn-primary" href="/refunds/sale/{{ sale.id }}">تنفيذ استرداد / ترجيع</a></td>
+        <td>
+          <a class="btn btn-primary" href="/refunds/sale/{{ sale.id }}">استرداد</a>
+          {% if can_edit_invoice %}
+          <a class="btn" href="/sales/invoices/{{ sale.id }}/edit">تعديل</a>
+          {% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>
@@ -79,7 +84,7 @@
       {% for ret in recent_returns %}
       <tr>
         <td><strong>#{{ ret.id }}</strong></td>
-        <td>{{ ret.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td>{{ pos_format_dt(ret.created_at, '%Y-%m-%d %H:%M') }}</td>
         <td><a href="/refunds/sale/{{ ret.original_sale_id }}">فاتورة #{{ ret.original_sale_id }}</a></td>
         <td>{{ pos_money(ret.total) }} <span class="money-currency">د.ل</span></td>
         <td><a class="btn" href="/refunds/receipt/{{ ret.id }}" target="_blank">عرض السند</a></td>

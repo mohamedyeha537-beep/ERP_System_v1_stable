@@ -1,0 +1,22 @@
+{# نافذة مسح/إلغاء بعد المطبخ — تفويض مشرف #}
+<div class="pos-line-modal__backdrop" data-pos-void-close></div>
+<div class="pos-line-modal__dialog" role="dialog" aria-labelledby="pos-void-modal-title">
+  <h3 id="pos-void-modal-title" style="margin:0 0 0.5rem;font-size:1.05rem">تفويض المشرف</h3>
+  <p id="pos-void-modal-desc" class="muted" style="margin:0 0 0.65rem;font-size:0.86rem;line-height:1.55"></p>
+  <form id="pos-void-form" method="post" action=""
+        hx-target="#pos-sidebar-live" hx-swap="innerHTML">
+    <label class="muted" style="font-size:0.78rem;display:block;margin:0 0 0.2rem">سبب الإلغاء/المسح (مطلوب)</label>
+    <input class="input" type="text" name="void_reason" id="pos-void-reason" required minlength="3" maxlength="500"
+      placeholder="مثال: طلب العميل إلغاء الصنف"
+      style="width:100%;padding:0.45rem 0.5rem;margin-bottom:0.55rem" />
+    <label class="muted" style="font-size:0.78rem;display:block;margin:0 0 0.2rem">كود المشرف (4 أرقام)</label>
+    <input class="input" type="password" name="supervisor_pin" id="pos-void-pin" required
+      inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="off"
+      placeholder="••••"
+      style="width:100%;padding:0.45rem 0.5rem;margin-bottom:0.55rem;letter-spacing:0.25em;text-align:center;font-size:1.1rem" />
+    <div class="pos-line-modal__actions">
+      <button type="submit" class="btn btn-danger" id="pos-void-submit">تأكيد</button>
+      <button type="button" class="btn" data-pos-void-close>إلغاء</button>
+    </div>
+  </form>
+</div>

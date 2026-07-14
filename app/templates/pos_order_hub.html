@@ -1,0 +1,97 @@
+{% set ctx = (sale.context_type.value if sale and sale.context_type else 'TABLE') %}
+
+{% set ext_mode = sale.external_order_type.value if sale and sale.external_order_type else 'PICKUP' %}
+
+{% if ctx == 'ROOM' %}{% set ext_mode = 'PICKUP' %}{% endif %}
+
+
+
+<div class="pos-context-rail-stack">
+
+
+
+  <section class="pos-rail-section pos-rail-section--tables is-open{% if ctx == 'TABLE' %} is-context{% endif %}" data-rail-id="tables">
+
+    <button type="button" class="pos-rail-section__title" data-pos-rail-toggle aria-expanded="true">
+
+      <span class="pos-rail-section__chevron" aria-hidden="true"></span>
+
+      🪑 الطاولات
+
+    </button>
+
+    <div class="pos-rail-section__body">
+
+      {% set rail_mode = true %}
+
+      {% set hub_mode = false %}
+
+      {% include "pos_table_grid.html" %}
+
+    </div>
+
+  </section>
+
+
+
+  <section class="pos-rail-section pos-rail-section--delivery{% if ctx == 'EXTERNAL' and ext_mode == 'DELIVERY' %} is-context{% endif %}" data-rail-id="delivery">
+
+    <button type="button" class="pos-rail-section__title" data-pos-rail-toggle aria-expanded="false">
+
+      <span class="pos-rail-section__chevron" aria-hidden="true"></span>
+
+      🚚 طلبات التوصيل{% if web_chat_delivery_pending is defined and web_chat_delivery_pending|length > 0 %} <span class="pos-rail-chat-badge">{{ web_chat_delivery_pending|length }}</span>{% endif %}
+
+    </button>
+
+    <div class="pos-rail-section__body">
+
+      {% include "pos_delivery_rail.html" %}
+
+    </div>
+
+  </section>
+
+
+
+  <section class="pos-rail-section pos-rail-section--room{% if ctx == 'ROOM' %} is-context{% endif %}" data-rail-id="room">
+
+    <button type="button" class="pos-rail-section__title" data-pos-rail-toggle aria-expanded="false">
+
+      <span class="pos-rail-section__chevron" aria-hidden="true"></span>
+
+      🏨 الشقق
+
+    </button>
+
+    <div class="pos-rail-section__body">
+
+      {% include "pos_room_hub_panel.html" %}
+
+    </div>
+
+  </section>
+
+
+
+  <section class="pos-rail-section pos-rail-section--pickup{% if ctx == 'EXTERNAL' and ext_mode != 'DELIVERY' %} is-context{% endif %}" data-rail-id="pickup">
+
+    <button type="button" class="pos-rail-section__title" data-pos-rail-toggle aria-expanded="false">
+
+      <span class="pos-rail-section__chevron" aria-hidden="true"></span>
+
+      🥡 الاستلام من المطعم{% if web_chat_pickup_pending is defined and web_chat_pickup_pending|length > 0 %} <span class="pos-rail-chat-badge">{{ web_chat_pickup_pending|length }}</span>{% endif %}
+
+    </button>
+
+    <div class="pos-rail-section__body">
+
+      {% include "pos_pickup_rail.html" %}
+
+    </div>
+
+  </section>
+
+
+
+</div>

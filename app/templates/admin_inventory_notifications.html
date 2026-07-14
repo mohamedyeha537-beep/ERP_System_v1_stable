@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% from "_notifications_admin_nav.html" import notifications_nav %}
+
+{% block title %}إشعارات المخزون{% endblock %}
+
+{% block body %}
+<h1>إشعارات المخزون</h1>
+<p class="muted">المرحلة 3 — تنبيهات الرصيد، الشراء، الصلاحية، التسويات، والتركيبة.</p>
+{{ notifications_nav(nav_active) }}
+{% if request.query_params.get('saved') %}<p style="color:#15803d">تم الحفظ.</p>{% endif %}
+
+<form method="post" action="/admin/notifications/inventory/save" class="card">
+  <h2 style="margin-top:0">الإعدادات</h2>
+  <label>هواتف مدير المخزون (فاصلة)
+    <input type="text" name="notification_inventory_phones" value="{{ inventory_phones or '' }}" style="width:100%;max-width:28rem" />
+  </label>
+  <p class="muted" style="font-size:0.85rem">إن تُركت فارغة يُستخدم رقم الإدارة من إعدادات المراسلات.</p>
+  <label><input type="checkbox" name="inventory_digest_enabled" {% if digest_enabled %}checked{% endif %} /> ملخص يومي «حاجة شراء» (purchase_needed)</label>
+  <label><input type="checkbox" name="inventory_expiry_scan_enabled" {% if expiry_scan_enabled %}checked{% endif %} /> فحص الصلاحية تلقائياً (expiry_warning / expired_item)</label>
+  <label>حد «حركة غير عادية» (كمية — 0 = تلقائي)
+    <input type="text" name="notification_inventory_unusual_qty" value="{{ unusual_qty or '' }}" placeholder="50" style="max-width:8rem" />
+  </label>
+  <button type="submit" class="btn btn-primary">حفظ</button>
+</form>
+
+<div class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0">أحداث المخزون</h2>
+  <table class="table">
+    <thead><tr><th>الحدث</th><th>الحالة</th></tr></thead>
+    <tbody>
+    {% for ev in events %}
+    <tr>
+      <td><code>{{ ev }}</code></td>
+      <td>{% if ev == 'inventory.low_stock' %}<strong style="color:#15803d">1 — مفعّل</strong>{% elif phase3 is defined and ev in phase3 %}<strong style="color:#15803d">3 — مفعّل</strong>{% else %}3{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted" style="font-size:0.85rem;margin-bottom:0">
+    القوالب والقواعد: <a href="/admin/notifications/templates">القوالب</a> · <a href="/admin/notifications/rules">القواعد</a>
+  </p>
+</div>
+{% endblock %}

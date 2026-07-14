@@ -1,0 +1,108 @@
+<form method="post" action="/pos/set-context" class="pos-ext-hub-form" id="external-ctx-form">
+  <input type="hidden" name="context_type" id="external-ctx-type" value="{% if ctx == 'ROOM' %}ROOM{% else %}EXTERNAL{% endif %}" />
+  <input type="hidden" name="external_order_type" id="external-order-type" value="{% if ext_mode == 'DELIVERY' %}DELIVERY{% else %}PICKUP{% endif %}" />
+
+  <div class="pos-ext-hub-modes">
+    <label class="pos-ext-hub-mode{% if ext_mode == 'PICKUP' %} is-on{% endif %}">
+      <input type="radio" name="external_mode" value="PICKUP" {% if ext_mode == 'PICKUP' %}checked{% endif %} />
+      <span>استلام</span>
+    </label>
+    {% if pos_perm(request)('hotel:charge') and rooms %}
+    <label class="pos-ext-hub-mode{% if ext_mode == 'ROOM' %} is-on{% endif %}">
+      <input type="radio" name="external_mode" value="ROOM" {% if ext_mode == 'ROOM' %}checked{% endif %} />
+      <span>شقة</span>
+    </label>
+    {% endif %}
+    <label class="pos-ext-hub-mode{% if ext_mode == 'DELIVERY' %} is-on{% endif %}">
+      <input type="radio" name="external_mode" value="DELIVERY" {% if ext_mode == 'DELIVERY' %}checked{% endif %} />
+      <span>توصيل</span>
+    </label>
+  </div>
+
+  <div class="pos-ext-hub-fields">
+    <div id="ext-room-fields" class="pos-ext-hub-room" style="{% if ext_mode != 'ROOM' %}display:none{% endif %}">
+      <select name="room_id" class="input pos-ext-hub-select" onchange="document.getElementById('external-ctx-type').value='ROOM'; this.form.submit()">
+        <option value="" {% if not session_room_id %}selected{% endif %}>— شقة —</option>
+        {% for r in rooms %}
+        <option value="{{ r.id }}" {% if session_room_id and session_room_id|int == r.id|int %}selected{% endif %}>#{{ r.number }}</option>
+        {% endfor %}
+      </select>
+      {% if session_room_id %}
+      <input type="hidden" name="room_id" value="{{ session_room_id }}" />
+      {% endif %}
+    </div>
+
+    {% if ext_mode == 'DELIVERY' and sale and sale.delivery_zone_id and sale.delivery_zone_name %}
+    <div class="pos-zone-selected pos-zone-selected--hub">
+      <span>🚚 {{ sale.delivery_zone_name }}</span>
+      <button type="button" class="btn" id="change-delivery-zone-btn" title="تغيير">تغيير</button>
+    </div>
+    <div id="delivery-zone-wrap" class="pos-delivery-zone-wrap pos-delivery-zone-wrap--hub" style="display:none">
+    {% else %}
+    <div id="delivery-zone-wrap" class="pos-delivery-zone-wrap pos-delivery-zone-wrap--hub" style="{% if ext_mode != 'DELIVERY' %}display:none{% endif %}">
+    {% endif %}
+      {% if delivery_zones and delivery_zones|length > 0 %}
+      <select
+        class="input pos-ext-hub-select"
+        name="delivery_zone_id"
+        id="delivery-zone-select"
+        onchange="if(this.value){var ct=document.getElementById('external-ctx-type');var ot=document.getElementById('external-order-type');if(ct)ct.value='EXTERNAL';if(ot)ot.value='DELIVERY';document.getElementById('external-ctx-form').submit();}"
+      >
+        <option value="">— منطقة —</option>
+        {% for z in delivery_zones %}
+        <option value="{{ z.id }}" {% if sale and sale.delivery_zone_id == z.id %}selected{% endif %}>{{ z.name_ar }} · {{ pos_money(z.fee) }}</option>
+        {% endfor %}
+      </select>
+      {% endif %}
+    </div>
+
+    <div id="ext-phone-fields" class="pos-ext-hub-phone" style="{% if ext_mode == 'ROOM' %}display:none{% endif %}">
+      {% if customer %}
+      <span class="pos-ext-hub-customer-chip" title="{{ customer.phone }}">📞 {{ customer.phone }}{% if customer.name %} · {{ customer.name }}{% endif %}</span>
+      <input type="hidden" name="customer_phone" value="{{ customer.phone }}" />
+      {% else %}
+      <input
+        class="input pos-ext-hub-input"
+        type="tel"
+        name="customer_phone"
+        id="ext-customer-phone"
+        placeholder="0917122552"
+        maxlength="10"
+        pattern="09[0-9]{8}"
+        title="10 أرقام محلية بدون +218"
+        {% if ext_mode == 'ROOM' %}disabled{% endif %}
+        hx-post="/pos/lookup-phone"
+        hx-trigger="blur"
+        hx-target="#pos-sidebar-live"
+        hx-swap="innerHTML"
+        hx-include="#external-ctx-form"
+      />
+      <input
+        class="input pos-ext-hub-input"
+        type="text"
+        name="customer_name"
+        id="ext-customer-name"
+        placeholder="الاسم"
+        {% if ext_mode == 'ROOM' %}disabled{% endif %}
+        hx-post="/pos/lookup-phone"
+        hx-trigger="blur"
+        hx-target="#pos-sidebar-live"
+        hx-swap="innerHTML"
+        hx-include="#external-ctx-form"
+      />
+      {% endif %}
+    </div>
+  </div>
+
+  {% if open_orders_nav|length > 0 %}
+  <div class="pos-hub-open-orders" aria-label="طلبات مفتوحة">
+    {% for row in open_orders_nav %}
+    <form method="post" action="/pos/open-order/{{ row.id }}" class="pos-hub-open-order-form">
+      <button type="submit" class="pos-hub-order-chip{% if row.active %} is-active{% endif %}" title="{{ row.status }}">
+        #{{ row.id }} · {{ row.label }} · {{ pos_money(row.total) }}
+      </button>
+    </form>
+    {% endfor %}
+  </div>
+  {% endif %}
+</form>

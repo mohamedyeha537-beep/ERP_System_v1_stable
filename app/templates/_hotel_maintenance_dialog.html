@@ -1,0 +1,64 @@
+<dialog id="room-maint-dialog" class="hotel-room-edit-dialog">
+  <div class="hotel-room-edit-dialog__inner">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;margin-bottom:0.75rem">
+      <h2 style="margin:0">🔧 وضع الشقة في الصيانة</h2>
+      <button type="button" class="btn" id="room-maint-close">إغلاق</button>
+    </div>
+    <p class="muted" style="margin:0 0 0.75rem;font-size:0.88rem">
+      ستظهر الشقة <strong>غير متاحة للحجز</strong> مع سبب الصيانة على لوحة الاستقبال.
+    </p>
+    <form method="post" action="" id="room-maint-form">
+      <input type="hidden" name="redirect_to" id="maint-redirect-to" value="{{ maint_redirect_to or request.url.path }}" />
+      <div style="display:grid;gap:0.65rem">
+        <label>نوع العطل
+          <select class="input" name="issue_type" id="maint-issue-type">
+            {% for key, label in issue_types.items() %}
+            <option value="{{ key }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>تفاصيل (اختياري)
+          <input class="input" name="note" id="maint-note" maxlength="240" placeholder="مثال: المكيف لا يبرد، تسريب في الحمام…" />
+        </label>
+        <label>رقم واتساب الصيانة
+          <input class="input" name="maintenance_phone" id="maint-phone" dir="ltr" value="{{ default_maintenance_phone or '' }}" placeholder="0912345678" />
+        </label>
+        <label>اسم موظف الصيانة
+          <input class="input" name="maintenance_name" id="maint-name" value="{{ default_maintenance_name or '' }}" placeholder="مثال: أحمد — صيانة" />
+        </label>
+        <label style="display:flex;align-items:center;gap:0.45rem;font-size:0.9rem">
+          <input type="checkbox" name="send_notification" value="on" id="maint-notify" />
+          إرسال إشعار واتساب لموظف الصيانة
+        </label>
+      </div>
+      <div style="display:flex;gap:0.5rem;justify-content:flex-end;flex-wrap:wrap;margin-top:1rem">
+        <button type="submit" class="btn" style="background:#f97316;color:#fff;border:0">تأكيد — غير متاحة للصيانة</button>
+        <button type="button" class="btn" id="room-maint-cancel">إلغاء</button>
+      </div>
+    </form>
+  </div>
+</dialog>
+<script>
+(function () {
+  var dlg = document.getElementById('room-maint-dialog');
+  var form = document.getElementById('room-maint-form');
+  if (!dlg || !form) return;
+  document.querySelectorAll('[data-maint-open]').forEach(function (btn) {
+    btn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      var id = btn.getAttribute('data-room-id');
+      var label = btn.getAttribute('data-room-label') || '';
+      form.action = '/admin/hotel/rooms/' + id + '/set-maintenance';
+      var title = dlg.querySelector('h2');
+      if (title) title.textContent = '🔧 صيانة — ' + label;
+      if (typeof dlg.showModal === 'function') dlg.showModal();
+      else dlg.setAttribute('open', 'open');
+    });
+  });
+  ['room-maint-close', 'room-maint-cancel'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener('click', function () { dlg.close(); });
+  });
+})();
+</script>

@@ -1,0 +1,84 @@
+<form method="post" action="/pos/set-context" class="pos-ext-hub-form" id="delivery-rail-form">
+
+  <input type="hidden" name="context_type" value="EXTERNAL" />
+
+  <input type="hidden" name="external_order_type" value="DELIVERY" />
+
+  <div id="pos-chat-delivery-incoming">
+  {% set chat_orders = web_chat_delivery_pending if web_chat_delivery_pending is defined else [] %}
+  {% include "_pos_chat_rail_incoming.html" %}
+  </div>
+
+  <div class="pos-ext-hub-fields">
+
+    {% if ext_mode == 'DELIVERY' and sale and sale.delivery_zone_id and sale.delivery_zone_name %}
+
+    <div class="pos-zone-selected pos-zone-selected--hub">
+
+      <span>🚚 {{ sale.delivery_zone_name }}</span>
+
+      <button type="button" class="btn" id="change-delivery-zone-btn" title="تغيير">تغيير</button>
+
+    </div>
+
+    <div id="delivery-zone-wrap" class="pos-delivery-zone-wrap pos-delivery-zone-wrap--hub" style="display:none">
+
+    {% else %}
+
+    <div id="delivery-zone-wrap" class="pos-delivery-zone-wrap pos-delivery-zone-wrap--hub">
+
+    {% endif %}
+
+      {% if delivery_zones and delivery_zones|length > 0 %}
+
+      <select
+
+        class="input pos-ext-hub-select"
+
+        name="delivery_zone_id"
+
+        id="delivery-zone-select"
+
+        onchange="if(this.value) this.form.submit();"
+
+      >
+
+        <option value="">— منطقة التوصيل —</option>
+
+        {% for z in delivery_zones %}
+
+        <option value="{{ z.id }}" {% if sale and sale.delivery_zone_id == z.id %}selected{% endif %}>{{ z.name_ar }} · {{ pos_money(z.fee) }}</option>
+
+        {% endfor %}
+
+      </select>
+
+      {% else %}
+
+      <p class="muted" style="margin:0;font-size:0.82rem">لا توجد مناطق توصيل.</p>
+
+      {% endif %}
+
+    </div>
+
+
+
+    {% set show_linked = customer and ctx == 'EXTERNAL' and ext_mode == 'DELIVERY' %}
+
+    {% set form_id = 'delivery-rail-form' %}
+
+    {% set phone_id = 'delivery-customer-phone' %}
+
+    {% set name_id = 'delivery-customer-name' %}
+
+    {% set chip_id = 'delivery-customer-chip' %}
+
+    {% set change_btn_id = 'change-delivery-customer-btn' %}
+
+    {% set fields_id = 'delivery-customer-fields' %}
+
+    {% include "_pos_rail_customer.html" %}
+
+  </div>
+
+</form>

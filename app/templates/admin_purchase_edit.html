@@ -1,0 +1,362 @@
+{% extends "base.html" %}
+{% block title %}تعديل فاتورة شراء #{{ purchase.id }}{% endblock %}
+{% block head_extra %}
+<style>
+  .pl-line {
+    display: grid;
+    grid-template-columns: 2fr 0.9fr 0.9fr 1fr auto;
+    gap: 0.4rem;
+    align-items: end;
+    padding: 0.4rem 0;
+    border-bottom: 1px dashed var(--border);
+  }
+  .pl-line .pl-expiry-toggle,
+  .pl-line .pl-expiry { display: none; }
+  .pl-line.pl-expiry-active {
+    grid-template-columns: 2fr 0.9fr 0.9fr auto 1fr 1fr 1fr auto;
+  }
+  .pl-line.pl-expiry-active .pl-expiry-toggle,
+  .pl-line.pl-expiry-active .pl-expiry { display: block; }
+  .pl-line.pl-expiry-active .pl-expiry-fields-hidden .pl-expiry { display: none; }
+  .pl-expiry-toggle label {
+    display: flex; align-items: center; gap: 0.35rem;
+    font-size: 0.8rem; white-space: nowrap; cursor: pointer;
+    margin: 0; padding-bottom: 0.45rem;
+  }
+  .pl-line .pl-total {
+    background: #f8fafc; padding: 0.45rem 0.55rem; border-radius: 8px;
+    border: 1px solid var(--border); text-align: right; direction: ltr; font-weight: 600;
+  }
+  .pl-line .icon-btn {
+    background: transparent; color: var(--danger); border: 1px solid var(--danger);
+    padding: 0.4rem; border-radius: 8px; cursor: pointer;
+  }
+  .pl-line .icon-btn:hover { background: var(--danger); color: #fff; }
+  .pl-grand {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-top: 0.85rem; padding-top: 0.85rem; border-top: 2px solid var(--border);
+    font-size: 1.25rem; font-weight: 700;
+  }
+  .pl-grand #grand-total { direction: ltr; unicode-bidi: embed; }
+  .purchase-invoice-fields .pif-cell {
+    display: flex; flex-direction: column; gap: 0.25rem; min-width: 11rem;
+  }
+  .purchase-invoice-fields .pif-cell-wide { flex: 1; min-width: 16rem; }
+  .purchase-invoice-fields .pif-control,
+  .purchase-invoice-fields select.pif-control,
+  .purchase-invoice-fields input.pif-control {
+    max-width: 16rem; width: 100%; box-sizing: border-box;
+  }
+  .pl-line .bom-combobox { min-width: 0; }
+  .pl-line .bom-combobox-menu { z-index: 80; }
+</style>
+{% endblock %}
+{% block body %}
+<div class="row" style="justify-content: space-between; align-items: center; flex-wrap: wrap">
+  <div>
+    <h1 style="margin: 0">تعديل فاتورة شراء #{{ purchase.id }}</h1>
+    <p class="muted" style="margin: 0.35rem 0 0">
+      تُحدَّث بنود المخزون تلقائياً — لا يمكن التعديل إذا بُيع أو صُرف جزء من الكمية.
+    </p>
+  </div>
+  <div class="row" style="gap: 0.5rem">
+    <a class="btn" href="/admin/purchases/{{ purchase.id }}">عرض الفاتورة</a>
+    <a class="btn" href="/admin/purchases">القائمة</a>
+  </div>
+</div>
+
+{% if error %}<div class="alert" style="margin-top: 1rem">{{ error }}</div>{% endif %}
+
+<div class="card" style="margin-top: 1rem">
+  <div style="display:flex;flex-wrap:wrap;gap:0.75rem">
+    <div style="flex:1;min-width:8rem;padding:0.55rem 0.75rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px">
+      <div class="muted" style="font-size:0.82rem">الإجمالي الحالي</div>
+      <div style="font-weight:700;direction:ltr;text-align:right">{{ pos_money(purchase.amount) }} د.ل</div>
+    </div>
+    <div style="flex:1;min-width:8rem;padding:0.55rem 0.75rem;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px">
+      <div class="muted" style="font-size:0.82rem">المدفوع</div>
+      <div style="font-weight:700;color:#15803d;direction:ltr;text-align:right">{{ pos_money(paid_total) }} د.ل</div>
+    </div>
+    <div style="flex:1;min-width:8rem;padding:0.55rem 0.75rem;background:#fff;border:1px solid #e2e8f0;border-radius:10px">
+      <div class="muted" style="font-size:0.82rem">عدد الدفعات</div>
+      <div style="font-weight:700">{{ payment_count }}</div>
+    </div>
+  </div>
+  {% if payment_count > 1 %}
+  <p class="muted" style="margin: 0.75rem 0 0">توجد أكثر من دفعة — يُحدَّث الإجمالي فقط دون تعديل الدفعات.</p>
+  {% elif paid_total > 0 and paid_total != purchase.amount %}
+  <p class="muted" style="margin: 0.75rem 0 0">مبلغ الدفع لا يطابق الإجمالي — راجع المحاسبة قبل التعديل.</p>
+  {% endif %}
+</div>
+
+{% if not products %}
+<div class="alert" style="margin-top: 1rem">
+  لا توجد أصناف قابلة للشراء. أضف منتجات من <a href="/catalog/products">الأصناف</a>.
+</div>
+{% endif %}
+
+<form method="post" action="/admin/purchases/{{ purchase.id }}/edit" id="purchase-form" enctype="multipart/form-data" style="margin-top: 1rem">
+  <div class="card">
+    <h2 style="margin-top: 0">بيانات الفاتورة</h2>
+    <div class="row purchase-invoice-fields" style="gap: 0.6rem; align-items: flex-start; flex-wrap: wrap">
+      <div class="pif-cell">
+        <label for="payment_method_id">طريقة السداد</label>
+        <select id="payment_method_id" name="payment_method_id" required class="pif-control">
+          {% for m in methods if pos_is_main_treasury_wallet(m) or pos_is_supplier_credit_wallet(m) %}
+          <option value="{{ m.id }}" {% if m.id == purchase.payment_method_id %}selected{% endif %}
+                  data-kind="{{ m.kind.value }}" data-credit="{% if pos_is_supplier_credit_wallet(m) %}1{% else %}0{% endif %}">
+            {{ m.name_ar }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="pif-cell">
+        <label for="warehouse_id">المخزن <span style="color:#dc2626">*</span></label>
+        <select id="warehouse_id" name="warehouse_id" required class="pif-control">
+          {% for wh in warehouses %}
+          <option value="{{ wh.id }}" {% if wh.id == default_warehouse_id %}selected{% endif %}>
+            {{ wh.name_ar }}{% if wh.is_main %} (رئيسي){% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="pif-cell">
+        <label for="supplier">المورّد (اختياري)</label>
+        <input id="supplier" name="supplier" value="{{ purchase.supplier or '' }}" class="pif-control" />
+      </div>
+      <div class="pif-cell">
+        <label for="supplier_phone">هاتف المورّد (اختياري)</label>
+        <input id="supplier_phone" name="supplier_phone" type="tel" dir="ltr" value="{{ purchase.supplier_phone or '' }}" class="pif-control" maxlength="40" />
+      </div>
+      <div class="pif-cell">
+        <label for="purchase_date">تاريخ الفاتورة</label>
+        <input id="purchase_date" name="purchase_date" type="datetime-local"
+               value="{{ pos_format_dt(purchase.created_at, '%Y-%m-%dT%H:%M') }}" class="pif-control" />
+      </div>
+      <div class="pif-cell pif-cell-wide">
+        <label for="note">ملاحظة داخلية</label>
+        <input id="note" name="note" value="{{ purchase.note or '' }}" class="pif-control" />
+      </div>
+    </div>
+    <div class="card" style="margin-top: 0.85rem; background: #f8fafc; border-style: dashed">
+      <h3 style="margin: 0 0 0.5rem; font-size: 1rem">مرفقات التوثيق</h3>
+      <div class="row" style="gap: 0.6rem; align-items: flex-end; flex-wrap: wrap">
+        <div style="flex: 1; min-width: 14rem">
+          <label for="supplier_invoice_ref" class="muted" style="font-size: 0.82rem">رقم فاتورة المورّد / مرجع</label>
+          <input id="supplier_invoice_ref" name="supplier_invoice_ref" value="{{ purchase.supplier_invoice_ref or '' }}" style="width: 100%; max-width: 22rem" />
+        </div>
+        <div style="min-width: 12rem">
+          {% if purchase.invoice_image_filename %}
+          <p class="muted" style="font-size: 0.82rem; margin: 0 0 0.35rem">
+            صورة حالية: <a href="/static/{{ purchase.invoice_image_filename }}" target="_blank" rel="noopener">فتح</a>
+          </p>
+          <label style="display:flex;align-items:center;gap:0.35rem;font-size:0.85rem;margin-bottom:0.35rem">
+            <input type="checkbox" name="remove_invoice_image" value="on" />
+            حذف الصورة الحالية
+          </label>
+          {% endif %}
+          <label for="invoice_image" class="muted" style="font-size: 0.82rem">صورة جديدة (اختياري)</label>
+          <input id="invoice_image" name="invoice_image" type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" />
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin: 0">بنود الفاتورة</h2>
+    <div id="lines-wrap" style="margin-top: 0.6rem">
+      {% set edit_lines = purchase.lines if purchase.lines else [none] %}
+      {% for ln in edit_lines %}
+      {% set prod = products_by_id.get(ln.product_id) if ln else none %}
+      {% set tracked = prod and prod.expiry_tracked %}
+      <div class="pl-line{% if tracked %} pl-expiry-active{% endif %}{% if ln and tracked and not ln.expiry_date %} pl-expiry-fields-hidden{% endif %}" data-line>
+        <div>
+          <label class="muted" style="font-size: 0.8rem">الصنف</label>
+          <div class="bom-combobox" data-searchable-combobox data-product-combobox data-submit-on-select="false">
+            <input type="hidden" name="product_id" data-combobox-value data-product-value required
+                   value="{% if ln %}{{ ln.product_id }}{% endif %}" />
+            <div class="bom-combobox-field">
+              <input type="text" class="bom-combobox-input" data-combobox-input
+                     placeholder="ابحث عن الصنف…" autocomplete="off" role="combobox"
+                     value="{% if prod %}{{ prod.name_ar }}{% if prod.unit %} ({{ prod.unit }}){% endif %}{% if prod.expiry_tracked %} ★ صلاحية{% endif %}{% endif %}" />
+              <button type="button" class="bom-combobox-toggle" aria-label="فتح القائمة" tabindex="-1">▾</button>
+            </div>
+            <div class="bom-combobox-menu" data-combobox-menu hidden role="listbox">
+              <button type="button" class="bom-combobox-option muted" role="option" data-value="" data-label="— اختر صنفاً —" data-expiry="0">— اختر صنفاً —</button>
+              {% for p in products %}
+              <button type="button" class="bom-combobox-option" role="option"
+                      data-value="{{ p.id }}"
+                      data-label="{{ p.name_ar }}{% if p.unit %} ({{ p.unit }}){% endif %}{% if p.expiry_tracked %} ★ صلاحية{% endif %}"
+                      data-expiry="{{ '1' if p.expiry_tracked else '0' }}">
+                {{ p.name_ar }}{% if p.unit %} ({{ p.unit }}){% endif %}{% if p.expiry_tracked %} ★ صلاحية{% endif %}
+              </button>
+              {% endfor %}
+              <p class="bom-combobox-empty muted" data-combobox-empty hidden>لا توجد نتائج مطابقة</p>
+            </div>
+          </div>
+        </div>
+        <div>
+          <label class="muted" style="font-size: 0.8rem">الكمية</label>
+          <input name="quantity" type="number" step="0.0001" min="0.0001" required
+                 value="{% if ln %}{{ ln.quantity|qty_plain }}{% else %}1{% endif %}" data-qty />
+        </div>
+        <div>
+          <label class="muted" style="font-size: 0.8rem">سعر الوحدة (د.ل)</label>
+          <input name="unit_cost" type="number" step="0.001" min="0" required
+                 value="{% if ln %}{{ ln.unit_cost }}{% else %}0{% endif %}" data-cost />
+        </div>
+        <div class="pl-expiry-toggle">
+          <label>
+            <input type="checkbox" data-expiry-toggle value="on"{% if tracked %} checked disabled{% endif %} />
+            صلاحية
+          </label>
+        </div>
+        <div class="pl-expiry">
+          <label class="muted" style="font-size: 0.8rem">إنتاج (اختياري)</label>
+          <input name="expiry_production_date" type="date" data-expiry-prod
+                 {% if ln and ln.production_date %}value="{{ ln.production_date.isoformat() }}"{% endif %}
+                 {% if not tracked or (tracked and not ln.expiry_date) %}disabled{% endif %} />
+        </div>
+        <div class="pl-expiry">
+          <label class="muted" style="font-size: 0.8rem">انتهاء <span class="pl-expiry-req" style="color:#dc2626">*</span></label>
+          <input name="expiry_date" type="date" data-expiry-end
+                 {% if ln and ln.expiry_date %}value="{{ ln.expiry_date.isoformat() }}"{% endif %}
+                 {% if not tracked or (tracked and not ln.expiry_date) %}disabled{% endif %} />
+        </div>
+        <div>
+          <label class="muted" style="font-size: 0.8rem">الإجمالي</label>
+          <div class="pl-total" data-total>0.000</div>
+        </div>
+        <button type="button" class="icon-btn" data-remove title="حذف البند" aria-label="حذف البند">✕</button>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div style="margin: 0.75rem 0 0">
+      <button type="button" class="btn btn-primary" id="add-line-btn">+ إضافة بند</button>
+    </div>
+
+    <div class="pl-grand">
+      <span>إجمالي الفاتورة</span>
+      <span><span id="grand-total">0.000</span> د.ل</span>
+    </div>
+  </div>
+
+  <div class="row" style="gap: 0.5rem">
+    <button class="btn btn-primary" type="submit" {% if not products %}disabled{% endif %}>حفظ التعديلات</button>
+    <a class="btn" href="/admin/purchases/{{ purchase.id }}">إلغاء</a>
+  </div>
+</form>
+
+<template id="line-template">
+  <div class="pl-line" data-line>
+    <div>
+      <label class="muted" style="font-size: 0.8rem">الصنف</label>
+      {% include "_purchase_product_combobox.html" %}
+    </div>
+    <div>
+      <label class="muted" style="font-size: 0.8rem">الكمية</label>
+      <input name="quantity" type="number" step="0.0001" min="0.0001" required value="1" data-qty />
+    </div>
+    <div>
+      <label class="muted" style="font-size: 0.8rem">سعر الوحدة (د.ل)</label>
+      <input name="unit_cost" type="number" step="0.001" min="0" required value="0" data-cost />
+    </div>
+    <div class="pl-expiry-toggle">
+      <label><input type="checkbox" data-expiry-toggle value="on" /> صلاحية</label>
+    </div>
+    <div class="pl-expiry">
+      <label class="muted" style="font-size: 0.8rem">إنتاج (اختياري)</label>
+      <input name="expiry_production_date" type="date" data-expiry-prod disabled />
+    </div>
+    <div class="pl-expiry">
+      <label class="muted" style="font-size: 0.8rem">انتهاء <span class="pl-expiry-req" style="color:#dc2626">*</span></label>
+      <input name="expiry_date" type="date" data-expiry-end disabled />
+    </div>
+    <div>
+      <label class="muted" style="font-size: 0.8rem">الإجمالي</label>
+      <div class="pl-total" data-total>0.000</div>
+    </div>
+    <button type="button" class="icon-btn" data-remove title="حذف">✕</button>
+  </div>
+</template>
+
+<script src="/static/searchable_combobox.js?v=1"></script>
+<script>
+(function () {
+  var wrap = document.getElementById("lines-wrap");
+  var tmpl = document.getElementById("line-template");
+  var addBtn = document.getElementById("add-line-btn");
+  var grand = document.getElementById("grand-total");
+
+  function recalc() {
+    var sum = 0;
+    wrap.querySelectorAll("[data-line]").forEach(function (line) {
+      var q = parseFloat(line.querySelector("[data-qty]").value || "0");
+      var c = parseFloat(line.querySelector("[data-cost]").value || "0");
+      var t = (q || 0) * (c || 0);
+      line.querySelector("[data-total]").textContent = t.toFixed(3);
+      sum += t;
+    });
+    grand.textContent = sum.toFixed(3);
+  }
+
+  function setExpiryFieldsEnabled(line, enabled) {
+    var prod = line.querySelector("[data-expiry-prod]");
+    var end = line.querySelector("[data-expiry-end]");
+    line.classList.toggle("pl-expiry-fields-hidden", !enabled);
+    if (prod) { prod.disabled = !enabled; if (!enabled) prod.value = ""; }
+    if (end) { end.disabled = !enabled; end.required = enabled; if (!enabled) end.value = ""; }
+  }
+
+  function syncExpiry(line) {
+    var hidden = line.querySelector("[data-product-value]");
+    var root = line.querySelector("[data-product-combobox]");
+    var menu = root && root.querySelector("[data-combobox-menu]");
+    var val = hidden && (hidden.value || "").trim();
+    var opt = menu && val ? menu.querySelector('.bom-combobox-option[data-value="' + CSS.escape(val) + '"]') : null;
+    var tracked = opt && opt.getAttribute("data-expiry") === "1";
+    var toggle = line.querySelector("[data-expiry-toggle]");
+    line.classList.toggle("pl-expiry-active", !!tracked);
+    if (!tracked) {
+      if (toggle) { toggle.checked = false; toggle.disabled = true; }
+      setExpiryFieldsEnabled(line, false);
+      return;
+    }
+    if (toggle) { toggle.checked = true; toggle.disabled = true; }
+    setExpiryFieldsEnabled(line, true);
+  }
+
+  function initProductCombobox(line) {
+    var root = line.querySelector("[data-product-combobox]");
+    if (!root || !window.initSearchableCombobox) return;
+    root._comboboxInit = false;
+    initSearchableCombobox(root, { submitOnSelect: false });
+    var hidden = root.querySelector("[data-combobox-value]");
+    if (hidden) hidden.addEventListener("change", function () { syncExpiry(line); });
+  }
+
+  function bind(line) {
+    line.querySelector("[data-qty]").addEventListener("input", recalc);
+    line.querySelector("[data-cost]").addEventListener("input", recalc);
+    initProductCombobox(line);
+    var toggle = line.querySelector("[data-expiry-toggle]");
+    if (toggle) toggle.addEventListener("change", function () { setExpiryFieldsEnabled(line, toggle.checked); });
+    syncExpiry(line);
+    var rm = line.querySelector("[data-remove]");
+    if (rm) rm.addEventListener("click", function () {
+      if (wrap.querySelectorAll("[data-line]").length > 1) { line.remove(); recalc(); }
+    });
+  }
+
+  wrap.querySelectorAll("[data-line]").forEach(bind);
+  addBtn.addEventListener("click", function () {
+    var node = tmpl.content.firstElementChild.cloneNode(true);
+    wrap.appendChild(node);
+    bind(node);
+    recalc();
+  });
+  recalc();
+})();
+</script>
+{% endblock %}

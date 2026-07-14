@@ -1,0 +1,169 @@
+https://www.youtube.com/@%D8%B4%D8%B1%D9%88%D8%AD%D8%A7%D8%AA_%D9%88%D8%A7%D8%AA%D8%B3%D8%A7%D8%A8_%D9%84%D9%84%D9%85%D8%B7%D9%88%D8%B1%D9%8A%D9%86
+بوت واتساب
+
+https://www.youtube.com/watch?v=XUgkqi59w8s
+https://www.youtube.com/watch?v=Vs9sbOADR3A&pp=ugUEEgJhcg%3D%3D
+https://www.youtube.com/watch?v=7Eh03CxCryk
+https://www.youtube.com/@%D8%B4%D8%B1%D9%88%D8%AD%D8%A7%D8%AA_%D9%88%D8%A7%D8%AA%D8%B3%D8%A7%D8%A8_%D9%84%D9%84%D9%85%D8%B7%D9%88%D8%B1%D9%8A%D9%86
+https://www.youtube.com/watch?v=G9zMmtvPFpw
+https://www.youtube.com/watch?v=s2sbkKRqDHE
+https://www.youtube.com/watch?v=cTB2e_0E5sQ
+https://www.youtube.com/watch?v=pP20slZh1yA
+https://wasenderapi.com/?section=pricing
+https://ahmedmamdoh.com/services/
+https://www.youtube.com/watch?v=A7-xWXJ3g0A
+https://autocalls.ai/pricing
+https://munsit.com/
+https://tryhamsa.com/
+
+
+2. خذ نسخة احتياطية قبل التثبيت
+BACKUP_DIR="/home/posbaytak/backups/deploy_$(date +%F_%H%M)"
+mkdir -p "$BACKUP_DIR"
+
+cp -a /home/posbaytak/pos_app "$BACKUP_DIR/pos_app_backup"
+cp -a /home/posbaytak/pos_app/.env "$BACKUP_DIR/env.backup"
+
+echo "Backup saved in: $BACKUP_DIR"
+
+
+3. جرّب النقل بدون تنفيذ
+
+هذا يعرض فقط ما سيتم نقله:
+rsync -av --dry-run --delete \
+  --exclude='.env' \
+  --exclude='pos.db' \
+  --exclude='pos.db-shm' \
+  --exclude='pos.db-wal' \
+  --exclude='.venv' \
+  --exclude='.git' \
+  --exclude='.cursor' \
+  --exclude='__pycache__' \
+  --exclude='*.pyc' \
+  --exclude='*.zip' \
+  --exclude='*.log' \
+  --exclude='_diag_*' \
+  --exclude='backups' \
+  --exclude='uploads/' \
+  --exclude='app/static/uploads/' \
+  --exclude='tools/print_agent/config.json' \
+  /home/posbaytak/new_updates/ \
+  /home/posbaytak/pos_app/
+
+4. النقل الحقيقي
+
+systemctl stop posbaytak
+
+rsync -av --delete \
+  --exclude='.env' \
+  --exclude='pos.db' \
+  --exclude='pos.db-shm' \
+  --exclude='pos.db-wal' \
+  --exclude='.venv' \
+  --exclude='.git' \
+  --exclude='.cursor' \
+  --exclude='__pycache__' \
+  --exclude='*.pyc' \
+  --exclude='*.zip' \
+  --exclude='*.log' \
+  --exclude='_diag_*' \
+  --exclude='backups' \
+  --exclude='uploads/' \
+  --exclude='app/static/uploads/' \
+  --exclude='tools/print_agent/config.json' \
+  /home/posbaytak/new_updates/ \
+  /home/posbaytak/pos_app/
+
+chown -R posbaytak:posbaytak /home/posbaytak/pos_app
+
+
+5. تثبيت المتطلبات
+su -s /bin/bash -c 'cd /home/posbaytak/pos_app && source .venv/bin/activate && pip install -r requirements.txt' posbaytak
+
+
+6. تحديث قاعدة البيانات
+
+بما أنك تعمل على MySQL:
+su -s /bin/bash -c 'cd /home/posbaytak/pos_app && source .venv/bin/activate && alembic upgrade head' posbaytak
+
+7. حذف كاش Python
+find /home/posbaytak/pos_app -type d -name "__pycache__" -exec rm -rf {} +
+find /home/posbaytak/pos_app -type f -name "*.pyc" -delete
+
+
+8. تشغيل النظام
+systemctl start posbaytak
+systemctl status posbaytak
+
+
+جرّب إعادة تحميل Apache فقط بدون إيقاف MySQL أو Odoo:
+/scripts/restartsrv_httpd --reload
+
+
+ثم اختبر:
+
+curl -sS -o /tmp/pos_home.html -w "%{http_code}\n" http://127.0.0.1:8010/
+curl -sS -o /tmp/pos_test.html -w "%{http_code}\n" http://127.0.0.1:8010/pos
+
+9. إذا ظهرت 503 أو Internal Server Error
+
+نفّذ فوراً:
+journalctl -u posbaytak -n 180 --no-pager
+
+
+systemctl stop posbaytak
+systemctl start posbaytak
+systemctl status posbaytak
+rsync
+chown
+backup commands
+
+BACKUP_DIR="/home/posbaytak/backups/deploy_$(date +%F_%H%M)"
+mkdir -p "$BACKUP_DIR"
+
+cp -a /home/posbaytak/pos_app "$BACKUP_DIR/pos_app_backup"
+cp -a /home/posbaytak/pos_app/pos.db "$BACKUP_DIR/pos.db.backup" 2>/dev/null
+
+echo "Backup saved in: $BACKUP_DIR"
+
+rsync -av --dry-run \
+  --exclude='.env' \
+  --exclude='pos.db' \
+  --exclude='.venv' \
+  --exclude='.git' \
+  --exclude='backups' \
+  --exclude='pos.zip' \
+  --exclude='__pycache__' \
+  --exclude='*.pyc' \
+  /home/posbaytak/new_updates/ \
+  /home/posbaytak/pos_app/
+
+systemctl stop posbaytak
+
+rsync -av \
+  --exclude='.env' \
+  --exclude='pos.db' \
+  --exclude='.venv' \
+  --exclude='.git' \
+  --exclude='backups' \
+  --exclude='pos.zip' \
+  --exclude='__pycache__' \
+  --exclude='*.pyc' \
+  /home/posbaytak/new_updates/ \
+  /home/posbaytak/pos_app/
+
+
+chown -R posbaytak:posbaytak /home/posbaytak/pos_app
+
+
+su -s /bin/bash -c 'cd /home/posbaytak/pos_app && source .venv/bin/activate && pip install -r requirements.txt' posbaytak
+
+
+su -s /bin/bash -c 'cd /home/posbaytak/pos_app && source .venv/bin/activate && alembic upgrade head' posbaytak
+
+systemctl start posbaytak
+systemctl status posbaytak
+
+journalctl -u posbaytak -n 100 --no-pager
+
+su -s /bin/bash -c '...' posbaytak

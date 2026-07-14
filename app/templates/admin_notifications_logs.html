@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% from "_notifications_admin_nav.html" import notifications_nav %}
+
+{% block title %}سجل الإشعارات{% endblock %}
+
+{% block body %}
+<h1>سجل الإشعارات</h1>
+{{ notifications_nav(nav_active) }}
+{% if retried %}<p class="muted">أُعيد إرسال {{ retried }} رسالة.</p>{% endif %}
+
+<form method="post" action="/admin/notifications/retry-failed" style="display:inline">
+  <button type="submit" class="btn">إعادة إرسال الفاشلة</button>
+</form>
+
+<div class="row" style="gap:0.4rem;margin:1rem 0;flex-wrap:wrap">
+  <a class="btn {% if not status_filter %}btn-primary{% endif %}" href="/admin/notifications/logs">الكل</a>
+  <a class="btn {% if status_filter == 'sent' %}btn-primary{% endif %}" href="/admin/notifications/logs?status=sent">مرسلة</a>
+  <a class="btn {% if status_filter == 'failed' %}btn-primary{% endif %}" href="/admin/notifications/logs?status=failed">فاشلة</a>
+  <a class="btn {% if status_filter == 'skipped' %}btn-primary{% endif %}" href="/admin/notifications/logs?status=skipped">متخطاة</a>
+</div>
+
+<table class="table">
+  <thead><tr><th>وقت</th><th>حدث</th><th>مستلم</th><th>هاتف</th><th>حالة</th><th>محاولات</th><th>خطأ</th></tr></thead>
+  <tbody>
+  {% for log in logs %}
+  <tr>
+    <td>{{ log.created_at }}</td>
+    <td><code>{{ log.event_key }}</code></td>
+    <td>{{ log.recipient_type }}</td>
+    <td>{{ log.recipient_phone or '—' }}</td>
+    <td>{{ log.status }}</td>
+    <td>{{ log.attempts }}</td>
+    <td style="max-width:14rem;overflow:hidden;text-overflow:ellipsis">{{ log.error_message or log.body_rendered[:80] if log.status == 'skipped' else (log.error_message or '') }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="7" class="muted">لا سجلات.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,8 @@
+<div id="pos-chat-delivery-incoming">
+{% set chat_orders = web_chat_delivery_pending if web_chat_delivery_pending is defined else [] %}
+{% include "_pos_chat_rail_incoming.html" %}
+</div>
+<div id="pos-chat-pickup-incoming">
+{% set chat_orders = web_chat_pickup_pending if web_chat_pickup_pending is defined else [] %}
+{% include "_pos_chat_rail_incoming.html" %}
+</div>

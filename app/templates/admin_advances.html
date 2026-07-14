@@ -60,6 +60,8 @@
 
 <nav class="hr-nav">
   <a href="/admin/employees">الموظفون</a>
+  <a href="/admin/departments">الأقسام</a>
+  <a href="/admin/work-shifts">الورديات</a>
   <a href="/admin/attendance">الحضور والانصراف</a>
   <a href="/admin/payroll">الرواتب الشهرية</a>
   <a href="/admin/advances" class="active">السلف</a>
@@ -196,7 +198,7 @@
     <tbody>
       {% for a in items %}
       <tr>
-        <td class="muted" style="font-size:0.85rem">{{ a.given_at.strftime('%Y-%m-%d') }}</td>
+        <td class="muted" style="font-size:0.85rem">{{ pos_format_dt(a.given_at, '%Y-%m-%d') }}</td>
         <td>
           <strong>{{ a.employee.full_name_ar if a.employee else '?' }}</strong>
           <div class="muted" style="font-size: 0.75rem">{{ (a.employee.job_title if a.employee else '') or '' }}</div>
@@ -236,7 +238,7 @@
             <strong style="color:#475569">سجل الاستردادات:</strong>
             {% for r in a.repayments %}
               <span style="background:#fff; padding:0.1rem 0.4rem; border-radius:6px; margin-inline-start:0.3rem; border:1px solid #e2e8f0">
-                {{ r.repaid_at.strftime('%Y-%m-%d') }}: {{ r.amount }} د.ل
+                {{ pos_format_dt(r.repaid_at, '%Y-%m-%d') }}: {{ r.amount }} د.ل
                 {% if r.payroll_entry_id %}<span class="muted">(من راتب)</span>{% endif %}
               </span>
             {% endfor %}

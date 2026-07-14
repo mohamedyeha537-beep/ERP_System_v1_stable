@@ -4,7 +4,7 @@ import enum
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Numeric, String, UniqueConstraint
+from sqlalchemy import DateTime, Enum, ForeignKey, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infra.db import Base
@@ -61,6 +61,9 @@ class Sale(Base):
     customer_id: Mapped[int | None] = mapped_column(
         ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    booking_id: Mapped[int | None] = mapped_column(
+        ForeignKey("hotel_bookings.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     external_order_type: Mapped[ExternalOrderType] = mapped_column(
         Enum(ExternalOrderType), default=ExternalOrderType.PICKUP
     )
@@ -73,11 +76,19 @@ class Sale(Base):
     sent_to_kitchen_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )
+    served_to_customer_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    referral_code_used: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    referrer_customer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     lines: Mapped[list["SaleLine"]] = relationship(
         back_populates="sale", cascade="all, delete-orphan", lazy="selectin"
     )
     table = relationship("DiningTable", foreign_keys=[table_id])
+    customer = relationship("Customer", foreign_keys=[customer_id])
 
 
 class SaleLine(Base):
@@ -89,6 +100,10 @@ class SaleLine(Base):
     quantity: Mapped[Decimal] = mapped_column(Numeric(14, 4))
     unit_price: Mapped[Decimal] = mapped_column(Numeric(14, 3))
     line_total: Mapped[Decimal] = mapped_column(Numeric(14, 3))
+    line_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    kitchen_sent_qty: Mapped[Decimal] = mapped_column(
+        Numeric(14, 4), default=Decimal("0")
+    )
 
     sale: Mapped[Sale] = relationship(back_populates="lines")
     product = relationship("Product", foreign_keys=[product_id])
@@ -99,6 +114,7 @@ class TicketStatus(str, enum.Enum):
     IN_PROGRESS = "IN_PROGRESS"
     READY = "READY"
     SERVED = "SERVED"
+    CANCELLED = "CANCELLED"
 
 
 class KitchenTicket(Base):
@@ -116,17 +132,25 @@ class KitchenTicket(Base):
     kitchen_department_id: Mapped[int | None] = mapped_column(
         ForeignKey("kitchen_departments.id", ondelete="CASCADE"), nullable=True, index=True
     )
+    kitchen_section_id: Mapped[int | None] = mapped_column(
+        ForeignKey("kitchen_sections.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     status: Mapped[TicketStatus] = mapped_column(
         Enum(TicketStatus), default=TicketStatus.PENDING, index=True
     )
     routing_mode: Mapped[str] = mapped_column(String(20), default="SCREEN")
     delivery_status: Mapped[str] = mapped_column(String(40), default="PENDING")
     delivery_info: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    is_supplement: Mapped[bool] = mapped_column(default=False)
+    supplement_lines_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True
     )
     served_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
     )
 
     sale = relationship("Sale", foreign_keys=[sale_id])
@@ -135,4 +159,7 @@ class KitchenTicket(Base):
     )
     kitchen_department = relationship(
         "KitchenDepartment", foreign_keys=[kitchen_department_id]
+    )
+    kitchen_section = relationship(
+        "KitchenSection", foreign_keys=[kitchen_section_id]
     )

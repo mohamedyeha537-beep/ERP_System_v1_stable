@@ -1,23 +1,847 @@
 .pos-shell {
-  max-width: 1320px;
+  max-width: 100%;
+  width: 100%;
+}
+
+body.pos-mode .pos-main-wrap {
+  overflow: hidden;
+  padding: 0.5rem 0.65rem;
+}
+
+body.pos-mode .pos-layout {
+  height: calc(100vh - var(--pos-topbar-h, 58px) - 1rem);
+  min-height: 0;
+  overflow: hidden;
 }
 
 .pos-layout {
   display: flex;
   flex-direction: row;
-  gap: 1rem;
+  gap: 0.65rem;
   align-items: stretch;
-  min-height: 70vh;
+  min-height: 0;
+  --pos-rail-w: 390px;
+  --pos-context-rail-w: 490px;
+}
+
+/* الفاتورة — يمين الشاشة في RTL */
+#pos-sidebar-live {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
 }
 
 .pos-sidebar {
-  flex: 0 0 300px;
-  max-width: 340px;
+  flex: 0 0 var(--pos-rail-w);
+  max-width: 440px;
+  min-width: 360px;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.pos-sidebar.card {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.pos-sidebar-inner {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0.65rem 0.75rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* عند وجود فاتورة: الجزء العلوي مضغوط — اختيار الطلب في الشريط العلوي */
+#pos-sidebar-live:has(.pos-sidebar-footer) .pos-sidebar-inner {
+  flex: 0 0 auto;
+}
+
+#pos-sidebar-live:has(.pos-sidebar-footer) .pos-sidebar-footer {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.pos-sidebar-footer {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border-top: 1px solid #e2e8f0;
+  background: #fff;
+  box-shadow: 0 -4px 12px rgba(15, 23, 42, 0.06);
+}
+
+.pos-sidebar-cart-scroll {
+  flex: 1 1 auto;
+  min-height: 3.5rem;
+  max-height: min(42vh, 320px);
+  overflow-x: auto;
+  overflow-y: auto;
+  padding: 0.45rem 0.65rem 0.35rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+.pos-sidebar-actions {
+  flex-shrink: 0;
+  padding: 0.35rem 0.75rem 0.65rem;
+  background: #fff;
+}
+
+.pos-sidebar-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.65rem 0.75rem 0.4rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.pos-sidebar-head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  flex-shrink: 0;
+}
+
+.pos-sidebar-order-no {
+  margin: 0;
+  padding: 0;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #1e40af;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.pos-sidebar h2 {
+  margin: 0 0 0.45rem;
+  font-size: 1.05rem;
+}
+
+/* عمود السياق — يسار الشاشة في RTL (طاولات / توصيل / شقق / استلام) */
+.pos-context-rail {
+  flex: 0 0 var(--pos-context-rail-w);
+  max-width: 530px;
+  min-width: 360px;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.pos-context-rail.card {
+  margin: 0;
+  padding: 0;
+}
+
+.pos-context-rail-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: 0;
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.pos-rail-section {
+  padding: 0.55rem 0.65rem 0.65rem;
+  border-bottom: 1px solid #e2e8f0;
+  background: #fff;
+}
+
+.pos-rail-section.is-context {
+  background: #f8fafc;
+  border-inline-start: 3px solid #2563eb;
+}
+
+.pos-rail-section__body {
+  display: none;
+  margin-top: 0.45rem;
+}
+
+.pos-rail-section.is-open .pos-rail-section__body {
+  display: block;
+}
+
+.pos-rail-section-head-form {
+  margin: 0 0 0.45rem;
+}
+
+.pos-rail-section__title {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.35rem 0.45rem;
+  border: none;
+  border-radius: 8px;
+  background: #f1f5f9;
+  color: #1e293b;
+  font-size: 0.88rem;
+  font-weight: 700;
+  text-align: start;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.pos-rail-section__chevron {
+  flex-shrink: 0;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-inline-end: 2px solid #64748b;
+  border-bottom: 2px solid #64748b;
+  transform: rotate(45deg);
+  transition: transform 0.15s ease;
+  margin-inline-end: 0.1rem;
+}
+
+.pos-rail-section.is-open .pos-rail-section__chevron {
+  transform: rotate(-135deg);
+  margin-top: 0.15rem;
+}
+
+.pos-rail-section__title:hover {
+  background: #e2e8f0;
+}
+
+.pos-rail-section.is-context .pos-rail-section__title {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.pos-rail-section.is-open .pos-rail-section__title {
+  background: #e2e8f0;
+}
+
+.pos-rail-section.is-context.is-open .pos-rail-section__title {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.pos-rail-section__title--link {
+  text-decoration: none;
+  box-sizing: border-box;
+}
+
+.pos-rail-all-orders {
+  margin-top: 0;
+}
+
+.pos-rail-section .pos-ext-hub-form,
+.pos-rail-section .pos-ext-hub-fields,
+.pos-rail-section .pos-ext-hub-phone {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.pos-rail-section .pos-ext-hub-input,
+.pos-rail-section .pos-ext-hub-select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* شبكة الطاولات في العمود الجانبي */
+.pos-table-grid.pos-table-grid--rail {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 0.28rem;
+  margin: 0;
+  padding: 0;
+}
+
+.pos-table-grid.pos-table-grid--rail .pos-table-tile {
+  aspect-ratio: 1;
+  min-height: 0;
+  border-width: 1px;
+  border-radius: 6px;
+}
+
+.pos-table-grid.pos-table-grid--rail .pos-table-tile__no {
+  bottom: 0.12rem;
+  left: 0.18rem;
+  font-size: 1.05rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.pos-table-grid.pos-table-grid--rail .pos-table-tile__badge {
+  top: 0.06rem;
+  right: 0.06rem;
+  min-width: 1.3rem;
+  height: 1.3rem;
+  padding: 0 0.18rem;
+  font-size: 0.78rem;
+  line-height: 1.3rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+/* المنتجات — فئات أفقية ثم فرعية ثم شبكة الأصناف */
+.pos-catalog-layout {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.pos-catalog-layout .pos-cat-strip {
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin-bottom: 0.45rem;
+  padding-bottom: 0.15rem;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.pos-catalog-layout .pos-cat-tile {
+  flex: 0 0 auto;
+}
+
+.pos-cat-tile__count {
+  font-size: 0.72rem;
+  opacity: 0.9;
+}
+
+.pos-catalog-layout .pos-substrip {
+  flex-shrink: 0;
+  margin-bottom: 0.55rem;
+  padding-bottom: 0.15rem;
+}
+
+.pos-catalog-layout .pos-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  align-content: start;
+  overflow-y: auto;
+}
+
+#pos-panel.pos-catalog-layout {
+  height: 100%;
+}
+
+/* المنتجات والفئات (تمرير داخلي) */
+.pos-workspace {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  overflow: hidden;
+}
+
+.pos-workspace-row {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  gap: 0.65rem;
+  align-items: stretch;
+  overflow: hidden;
 }
 
 .pos-main {
   flex: 1;
   min-width: 0;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  -webkit-overflow-scrolling: touch;
+}
+
+.pos-main.card {
+  margin: 0;
+  padding: 0;
+}
+
+/* ارتفاع مربع الطاولة في الشريط العلوي (قديم) / العمود الجانبي */
+.pos-order-hub-wrap {
+  --pos-hub-tile-h: 2.35rem;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+  border-bottom: none;
+  background: transparent;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.pos-all-orders-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.82rem;
+}
+
+.pos-all-orders-warn {
+  margin: 0 0 0.5rem;
+  padding: 0.45rem 0.65rem;
+  border-radius: 8px;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  font-size: 0.82rem;
+}
+
+.pos-all-orders-scroll {
+  max-height: min(220px, 32vh);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.pos-all-orders-dialog-body .pos-all-orders-scroll {
+  max-height: min(72vh, 820px);
+}
+
+.pos-all-orders-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.pos-all-orders-table th,
+.pos-all-orders-table td {
+  padding: 0.35rem 0.4rem;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: right;
+  vertical-align: middle;
+}
+
+.pos-all-orders-table tr.is-active {
+  background: #eff6ff;
+}
+
+.pos-all-orders-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.pos-order-badge {
+  display: inline-block;
+  padding: 0.1rem 0.4rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.pos-order-badge--open {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.pos-order-badge--done {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.pos-order-badge--cancelled {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.pos-order-badge--pay-paid {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.pos-order-badge--pay-unpaid {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.pos-order-badge--pay-partial {
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.pos-order-badge--pay-room {
+  background: #f3e8ff;
+  color: #6b21a8;
+}
+
+.pos-order-badge--pay-refunded {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.pos-pipe--entering { background: #f1f5f9; color: #475569; }
+.pos-pipe--sent, .pos-pipe--sent_pending { background: #fef3c7; color: #92400e; }
+.pos-pipe--kitchen_working { background: #ffedd5; color: #c2410c; }
+.pos-pipe--kitchen_ready, .pos-pipe--ready, .pos-pipe--ready_serve { background: #dbeafe; color: #1d4ed8; }
+.pos-pipe--served_await_pay, .pos-pipe--served_need_driver { background: #e0e7ff; color: #4338ca; }
+.pos-pipe--with_driver { background: #f3e8ff; color: #6b21a8; }
+.pos-pipe--completed { background: #dcfce7; color: #15803d; }
+.pos-pipe--cancelled { background: #f1f5f9; color: #64748b; }
+
+.pos-refund-code-dialog {
+  border: none;
+  border-radius: 12px;
+  padding: 0;
+  max-width: min(400px, 92vw);
+  box-shadow: 0 16px 48px rgba(15, 23, 42, 0.25);
+  z-index: 1300;
+}
+
+.pos-refund-code-dialog[open] {
+  z-index: 1300;
+}
+
+.pos-refund-code-dialog::backdrop {
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.pos-refund-code-dialog-inner {
+  padding: 1.1rem 1.25rem 1.25rem;
+}
+
+.pos-order-hub-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  width: 100%;
+}
+
+/* تبويبا طاولة / خارجي — صف كامل العرض */
+.ctx-tabs--hub-full {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  margin: 0;
+  padding: 0.25rem;
+  gap: 0.3rem;
+  background: #f1f5f9;
+  border-radius: 10px;
+  box-sizing: border-box;
+}
+
+.ctx-tabs--hub-full .ctx-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0.42rem 0.35rem;
+  font-size: 0.82rem;
+  opacity: 0.65;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ctx-tabs--hub-full .ctx-tab.active {
+  opacity: 1;
+}
+
+.pos-order-hub__panels {
+  position: relative;
+  width: 100%;
+  flex: 0 0 auto;
+  min-width: 0;
+  overflow: visible;
+}
+
+.pos-main-catalog {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0.65rem 0.75rem;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+}
+
+.ctx-panel--hub {
+  display: none;
+  margin: 0;
+  width: 100%;
+}
+
+.ctx-panel--hub.active {
+  display: block;
+  width: 100%;
+  overflow: visible;
+}
+
+.ctx-panel--hub[data-ctx-panel="EXTERNAL"].active {
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
+/* شبكة الطاولات في الشريط العلوي (يتجاوز .pos-table-grid العام) */
+.pos-table-grid.pos-table-grid--hub {
+  display: flex;
+  flex-wrap: wrap;
+  flex-direction: row;
+  align-content: flex-start;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  max-width: 100%;
+  min-height: var(--pos-hub-tile-h);
+  max-height: calc(var(--pos-hub-tile-h) * 2 + 0.5rem);
+  grid-template-columns: unset;
+  overflow-x: hidden;
+  overflow-y: hidden;
+}
+
+/* تمرير أفقي فقط عند زيادة عدد الطاولات (يُفعَّل بـ JS) */
+.pos-table-grid.pos-table-grid--hub.is-scroll-x {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+
+.pos-table-grid.pos-table-grid--hub.is-scroll-x::-webkit-scrollbar {
+  height: 6px;
+}
+
+.pos-table-grid.pos-table-grid--hub.is-scroll-x::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.pos-table-grid.pos-table-grid--hub .pos-table-tile-form {
+  flex: 0 0 auto;
+  width: var(--pos-hub-tile-h);
+  height: var(--pos-hub-tile-h);
+  min-width: var(--pos-hub-tile-h);
+  min-height: var(--pos-hub-tile-h);
+  margin: 0;
+  padding: 0;
+  display: block;
+}
+
+.pos-table-grid.pos-table-grid--hub .pos-table-tile {
+  display: block;
+  width: var(--pos-hub-tile-h);
+  height: var(--pos-hub-tile-h);
+  min-width: var(--pos-hub-tile-h);
+  min-height: var(--pos-hub-tile-h);
+  aspect-ratio: unset;
+  box-sizing: border-box;
+  border-width: 1px;
+  border-radius: 6px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.pos-table-grid.pos-table-grid--hub .pos-table-tile:hover {
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.12);
+}
+
+.pos-table-grid.pos-table-grid--hub .pos-table-tile.is-selected {
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.25);
+}
+
+.pos-table-grid.pos-table-grid--hub .pos-table-tile__no {
+  bottom: 0.12rem;
+  left: 0.18rem;
+  font-size: 1.05rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.pos-table-grid.pos-table-grid--hub .pos-table-tile__badge {
+  top: 0.06rem;
+  right: 0.06rem;
+  min-width: 1.3rem;
+  height: 1.3rem;
+  padding: 0 0.18rem;
+  font-size: 0.78rem;
+  line-height: 1.3rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+.pos-table-grid-empty {
+  font-size: 0.78rem;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.pos-ext-hub-form {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  min-width: min-content;
+  width: 100%;
+  min-height: var(--pos-hub-tile-h);
+}
+
+.pos-ext-hub-modes {
+  display: flex;
+  flex-shrink: 0;
+  gap: 0.25rem;
+}
+
+.pos-ext-hub-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  border-radius: 7px;
+  padding: 0.28rem 0.45rem;
+  cursor: pointer;
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.pos-ext-hub-mode.is-on {
+  border-color: #3b82f6;
+  background: #eff6ff;
+  font-weight: 600;
+}
+
+.pos-ext-hub-mode input {
+  margin: 0;
+}
+
+.pos-ext-hub-fields {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.pos-ext-hub-select,
+.pos-ext-hub-input {
+  width: auto;
+  min-width: 6.5rem;
+  max-width: 9rem;
+  padding: 0.28rem 0.4rem;
+  font-size: 0.78rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.pos-customer-selected--hub {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  margin: 0.15rem 0 0.25rem;
+  padding: 0.3rem 0.45rem;
+  background: #dcfce7;
+  border: 1px solid #86efac;
+  border-radius: 7px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #15803d;
+}
+
+.pos-customer-selected__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pos-customer-change-btn {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  padding: 0.15rem 0.45rem;
+}
+
+.pos-customer-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.pos-customer-fields[hidden] {
+  display: none !important;
+}
+
+.pos-customer-save-hint {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.pos-ext-hub-customer-chip {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: #15803d;
+  background: #dcfce7;
+  border: 1px solid #86efac;
+  border-radius: 7px;
+  padding: 0.28rem 0.45rem;
+  white-space: nowrap;
+}
+
+.pos-zone-selected--hub {
+  margin: 0;
+  padding: 0.25rem 0.4rem;
+  font-size: 0.74rem;
+  white-space: nowrap;
+}
+
+.pos-delivery-zone-wrap--hub {
+  margin: 0;
+  padding: 0.2rem 0.35rem;
+}
+
+.pos-hub-open-orders {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.3rem;
+  align-items: center;
+  overflow-x: auto;
+  max-width: 38vw;
+  flex-shrink: 0;
+}
+
+.pos-hub-open-order-form {
+  margin: 0;
+}
+
+.pos-hub-order-chip {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  border-radius: 999px;
+  padding: 0.22rem 0.55rem;
+  font-size: 0.72rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.pos-hub-order-chip.is-active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  font-weight: 700;
 }
 
 .pos-toolbar {
@@ -120,6 +944,7 @@
   aspect-ratio: 4 / 3;
   background: #f1f3f8;
   overflow: hidden;
+  max-height: 72px;
 }
 
 .pos-card-img-wrap img {
@@ -130,24 +955,32 @@
 }
 
 .pos-card-body {
+  position: relative;
+  z-index: 1;
   padding: 0.35rem 0.4rem 0.5rem;
   font-size: 0.82rem;
+  pointer-events: none;
 }
 
 .pos-card-name {
   font-weight: 600;
   color: #1a1d26;
-  line-height: 1.25;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  line-height: 1.35;
+  font-size: 0.82rem;
+  display: block;
   overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-word;
+  min-height: 1.15em;
+  max-height: 2.75em;
 }
 
 .pos-card-price {
   color: #2563eb;
   font-weight: 600;
-  margin-top: 0.15rem;
+  margin-top: 0.2rem;
+  font-size: 0.8rem;
+  line-height: 1.3;
 }
 
 .num-frac {
@@ -165,8 +998,11 @@
 .pos-card-btn {
   position: absolute;
   inset: 0;
+  z-index: 2;
   opacity: 0;
   cursor: pointer;
+  border: none;
+  background: transparent;
 }
 
 .pos-pay {
@@ -205,12 +1041,72 @@
 }
 
 .pos-cart-actions {
-  width: 1%;
+  width: 2.1rem;
+  min-width: 2.1rem;
   white-space: nowrap;
   text-align: center;
+  vertical-align: middle;
+  padding-inline: 0.15rem !important;
 }
 
-/* جدول السلة: إعطاء عمود الإجراء أقل عرض، ومنع كسر السطر في الأرقام */
+/* جدول السلة: إعطاء عمود الإجراء عرضاً ثابتاً، ومنع كسر السطر في الأرقام */
+.pos-sidebar-cart-scroll .pos-cart-table {
+  font-size: 0.88rem;
+  width: 100%;
+  min-width: 100%;
+  table-layout: fixed;
+}
+
+.pos-cart-table th:first-child,
+.pos-cart-table td:first-child {
+  width: 36%;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+
+.pos-cart-table th:nth-child(2),
+.pos-cart-table td:nth-child(2) {
+  width: 24%;
+}
+
+.pos-cart-table th:nth-child(3),
+.pos-cart-table td:nth-child(3),
+.pos-cart-table th:nth-child(4),
+.pos-cart-table td:nth-child(4) {
+  width: 17%;
+}
+
+.pos-cart-table th:last-child,
+.pos-cart-table td:last-child {
+  width: 2.1rem;
+}
+
+.pos-qty-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  vertical-align: middle;
+}
+
+.pos-qty-btn {
+  min-width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.pos-qty-value {
+  min-width: 1.75rem;
+  text-align: center;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
 .pos-cart-table th,
 .pos-cart-table td {
   padding: 0.4rem 0.35rem;
@@ -235,14 +1131,44 @@
   margin-inline-end: 0.25rem;
 }
 
+@media (max-width: 1100px) {
+  .pos-table-grid.pos-table-grid--rail {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 900px) {
+  body.pos-mode .pos-layout {
+    height: auto;
+    min-height: calc(100vh - var(--pos-topbar-h, 58px) - 1rem);
+  }
   .pos-layout {
     flex-direction: column;
   }
-  .pos-sidebar {
+  .pos-sidebar,
+  .pos-context-rail {
     flex: none;
     max-width: none;
     width: 100%;
+    height: auto;
+    max-height: none;
+    overflow: visible;
+  }
+  .pos-workspace {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+  }
+  .pos-workspace-row {
+    flex-direction: column;
+  }
+  .pos-context-rail-stack {
+    max-height: min(50vh, 420px);
+  }
+  .pos-main {
+    height: auto;
+    max-height: none;
+    min-height: 50vh;
   }
 }
 
@@ -264,11 +1190,16 @@
   cursor: pointer;
   font-size: 0.85rem;
   font-weight: 600;
-  color: #475569;
+  color: #94a3b8;
+  opacity: 0.55;
   transition: all 0.15s;
 }
-.ctx-tab:hover { color: #1e293b; }
+.ctx-tab:hover {
+  opacity: 0.75;
+  color: #64748b;
+}
 .ctx-tab.active {
+  opacity: 1;
   background: #fff;
   color: #2563eb;
   box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
@@ -282,4 +1213,1151 @@
   border: 1px solid var(--border);
   border-radius: 6px;
   font-size: 0.92rem;
+}
+
+/* شبكة الطاولات — طي/عرض */
+.pos-tables-panel {
+  margin-bottom: 0.35rem;
+  transition: margin-bottom 0.2s ease;
+}
+.pos-tables-panel.is-collapsed {
+  margin-bottom: 0;
+}
+.pos-tables-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  margin-bottom: 0.35rem;
+  flex-wrap: wrap;
+}
+.pos-tables-current {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #1e40af;
+  min-width: 0;
+}
+.pos-tables-toggle-btn {
+  font-size: 0.78rem;
+  padding: 0.28rem 0.55rem;
+  margin-inline-start: auto;
+  white-space: nowrap;
+}
+.pos-tables-toggle-btn .pos-tables-toggle-show[hidden],
+.pos-tables-toggle-btn .pos-tables-toggle-hide[hidden] {
+  display: none;
+}
+.pos-tables-body {
+  overflow: hidden;
+  transition: max-height 0.22s ease, opacity 0.16s ease, margin 0.2s ease;
+  max-height: 480px;
+}
+.pos-tables-body.is-collapsed {
+  display: none !important;
+  max-height: 0;
+  margin: 0;
+  padding: 0;
+}
+.pos-tables-panel.is-collapsed .pos-tables-toolbar {
+  margin-bottom: 0.2rem;
+}
+.pos-tables-panel.is-collapsed .pos-tables-hint {
+  display: none;
+}
+.pos-tables-hint {
+  font-size: 0.75rem;
+  margin: 0.35rem 0 0;
+  text-align: center;
+}
+
+.pos-delivery-zone-wrap {
+  background: #fffbeb;
+  border: 1px solid #fdba74;
+  border-radius: 8px;
+  padding: 0.5rem 0.55rem;
+}
+.pos-delivery-zone-wrap select.input {
+  width: 100%;
+  font-weight: 600;
+}
+
+.pos-zone-selected {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.55rem;
+  margin-bottom: 0.45rem;
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  border-radius: 8px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #15803d;
+}
+
+.pos-zone-selected button {
+  margin-inline-start: auto;
+  font-size: 0.72rem;
+  padding: 0.15rem 0.4rem;
+}
+
+.pos-table-grid {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 0.28rem;
+  margin-bottom: 0.35rem;
+}
+.pos-table-tile-form {
+  margin: 0;
+  min-width: 0;
+}
+.pos-table-tile {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  padding: 0;
+  transition: border-color 0.12s, box-shadow 0.12s, background 0.12s;
+}
+.pos-table-tile:hover {
+  border-color: #93c5fd;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.12);
+}
+.pos-table-tile.is-selected {
+  border-color: #2563eb;
+  background: #eff6ff;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+.pos-table-tile.has-order {
+  border-color: #f87171;
+  background: #fef2f2;
+}
+.pos-table-tile.has-order.is-selected {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+.pos-table-tile.has-order-sent {
+  border-color: #fb923c;
+  background: #fff7ed;
+}
+.pos-table-tile__no {
+  position: absolute;
+  bottom: 0.15rem;
+  left: 0.2rem;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #334155;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.pos-table-tile__badge {
+  position: absolute;
+  top: 0.06rem;
+  right: 0.06rem;
+  min-width: 1.3rem;
+  height: 1.3rem;
+  padding: 0 0.18rem;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  line-height: 1;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+.pos-table-tile__badge--pending {
+  background: #dc2626;
+}
+.pos-table-tile__badge--sent {
+  background: #ea580c;
+}
+
+.pos-dismissible-alert {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+  padding: 0.6rem 0.85rem;
+  border-radius: 8px;
+  margin-bottom: 0.55rem;
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
+.pos-dismissible-alert__icon {
+  flex-shrink: 0;
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.pos-dismissible-alert__text {
+  flex: 1;
+  min-width: 8rem;
+}
+
+.pos-dismissible-alert__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  margin-inline-start: auto;
+}
+
+.pos-dismissible-alert__ok,
+.pos-dismissible-alert__cancel,
+.pos-dismissible-alert__collect,
+.pos-dismissible-alert__edit {
+  padding: 0.28rem 0.85rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.pos-dismissible-alert__collect {
+  white-space: nowrap;
+}
+
+.pos-dismissible-alert--error {
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  color: #991b1b;
+}
+
+.pos-dismissible-alert--error .pos-dismissible-alert__ok {
+  background: #fff;
+  border-color: #fca5a5;
+  color: #991b1b;
+}
+
+.pos-dismissible-alert--warn {
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  color: #9a3412;
+  font-weight: 600;
+}
+
+.pos-dismissible-alert--warn .pos-dismissible-alert__ok {
+  background: #fff;
+  border-color: #fdba74;
+  color: #9a3412;
+}
+
+.pos-dismissible-alert--warn .pos-dismissible-alert__edit {
+  border-color: #ea580c;
+}
+
+.pos-dismissible-alert--info {
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  color: #92400e;
+}
+
+.pos-dismissible-alert--info .pos-dismissible-alert__ok {
+  background: #fff;
+  border-color: #fcd34d;
+  color: #92400e;
+}
+
+.pos-kitchen-alert {
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  color: #9a3412;
+  padding: 0.55rem 0.85rem;
+  border-radius: 8px;
+  margin-bottom: 0.55rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+.pos-kitchen-alert + .pos-kitchen-alert {
+  margin-top: -0.25rem;
+}
+
+/* ملاحظات الصنف — سلة + نافذة */
+.pos-line-note-text {
+  font-size: 0.78rem;
+  color: #b45309;
+  font-weight: 600;
+  margin-top: 0.15rem;
+  line-height: 1.35;
+}
+
+.pos-line-note-edit {
+  margin-top: 0.2rem;
+  padding: 0.15rem 0.4rem !important;
+  font-size: 0.72rem !important;
+}
+
+.pos-line-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.pos-line-modal[hidden] {
+  display: none !important;
+}
+
+.pos-line-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.pos-line-modal__dialog {
+  position: relative;
+  z-index: 1;
+  background: #fff;
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+  max-width: 420px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.2);
+}
+
+.pos-line-preset-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.pos-line-preset-chip {
+  display: inline-flex;
+  cursor: pointer;
+  margin: 0;
+}
+
+.pos-line-preset-chip input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.pos-line-preset-chip span {
+  display: inline-block;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  background: #f8fafc;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.pos-line-preset-chip input:checked + span {
+  background: #eff6ff;
+  border-color: #2563eb;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.pos-line-modal__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+}
+
+.pos-confirm-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1250;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.pos-confirm-modal[hidden] {
+  display: none !important;
+}
+
+.pos-confirm-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.pos-confirm-modal__dialog {
+  position: relative;
+  z-index: 1;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1.15rem 1.25rem 1.1rem;
+  max-width: min(420px, 92vw);
+  width: 100%;
+  box-shadow: 0 16px 48px rgba(15, 23, 42, 0.22);
+  text-align: center;
+}
+
+.pos-confirm-modal__icon {
+  font-size: 1.75rem;
+  line-height: 1;
+  margin-bottom: 0.35rem;
+}
+
+.pos-confirm-modal__title {
+  margin: 0 0 0.55rem;
+  font-size: 1.08rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.pos-confirm-modal__body {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: #334155;
+}
+
+.pos-confirm-modal__detail {
+  margin: 0.65rem 0 0;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  font-size: 1rem;
+  font-weight: 800;
+  color: #15803d;
+  font-variant-numeric: tabular-nums;
+}
+
+.pos-confirm-modal__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  justify-content: center;
+  margin-top: 1rem;
+}
+
+.pos-confirm-modal__cancel {
+  min-width: 5.5rem;
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #475569;
+}
+
+.pos-confirm-modal__ok {
+  min-width: 8.5rem;
+  background: #059669;
+  border-color: #047857;
+  color: #fff;
+  font-weight: 700;
+}
+
+.pos-confirm-modal__ok:hover {
+  background: #047857;
+  border-color: #065f46;
+}
+
+.pos-card-btn--add {
+  cursor: pointer;
+}
+
+.pos-pipeline-bar {
+  margin: 0.4rem 0 0.35rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.pos-pipeline-label {
+  display: block;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.pos-pipeline-hint {
+  display: block;
+  color: var(--muted, #64748b);
+  font-size: 0.72rem;
+}
+
+.pos-pipeline-entering { border-color: #fcd34d; background: #fffbeb; }
+.pos-pipeline-entering .pos-pipeline-label { color: #92400e; }
+.pos-pipeline-sent,
+.pos-pipeline-ready_serve { border-color: #93c5fd; background: #eff6ff; }
+.pos-pipeline-ready,
+.pos-pipeline-served_await_pay { border-color: #86efac; background: #f0fdf4; }
+.pos-pipeline-ready .pos-pipeline-label,
+.pos-pipeline-served_await_pay .pos-pipeline-label { color: #047857; }
+
+.pos-settle-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.35rem;
+}
+
+.pos-settle-btns .pos-settle-btn {
+  flex: 1 1 8.5rem;
+  min-width: 0;
+  text-align: center;
+  padding: 0.55rem 0.45rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.pos-settlement-ctx {
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  background: #f8fafc;
+  border: 1px dashed #e2e8f0;
+}
+
+/* —— حالة الطلبات —— */
+.pos-rail-section--status.has-rows {
+  border-color: #bfdbfe;
+  background: linear-gradient(180deg, #f8fafc, #fff);
+}
+.pos-order-status-panel {
+  padding: 0.35rem 0.5rem 0.55rem;
+}
+.pos-order-status-empty {
+  margin: 0;
+  font-size: 0.82rem;
+  padding: 0.35rem 0.15rem;
+}
+.pos-order-status-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.pos-order-status-item {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0.55rem 0.6rem;
+  background: #fff;
+}
+.pos-order-status-item.is-active {
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.12);
+}
+.pos-order-status-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  margin-bottom: 0.35rem;
+}
+.pos-order-status-id {
+  font-weight: 800;
+  color: #1d4ed8;
+  text-decoration: none;
+  font-size: 0.95rem;
+}
+.pos-order-status-badge {
+  font-size: 0.68rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.pos-order-status-track {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin: 0.25rem 0 0.45rem;
+}
+.pos-track-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #cbd5e1;
+  flex-shrink: 0;
+}
+.pos-track-dot.on {
+  background: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+}
+.pos-track-line {
+  flex: 1;
+  height: 2px;
+  background: #e2e8f0;
+  min-width: 0.35rem;
+}
+.pos-track-line.on {
+  background: #93c5fd;
+}
+.pos-order-status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.pos-order-status-actions .pos-status-btn {
+  flex: 1 1 auto;
+  min-width: 4.5rem;
+  font-size: 0.78rem;
+  padding: 0.35rem 0.45rem;
+}
+
+/* —— شريط حالة الطلبات الأفقي —— */
+.pos-order-status-strip {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0.45rem 0.65rem 0.55rem;
+  border: 1px solid #e2e8f0;
+  background: linear-gradient(180deg, #f8fafc, #fff);
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.pos-order-status-strip.has-rows {
+  border-color: #bfdbfe;
+}
+
+.pos-order-status-strip__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.pos-order-status-strip__title {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.pos-order-status-strip__hint {
+  font-size: 0.72rem;
+}
+
+.pos-order-status-strip__empty {
+  margin: 0;
+  font-size: 0.78rem;
+  padding: 0.15rem 0;
+}
+
+.pos-order-status-strip__scroll {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 0.5rem;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 0.25rem;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: #93c5fd #eef2ff;
+}
+
+.pos-order-status-strip__scroll::-webkit-scrollbar {
+  height: 7px;
+}
+
+.pos-order-status-strip__scroll::-webkit-scrollbar-track {
+  background: #eef2ff;
+  border-radius: 999px;
+}
+
+.pos-order-status-strip__scroll::-webkit-scrollbar-thumb {
+  background: #93c5fd;
+  border-radius: 999px;
+}
+
+.pos-order-status-chip {
+  flex: 0 0 auto;
+  flex-shrink: 0;
+  min-width: 11.5rem;
+  max-width: 16rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0.45rem 0.55rem 0.5rem;
+  background: #fff;
+}
+
+.pos-order-status-chip.is-active {
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.12);
+}
+
+.pos-order-status-chip.pos-ctx--delivery {
+  border-top: 3px solid #ea580c;
+}
+
+.pos-order-status-chip.pos-ctx--room {
+  border-top: 3px solid #7c3aed;
+}
+
+.pos-order-status-chip.pos-ctx--pickup {
+  border-top: 3px solid #059669;
+}
+
+.pos-order-status-chip__main {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.25rem;
+}
+
+.pos-order-status-chip__icon {
+  font-size: calc(1.15rem + 5px);
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.pos-order-status-chip__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.pos-order-status-chip__type {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.pos-order-status-chip__id {
+  font-weight: 800;
+  color: #1d4ed8;
+  text-decoration: none;
+  font-size: 0.88rem;
+  line-height: 1.1;
+}
+
+.pos-order-status-chip .pos-order-status-badge {
+  flex-shrink: 0;
+  max-width: 5.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pos-order-status-track--compact {
+  margin: 0.15rem 0 0.35rem;
+}
+
+.pos-order-status-chip__actions {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.25rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+  scrollbar-width: none;
+}
+
+.pos-order-status-chip__actions::-webkit-scrollbar {
+  display: none;
+}
+
+.pos-status-btn--xs {
+  font-size: 0.68rem !important;
+  padding: 0.2rem 0.35rem !important;
+  min-width: 0 !important;
+  line-height: 1.2;
+}
+
+.pos-status-btn--present {
+  background: #059669 !important;
+  border-color: #047857 !important;
+  color: #fff !important;
+}
+
+.pos-status-btn--driver {
+  background: #7c2d12 !important;
+  border-color: #9a3412 !important;
+  color: #fff !important;
+}
+
+.pos-driver-btn.is-assigned {
+  background: #15803d !important;
+  border-color: #166534 !important;
+  color: #fff !important;
+  font-weight: 700;
+  max-width: 5.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* —— نافذة الدفع المنبثقة —— */
+.pos-checkout-dialog {
+  border: none;
+  border-radius: 14px;
+  padding: 0;
+  width: min(920px, 96vw);
+  max-height: 92vh;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.28);
+}
+.pos-checkout-dialog::backdrop {
+  background: rgba(15, 23, 42, 0.45);
+}
+.pos-checkout-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+  border-radius: 14px 14px 0 0;
+}
+.pos-checkout-dialog-body {
+  padding: 0.75rem 1rem 1rem;
+  overflow: auto;
+  max-height: calc(92vh - 3.5rem);
+}
+
+/* —— نافذة جميع الطلبات —— */
+.pos-all-orders-dialog {
+  border: none;
+  border-radius: 14px;
+  padding: 0;
+  width: min(1200px, 98vw);
+  max-height: 96vh;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.28);
+}
+.pos-all-orders-dialog::backdrop {
+  background: rgba(15, 23, 42, 0.45);
+}
+.pos-all-orders-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+  border-radius: 14px 14px 0 0;
+}
+.pos-all-orders-dialog-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid #e2e8f0;
+  background: #fff;
+  flex-wrap: wrap;
+}
+.pos-all-orders-shift-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #475569;
+  white-space: nowrap;
+}
+.pos-all-orders-shift-select {
+  flex: 1;
+  min-width: 12rem;
+  max-width: 100%;
+}
+.pos-all-orders-dialog-body {
+  padding: 0.75rem 1rem 1rem;
+  overflow: auto;
+  max-height: calc(96vh - 8.5rem);
+}
+.pos-all-orders-dialog-body .pos-all-orders-table {
+  font-size: 0.88rem;
+}
+
+.pos-checkout-modal-inner .card {
+  margin-bottom: 0.75rem;
+}
+.pos-checkout-modal-inner .pay-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.65rem;
+  margin-top: 0.65rem;
+}
+.pos-checkout-modal-inner .pay-tile {
+  border: 2px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+  padding: 0.75rem;
+  text-align: center;
+  cursor: pointer;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+}
+.pos-checkout-modal-inner .pay-tile.checked {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+.pos-checkout-modal-inner .pay-tile-icon-img {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  border-radius: 8px;
+}
+.pos-checkout-modal-inner .pay-tile-icon-svg {
+  color: #2563eb;
+}
+.pos-checkout-modal-inner .checkout-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 700;
+  padding: 0.65rem 0.85rem;
+  background: #f8fafc;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+}
+
+/* —— تنبيه طلبات محادثة الويب (POS) —— */
+.pos-web-chat-alert-strip {
+  display: none;
+  flex: 0 0 auto;
+  margin: 0 0 0.45rem;
+  padding: 0.55rem 0.65rem 0.65rem;
+  border-radius: 12px;
+  border: 2px solid #fb923c;
+  background: linear-gradient(180deg, #fff7ed, #ffedd5);
+  box-shadow: 0 4px 18px rgba(249, 115, 22, 0.22);
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  animation: pos-web-chat-glow 2.4s ease-in-out infinite;
+}
+
+.pos-web-chat-alert-strip.has-orders {
+  display: block;
+}
+
+@keyframes pos-web-chat-glow {
+  0%, 100% { box-shadow: 0 4px 18px rgba(249, 115, 22, 0.22); }
+  50% { box-shadow: 0 6px 24px rgba(249, 115, 22, 0.42); }
+}
+
+.pos-web-chat-alert-strip__head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.45rem;
+}
+
+.pos-web-chat-alert-strip__pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #dc2626;
+  flex-shrink: 0;
+  animation: pos-web-chat-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pos-web-chat-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.85); }
+}
+
+.pos-web-chat-alert-strip__title {
+  margin: 0;
+  flex: 1;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #9a3412;
+}
+
+.pos-web-chat-alert-strip__count {
+  background: #dc2626;
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 800;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  padding: 0 0.35rem;
+}
+
+.pos-web-chat-alert-strip__scroll {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding-bottom: 0.15rem;
+}
+
+.pos-web-chat-alert-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex: 0 0 auto;
+  min-width: min(100%, 320px);
+  max-width: 360px;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid #fdba74;
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  text-align: right;
+  font-family: inherit;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+
+.pos-web-chat-alert-chip:hover {
+  border-color: #f97316;
+  box-shadow: 0 4px 14px rgba(249, 115, 22, 0.25);
+  transform: translateY(-1px);
+}
+
+.pos-web-chat-alert-chip__icon {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+.pos-web-chat-alert-chip__main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.pos-web-chat-alert-chip__main strong {
+  color: #c2410c;
+  font-size: 0.95rem;
+}
+
+.pos-web-chat-alert-chip__guest {
+  font-size: 0.78rem;
+  color: #334155;
+}
+
+.pos-web-chat-alert-chip__items {
+  font-size: 0.72rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 12rem;
+}
+
+.pos-web-chat-alert-chip__total {
+  font-weight: 800;
+  color: #15803d;
+  font-size: 0.88rem;
+  white-space: nowrap;
+}
+
+.pos-web-chat-alert-chip__action {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #ea580c;
+  white-space: nowrap;
+}
+
+/* —— طلبات الشات داخل قسم التوصيل/الاستلام —— */
+.pos-rail-chat-badge {
+  display: inline-block;
+  min-width: 1.1rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  vertical-align: middle;
+}
+
+.pos-chat-rail-incoming {
+  margin: 0 0 0.65rem;
+  padding: 0.55rem 0.6rem;
+  border-radius: 10px;
+  border: 1px solid #fdba74;
+  background: linear-gradient(180deg, #fff7ed, #ffedd5);
+}
+
+.pos-chat-rail-incoming__head {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.45rem;
+  font-size: 0.82rem;
+  color: #9a3412;
+}
+
+.pos-chat-rail-incoming__pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #dc2626;
+  animation: pos-web-chat-pulse 1.2s ease-in-out infinite;
+}
+
+.pos-chat-rail-incoming__count {
+  margin-inline-start: auto;
+  background: #dc2626;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  min-width: 1.2rem;
+  height: 1.2rem;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  padding: 0 0.3rem;
+}
+
+.pos-chat-rail-incoming__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.pos-chat-rail-chip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid #fdba74;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  text-align: right;
+  font-family: inherit;
+  font-size: 0.8rem;
+}
+
+.pos-chat-rail-chip:hover {
+  border-color: #f97316;
+  box-shadow: 0 2px 8px rgba(249, 115, 22, 0.2);
+}
+
+.pos-chat-rail-chip__id {
+  font-weight: 800;
+  color: #c2410c;
+}
+
+.pos-chat-rail-chip__meta {
+  flex: 1;
+  min-width: 0;
+  color: #334155;
+}
+
+.pos-chat-rail-chip__total {
+  font-weight: 700;
+  color: #15803d;
 }

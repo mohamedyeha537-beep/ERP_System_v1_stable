@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% from "_notifications_admin_nav.html" import notifications_nav %}
+
+{% block title %}تحليلات الإشعارات{% endblock %}
+
+{% block body %}
+<h1>تحليلات أداء الإشعارات</h1>
+<p class="muted">المرحلة الأخيرة — معدلات النجاح والفشل حسب نوع الحدث.</p>
+{{ notifications_nav(nav_active) }}
+
+<form method="get" class="row" style="gap:0.5rem;align-items:flex-end;margin-bottom:1rem">
+  <label>آخر
+    <input type="number" name="days" value="{{ days }}" min="1" max="365" style="width:5rem" />
+    يوم
+  </label>
+  <button type="submit" class="btn">تحديث</button>
+</form>
+
+<div class="card" style="margin-bottom:1rem">
+  <p style="margin:0">
+    إجمالي السجلات: <strong>{{ stats.total }}</strong> —
+    مرسلة: <strong style="color:#15803d">{{ stats.sent }}</strong> —
+    فاشلة: <strong style="color:#b91c1c">{{ stats.failed }}</strong> —
+    متخطاة: {{ stats.skipped }} —
+    في الطابور: {{ stats.queued }} —
+    نسبة النجاح: <strong>{{ stats.success_rate }}%</strong>
+  </p>
+</div>
+
+{% if stats.daily_sent %}
+<div class="card" style="margin-bottom:1rem">
+  <h2 style="margin-top:0">الرسائل المرسلة يومياً</h2>
+  <table class="table">
+    <thead><tr><th>اليوم</th><th>مرسلة</th></tr></thead>
+    <tbody>
+    {% for day, cnt in stats.daily_sent %}
+    <tr><td>{{ day }}</td><td>{{ cnt }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0">حسب نوع الحدث</h2>
+  <table class="table">
+    <thead><tr><th>الحدث</th><th>مرسلة</th><th>فاشلة</th><th>متخطاة</th><th>المجموع</th></tr></thead>
+    <tbody>
+    {% for row in stats.by_event %}
+    <tr>
+      <td><code>{{ row.event_key }}</code></td>
+      <td>{{ row.sent }}</td>
+      <td>{{ row.failed }}</td>
+      <td>{{ row.skipped }}</td>
+      <td>{{ row.total }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="muted">لا بيانات في هذه الفترة.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

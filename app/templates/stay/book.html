@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+{% include "_public_web_head.html" %}
+{% if web_mkt is not defined or not web_mkt %}<title>تأكيد الحجز</title>{% endif %}
+<link rel="stylesheet" href="/static/app.css" /></head>
+<body style="max-width:720px;margin:0 auto;padding:1rem">
+<h1>تأكيد الحجز</h1>
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+{% set prep_pct = prepayment_percent | default(100) %}
+{% set req_pay = prepayment_required | default(stay_total) %}
+
+{% if stay_total is defined and stay_total %}
+<p class="muted">إجمالي الإقامة: <strong>{{ stay_total }} د.ل</strong>
+  {% if prep_pct > 0 %} — {{ prepayment_percent_label | default('') }} (الحد الأدنى: <strong>{{ req_pay }} د.ل</strong>){% else %} — لا يُشترط دفع مقدّم{% endif %}
+</p>
+{% endif %}
+
+<form method="post" action="/stay/book" class="card" id="stay-book-form">
+  <input type="hidden" name="room_type_id" value="{{ room_type_id }}" />
+  <input type="hidden" name="check_in" value="{{ check_in }}" />
+  <input type="hidden" name="check_out" value="{{ check_out }}" />
+  <input type="hidden" name="adults" value="{{ adults }}" />
+  <label>الاسم *</label><input name="guest_name" required />
+  <label>الهاتف *</label><input name="guest_phone" required dir="ltr" />
+  <label>البريد</label><input name="guest_email" type="email" />
+  <div id="stay-payment-fields"{% if prep_pct == 0 %} hidden{% endif %}>
+    <label>المبلغ المدفوع{% if prep_pct > 0 %} *{% endif %}</label>
+    <input name="deposit" id="stay-deposit" type="number" step="0.001" min="0"
+      {% if prep_pct > 0 %}required{% endif %}
+      value="{% if req_pay %}{{ req_pay }}{% elif stay_total %}{{ stay_total }}{% endif %}" />
+    <label>وسيلة الدفع{% if prep_pct > 0 %} *{% endif %}</label>
+    <select name="pay_method_id" id="stay-pay-method" {% if prep_pct > 0 %}required{% endif %}><option value="">— اختر —</option>{% for m in methods %}<option value="{{ m.id }}">{{ m.name_ar }}</option>{% endfor %}</select>
+  </div>
+  <button class="btn btn-primary" type="submit" style="margin-top:0.75rem">تأكيد الحجز{% if prep_pct > 0 %} والدفع{% endif %}</button>
+</form>
+<script>
+(function () {
+  var prepPct = {{ prep_pct }};
+  var due = {{ req_pay | tojson if req_pay is defined else (stay_total | tojson if stay_total is defined else 'null') }};
+  var dep = document.getElementById('stay-deposit');
+  var pm = document.getElementById('stay-pay-method');
+  var form = document.getElementById('stay-book-form');
+  if (!form || prepPct <= 0) return;
+  if (dep && due !== null) {
+    dep.min = String(due);
+    if (!dep.value) dep.value = String(due);
+  }
+  form.addEventListener('submit', function (e) {
+    if (due === null) return;
+    var paid = parseFloat((dep && dep.value) || '0');
+    if (!paid || paid + 0.001 < Number(due)) {
+      e.preventDefault();
+      alert('يجب دفع ' + due + ' د.ل على الأقل (' + prepPct + '%).');
+      return;
+    }
+    if (pm && !pm.value) {
+      e.preventDefault();
+      alert('اختر وسيلة الدفع.');
+    }
+  });
+})();
+</script>
+{% include "_public_web_body.html" %}
+</body></html>

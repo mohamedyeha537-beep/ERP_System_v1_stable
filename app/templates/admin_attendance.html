@@ -22,11 +22,49 @@
   .check-row { display: grid; grid-template-columns: 2fr 1.2fr 1.5fr auto; gap: 0.5rem; align-items: end; }
   @media (max-width: 760px) { .check-row { grid-template-columns: 1fr; } }
   .live-clock { font-size: 1.4rem; font-weight: 800; color: #1e40af; font-variant-numeric: tabular-nums; }
+  .att-adj-dialog {
+    border: none; border-radius: 14px; padding: 1.15rem 1.25rem; max-width: 440px; width: calc(100vw - 2rem);
+    box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
+  }
+  .att-adj-dialog::backdrop { background: rgba(15, 23, 42, 0.45); }
+  .att-adj-dialog label { display: block; margin-bottom: 0.15rem; }
+  .att-hours-counted {
+    white-space: nowrap;
+    min-width: 4.25rem;
+    line-height: 1.35;
+  }
+  .att-hours-num {
+    display: inline-block;
+    font-size: 1.15rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    unicode-bidi: isolate;
+    min-width: 1.5rem;
+    text-align: center;
+  }
+  .att-hours-counted--payroll .att-hours-num,
+  .att-hours-counted--payroll .att-hours-unit {
+    color: #16a34a;
+  }
+  .att-hours-unit {
+    font-weight: 700;
+    margin-inline-start: 0.1rem;
+  }
+  .att-hours-sub {
+    font-size: 0.78rem;
+    margin-top: 0.1rem;
+  }
+  td.att-col-counted, th.att-col-counted {
+    min-width: 4.5rem;
+    white-space: nowrap;
+  }
   .help { background: #eff6ff; border-right: 4px solid #2563eb; padding: 0.7rem 1rem;
           border-radius: 8px; color: #1e3a8a; margin-bottom: 1rem; line-height: 1.7; }
 </style>
 {% endblock %}
 {% block body %}
+{% from "_attendance_adjust_dialog.html" import attendance_adjust_dialog %}
+{% from "_attendance_display.html" import attendance_hours_cell, attendance_ot_cell, attendance_approval_cell, attendance_approval_cell_compact %}
 <div class="row" style="justify-content: space-between; align-items: center">
   <h1 style="margin: 0">الحضور والانصراف</h1>
   <div class="row" style="gap: 0.5rem; align-items: center">
@@ -38,13 +76,145 @@
 
 <nav class="hr-nav">
   <a href="/admin/employees">الموظفون</a>
+  <a href="/admin/departments">الأقسام</a>
+  <a href="/admin/work-shifts">الورديات</a>
   <a href="/admin/attendance" class="active">الحضور والانصراف</a>
   <a href="/admin/payroll">الرواتب الشهرية</a>
   <a href="/admin/advances">السلف</a>
 </nav>
 
+<div class="help">
+  يُحسب <strong>التأخير</strong> و<strong>الانصراف المبكر</strong> و<strong>الساعات الإضافية</strong> تلقائياً عند تسجيل الانصراف
+  وفق <strong>وردية الموظف</strong>. الساعات الإضافية <strong>لا تُحسب في الرواتب</strong> إلا بعد موافقة المدير.
+  أنشئ الورديات من <a href="/admin/work-shifts">إدارة الورديات</a> وعيّنها في ملف كل موظف.
+</div>
+
+{% if ot_summary %}
+<div class="card" style="margin-bottom:1rem; background:linear-gradient(180deg,#eff6ff,#dbeafe); border:1px solid #93c5fd">
+  <h2 style="margin:0 0 0.6rem; font-size:1rem; color:#1e3a8a">
+    {% if selected_emp %}إجمالي الإضافي المعتمد — {{ selected_emp.full_name_ar }}{% else %}إجمالي الإضافي المعتمد — كل الموظفين{% endif %}
+  </h2>
+  <div class="row" style="gap:1.5rem; flex-wrap:wrap">
+    <div><span class="muted">اليوم</span><br><strong style="font-size:1.2rem">{{ ot_summary.today_hours }} س</strong></div>
+    <div><span class="muted">هذا الأسبوع</span><br><strong style="font-size:1.2rem">{{ ot_summary.week_hours }} س</strong></div>
+    <div><span class="muted">هذا الشهر</span><br><strong style="font-size:1.2rem">{{ ot_summary.month_hours }} س</strong></div>
+  </div>
+  <p class="muted" style="margin:0.5rem 0 0; font-size:0.85rem">
+    عمود <strong>ساعات</strong> = المحتسب في الرواتب (مثلاً 8 س وردية).
+    عمود <strong>إضافي</strong> = ما زاد عن الوردية — ✓ اعتماد أو ✗ رفض (مرة واحدة هنا فقط).
+  </p>
+</div>
+{% endif %}
+
 {% if error %}<div class="alert">{{ error }}</div>{% endif %}
-{% if saved %}<div class="alert" style="background:#ecfdf5; border-color:#10b981; color:#065f46">تم الحفظ ✓</div>{% endif %}
+{% if saved %}
+<div class="alert" style="background:#ecfdf5; border-color:#10b981; color:#065f46">
+  {% if adjusted_hours %}تم تعديل السجل — ساعات العمل الآن <strong>{{ adjusted_hours }} س</strong> ✓
+  {% else %}تم الحفظ ✓{% endif %}
+</div>
+{% endif %}
+{% if zk_synced %}<div class="alert" style="background:#ecfdf5; border-color:#10b981; color:#065f46">{{ zk_synced }}</div>{% endif %}
+
+{% if zk_status and (can_manage or zk_status.show_panel or zk_status.local_install) %}
+<div class="card" style="margin-bottom:1rem; border:2px solid #86efac; background:linear-gradient(180deg,#f0fdf4,#ecfdf5)">
+  <div class="row" style="justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap">
+    <div>
+      <h2 style="margin:0 0 0.4rem; color:#14532d">مزامنة ZKBioTime (البصمة)</h2>
+      {% if not zk_status.local_install and not zk_status.configured %}
+      <p class="muted" style="margin:0 0 0.5rem; font-size:0.88rem; color:#92400e">
+        على السيرفر اللايف: أدخل IP جهاز ZKBioTime (مثلاً IP جهاز الكاشير على الشبكة) ثم احفظ الإعدادات.
+      </p>
+      {% endif %}
+      <p class="muted" style="margin:0 0 0.5rem; font-size:0.88rem; color:#166534">
+        <strong>لجميع الموظفين دفعة واحدة</strong> — لا حاجة لفتح ملف كل موظف. المزامنة التلقائية تعمل في الخلفية كل
+        {{ zk_status.interval_seconds }} ثانية.
+        <br>
+        <strong>Clikk → ZKBio</strong> يدفع كل الموظفين النشطين إلى ZKBioTime، ثم من ZKBioTime:
+        <em>Device → Data Transfer → Upload employees</em> لرفعهم إلى جهاز البصمة.
+      </p>
+      <p class="muted" style="margin:0; line-height:1.7; font-size:0.92rem">
+        {% if zk_status.connected %}
+        <span style="color:#16a34a; font-weight:700">● متصل</span> — {{ zk_status.connection_message }}
+        {% else %}
+        <span style="color:#dc2626; font-weight:700">● غير متصل</span> — {{ zk_status.connection_message }}
+        {% endif %}
+        <br>
+        موظفون مربوطون: <strong>{{ zk_status.linked_employees }}</strong>
+        · آخر مزامنة: <strong>{{ zk_status.last_sync_at or '—' }}</strong>
+        {% if zk_status.max_transaction_id is defined %}
+        · بصمات ZKBio: <strong>{{ zk_status.max_transaction_id }}</strong>
+        · مؤشر Clikk: <strong>{{ zk_status.last_transaction_id }}</strong>
+        {% if not zk_status.cursor_ok %}
+        <br><span style="color:#b45309">⚠ المؤشر متقدّم — اضغط «مزامنة البصمات» لإعادة المعالجة تلقائياً.</span>
+        {% endif %}
+        {% endif %}
+        {% if zk_status.last_sync_error %}
+        <br><span style="color:#b91c1c">آخر خطأ: {{ zk_status.last_sync_error }}</span>
+        {% endif %}
+      </p>
+    </div>
+    {% if can_manage %}
+    <div class="row" style="gap:0.5rem; align-items:center; flex-wrap:wrap">
+      <form method="post" action="/admin/attendance/zk-sync" style="margin:0">
+        <button class="btn btn-primary" type="submit" style="background:#16a34a; border-color:#15803d">⟳ مزامنة البصمات</button>
+      </form>
+      <form method="post" action="/admin/attendance/zk-sync-employees" style="margin:0">
+        <button class="btn" type="submit" style="background:#2563eb; color:#fff; border-color:#1d4ed8">👥 من ZKBio → Clikk</button>
+      </form>
+      <form method="post" action="/admin/attendance/zk-push-employees" style="margin:0">
+        <button class="btn" type="submit" style="background:#7c3aed; color:#fff; border-color:#6d28d9">⬆ Clikk → ZKBio</button>
+      </form>
+      <form method="post" action="/admin/attendance/zk-settings" class="row" style="gap:0.4rem; margin:0; align-items:center; flex-wrap:wrap">
+        <input type="hidden" name="zk_form" value="sync" />
+        <label style="display:flex; align-items:center; gap:0.3rem; font-size:0.88rem">
+          <input type="checkbox" name="zk_sync_enabled" value="on" {% if zk_status.enabled %}checked{% endif %} />
+          تلقائي كل
+        </label>
+        <input name="zk_sync_interval_seconds" type="number" min="15" max="600" value="{{ zk_status.interval_seconds }}"
+               style="width:4rem" /> ث
+        <button class="btn" type="submit">حفظ</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+  {% if can_manage and not zk_status.local_install %}
+  <details style="margin-top:0.75rem" {% if not zk_status.configured %}open{% endif %}>
+    <summary style="cursor:pointer; font-weight:700; color:#14532d">إعدادات اتصال ZKBioTime (للسيرفر اللايف)</summary>
+    <form method="post" action="/admin/attendance/zk-settings" class="grid-2" style="margin-top:0.75rem; gap:0.6rem">
+      <input type="hidden" name="zk_form" value="connection" />
+      <div>
+        <label>IP / Host</label>
+        <input name="zk_biotime_host" value="{{ zk_status.host or '' }}" placeholder="192.168.1.10" />
+      </div>
+      <div>
+        <label>Port</label>
+        <input name="zk_biotime_port" type="number" value="{{ zk_status.port or 7496 }}" />
+      </div>
+      <div>
+        <label>Database</label>
+        <input name="zk_biotime_db" value="{{ zk_status.dbname or 'biotime' }}" />
+      </div>
+      <div>
+        <label>User</label>
+        <input name="zk_biotime_user" value="{{ zk_status.db_user or 'postgres' }}" />
+      </div>
+      <div style="grid-column:1/-1">
+        <label>Password</label>
+        <input name="zk_biotime_password" type="password" placeholder="اتركه فارغاً للإبقاء على الحالي" autocomplete="new-password" />
+      </div>
+      <div style="grid-column:1/-1">
+        <button class="btn btn-primary" type="submit">حفظ إعدادات الاتصال</button>
+      </div>
+    </form>
+  </details>
+  {% endif %}
+  {% if zk_status.linked_employees == 0 %}
+  <p style="margin:0.75rem 0 0; color:#92400e; font-size:0.9rem">
+    ⚠ أضف <strong>كود البصمة</strong> في ملف كل موظف مطابقاً لـ ZKBioTime، أو اضغط <strong>مزامنة الموظفين من ZKBio</strong>.
+  </p>
+  {% endif %}
+</div>
+{% endif %}
 
 {% if open_sessions %}
 <div class="card">
@@ -53,7 +223,7 @@
   <div class="open-card">
     <div>
       <div class="name">{{ emp.full_name_ar }} <span class="muted" style="font-weight:400">— {{ emp.job_title or '' }}</span></div>
-      <div class="since">دخل عند {{ rec.check_in.strftime('%Y-%m-%d %H:%M') }} (بدون انصراف)</div>
+      <div class="since">دخل عند {{ pos_format_dt(rec.check_in, '%Y-%m-%d %H:%M') }} (بدون انصراف)</div>
     </div>
     {% if can_record %}
     <form method="post" action="/admin/attendance/check-out" style="margin:0">
@@ -145,9 +315,14 @@
     <thead>
       <tr>
         <th>الموظف</th>
+        <th>المصدر</th>
         <th>دخول</th>
         <th>خروج</th>
-        <th>ساعات</th>
+        <th class="att-col-counted" title="المحتسب في الرواتب — عند رفض الإضافي يظهر رقم الوردية">محتسب</th>
+        <th>الحالة</th>
+        <th>تأخير</th>
+        <th>إضافي</th>
+        <th>موافقة</th>
         <th>ملاحظة</th>
         <th></th>
       </tr>
@@ -159,15 +334,27 @@
           {% set emp = employees|selectattr('id','equalto',r.employee_id)|first %}
           <strong>{{ emp.full_name_ar if emp else '?' }}</strong>
         </td>
-        <td>{{ r.check_in.strftime('%H:%M') }}</td>
         <td>
-          {% if r.check_out %}{{ r.check_out.strftime('%H:%M') }}{% else %}<span style="color:#16a34a; font-weight:700">جلسة مفتوحة</span>{% endif %}
+          {% if r.source.value == 'AUTO' %}
+          <span style="background:#dcfce7;color:#166534;padding:0.1rem 0.45rem;border-radius:6px;font-size:0.78rem;font-weight:700">بصمة</span>
+          {% else %}
+          <span class="muted" style="font-size:0.85rem">{{ r.source_label }}</span>
+          {% endif %}
         </td>
+        <td>{{ pos_format_dt(r.check_in, '%H:%M') }}</td>
         <td>
-          {% if r.check_out %}{{ r.hours_worked }} س{% else %}—{% endif %}
+          {% if r.check_out %}{{ pos_format_dt(r.check_out, '%H:%M') }}{% else %}<span style="color:#16a34a; font-weight:700">جلسة مفتوحة</span>{% endif %}
         </td>
+        <td class="att-col-counted">{{ attendance_hours_cell(r) }}</td>
+        <td>{% if r.check_out %}{{ r.attendance_status_label }}{% else %}—{% endif %}</td>
+        <td>{% if r.check_out and r.late_minutes %}{{ r.late_minutes }} د{% else %}—{% endif %}</td>
+        <td>{{ attendance_ot_cell(r) }}</td>
+        <td>{{ attendance_approval_cell(r, can_manage) }}</td>
         <td class="muted">{{ r.notes or '—' }}</td>
-        <td>
+        <td style="white-space:nowrap">
+          {% if can_manage and r.check_out %}
+          {{ attendance_adjust_dialog(r, emp.full_name_ar if emp else '?') }}
+          {% endif %}
           {% if can_record %}
           <form method="post" action="/admin/attendance/{{ r.id }}/delete" style="display:inline" onsubmit="return confirm('حذف السجل؟')">
             <button class="btn" type="submit" style="padding:0.15rem 0.5rem; font-size:0.8rem; color:#b91c1c">حذف</button>
@@ -200,35 +387,64 @@
 
   {% if selected_emp %}
   <h3 style="margin-top: 1rem">سجل {{ selected_emp.full_name_ar }} — آخر 30 يوم</h3>
+  {% if selected_emp.work_shift %}
+  <p class="muted" style="margin-top:0">الوردية: <strong>{{ selected_emp.work_shift.name_ar }}</strong> — {{ selected_emp.work_shift.schedule_label }} (سماح {{ selected_emp.work_shift.grace_minutes }} د)</p>
+  {% else %}
+  <p class="muted" style="margin-top:0;color:#b45309">⚠ لم تُعيَّن وردية لهذا الموظف — لن يُحسب التأخير أو الإضافي.</p>
+  {% endif %}
   {% if history %}
   {% set total_hours = namespace(v=0.0) %}
-  {% for r in history %}{% if r.check_out %}{% set total_hours.v = total_hours.v + r.hours_worked|float %}{% endif %}{% endfor %}
+  {% set total_late = namespace(v=0) %}
+  {% set total_ot = namespace(v=0) %}
+  {% set total_ot_approved = namespace(v=0) %}
+  {% for r in history %}{% if r.check_out %}{% set total_hours.v = total_hours.v + r.hours_worked|float %}{% set total_late.v = total_late.v + (r.late_minutes or 0) %}{% set total_ot.v = total_ot.v + (r.overtime_minutes or 0) %}{% set total_ot_approved.v = total_ot_approved.v + (r.payroll_overtime_minutes or 0) %}{% endif %}{% endfor %}
   <table>
     <thead>
       <tr>
         <th>التاريخ</th>
         <th>دخول</th>
         <th>خروج</th>
-        <th>ساعات</th>
+        <th class="att-col-counted" title="المحتسب في الرواتب — عند رفض الإضافي يظهر رقم الوردية">محتسب</th>
+        <th>الحالة</th>
+        <th>تأخير</th>
+        <th>إضافي</th>
+        <th>موافقة</th>
         <th>ملاحظة</th>
+        <th></th>
       </tr>
     </thead>
     <tbody>
       {% for r in history %}
       <tr>
-        <td>{{ r.check_in.strftime('%Y-%m-%d') }}</td>
-        <td>{{ r.check_in.strftime('%H:%M') }}</td>
-        <td>{% if r.check_out %}{{ r.check_out.strftime('%H:%M') }}{% else %}<span style="color:#16a34a">مفتوحة</span>{% endif %}</td>
-        <td><strong>{% if r.check_out %}{{ r.hours_worked }} س{% else %}—{% endif %}</strong></td>
+        <td>{{ pos_format_dt(r.check_in, '%Y-%m-%d') }}</td>
+        <td>{{ pos_format_dt(r.check_in, '%H:%M') }}</td>
+        <td>{% if r.check_out %}{{ pos_format_dt(r.check_out, '%H:%M') }}{% else %}<span style="color:#16a34a">مفتوحة</span>{% endif %}</td>
+        <td class="att-col-counted">{{ attendance_hours_cell(r) }}</td>
+        <td>{% if r.check_out %}{{ r.attendance_status_label }}{% else %}—{% endif %}</td>
+        <td>{% if r.check_out and r.late_minutes %}{{ r.late_minutes }} د{% else %}—{% endif %}</td>
+        <td>{{ attendance_ot_cell(r) }}</td>
+        <td>{{ attendance_approval_cell_compact(r, can_manage) }}</td>
         <td class="muted">{{ r.notes or '—' }}</td>
+        <td>
+          {% if can_manage and r.check_out %}
+          {% set emp = employees|selectattr('id','equalto',r.employee_id)|first %}
+          {{ attendance_adjust_dialog(r, selected_emp.full_name_ar if selected_emp else (emp.full_name_ar if emp else '?')) }}
+          {% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>
     <tfoot>
       <tr style="background:#eff6ff; font-weight:700">
-        <td colspan="3">الإجمالي</td>
+        <td colspan="3">الإجمالي (30 يوم)</td>
         <td>{{ '%.2f'|format(total_hours.v) }} ساعة</td>
         <td></td>
+        <td>{{ total_late.v }} د</td>
+        <td>
+          {{ '%.1f'|format(total_ot.v / 60) }} س محسوب
+          {% if total_ot_approved.v %}<br><span style="color:#16a34a">{{ '%.1f'|format(total_ot_approved.v / 60) }} س معتمد</span>{% endif %}
+        </td>
+        <td colspan="3"></td>
       </tr>
     </tfoot>
   </table>
@@ -247,5 +463,80 @@
     if (el) el.textContent = s;
   }
   setInterval(tick, 1000); tick();
+
+  document.querySelectorAll('.att-adj-open').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var dlg = document.getElementById(btn.getAttribute('data-dialog'));
+      if (dlg && dlg.showModal) dlg.showModal();
+    });
+  });
+  document.querySelectorAll('.att-adj-cancel').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var dlg = btn.closest('dialog');
+      if (dlg) dlg.close();
+    });
+  });
+  document.querySelectorAll('.att-adj-dialog').forEach(function (dlg) {
+    dlg.addEventListener('click', function (e) {
+      if (e.target === dlg) dlg.close();
+    });
+    var form = dlg.querySelector('form');
+    if (!form) return;
+    var ci = form.querySelector('[name=check_in]');
+    var co = form.querySelector('[name=check_out]');
+    var wh = form.querySelector('[name=work_hours]');
+    var umt = form.querySelector('.att-adj-umt');
+    var override = form.querySelector('.att-adj-override');
+    var metrics = form.querySelectorAll('.att-adj-metric');
+    var preview = dlg.querySelector('.att-adj-preview');
+    var checkInRaw = dlg.getAttribute('data-check-in') || '';
+
+    function syncAdvanced() {
+      var adv = form.querySelector('.att-adj-advanced');
+      var open = adv && adv.open;
+      if (ci) ci.disabled = !open;
+      if (co) co.disabled = !open;
+      var manual = open && wh && !String(wh.value || '').trim();
+      if (umt) umt.value = manual ? '1' : '';
+      if (wh) {
+        if (open && manual) wh.removeAttribute('required');
+        else wh.setAttribute('required', 'required');
+      }
+      var ovr = override && override.checked;
+      metrics.forEach(function (el) { el.disabled = !(open && ovr); });
+    }
+
+    function updatePreview() {
+      if (!preview || !wh || !checkInRaw) return;
+      var hrs = parseFloat(String(wh.value || '').replace(',', '.'));
+      if (!hrs || hrs <= 0) {
+        preview.textContent = 'أدخل ساعات العمل الجديدة.';
+        return;
+      }
+      var start = new Date(checkInRaw);
+      if (isNaN(start.getTime())) {
+        preview.textContent = 'يُحدَّث وقت الخروج تلقائياً ويُعاد حساب الإضافي حسب الوردية.';
+        return;
+      }
+      var end = new Date(start.getTime() + hrs * 3600000);
+      preview.textContent = 'وقت الخروج بعد الحفظ: ' + end.toLocaleString('ar-LY', {
+        year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+      });
+    }
+
+    var adv = form.querySelector('.att-adj-advanced');
+    if (adv) adv.addEventListener('toggle', syncAdvanced);
+    if (override) override.addEventListener('change', syncAdvanced);
+    if (wh) {
+      wh.addEventListener('input', function () { syncAdvanced(); updatePreview(); });
+      updatePreview();
+    }
+    syncAdvanced();
+
+    form.addEventListener('submit', function () {
+      syncAdvanced();
+    });
+
+  });
 </script>
 {% endblock %}

@@ -7,34 +7,102 @@
     {% if pos_perm(request)('hotel:rooms:manage') %}
     <a class="btn" href="/admin/hotel/rooms">إدارة الغرف</a>
     {% endif %}
+    <a class="btn" href="/reports/receivables?balance_only=1">ديون العملاء</a>
   </div>
 </div>
 <p class="muted">
-  هنا تظهر كل الغرف التي عليها فواتير مفتوحة (طلبات نزلاء على حساب الغرفة).
-  افتح الغرفة لتسوية الحساب بالكامل أو بشكل جزئي بأسلوب الدفع الذي يختاره العميل.
+  هنا تظهر الغرف التي عليها فواتير مفتوحة مسجّلة بقيد شقة.
+  الفواتير التي تظهر في «ديون العملاء» باسم «غير مربوطة» لا تُحسب هنا حتى تُربط برقم الغرفة أدناه.
 </p>
 
 {% if error %}
 <div class="card" style="border-color:#fecaca; background:#fef2f2"><p style="margin:0; color:#b91c1c">{{ error }}</p></div>
 {% endif %}
+{% if saved %}
+<div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0">تم الحفظ.</p></div>
+{% endif %}
 
 <div class="card" style="background:linear-gradient(135deg,#fef3c7,#fde68a); border-color:#f59e0b">
-  <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem">
+  <div style="display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:1rem">
     <div>
-      <div style="font-size:0.9rem; color:#92400e">إجمالي الأرصدة المعلّقة على الغرف</div>
+      <div style="font-size:0.9rem; color:#92400e">إجمالي المعلّق على الغرف (قيود مسجّلة)</div>
       <div style="font-size:2rem; font-weight:800; color:#78350f">{{ '%.3f' % grand_total }} د.ل</div>
+      <div style="font-size:0.82rem; color:#92400e; margin-top:0.25rem">
+        عدد الغرف ذات الرصيد: <strong>{{ open_rooms|length }}</strong>
+      </div>
     </div>
-    <div style="text-align:end">
-      <div style="font-size:0.9rem; color:#92400e">عدد الغرف ذات الرصيد المفتوح</div>
-      <div style="font-size:2rem; font-weight:800; color:#78350f">{{ open_rooms|length }}</div>
+    {% if unlinked_total > 0 %}
+    <div style="border-inline-start:2px solid #d97706; padding-inline-start:1rem">
+      <div style="font-size:0.9rem; color:#92400e">فواتير شقة غير مربوطة بغرفة</div>
+      <div style="font-size:1.6rem; font-weight:800; color:#b45309">{{ '%.3f' % unlinked_total }} د.ل</div>
+      <div style="font-size:0.82rem; color:#92400e">{{ unlinked_invoices|length }} فاتورة — انظر القسم أدناه</div>
     </div>
+    <div>
+      <div style="font-size:0.9rem; color:#92400e">المجموع الكلي للتسوية</div>
+      <div style="font-size:1.4rem; font-weight:800; color:#7c2d12">{{ '%.3f' % combined_total }} د.ل</div>
+    </div>
+    {% endif %}
   </div>
 </div>
 
+{% if unlinked_invoices %}
+<div class="card" style="border-color:#f97316; background:#fff7ed">
+  <h2 style="margin-top:0; color:#c2410c">⚠️ فواتير شقة غير مربوطة بغرفة</h2>
+  <p class="muted" style="margin-top:0; font-size:0.9rem">
+    هذه الفواتير تظهر في <a href="/reports/receivables?balance_only=1">ديون العملاء</a> لكنها لا تظهر في قائمة الغرف
+    لأنها أُكمِلت دون تسجيل قيد «حساب شقة» على رقم الغرفة.
+    اختر الغرفة الصحيحة لكل فاتورة ثم اضغط «ربط» — أو حصّلها من صفحة الديون.
+  </p>
+  <table style="width:100%; margin-top:0.75rem">
+    <thead>
+      <tr>
+        <th>الفاتورة</th>
+        <th>التاريخ</th>
+        <th>المتبقي</th>
+        <th>ربط برقم الغرفة</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for inv in unlinked_invoices %}
+      <tr>
+        <td><strong>#{{ inv.sale_id }}</strong></td>
+        <td>{{ pos_format_dt(inv.created_at, '%Y-%m-%d %H:%M') if inv.created_at else '—' }}</td>
+        <td><strong>{{ '%.3f' % inv.outstanding }}</strong> د.ل</td>
+        <td colspan="2">
+          <form method="post" action="/hotel/settle/link-sale"
+                style="display:flex; flex-wrap:wrap; gap:0.4rem; align-items:flex-end">
+            <input type="hidden" name="sale_id" value="{{ inv.sale_id }}" />
+            <div>
+              <label style="font-size:0.78rem">الغرفة / الشقة</label>
+              <select name="room_id" required style="min-width:120px">
+                <option value="">— اختر —</option>
+                {% for rm in all_rooms %}
+                <option value="{{ rm.id }}">#{{ rm.number }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div>
+              <label style="font-size:0.78rem">اسم النزيل (اختياري)</label>
+              <input name="guest_name" type="text" placeholder="النزيل" style="min-width:140px" />
+            </div>
+            <button class="btn btn-primary" type="submit">ربط</button>
+            <a class="btn" href="/reports/receivables/invoice/{{ inv.sale_id }}">تحصيل / تفاصيل</a>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
 <div class="card">
   <h2 style="margin-top:0">الغرف ذات الحساب المفتوح</h2>
-  {% if not open_rooms %}
+  {% if not open_rooms and not unlinked_invoices %}
   <p class="muted">لا توجد فواتير مفتوحة على أي غرفة حالياً. ✅</p>
+  {% elif not open_rooms %}
+  <p class="muted">لا توجد غرف بقيود مفتوحة — لكن يوجد {{ unlinked_invoices|length }} فاتورة غير مربوطة أعلاه.</p>
   {% else %}
   <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:0.75rem">
     {% for room, total, count in open_rooms %}

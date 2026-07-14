@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    {% set brand = pos_brand(request) %}
+    {% set shop = shop_brand if shop_brand is defined else brand %}
+    {% include "_public_web_head.html" %}
+    {% if web_mkt is not defined or not web_mkt %}
+    <title>{{ page_title }} — {{ store_name }}</title>
+    {% endif %}
+    <link rel="stylesheet" href="/static/shop.css?v=14" />
+    <style>
+      :root {
+        --shop-header-from: {{ shop.header_bg_from }};
+        --shop-header-to: {{ shop.header_bg_to }};
+        --brand-primary: {{ shop.primary_color | default(shop.header_bg_from) }};
+        --brand-accent: {{ shop.accent_color | default(shop.header_bg_to) }};
+        --shop-header-fg: {{ shop.header_fg }};
+      }
+    </style>
+  </head>
+  <body class="shop-page shop-info-page">
+    {% set info_page = true %}
+    {% include "_shop_header.html" %}
+
+    <main class="shop-info-main">
+      {% if page_available %}
+      <article class="shop-info-card">
+        <h2 class="shop-info-title">{{ page_title }}</h2>
+        <div class="shop-info-body">{{ page_body }}</div>
+        <p class="shop-info-back">
+          <a href="/shop" class="shop-info-back-link">← العودة للقائمة</a>
+        </p>
+      </article>
+      {% else %}
+      <div class="shop-info-card shop-info-unavailable">
+        <h2 class="shop-info-title">الصفحة غير متاحة</h2>
+        <p class="shop-info-body">هذه الصفحة مخفية حالياً.</p>
+        <p class="shop-info-back">
+          <a href="/shop" class="shop-info-back-link">← العودة للقائمة</a>
+        </p>
+      </div>
+      {% endif %}
+    </main>
+
+    {% include "_public_web_body.html" %}
+  </body>
+</html>

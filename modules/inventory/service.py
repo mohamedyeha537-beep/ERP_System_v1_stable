@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from modules.inventory.models import (
@@ -34,7 +34,13 @@ def ensure_main_warehouse(db: Session) -> Warehouse:
     ).scalar_one_or_none()
     if main is not None:
         return main
-    main = Warehouse(name_ar="المخزن الرئيسي", is_main=True, is_active=True, sort_order=0)
+    main = Warehouse(
+        name_ar="المخزن الرئيسي",
+        is_main=True,
+        is_active=True,
+        deduct_sales_enabled=True,
+        sort_order=0,
+    )
     db.add(main)
     db.flush()
     return main
@@ -90,6 +96,7 @@ def update_warehouse(
     *,
     name_ar: str | None = None,
     is_active: bool | None = None,
+    deduct_sales_enabled: bool | None = None,
     notes: str | None = None,
 ) -> Warehouse:
     w = db.get(Warehouse, warehouse_id)
@@ -109,13 +116,24 @@ def update_warehouse(
         w.name_ar = name
     if is_active is not None:
         w.is_active = is_active
+    if deduct_sales_enabled is not None:
+        w.deduct_sales_enabled = deduct_sales_enabled
     if notes is not None:
         w.notes = notes.strip() or None
     db.flush()
     return w
 
 
-def get_sales_warehouse_id(db: Session) -> int:
+def get_sales_warehouse_id(db: Session, pos_shift_id: int | None = None) -> int:
+    """مخزن خصم المبيعات — من جلسة البيع إن وُجد، وإلا الإعداد العام."""
+    if pos_shift_id is not None:
+        from modules.pos_shifts.models import PosShift
+
+        sh = db.get(PosShift, int(pos_shift_id))
+        if sh is not None and sh.warehouse_id is not None:
+            w = db.get(Warehouse, sh.warehouse_id)
+            if w is not None and w.is_active:
+                return w.id
     raw = get_setting(db, "default_sales_warehouse_id", "")
     if raw:
         try:
@@ -128,6 +146,42 @@ def get_sales_warehouse_id(db: Session) -> int:
     return get_main_warehouse(db).id
 
 
+def list_sales_deduction_warehouses(db: Session) -> list[Warehouse]:
+    """المخازن المسموح استخدامها كمصدر خصم عند البيع."""
+    return list(
+        db.scalars(
+            select(Warehouse)
+            .where(
+                Warehouse.is_active.is_(True),
+                Warehouse.deduct_sales_enabled.is_(True),
+            )
+            .order_by(Warehouse.is_main.desc(), Warehouse.sort_order, Warehouse.name_ar)
+        ).all()
+    )
+
+
+def get_product_sales_warehouse_id(
+    db: Session,
+    product_id: int,
+    *,
+    pos_shift_id: int | None = None,
+) -> int:
+    """مخزن خصم صنف محدد: ربط الصنف ثم مخزن الجلسة ثم الإعداد العام."""
+    from modules.catalog.models import Product
+
+    product = db.get(Product, int(product_id))
+    if product is not None and product.sales_warehouse_id is not None:
+        wh = db.get(Warehouse, int(product.sales_warehouse_id))
+        if wh is not None and wh.is_active and wh.deduct_sales_enabled:
+            return wh.id
+    return get_sales_warehouse_id(db, pos_shift_id=pos_shift_id)
+
+
+def default_inventory_warehouse_id(db: Session) -> int:
+    """مخزن العرض الافتراضي — نفس مخزن خصم المبيعات."""
+    return get_sales_warehouse_id(db)
+
+
 def resolve_warehouse_id(db: Session, warehouse_id: int | None) -> int:
     if warehouse_id is not None:
         w = db.get(Warehouse, warehouse_id)
@@ -137,12 +191,77 @@ def resolve_warehouse_id(db: Session, warehouse_id: int | None) -> int:
     return get_sales_warehouse_id(db)
 
 
-def get_balance(db: Session, product_id: int, warehouse_id: int | None = None) -> Decimal:
+def balance_from_movements(
+    db: Session, product_id: int, warehouse_id: int | None = None
+) -> Decimal:
+    """مجموع حركات المخزون — المصدر الموثوق للرصيد."""
     wid = resolve_warehouse_id(db, warehouse_id)
-    row = db.get(StockBalance, {"warehouse_id": wid, "product_id": product_id})
-    if row is None:
-        return Decimal("0")
-    return row.quantity
+    total = db.scalar(
+        select(func.coalesce(func.sum(StockMovement.quantity), 0)).where(
+            StockMovement.product_id == product_id,
+            StockMovement.warehouse_id == wid,
+        )
+    )
+    return Decimal(str(total or 0))
+
+
+def reconcile_stock_balance(
+    db: Session, product_id: int, warehouse_id: int
+) -> tuple[Decimal, bool]:
+    correct = balance_from_movements(db, product_id, warehouse_id)
+    row = ensure_balance_row(db, product_id, warehouse_id)
+    changed = row.quantity != correct
+    if changed:
+        row.quantity = correct
+    return correct, changed
+
+
+def reconcile_all_stock_balances(db: Session) -> int:
+    """مزامنة جدول الأرصدة مع مجموع الحركات (يُصلح بيانات قديمة أو مستوردة)."""
+    rows = db.execute(
+        select(
+            StockMovement.warehouse_id,
+            StockMovement.product_id,
+            func.coalesce(func.sum(StockMovement.quantity), 0),
+        ).group_by(StockMovement.warehouse_id, StockMovement.product_id)
+    ).all()
+    movement_totals: dict[tuple[int, int], Decimal] = {}
+    for wid, pid, total in rows:
+        if wid is None or pid is None:
+            continue
+        movement_totals[(int(wid), int(pid))] = Decimal(str(total or 0))
+
+    changed = 0
+    for (wid, pid), total in movement_totals.items():
+        row = ensure_balance_row(db, pid, wid)
+        if row.quantity != total:
+            row.quantity = total
+            changed += 1
+
+    for row in db.scalars(select(StockBalance)).all():
+        key = (row.warehouse_id, row.product_id)
+        if key not in movement_totals and row.quantity != 0:
+            row.quantity = Decimal("0")
+            changed += 1
+
+    db.flush()
+    return changed
+
+
+def get_balance(db: Session, product_id: int, warehouse_id: int | None = None) -> Decimal:
+    """الرصيد الحالي — مجموع حركات المخزون (المصدر الموثوق)."""
+    return balance_from_movements(db, product_id, warehouse_id)
+
+
+def is_low_stock(quantity: Decimal, reorder_level: Decimal) -> bool:
+    """هل الرصيد منخفض؟ سالب = دائماً تنبيه؛ وإلا مقارنة بحد التنبيه من صفحة الصنف."""
+    qty = Decimal(str(quantity or 0))
+    rl = Decimal(str(reorder_level or 0))
+    if qty < 0:
+        return True
+    if rl <= 0:
+        return False
+    return qty <= rl
 
 
 def ensure_balance_row(db: Session, product_id: int, warehouse_id: int) -> StockBalance:
@@ -167,14 +286,20 @@ def apply_movement(
     user_id: int | None,
     warehouse_id: int | None = None,
     sale_id: int | None = None,
+    purchase_id: int | None = None,
+    reason_label: str | None = None,
     note: str | None = None,
     counterparty_warehouse_id: int | None = None,
+    transfer_id: int | None = None,
 ) -> StockMovement:
     """quantity_delta: positive increases stock, negative decreases."""
     wid = resolve_warehouse_id(db, warehouse_id)
     bal = ensure_balance_row(db, product_id, wid)
-    new_qty = bal.quantity + quantity_delta
-    if new_qty < 0:
+    old_qty = Decimal(str(bal.quantity or 0))
+    new_qty = old_qty + quantity_delta
+    # البيع: يُسمح بالرصيد السالب حتى يُدخل الموظف المشتريات لاحقاً.
+    # الحركات الموجبة مثل مرتجع البيع يجب أن تُقبل لأنها تحسن الرصيد حتى لو بقي سالباً.
+    if quantity_delta < 0 and new_qty < 0 and movement_type != StockMovementType.SALE:
         from modules.catalog.models import Product
 
         p = db.get(Product, product_id)
@@ -187,12 +312,91 @@ def apply_movement(
         movement_type=movement_type,
         quantity=quantity_delta,
         sale_id=sale_id,
+        purchase_id=purchase_id,
+        reason_label=(reason_label or "").strip() or None,
         user_id=user_id,
         note=note,
         counterparty_warehouse_id=counterparty_warehouse_id,
+        transfer_id=transfer_id,
     )
     db.add(mv)
+    db.flush()
+    if quantity_delta < 0:
+        from modules.inventory.lots import allocate_lots_fifo, record_lot_consumptions
+
+        allocations = allocate_lots_fifo(
+            db,
+            product_id=product_id,
+            warehouse_id=wid,
+            quantity=abs(quantity_delta),
+        )
+        record_lot_consumptions(db, stock_movement_id=mv.id, allocations=allocations)
+    elif quantity_delta > 0 and movement_type == StockMovementType.SALE_RETURN and sale_id:
+        from modules.inventory.lots import restore_lots_for_sale_return
+
+        restore_lots_for_sale_return(
+            db,
+            sale_id=sale_id,
+            product_id=product_id,
+            warehouse_id=wid,
+            quantity=quantity_delta,
+        )
+    reconcile_stock_balance(db, product_id, wid)
+    _maybe_notify_inventory_movement(
+        db, movement_type, purchase_id=purchase_id, note=note, product_id=product_id
+    )
+    try:
+        from modules.notifications.inventory_hooks import emit_inventory_after_movement
+
+        emit_inventory_after_movement(
+            db,
+            product_id=product_id,
+            warehouse_id=wid,
+            quantity_delta=quantity_delta,
+            movement_type=movement_type,
+            old_qty=old_qty,
+            movement_id=mv.id,
+            note=note,
+            reason_label=reason_label,
+        )
+    except Exception:  # noqa: BLE001
+        pass
     return mv
+
+
+def _maybe_notify_inventory_movement(
+    db: Session,
+    movement_type: StockMovementType,
+    *,
+    purchase_id: int | None,
+    note: str | None,
+    product_id: int,
+) -> None:
+    """إشعار المخزون — بدون خصم البيع العادي (كثير جداً)."""
+    if movement_type == StockMovementType.SALE:
+        return
+    if movement_type == StockMovementType.PURCHASE and purchase_id is not None:
+        return
+    notify_types = {
+        StockMovementType.PURCHASE,
+        StockMovementType.ADJUSTMENT,
+        StockMovementType.TRANSFER,
+        StockMovementType.WASTE,
+        StockMovementType.SHORTAGE,
+        StockMovementType.SALE_RETURN,
+    }
+    if movement_type not in notify_types:
+        return
+    from modules.dashboard_notify.constants import INVENTORY
+    from modules.dashboard_notify.service import record_activity
+
+    record_activity(
+        db,
+        INVENTORY,
+        event_type=movement_type.value.lower(),
+        ref_id=product_id,
+        note=(note or "").strip()[:255] or movement_type.value,
+    )
 
 
 def transfer_to_branch(
@@ -202,50 +406,21 @@ def transfer_to_branch(
     lines: list[tuple[int, Decimal]],
     user_id: int | None,
     note: str | None = None,
-) -> None:
-    """صرف من المخزن الرئيسي إلى مخزن فرعي."""
-    main = get_main_warehouse(db)
-    dest = db.get(Warehouse, to_warehouse_id)
-    if dest is None or not dest.is_active:
-        raise WarehouseError("المخزن الفرعي غير صالح.")
-    if dest.is_main:
-        raise WarehouseError("اختر مخزناً فرعياً كوجهة للصرف.")
-    if not lines:
-        raise WarehouseError("أضف صنفاً واحداً على الأقل.")
-    base_note = (note or "").strip()
-    for pid, qty in lines:
-        if qty <= 0:
-            raise WarehouseError("الكمية يجب أن تكون أكبر من صفر.")
-        line_note = f"صرف إلى {dest.name_ar}"
-        if base_note:
-            line_note = f"{line_note} — {base_note}"
-        apply_movement(
-            db,
-            product_id=pid,
-            quantity_delta=-qty,
-            movement_type=StockMovementType.TRANSFER,
-            user_id=user_id,
-            warehouse_id=main.id,
-            note=line_note,
-            counterparty_warehouse_id=dest.id,
-        )
-        recv_note = f"استلام من {main.name_ar}"
-        if base_note:
-            recv_note = f"{recv_note} — {base_note}"
-        apply_movement(
-            db,
-            product_id=pid,
-            quantity_delta=qty,
-            movement_type=StockMovementType.TRANSFER,
-            user_id=user_id,
-            warehouse_id=dest.id,
-            note=recv_note,
-            counterparty_warehouse_id=main.id,
-        )
+) -> "WarehouseTransfer":
+    """صرف من المخزن الرئيسي — يُنشئ مستنداً بانتظار مصادقة المستلم."""
+    from modules.inventory.transfer_service import create_transfer_request
+
+    return create_transfer_request(
+        db,
+        to_warehouse_id=to_warehouse_id,
+        lines=lines,
+        user_id=user_id,
+        note=note,
+    )
 
 
 def low_stock_products(db: Session, warehouse_id: int | None = None):
-    """تنبيهات نفاد المخزون — مكوّنات STOCK_ONLY في مخزن محدد."""
+    """تنبيهات نفاد المخزون — الأصناف ذات الرصيد المباشر في مخزن محدد."""
     from modules.catalog.models import Product, ProductKind
 
     wid = resolve_warehouse_id(db, warehouse_id)
@@ -257,14 +432,37 @@ def low_stock_products(db: Session, warehouse_id: int | None = None):
             isouter=True,
         )
         .where(Product.is_active.is_(True))
-        .where(Product.kind == ProductKind.STOCK_ONLY)
+        .where(
+            (Product.kind == ProductKind.STOCK_ONLY)
+            | (
+                (Product.kind == ProductKind.FINAL_SELLABLE)
+                & Product.direct_purchase_enabled.is_(True)
+            )
+        )
     )
     rows = db.execute(stmt).all()
     out = []
-    for p, qty in rows:
-        q = qty or Decimal("0")
-        if p.reorder_level > 0 and q <= p.reorder_level:
+    for p, _qty in rows:
+        q = get_balance(db, p.id, wid)
+        if is_low_stock(q, p.reorder_level):
             out.append((p, q))
+    return out
+
+
+def low_stock_for_warehouses(
+    db: Session, warehouse_ids: list[int] | None = None
+) -> list[tuple[Warehouse, list]]:
+    """قائمة النقص لمخازن محددة (أو كل المخازن النشطة)."""
+    if warehouse_ids is None:
+        return low_stock_by_warehouse(db)
+    out: list[tuple[Warehouse, list]] = []
+    for wid in warehouse_ids:
+        wh = db.get(Warehouse, wid)
+        if wh is None or not wh.is_active:
+            continue
+        rows = low_stock_products(db, wid)
+        if rows:
+            out.append((wh, rows))
     return out
 
 

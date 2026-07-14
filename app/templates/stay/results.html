@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+{% include "_public_web_head.html" %}
+{% if web_mkt is not defined or not web_mkt %}<title>نتائج البحث</title>{% endif %}
+<link rel="stylesheet" href="/static/app.css" /></head>
+<body style="max-width:720px;margin:0 auto;padding:1rem">
+<h1>الغرف المتاحة</h1>
+<p>{{ check_in }} → {{ check_out }}</p>
+{% for r in results %}
+<div class="card" style="margin-bottom:0.75rem">
+  <strong>{{ r.room_type_name }}</strong> — {{ r.available_count }} متاحة<br>
+  <span>{{ r.total_price }} د.ل للإقامة</span>
+  <a class="btn btn-primary" href="/stay/book?room_type_id={{ r.room_type_id }}&check_in={{ check_in }}&check_out={{ check_out }}&adults={{ adults }}" style="margin-top:0.5rem;display:inline-block">احجز</a>
+</div>
+{% else %}<p class="muted">لا توفر في هذه التواريخ.</p>{% endfor %}
+<p><a href="/stay">← بحث جديد</a></p>
+{% include "_public_web_body.html" %}
+</body></html>

@@ -19,6 +19,8 @@ DBSession = Annotated[Session, Depends(get_db_session)]
 
 
 def get_current_user(request: Request, db: DBSession) -> User | None:
+    if getattr(request.state, "_user_attached", False):
+        return getattr(request.state, "current_user", None)
     uid = request.session.get("user_id")
     if not uid:
         return None
@@ -26,9 +28,6 @@ def get_current_user(request: Request, db: DBSession) -> User | None:
     if user is None or not user.is_active:
         request.session.clear()
         return None
-    db.refresh(user, ["roles"])
-    for r in user.roles:
-        db.refresh(r, ["permissions"])
     return user
 
 
@@ -61,5 +60,17 @@ def require_any_permission(*codes: str) -> Callable[..., User]:
         if any(user_has_permission(user, code) for code in codes):
             return user
         raise HTTPException(status_code=403, detail="ليس لديك صلاحية لهذا الإجراء.")
+
+    return dep
+
+
+def require_module(module_key: str):
+    """يتحقق من تفعيل الوحدة (خطط الاشتراك) — يتطلب DB في الطلب."""
+
+    def dep(request: Request, db: DBSession) -> None:
+        from modules.platform.module_registry import is_module_enabled
+
+        if not is_module_enabled(db, module_key):
+            raise HTTPException(status_code=403, detail="هذه الوحدة غير مفعّلة في خطتك.")
 
     return dep

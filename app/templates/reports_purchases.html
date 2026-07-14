@@ -1,8 +1,11 @@
 {% extends "base.html" %}
-{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button with context %}
 {% block title %}تقرير المشتريات{% endblock %}
 {% block body %}
-<h1>تقرير المشتريات</h1>
+<h1>تقرير المشتريات{% if domain_label %} — {{ domain_label }}{% endif %}</h1>
+{% if finance_domain_filter and finance_domain_filter.value == 'hotel' %}
+<p class="muted" style="margin-top:-0.35rem;margin-bottom:0.75rem">فواتير شراء مجال <strong>الفندق</strong> فقط — مستلزمات وتشغيل الفندق (لا تشمل مخزون المطعم).</p>
+{% endif %}
 {{ reports_nav('purchases') }}
 {{ period_filter('/reports/purchases', period, period_labels, start, end, start_str, end_str) }}
 {{ report_export_format_help() }}
@@ -65,7 +68,7 @@
       {% if pay_filter == 'all' and not balance_only or pr %}
       <tr>
         <td>{{ p.id }}</td>
-        <td>{{ p.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td>{{ pos_format_dt(p.created_at, '%Y-%m-%d %H:%M') }}</td>
         <td>{{ p.supplier or '—' }}</td>
         <td>{{ p.lines|length }}</td>
         <td>{{ pr.invoice_total if pr else p.amount }} د.ل</td>

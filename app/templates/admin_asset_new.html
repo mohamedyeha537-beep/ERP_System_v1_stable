@@ -63,21 +63,20 @@
 {% endblock %}
 {% block body %}
 <div class="row" style="justify-content: space-between; align-items: center">
-  <h1 style="margin: 0">فاتورة أصول/أدوات جديدة</h1>
+  <h1 style="margin: 0">فاتورة أصول ثابتة جديدة</h1>
   <a class="btn" href="/admin/assets">رجوع للقائمة</a>
 </div>
 
 <p class="muted">
-  لإدخال أدوات أو أصول تستهلك في الشركة (لا تباع وليست مخزوناً للبيع).
-  أكتب اسم الأداة وعدّاتها وسعرها مباشرة دون الحاجة لتسجيلها كصنف في الكتالوج.
+  أجهزة، أثاث، معدات — تُسجَّل بعمر إنتاجي للإهلاك الشهري. للمستلزمات الاستهلاكية استخدم
+  <a href="/admin/consumables/new">أدوات واستهلاكات</a>.
 </p>
 
 <div class="pl-help-row">
   <strong>المعالجة المحاسبية الصحيحة (وفق المعيار الدولي IAS 16):</strong>
   <ul style="margin: 0.3rem 0 0; padding-inline-start: 1.2rem; line-height: 1.7">
-    <li><strong>مستلزمات استهلاكية</strong> (أكياس، ورق طابعة، مواد تنظيف): اضبط <em>العمر = 0</em>. سيُخصم الكلفة كاملة في شهر الشراء.</li>
-    <li><strong>أصول ثابتة</strong> (فرن، ثلاجة، طابعة، أثاث، ديكور...): اضبط <em>العمر بالأشهر</em> (مثلاً 60 شهراً = 5 سنوات). سيُوزَّع الكلفة على هذه الأشهر بطريقة <em>القسط الثابت</em>، فلا يضرب الأصل ربحَك ضربةً واحدة.</li>
-    <li><strong>قيمة الخردة</strong> (Salvage): القيمة المتوقع بيع الأصل بها بعد انتهاء عمره (افتراضياً 0). تُطرح من الكلفة قبل توزيع الإهلاك.</li>
+    <li><strong>أصول ثابتة</strong> (فرن، ثلاجة، طابعة، أثاث...): اضبط <em>العمر بالأشهر</em> — يُوزَّع الكلفة بالإهلاك الشهري.</li>
+    <li><strong>قيمة الخردة</strong> (Salvage): القيمة المتوقع بيع الأصل بها بعد انتهاء عمره (افتراضياً 0).</li>
   </ul>
   <strong style="display:block; margin-top: 0.35rem">أعمار شائعة (إرشادية):</strong>
   أجهزة كهربائية كبيرة 60–120 شهراً (5–10 سنوات) · كمبيوتر/طابعة 36–60 شهراً (3–5 سنوات) · أثاث/ديكور 84–120 شهراً (7–10 سنوات) · سيارة 60–84 شهراً.
@@ -98,7 +97,7 @@
       <div>
         <label for="payment_method_id">الدفع من المحفظة</label>
         <select id="payment_method_id" name="payment_method_id" required style="max-width: 14rem">
-          {% for m in methods %}
+          {% for m in methods if pos_is_main_treasury_wallet(m) %}
           <option value="{{ m.id }}">{{ m.name_ar }}</option>
           {% endfor %}
         </select>
@@ -158,12 +157,11 @@
           <label class="muted" style="font-size: 0.78rem">العمر (شهر)
             <span title="0 = استهلاكي، >0 = أصل ثابت يُهلَك على هذه الأشهر">ⓘ</span>
           </label>
-          <select name="useful_life_months" data-life>
-            <option value="0">0 — مستهلك/مصروف</option>
+          <select name="useful_life_months" data-life required>
             <option value="12">12 شهراً (سنة)</option>
             <option value="24">24 شهراً</option>
             <option value="36">36 شهراً (3 سنوات)</option>
-            <option value="60">60 شهراً (5 سنوات)</option>
+            <option value="60" selected>60 شهراً (5 سنوات)</option>
             <option value="84">84 شهراً (7 سنوات)</option>
             <option value="120">120 شهراً (10 سنوات)</option>
           </select>
@@ -243,12 +241,11 @@
     </div>
     <div class="field-life">
       <label class="muted" style="font-size: 0.78rem">العمر (شهر)</label>
-      <select name="useful_life_months" data-life>
-        <option value="0">0 — مستهلك</option>
+      <select name="useful_life_months" data-life required>
         <option value="12">12</option>
         <option value="24">24</option>
         <option value="36">36 (3 سنوات)</option>
-        <option value="60">60 (5 سنوات)</option>
+        <option value="60" selected>60 (5 سنوات)</option>
         <option value="84">84 (7 سنوات)</option>
         <option value="120">120 (10 سنوات)</option>
       </select>

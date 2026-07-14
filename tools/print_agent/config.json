@@ -1,0 +1,38 @@
+{
+  
+  "server_url": "http://127.0.0.1:8011/",
+  "agent_token": "3WfZIK-4uqlO_c_l8zxgmbUaj8nOfgy9IqwfyBJJ37c",
+  "poll_interval_seconds": 2,
+  "heartbeat_interval_seconds": 30,
+  "escpos_profile": "cp1256_22",
+  "raster_threshold": 140,
+  "prefer_windows_name": true,
+  "fallback_windows_name": "POS-80(copy of 2)",
+  "printers": {
+    "cashier": {
+      "windows_name": "POS-80(copy of 2)",
+      "profile": "cp1256_22",
+      "raster_threshold": 140
+    },
+    "drinks": {
+      "windows_name": "POS-80(copy of 2)",
+      "profile": "cp1256_22",
+      "raster_threshold": 140
+    },
+    "grill": {
+      "windows_name": "POS-80(copy of 2)",
+      "profile": "cp1256_22",
+      "raster_threshold": 140
+    },
+    "salad": {
+      "windows_name": "POS-80(copy of 2)",
+      "profile": "cp1256_22",
+      "raster_threshold": 140
+    },
+    "pasta": {
+      "windows_name": "POS-80(copy of 2)",
+      "profile": "cp1256_22",
+      "raster_threshold": 140
+    }
+  }
+}

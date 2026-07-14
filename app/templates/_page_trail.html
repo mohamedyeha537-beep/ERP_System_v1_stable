@@ -1,0 +1,27 @@
+{# شريط تنقل — رجوع للصفحة السابقة + الرئيسية #}
+{% set trail = page_trail if page_trail is defined else pos_page_trail(request) %}
+{% if trail.show %}
+<nav class="page-trail" aria-label="التنقل">
+  <div class="page-trail__actions">
+    <a class="btn page-trail__back" href="{% block page_trail_back_href %}{{ trail.back_url }}{% endblock %}">
+      ← {% block page_trail_back_text %}{{ trail.back_label }}{% endblock %}
+    </a>
+    {% if trail.back_url != "/" %}
+    <a class="btn page-trail__home" href="/">🏠 الرئيسية</a>
+    {% endif %}
+  </div>
+  {% if trail.breadcrumbs|length > 1 %}
+  <ol class="page-trail__crumbs">
+    {% for crumb in trail.breadcrumbs %}
+    <li>
+      {% if loop.last and crumb.url == request.url.path %}
+      <span aria-current="page">{{ crumb.label }}</span>
+      {% else %}
+      <a href="{{ crumb.url }}">{{ crumb.label }}</a>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  {% endif %}
+</nav>
+{% endif %}

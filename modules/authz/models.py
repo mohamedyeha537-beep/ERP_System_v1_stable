@@ -27,6 +27,14 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    warehouse_id: Mapped[int | None] = mapped_column(
+        ForeignKey("warehouses.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    kds_scope: Mapped[str] = mapped_column(String(20), default="ALL")
+    # نطاق الواجهة: restaurant | hotel | both — يحدّده الأدمن عند إنشاء/تعديل المستخدم
+    view_scope: Mapped[str] = mapped_column(String(20), default="both")
+    # أجزاء الواجهة المخفية عن المستخدم — JSON array من معرّفات ui_blocks
+    ui_hidden: Mapped[str] = mapped_column(String(4000), default="[]")
 
     roles: Mapped[list[Role]] = relationship(
         secondary=user_roles, back_populates="users", lazy="selectin"

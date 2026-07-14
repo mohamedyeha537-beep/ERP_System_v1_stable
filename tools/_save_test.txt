@@ -1,0 +1,113 @@
+﻿python.exe : Traceback (most recent call last):
+At C:\Users\PIXEL\AppData\Local\Temp\ps-script-23d19abf-3e28-44e5-822a-a00be067ab07.ps1:146 char:1
++ & "$env:LocalAppData\Programs\Python\Python313\python.exe" -c "
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Traceback (most recent call last)::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  File "<string>", line 13, in <module>
+    db.commit()
+    ~~~~~~~~~^^
+  File "C:\Users\PIXEL\AppData\Local\Programs\Python\Python313\Lib\site-packages\sqlalchemy\orm\session.py", line 
+2028, in commit
+    trans.commit(_to_root=True)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "<string>", line 2, in commit
+  File "C:\Users\PIXEL\AppData\Local\Programs\Python\Python313\Lib\site-packages\sqlalchemy\orm\state_changes.py", 
+line 139, in _go
+    ret_value = fn(self, *arg, **kw)
+  File "C:\Users\PIXEL\AppData\Local\Programs\Python\Python313\Lib\site-packages\sqlalchemy\orm\session.py", line 
+1313, in commit
+    self._prepare_impl()
+    ~~~~~~~~~~~~~~~~~~^^
+  File "<string>", line 2, in _prepare_impl
+  File "C:\Users\PIXEL\AppData\Local\Programs\Python\Python313\Lib\site-packages\sqlalchemy\orm\state_changes.py", 
+line 139, in _go
+    ret_value = fn(self, *arg, **kw)
+  File "C:\Users\PIXEL\AppData\Local\Programs\Python\Python313\Lib\site-packages\sqlalchemy\orm\session.py", line 
+1288, in _prepare_impl
+    self.session.flush()
+    ~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\PIXEL\AppData\Local\Programs\Python\Python313\Lib\site-packages\sqlalchemy\orm\session.py", line 
+4352, in flush
+    self._flush(objects)
+    ~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\PIXEL\AppData\Local\Programs\Python\Python313\Lib\site-packages\sqlalchemy\orm\session.py", line 
+4487, in _flush
+    with util.safe_reraise():
+         ~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\PIXEL\AppData\Local\Programs\Python\Python313\Lib\site-packages\sqlalchemy\util\langhelpers.py", line 
+146, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "C:\Users\PIXEL\AppData\Local\Programs\Python\Python313\Lib\site-packages\sqlalchemy\orm\session.py", line 
+4448, in _flush
+    flush_context.execute()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\PIXEL\AppData\Local\Programs\Python\Python313\Lib\site-packages\sqlalchemy\orm\unitofwork.py", line 
+466, in execute
+    rec.execute(self)
+    ~~~~~~~~~~~^^^^^^
+  File "C:\Users\PIXEL\AppData\Local\Programs\Python\Python313\Lib\site-packages\sqlalchemy\orm\unitofwork.py", line 
+642, in execute
+    util.preloaded.orm_persistence.save_obj(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self.mapper,
+        ^^^^^^^^^^^^
+        uow.states_for_mapper_hierarchy(self.mapper, False, False),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        uow,
+        ^^^^
+    )
+    ^
+  File "C:\Users\PIXEL\AppData\Local\Programs\Python\Python313\Lib\site-packages\sqlalchemy\orm\persistence.py", line 
+76, in save_obj
+    for table, mapper in base_mapper._sorted_tables.items():
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\PIXEL\AppData\Local\Programs\Python\Python313\Lib\site-packages\sqlalchemy\util\langhelpers.py", line 
+1253, in __get__
+    obj.__dict__[self.__name__] = result = self.fget(obj)
+                                           ~~~~~~~~~^^^^^
+  File "C:\Users\PIXEL\AppData\Local\Programs\Python\Python313\Lib\site-packages\sqlalchemy\orm\mapper.py", line 4061, 
+in _sorted_tables
+    sorted_ = sql_util.sort_tables(
+        table_to_mapper,
+        skip_fn=skip,
+        extra_dependencies=extra_dependencies,
+    )
+  File "C:\Users\PIXEL\AppData\Local\Programs\Python\Python313\Lib\site-packages\sqlalchemy\sql\ddl.py", line 1252, in 
+sort_tables
+    for (t, fkcs) in sort_tables_and_constraints(
+                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        tables,
+        ^^^^^^^
+    ...<2 lines>...
+        _warn_for_cycles=True,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\PIXEL\AppData\Local\Programs\Python\Python313\Lib\site-packages\sqlalchemy\sql\ddl.py", line 1322, in 
+sort_tables_and_constraints
+    filtered = filter_fn(fkc)
+  File "C:\Users\PIXEL\AppData\Local\Programs\Python\Python313\Lib\site-packages\sqlalchemy\sql\ddl.py", line 1242, in 
+_skip_fn
+    if fixed_skip_fn(fk):
+       ~~~~~~~~~~~~~^^^^
+  File "C:\Users\PIXEL\AppData\Local\Programs\Python\Python313\Lib\site-packages\sqlalchemy\orm\mapper.py", line 4044, 
+in skip
+    dep = table_to_mapper.get(fk.column.table)
+                              ^^^^^^^^^
+  File "C:\Users\PIXEL\AppData\Local\Programs\Python\Python313\Lib\site-packages\sqlalchemy\util\langhelpers.py", line 
+1141, in __get__
+    obj.__dict__[self.__name__] = result = self.fget(obj)
+                                           ~~~~~~~~~^^^^^
+  File "C:\Users\PIXEL\AppData\Local\Programs\Python\Python313\Lib\site-packages\sqlalchemy\sql\schema.py", line 3170, 
+in column
+    return self._resolve_column()
+           ~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\PIXEL\AppData\Local\Programs\Python\Python313\Lib\site-packages\sqlalchemy\sql\schema.py", line 3193, 
+in _resolve_column
+    raise exc.NoReferencedTableError(
+    ...<5 lines>...
+    )
+sqlalchemy.exc.NoReferencedTableError: Foreign key associated with column 'products.kitchen_section_id' could not find 
+table 'kitchen_sections' with which to generate a foreign key to target column 'id'

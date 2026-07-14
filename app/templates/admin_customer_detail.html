@@ -8,40 +8,169 @@
   </div>
 </div>
 
-{% if saved %}
+{% if saved == 'referral' %}
+<div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0">تم حفظ كود الإحالة.</p></div>
+{% elif saved == 'wallet' %}
+<div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0">تم تحديث رصيد المحفظة.</p></div>
+{% elif saved %}
 <div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0">تم الحفظ.</p></div>
+{% endif %}
+{% if msg_sent %}
+<div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0">تم إرسال/جدولة الرسالة للعميل. راجع <a href="/admin/messaging/log">سجل المراسلات</a>.</p></div>
 {% endif %}
 {% if error %}
 <div class="card" style="border-color:#fecaca; background:#fef2f2"><p style="margin:0; color:#b91c1c">{{ error }}</p></div>
 {% endif %}
 
 <div class="row" style="gap:0.6rem; flex-wrap:wrap; margin-bottom:0.75rem">
-  <div class="card" style="flex:1; min-width:160px;text-align:center;background:linear-gradient(135deg,#fffbeb,#fef3c7)">
+  <div class="card" style="flex:1; min-width:150px;text-align:center;background:linear-gradient(135deg,#eff6ff,#dbeafe)">
+    <div style="color:#1e40af;font-size:0.85rem">رصيد المحفظة</div>
+    <div style="font-size:2rem;font-weight:700;color:#1d4ed8">{{ '%.3f' % stats.wallet_balance }} د.ل</div>
+  </div>
+  <div class="card" style="flex:1; min-width:150px;text-align:center;background:linear-gradient(135deg,#fffbeb,#fef3c7)">
     <div style="color:#92400e;font-size:0.85rem">رصيد النقاط</div>
     <div style="font-size:2rem;font-weight:700;color:#f59e0b">⭐ {{ '%.0f' % customer.points_balance }}</div>
     <div class="muted" style="font-size:0.78rem">≈ {{ '%.3f' % (customer.points_balance * loyalty.redeem_value_per_point) }} د.ل</div>
   </div>
-  <div class="card" style="flex:1; min-width:160px;text-align:center">
-    <div class="muted" style="font-size:0.85rem">عدد الزيارات</div>
-    <div style="font-size:2rem;font-weight:700">{{ customer.visits_count }}</div>
+  <div class="card" style="flex:1; min-width:130px;text-align:center">
+    <div class="muted" style="font-size:0.85rem">عدد المشتريات</div>
+    <div style="font-size:2rem;font-weight:700">{{ stats.purchase_count }}</div>
   </div>
-  <div class="card" style="flex:1; min-width:160px;text-align:center">
+  <div class="card" style="flex:1; min-width:130px;text-align:center">
+    <div class="muted" style="font-size:0.85rem">عدد الزيارات</div>
+    <div style="font-size:2rem;font-weight:700">{{ stats.visits_count }}</div>
+  </div>
+  <div class="card" style="flex:1; min-width:150px;text-align:center">
     <div class="muted" style="font-size:0.85rem">إجمالي مدفوع</div>
-    <div style="font-size:1.5rem;font-weight:700;color:#16a34a">{{ '%.3f' % customer.total_spent }} د.ل</div>
+    <div style="font-size:1.5rem;font-weight:700;color:#16a34a">{{ '%.3f' % stats.amount_paid }} د.ل</div>
+  </div>
+  <div class="card" style="flex:1; min-width:150px;text-align:center">
+    <div class="muted" style="font-size:0.85rem">مديونية مستحقة</div>
+    <div style="font-size:1.5rem;font-weight:700;color:{% if stats.outstanding_debt > 0 %}#b45309{% else %}#6b7280{% endif %}">{{ '%.3f' % stats.outstanding_debt }} د.ل</div>
+  </div>
+  <div class="card" style="flex:1; min-width:240px;background:#eff6ff;border-color:#93c5fd;text-align:center" id="referral-code-card">
+    {% set ref_code = customer.referral_code or '' %}
+    {% set ref_locked = referral_locked if referral_locked is defined else false %}
+    <div class="muted" style="font-size:0.85rem;margin-bottom:0.45rem">كود الدعوة (إحالة)</div>
+
+    <div id="referral-view" style="display:flex;align-items:center;justify-content:center;gap:0.35rem;flex-wrap:wrap">
+      <span
+        id="referral-code-display"
+        dir="ltr"
+        style="font-size:1.45rem;font-weight:800;color:#1d4ed8;letter-spacing:0.14em;font-variant-numeric:tabular-nums;padding:0.15rem 0.35rem"
+      >{{ ref_code or '—' }}</span>
+      {% if ref_code %}
+      <button type="button" class="btn" id="referral-copy-btn" title="نسخ الكود" aria-label="نسخ الكود" style="padding:0.3rem 0.55rem">📋</button>
+      {% endif %}
+      {% if ref_code and not ref_locked %}
+      <button type="button" class="btn" id="referral-edit-btn" title="تحرير الكود" aria-label="تحرير الكود" style="padding:0.3rem 0.55rem">✏️</button>
+      {% endif %}
+    </div>
+
+    {% if not ref_locked %}
+    <form method="post" action="/admin/customers/{{ customer.id }}/referral-code" id="referral-edit-form" hidden style="margin:0.45rem 0 0">
+      <div style="display:flex;gap:0.35rem;align-items:center;justify-content:center;flex-wrap:wrap">
+        <input
+          name="referral_code"
+          id="referral-code-input"
+          type="text"
+          dir="ltr"
+          inputmode="numeric"
+          pattern="[0-9]{6}"
+          maxlength="6"
+          minlength="6"
+          required
+          autocomplete="off"
+          value="{{ ref_code }}"
+          placeholder="123456"
+          title="6 أرقام فقط"
+          style="width:7.5rem;text-align:center;font-size:1.25rem;font-weight:700;color:#1d4ed8;letter-spacing:0.12em;font-variant-numeric:tabular-nums;padding:0.35rem 0.5rem"
+        />
+        <button type="submit" class="btn btn-primary" style="padding:0.35rem 0.65rem;font-size:0.85rem">💾 حفظ</button>
+        <button type="button" class="btn" id="referral-edit-cancel" style="padding:0.35rem 0.55rem;font-size:0.85rem">إلغاء</button>
+      </div>
+    </form>
+    {% endif %}
+
+    <div class="muted" style="font-size:0.72rem;margin-top:0.4rem;line-height:1.5">
+      {% if ref_locked %}
+      🔒 تم استخدام هذا الكود {{ referral_uses|default(0) }} مرة — لا يمكن تغييره.
+      {% else %}
+      يُنشئه النظام تلقائياً (6 أرقام). يمكن تخصيص رقم سهل للمشاهير <strong>قبل أول استخدام</strong>.
+      {% endif %}
+      <br>يُدخل عند التحصيل لمنح نقاط الطرفين.
+    </div>
   </div>
 </div>
+
+<script>
+(function () {
+  var codeText = {{ ref_code|tojson }};
+  var copyBtn = document.getElementById("referral-copy-btn");
+  if (copyBtn && codeText) {
+    copyBtn.addEventListener("click", function () {
+      var done = function () {
+        copyBtn.textContent = "✓";
+        setTimeout(function () { copyBtn.textContent = "📋"; }, 1400);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(codeText).then(done).catch(function () {
+          window.prompt("انسخ الكود:", codeText);
+        });
+      } else {
+        window.prompt("انسخ الكود:", codeText);
+      }
+    });
+  }
+  var editBtn = document.getElementById("referral-edit-btn");
+  var editForm = document.getElementById("referral-edit-form");
+  var editCancel = document.getElementById("referral-edit-cancel");
+  var view = document.getElementById("referral-view");
+  var input = document.getElementById("referral-code-input");
+  if (editBtn && editForm && view) {
+    editBtn.addEventListener("click", function () {
+      view.hidden = true;
+      editForm.hidden = false;
+      if (input) {
+        input.focus();
+        input.select();
+      }
+    });
+  }
+  if (editCancel && editForm && view) {
+    editCancel.addEventListener("click", function () {
+      editForm.hidden = true;
+      view.hidden = false;
+      if (input) input.value = codeText;
+    });
+  }
+})();
+</script>
 
 <div class="card">
   <h2 style="margin-top:0">بيانات العميل</h2>
   <form method="post" action="/admin/customers/{{ customer.id }}/edit">
     <div class="row" style="gap:0.6rem; align-items:flex-end; flex-wrap:wrap">
+      <div style="min-width:130px">
+        <label>النوع</label>
+        <select name="customer_type">
+          <option value="INDIVIDUAL" {% if customer.customer_type.value == 'INDIVIDUAL' %}selected{% endif %}>فرد</option>
+          <option value="COMPANY" {% if customer.customer_type.value == 'COMPANY' %}selected{% endif %}>شركة</option>
+        </select>
+      </div>
       <div style="flex:1; min-width:160px">
         <label>الهاتف <span style="color:#dc2626">*</span></label>
-        <input name="phone" value="{{ customer.phone }}" required />
+        <input name="phone" type="tel" value="{{ customer.phone }}" required dir="ltr"
+               inputmode="numeric" maxlength="10" pattern="09[0-9]{8}"
+               title="10 أرقام تبدأ بـ 09 — بدون +218" />
       </div>
       <div style="flex:1; min-width:160px">
         <label>الاسم</label>
         <input name="name" value="{{ customer.name or '' }}" />
+      </div>
+      <div style="flex:1; min-width:160px">
+        <label>اسم الشركة</label>
+        <input name="company_name" value="{{ customer.company_name or '' }}" />
       </div>
       <div style="flex:1; min-width:160px">
         <label>البريد الإلكتروني</label>
@@ -58,10 +187,145 @@
       <button class="btn btn-primary" type="submit">💾 حفظ</button>
     </div>
   </form>
-  <form method="post" action="/admin/customers/{{ customer.id }}/delete" style="margin-top:0.5rem"
-        onsubmit="return confirm('سيتم حذف العميل (إن لم يكن له سجلات نقاط).');">
-    <button type="submit" class="btn" style="color:#b91c1c">🗑 حذف</button>
+
+  <div class="card" style="margin-top:0.75rem;background:#f8fafc;border-color:#e2e8f0">
+    <h3 style="margin:0 0 0.5rem;font-size:1rem">إدارة السجل</h3>
+    <p class="muted" style="font-size:0.85rem;margin:0 0 0.65rem;line-height:1.6">
+      <strong>أرشفة</strong> (مُفضّل): يختفي من القائمة ولا يُربط بالكاشير، لكن الفواتير وسجل النقاط يبقى للتقارير.<br>
+      <strong>حذف نهائي</strong>: يزيل العميل ونقاطه ويفك ارتباط الفواتير — للسجلات المكررة أو الخاطئة فقط.
+    </p>
+    <div class="row" style="gap:0.4rem;flex-wrap:wrap">
+      {% if customer.is_active %}
+      <form method="post" action="/admin/customers/{{ customer.id }}/archive" style="margin:0"
+            onsubmit="return confirm('أرشفة هذا العميل؟ سيختفي من القائمة لكن يبقى سجله.');">
+        <button type="submit" class="btn" style="background:#fef3c7;color:#92400e;border-color:#f59e0b">📦 أرشفة</button>
+      </form>
+      {% else %}
+      <form method="post" action="/admin/customers/{{ customer.id }}/restore" style="margin:0">
+        <button type="submit" class="btn" style="background:#ecfdf5;color:#065f46;border-color:#10b981">↩ إعادة تفعيل</button>
+      </form>
+      {% endif %}
+      {% if not customer.is_active or (transactions|length == 0) %}
+      <form method="post" action="/admin/customers/{{ customer.id }}/delete" style="margin:0"
+            onsubmit="return confirm('حذف بسيط (بدون سجل نقاط فقط).');">
+        <button type="submit" class="btn" style="color:#b91c1c">🗑 حذف بسيط</button>
+      </form>
+      {% endif %}
+    </div>
+    <form method="post" action="/admin/customers/{{ customer.id }}/purge" style="margin-top:0.65rem;padding-top:0.65rem;border-top:1px dashed var(--border)"
+          onsubmit="return confirm('حذف نهائي لا يُرجع عنه. اكتب رقم الهاتف في الحقل أولاً.');">
+      <label style="font-size:0.85rem;color:#b91c1c;font-weight:600">حذف نهائي — اكتب رقم الهاتف للتأكيد</label>
+      <div class="row" style="gap:0.4rem;margin-top:0.35rem;flex-wrap:wrap;align-items:flex-end">
+        <input name="confirm_phone" type="tel" dir="ltr" maxlength="10" pattern="09[0-9]{8}"
+               placeholder="{{ customer.phone }}" required style="max-width:200px" />
+        <button type="submit" class="btn" style="background:#fef2f2;color:#b91c1c;border-color:#ef4444;font-weight:700">
+          ⚠ حذف نهائي
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if messaging_enabled %}
+<div class="card">
+  <h2 style="margin-top:0">💬 رسالة واتساب / Telegram</h2>
+  <p class="muted" style="font-size:0.85rem;margin-top:0">
+    الهاتف: <strong dir="ltr">{{ customer.phone }}</strong>
+    — موافقة مراسلات:
+    {% if msg_opt_in %}<span style="color:#16a34a">نعم ({{ msg_channel }})</span>{% else %}<span style="color:#b45309">لا</span>{% endif %}
+  </p>
+  <form method="post" action="/admin/customers/{{ customer.id }}/send-message">
+    <label>نص الرسالة</label>
+    <textarea name="message" rows="4" required style="width:100%" placeholder="مرحباً، لدينا عرض خاص لك…"></textarea>
+    <label style="margin-top:0.5rem">رابط صورة (اختياري)</label>
+    <input name="image_url" dir="ltr" placeholder="https://..." style="width:100%;max-width:36rem" />
+    {% if not msg_opt_in %}
+    <label style="display:flex;align-items:center;gap:0.4rem;margin-top:0.5rem;font-size:0.88rem">
+      <input type="checkbox" name="force_send" style="width:auto" />
+      إرسال رغم عدم الموافقة (مسؤولية المطعم — تجنّب spam)
+    </label>
+    {% endif %}
+    <button type="submit" class="btn btn-primary" style="margin-top:0.5rem">إرسال للعميل</button>
   </form>
+</div>
+{% else %}
+<div class="card" style="background:#fffbeb;border-color:#fcd34d">
+  <p class="muted" style="margin:0;font-size:0.88rem">لإرسال رسالة لهذا العميل، فعّل <a href="/admin/notifications/delivery">إعدادات الإرسال</a> أولاً.</p>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0">💳 تعديل رصيد المحفظة</h2>
+  <p class="muted" style="font-size:0.85rem; margin-top:0">
+    أدخل مبلغاً موجباً للإيداع أو سالباً للخصم. يُسجَّل في سجل المحفظة.
+  </p>
+  <form method="post" action="/admin/customers/{{ customer.id }}/adjust-wallet">
+    <div class="row" style="gap:0.5rem; align-items:flex-end; flex-wrap:wrap">
+      <div style="min-width:140px">
+        <label>المبلغ (+/-) د.ل</label>
+        <input name="amount" type="number" step="0.001" placeholder="مثلاً 50 أو -10" required />
+      </div>
+      <div style="flex:1; min-width:200px">
+        <label>السبب/الملاحظة</label>
+        <input name="note" placeholder="تعديل يدوي، عربون، استرداد..." />
+      </div>
+      <button class="btn btn-primary" type="submit">تطبيق على المحفظة</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">🧾 آخر الفواتير</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>التاريخ</th>
+        <th>رقم الفاتورة</th>
+        <th>الإجمالي</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in sales %}
+      <tr>
+        <td class="muted">{{ pos_format_dt(s.created_at, '%Y-%m-%d %H:%M') }}</td>
+        <td><a href="/pos/receipt/{{ s.id }}">#{{ s.id }}</a></td>
+        <td>{{ '%.3f' % s.total }} د.ل</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="3" class="muted" style="text-align:center;padding:1rem">لا توجد فواتير مكتملة بعد.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">📜 سجل المحفظة</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>التاريخ</th>
+        <th>النوع</th>
+        <th>المبلغ</th>
+        <th>ملاحظة</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in wallet_transactions %}
+      <tr>
+        <td class="muted">{{ pos_format_dt(t.created_at, '%Y-%m-%d %H:%M') }}</td>
+        <td>
+          {% if t.kind.value == 'TOPUP' %}<span style="color:#16a34a">إيداع</span>
+          {% elif t.kind.value == 'SPEND' %}<span style="color:#dc2626">صرف</span>
+          {% else %}<span style="color:#3b82f6">تعديل</span>{% endif %}
+        </td>
+        <td><strong>{{ '%+.3f' % t.amount }} د.ل</strong></td>
+        <td class="muted">{{ t.note or '—' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="muted" style="text-align:center;padding:1rem">لا توجد حركات محفظة بعد.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </div>
 
 <div class="card">
@@ -92,6 +356,7 @@
         <th>التاريخ</th>
         <th>النوع</th>
         <th>النقاط</th>
+        <th>القيمة (د.ل)</th>
         <th>فاتورة</th>
         <th>ملاحظة</th>
       </tr>
@@ -99,18 +364,26 @@
     <tbody>
       {% for t in transactions %}
       <tr>
-        <td class="muted">{{ t.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td class="muted">{{ pos_format_dt(t.created_at, '%Y-%m-%d %H:%M') }}</td>
         <td>
           {% if t.kind.value == 'EARN' %}<span style="color:#16a34a">+ كسب</span>
           {% elif t.kind.value == 'REDEEM' %}<span style="color:#dc2626">- استخدام</span>
           {% else %}<span style="color:#3b82f6">⚙ تعديل</span>{% endif %}
         </td>
         <td><strong>{{ '%+.3f' % t.points }}</strong></td>
-        <td>{% if t.sale_id %}#{{ t.sale_id }}{% else %}—{% endif %}</td>
+        <td>
+          {% set pts_abs = t.points if t.points >= 0 else (0 - t.points) %}
+          {% if pts_abs > 0 %}
+          <strong style="color:{% if t.kind.value == 'REDEEM' %}#dc2626{% elif t.kind.value == 'EARN' %}#16a34a{% else %}#1d4ed8{% endif %}">
+            {{ '%.3f' % (pts_abs * loyalty.redeem_value_per_point) }}
+          </strong>
+          {% else %}—{% endif %}
+        </td>
+        <td>{% if t.sale_id %}<a href="/pos/receipt/{{ t.sale_id }}">#{{ t.sale_id }}</a>{% else %}—{% endif %}</td>
         <td class="muted">{{ t.note or '—' }}</td>
       </tr>
       {% else %}
-      <tr><td colspan="5" class="muted" style="text-align:center;padding:1rem">لا توجد حركات بعد.</td></tr>
+      <tr><td colspan="6" class="muted" style="text-align:center;padding:1rem">لا توجد حركات بعد.</td></tr>
       {% endfor %}
     </tbody>
   </table>

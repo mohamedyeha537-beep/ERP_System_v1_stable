@@ -1,0 +1,12 @@
+{# اسم ورقم الزبون/النزيل — سطر واحد (توصيل أو شقة) #}
+{% if prebill_guest_show %}
+<p class="receipt-delivery-line">
+  {% if prebill_guest_name or prebill_guest_phone %}
+    {% if prebill_guest_name %}<strong>{{ prebill_guest_name }}</strong>{% endif %}
+    {% if prebill_guest_name and prebill_guest_phone %} — {% endif %}
+    {% if prebill_guest_phone %}📞 {{ prebill_guest_phone }}{% endif %}
+  {% else %}
+    <span class="prebill-guest-blank">الاسم: _________________________ الهاتف: _________________________</span>
+  {% endif %}
+</p>
+{% endif %}

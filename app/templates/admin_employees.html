@@ -38,11 +38,26 @@
   }
   .hr-nav a.active { background: var(--primary); color: #fff; border-color: var(--primary); }
   .hr-nav a:hover { background: #eef2ff; }
+  .dept-filter {
+    display: flex; gap: 0.35rem; flex-wrap: wrap; margin-bottom: 1rem; align-items: center;
+  }
+  .dept-filter a {
+    padding: 0.35rem 0.7rem; border-radius: 999px; border: 1px solid var(--border);
+    background: #fff; color: inherit; text-decoration: none; font-size: 0.88rem; font-weight: 600;
+  }
+  .dept-filter a.active { background: #1e293b; color: #fff; border-color: #1e293b; }
+  .dept-filter a.manage { background: #eef2ff; border-color: #c7d2fe; }
 </style>
 {% endblock %}
 {% block body %}
 <div class="row" style="justify-content: space-between; align-items: center">
-  <h1 style="margin: 0">إدارة الموظفين</h1>
+  <div>
+    <h1 style="margin: 0">إدارة الموظفين</h1>
+    <p class="muted" style="margin: 0.35rem 0 0">
+      عرض: <strong>{{ domain_label }}</strong>
+      {% if finance_domain_filter %} — موظفو {{ domain_label }} فقط{% endif %}
+    </p>
+  </div>
   <div class="row" style="gap: 0.4rem">
     <a class="btn" href="/admin/employees/export.csv" style="background:#ecfdf5; color:#065f46; border:1px solid #10b981; font-weight:700">📤 تصدير CSV</a>
     <a class="btn btn-primary" href="/admin/employees/new">+ موظف جديد</a>
@@ -51,6 +66,8 @@
 
 <nav class="hr-nav">
   <a href="/admin/employees" class="active">الموظفون</a>
+  <a href="/admin/departments">الأقسام</a>
+  <a href="/admin/work-shifts">الورديات</a>
   <a href="/admin/attendance">الحضور والانصراف</a>
   <a href="/admin/payroll">الرواتب الشهرية</a>
   <a href="/admin/advances">السلف</a>
@@ -79,6 +96,19 @@
   </div>
 </div>
 
+<div class="dept-filter">
+  <span class="muted" style="font-weight:600">تصفية:</span>
+  <a href="/admin/employees" class="{% if department_id is none %}active{% endif %}">الكل ({{ total_employee_count }})</a>
+  {% for d in departments %}
+  <a href="/admin/employees?department_id={{ d.id }}"
+     class="{% if department_id == d.id %}active{% endif %}{% if not d.is_active %} muted{% endif %}">
+    {{ d.name_ar }} ({{ dept_counts.get(d.id, 0) }})
+  </a>
+  {% endfor %}
+  <a href="/admin/employees?department_id=0" class="{% if department_id == 0 %}active{% endif %}">بدون قسم ({{ unassigned_count }})</a>
+  <a href="/admin/departments" class="manage">⚙ إدارة الأقسام</a>
+</div>
+
 <div class="card">
   <h2 style="margin-top: 0">قائمة الموظفين</h2>
   {% if items %}
@@ -86,12 +116,16 @@
     <thead>
       <tr>
         <th>الاسم</th>
+        <th>المجال</th>
+        <th>القسم</th>
         <th>الوظيفة</th>
         <th>نوع الأجر</th>
         <th>الراتب الشهري</th>
         <th>الأجر/ساعة</th>
         <th>الحالة</th>
         <th>الهاتف</th>
+        <th>كود بصمة</th>
+        <th>نقطة البيع</th>
         <th></th>
       </tr>
     </thead>
@@ -99,6 +133,8 @@
       {% for emp in items %}
       <tr id="emp-{{ emp.id }}" {% if not emp.is_active %}style="opacity:0.65"{% endif %}>
         <td><strong>{{ emp.full_name_ar }}</strong></td>
+        <td>{{ pos_domain_label(emp.business_domain or 'restaurant') }}</td>
+        <td>{% if emp.department %}<a href="/admin/employees?department_id={{ emp.department_id }}">{{ emp.department.name_ar }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
         <td>{{ emp.job_title or '—' }}</td>
         <td>{{ emp.pay_type.value }}</td>
         <td style="font-weight:700">{{ emp.base_monthly_salary }}</td>
@@ -113,10 +149,19 @@
           {% endif %}
         </td>
         <td class="muted">{{ emp.phone or '—' }}</td>
+        <td dir="ltr" style="font-family:monospace">{% if emp.zk_emp_code %}{{ emp.zk_emp_code }}{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td>
+          {% if emp.is_pos_cashier %}
+          <span class="pill pos">كاشير</span>
+          {% if emp.pos_pin_hash %}<span class="muted" style="font-size:0.78rem"> · PIN ✓</span>{% else %}<span style="color:#b91c1c;font-size:0.78rem"> · بدون PIN</span>{% endif %}
+          {% else %}
+          <span class="muted">—</span>
+          {% endif %}
+        </td>
         <td class="row" style="gap:0.3rem; margin:0">
           <a class="btn" href="/admin/employees/{{ emp.id }}" style="padding: 0.2rem 0.55rem; font-size: 0.85rem">تحرير</a>
           <a class="btn" href="/admin/attendance?employee_id={{ emp.id }}" style="padding: 0.2rem 0.55rem; font-size: 0.85rem">سجل الحضور</a>
-          <form method="post" action="/admin/employees/{{ emp.id }}/delete" style="display:inline" onsubmit="return confirm('حذف الموظف نهائياً؟ (يمنع الحذف لو له بنود رواتب)')">
+          <form method="post" action="/admin/employees/{{ emp.id }}/delete" style="display:inline" onsubmit="return confirm('حذف الموظف نهائياً؟ يُحذف الحضور والسلف والخصومات وبنود الرواتب غير المُصروفة.')">
             <button class="btn" type="submit" style="padding:0.2rem 0.55rem; font-size:0.85rem; color:#b91c1c; border-color:#fecaca">حذف</button>
           </form>
         </td>

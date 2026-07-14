@@ -1,3 +1,6 @@
+{% set sale_sent_kitchen = sale_sent_kitchen if sale_sent_kitchen is defined else false %}
+{% set can_void_after_kitchen = can_void_after_kitchen if can_void_after_kitchen is defined else false %}
+{% set void_supervisor_configured = void_supervisor_configured if void_supervisor_configured is defined else false %}
 <table class="pos-cart-table">
   <thead>
     <tr>
@@ -10,12 +13,58 @@
   </thead>
   <tbody>
     {% for line in cart_lines %}
+    {% set line_sent_qty = line.kitchen_sent_qty if line.kitchen_sent_qty is not none else 0 %}
+    {% set line_deletable = line_sent_qty|float <= 0 %}
     <tr>
-      <td>{{ line.product.name_ar }}</td>
-      <td>{{ pos_qty(line.quantity) }}</td>
+      <td>
+        <div>{{ line.product.name_ar }}</div>
+        {% if line.line_note %}
+        <div class="pos-line-note-text">↳ {{ line.line_note }}</div>
+        {% endif %}
+        {% if sale %}
+        <button type="button" class="pos-line-note-edit btn"
+          data-pos-open-line-modal
+          data-line-id="{{ line.id }}"
+          data-product-id="{{ line.product_id }}"
+          data-product-name="{{ line.product.name_ar }}"
+          data-product-modifiers="{{ product_modifiers(line.product)|json_attr }}"
+          data-line-note="{{ line.line_note or '' }}">تعديل الملاحظة</button>
+        {% endif %}
+      </td>
+      <td>
+        {% if sale %}
+        <div class="pos-qty-stepper" aria-label="الكمية">
+          <form
+            hx-post="/pos/adjust-line/{{ line.id }}"
+            hx-target="#pos-sidebar-live"
+            hx-swap="innerHTML"
+            style="display: inline; margin: 0"
+          >
+            <input type="hidden" name="delta" value="-1" />
+            <button class="btn pos-qty-btn" type="submit" title="تقليل" aria-label="تقليل الكمية">−</button>
+          </form>
+          <span class="pos-qty-value">{{ pos_qty(line.quantity) }}</span>
+          <form
+            hx-post="/pos/adjust-line/{{ line.id }}"
+            hx-target="#pos-sidebar-live"
+            hx-swap="innerHTML"
+            style="display: inline; margin: 0"
+          >
+            <input type="hidden" name="delta" value="1" />
+            <button class="btn pos-qty-btn" type="submit" title="زيادة" aria-label="زيادة الكمية">+</button>
+          </form>
+        </div>
+        {% if sale_sent_kitchen and line_sent_qty|float > 0 %}
+        <div class="muted" style="font-size:0.72rem;margin-top:0.15rem">{{ pos_qty(line_sent_qty) }} مُرسَل</div>
+        {% endif %}
+        {% else %}
+        {{ pos_qty(line.quantity) }}
+        {% endif %}
+      </td>
       <td>{{ pos_money(line.unit_price) }}</td>
       <td>{{ pos_money(line.line_total) }}</td>
       <td class="pos-cart-actions">
+        {% if sale and line_deletable %}
         <form
           hx-post="/pos/remove-line/{{ line.id }}"
           hx-target="#pos-sidebar-live"
@@ -32,6 +81,22 @@
             </svg>
           </button>
         </form>
+        {% elif sale and sale_sent_kitchen and line_sent_qty|float > 0 and can_void_after_kitchen %}
+        <button type="button" class="btn btn-danger pos-line-del pos-void-line-btn"
+          title="مسح صنف مُرسَل (يتطلب مشرف)"
+          aria-label="مسح صنف مُرسَل"
+          data-line-id="{{ line.id }}"
+          data-product-name="{{ line.product.name_ar }}"
+          {% if not void_supervisor_configured %}disabled style="opacity:0.45"{% endif %}>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+            <path d="M10 11v6"></path>
+            <path d="M14 11v6"></path>
+            <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path>
+          </svg>
+        </button>
+        {% endif %}
       </td>
     </tr>
     {% else %}

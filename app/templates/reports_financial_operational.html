@@ -1,13 +1,18 @@
 {% extends "base.html" %}
-{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button with context %}
 {% block title %}تقرير مالي تشغيلي موثّق{% endblock %}
 {% block body %}
-<h1>التقرير المالي التشغيلي الموثّق</h1>
+<h1>التقرير المالي التشغيلي الموثّق{% if domain_label %} — {{ domain_label }}{% endif %}</h1>
+{% if statement_source == 'hotel' %}
+<p class="muted" style="margin-top:0;font-size:0.88rem">مصدر البيانات: تحصيلات الحجز (أساس نقدي — ليس استحقاق POS).</p>
+{% elif statement_source == 'combined' %}
+<p class="muted" style="margin-top:0;font-size:0.88rem">مصدر مجمّع: POS (استحقاق) + فندق (تحصيلات).</p>
+{% endif %}
 {{ reports_nav(nav_active|default('financial_ops')) }}
 {{ period_filter('/reports/financial-operational', period, period_labels, start, end, start_str, end_str, filter_extra|default('')) }}
 {{ report_export_format_help() }}
 
-<div class="card" style="border-color:#0ea5e9; background:linear-gradient(180deg,#e0f2fe 0%,#fff 55%)">
+<div class="card pos-guide-panel" data-guide-title="ℹ️ مصدر البيانات وحالة الترحيل" style="border-color:#0ea5e9; background:linear-gradient(180deg,#e0f2fe 0%,#fff 55%)">
   <h2 style="margin-top:0">1) مصدر البيانات وحالة الترحيل</h2>
   <table class="table-like" style="width:100%; border-collapse:collapse; font-size:0.92rem">
     <thead>
@@ -17,16 +22,26 @@
       </tr>
     </thead>
     <tbody>
+      {% if statement_source == 'hotel' %}
+      <tr><td style="padding:0.35rem"><code>hotel_booking_payments</code></td><td>تحصيلات الحجز في الفترة (مبلغ نقدي فعلي).</td></tr>
+      <tr><td style="padding:0.35rem"><code>hotel_booking_payment_refunds</code></td><td>مرتجعات تحصيلات الحجز في الفترة.</td></tr>
+      {% elif statement_source == 'combined' %}
+      <tr><td style="padding:0.35rem"><code>sales + hotel_booking_payments</code></td><td>POS (استحقاق) + فندق (تحصيل).</td></tr>
+      <tr><td style="padding:0.35rem"><code>sale_returns + hotel refunds</code></td><td>مرتجعات POS + فندق.</td></tr>
+      {% else %}
       <tr><td style="padding:0.35rem"><code>sales</code></td><td>فقط <strong>COMPLETED</strong> (إتمام البيع) — <strong>لا مسودات</strong> ولا ملغاة.</td></tr>
       <tr><td style="padding:0.35rem"><code>sale_lines</code></td><td>عبر الفاتورة المكتملة فقط (للتوسعة؛ الإجماليات هنا من إجمالي الفاتورة).</td></tr>
       <tr><td style="padding:0.35rem"><code>sale_returns</code></td><td>سندات مرتجع بحالة <strong>POSTED</strong> فقط.</td></tr>
       <tr><td style="padding:0.35rem"><code>sale_payments</code></td><td>دفعات مرتبطة بفواتير تطابق الفترة والفلاتر (استحقاق الفاتورة، لا تاريخ الدفعة).</td></tr>
       <tr><td style="padding:0.35rem"><code>refund_payments</code></td><td>ردود مبالغ لمرتجعات مرحّلة في الفترة ومطابقة للفلاتر.</td></tr>
+      {% endif %}
     </tbody>
   </table>
   <p class="muted" style="margin-top:0.75rem; line-height:1.65">
-    <strong>2) القيود اليومية العامة (GL):</strong> غير موجودة في قاعدة البيانات حالياً؛ لذلك <em>لا يمكن</em> المطابقة الآلية مع دفتر أستاذ عام أو ميزان مراجعة كامل.
-    هذا التقرير يعرض <strong>أرقاماً تشغيلية قابلة للتدقيق</strong> من المستندات أعلاه، مع «قيد منطقي توضيحي» لا يُخزَّن ولا يُوازَن آلياً كقيد GL.
+    <strong>2) القيود اليومية (GL):</strong> للتقارير الرسمية للإدارة (ربح/خسارة، ميزانية) استخدم
+    <a href="/admin/gl/reports">التقارير المالية من GL</a>.
+    هذا التقرير التشغيلي يعرض أرقاماً من المستندات مباشرة للمتابعة اليومية للمحافظ — وليس بديلاً عن GL.
+    الإعداد: <a href="/admin/gl">/admin/gl</a>.
   </p>
   <p class="muted" style="line-height:1.65">
     <strong>3) فرع / قسم / مركز تكلفة:</strong> غير مُعرَّف في النموذج الحالي — الفلاتر المتاحة: مستخدم إنشاء الفاتورة، طريقة دفع، عميل (حيث ينطبق على الفاتورة الأصلية للمرتجع).
@@ -54,7 +69,7 @@
     <input type="hidden" name="end" value="{{ end_str }}" />
     {% endif %}
     <div>
-      <label class="muted" style="font-size:0.8rem">المستخدم (منشئ الفاتورة)</label>
+      <label class="muted" style="font-size:0.8rem">{% if statement_source == 'hotel' %}المستخدم (مستلم التحصيل){% else %}المستخدم (منشئ الفاتورة){% endif %}</label>
       <select name="user_id" style="min-width:10rem">
         <option value="">— الكل —</option>
         {% for u in users %}
@@ -71,6 +86,7 @@
         {% endfor %}
       </select>
     </div>
+    {% if statement_source != 'hotel' %}
     <div>
       <label class="muted" style="font-size:0.8rem">العميل (هاتف/اسم)</label>
       <select name="customer_id" style="min-width:12rem">
@@ -80,6 +96,7 @@
         {% endfor %}
       </select>
     </div>
+    {% endif %}
     <button class="btn btn-primary" type="submit">تطبيق الفلاتر</button>
   </form>
 </div>
@@ -95,15 +112,15 @@
   <h2 style="margin-top:0">الإجماليات والفرعيات</h2>
   <div class="stat-grid">
     <div class="stat-card">
-      <div class="label">عدد الفواتير المكتملة</div>
+      <div class="label">{% if statement_source == 'hotel' %}عدد التحصيلات{% else %}عدد الفواتير المكتملة{% endif %}</div>
       <div class="value">{{ stmt.invoice_count }}</div>
     </div>
     <div class="stat-card">
-      <div class="label">عدد المرتجعات المرحّلة</div>
+      <div class="label">{% if statement_source == 'hotel' %}عدد مرتجعات التحصيل{% else %}عدد المرتجعات المرحّلة{% endif %}</div>
       <div class="value">{{ stmt.return_count }}</div>
     </div>
     <div class="stat-card good">
-      <div class="label">إجمالي مبيعات الاستحقاق</div>
+      <div class="label">{% if statement_source == 'hotel' %}إجمالي التحصيل{% else %}إجمالي مبيعات الاستحقاق{% endif %}</div>
       <div class="value">{{ "%.3f"|format(stmt.gross_revenue) }}</div>
     </div>
     <div class="stat-card bad">
@@ -130,7 +147,7 @@
   <p class="muted" style="margin-top:0.6rem; font-size:0.88rem">
     <strong>طريقة الحساب:</strong> صافي الإيراد = ∑(إجمالي الفاتورة للمكتملة في الفترة والفلاتر) − ∑(إجمالي المرتجع المرحّل في الفترة والفلاتر).
     التحصيل = ∑(<code>sale_payments.amount</code>) لنفس مجموعة الفواتير. ردود المبالغ = ∑(<code>refund_payments.amount</code>) للمرتجعات المطابقة.
-    قد يختلف صافي الإيراد عن «صافي التحصيل» بسبب آجال/ذمم أو مرتجعات بلا دفعة نقدية أو اختلاف التوقيت — وهذا متوقع حتى يُبنى GL.
+    قد يختلف صافي الإيراد عن «صافي التحصيل» بسبب آجال/ذمم — راجع <a href="/admin/gl/reports">تقارير GL</a> للصورة المحاسبية الكاملة.
   </p>
   <p class="muted" style="font-size:0.88rem">
     <strong>ضرائب / خصومات:</strong> {{ "%.3f"|format(stmt.taxes_included) }} / {{ "%.3f"|format(stmt.line_discounts_included) }} (غير مفعّلة في النموذج).
@@ -164,7 +181,8 @@
 <div class="card" style="background:#fef9c3; border-color:#facc15">
   <h3 style="margin-top:0">عكس العمليات</h3>
   <p style="margin:0; line-height:1.65">
-    لا يُلغى «ترحيل» من هذا التقرير — الإلغاء يتم عبر مسارات النظام (مرتجع، عكس قيد عند توفر GL لاحقاً).
+    لا يُلغى «ترحيل» من هذا التقرير — الإلغاء يتم عبر مسارات النظام (مرتجع، تصحيح دفعة، إلخ).
+    عكس القيد المحاسبي يتم تلقائياً في GL عند المرتجعات والتصحيحات — راجع <a href="/admin/gl/journal">قيود اليومية</a>.
     التقرير يقرأ الحالة الفعلية للقاعدة في لحظة التشغيل.
   </p>
 </div>

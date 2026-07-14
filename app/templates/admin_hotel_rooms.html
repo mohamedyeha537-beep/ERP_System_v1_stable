@@ -1,103 +1,202 @@
-{% extends "base.html" %}
-{% block title %}غرف الفندق{% endblock %}
+﻿{% extends "base.html" %}
+{% block title %}إعداد الشقق{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/hotel_dashboard.css?v=12" />
+{% endblock %}
 {% block body %}
-<div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; margin-bottom:0.4rem">
-  <h1 style="margin:0">🏨 غرف الفندق</h1>
-  <div style="display:flex; gap:0.4rem">
-    <a class="btn" href="/hotel/settle">تسوية الحسابات</a>
-    <a class="btn" href="/admin/settings">الإعدادات</a>
+<div class="apt-page-header">
+  <div>
+    <h1 style="margin:0">إعداد الشقق</h1>
+    <p class="muted" style="margin:0.2rem 0 0;font-size:0.88rem">إضافة وتعديل الأسماء والأسعار</p>
   </div>
+  <a class="btn btn-primary" href="/admin/hotel/dashboard">← عرض الشقق</a>
 </div>
-<p class="muted" style="margin-top:0.2rem">
-  أنشئ غرف الفندق برقمها (الشقة ثابتة، أما اسم النزيل فيُكتب يدوياً مع كل طلب لأن الغرفة
-  قد ينزلها أكثر من شخص خلال اليوم). الكاشير صاحب صلاحية «قيد على غرفة» يختار الغرفة
-  ويكتب اسم العميل عند إتمام البيع، وموظف الاستقبال يسوّي الحساب لاحقاً.
-</p>
 
-{% if saved %}
-<div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0">تم الحفظ.</p></div>
+{% set active = 'rooms' %}
+{% include "_hotel_nav.html" %}
+
+{% if saved == 'maintenance' %}
+<div class="card" style="border-color:#fed7aa;background:#fff7ed;margin-bottom:0.75rem"><p style="margin:0">تم وضع الشقة في الصيانة — غير متاحة للحجز.</p></div>
+{% elif saved == 'ready' %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4;margin-bottom:0.75rem"><p style="margin:0">اكتملت الصيانة — الشقة متاحة للحجز.</p></div>
+{% elif saved %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4;margin-bottom:0.75rem"><p style="margin:0">تم الحفظ.</p></div>
 {% endif %}
 {% if error %}
-<div class="card" style="border-color:#fecaca; background:#fef2f2"><p style="margin:0; color:#b91c1c">{{ error }}</p></div>
+<div class="card" style="border-color:#fecaca;background:#fef2f2;margin-bottom:0.75rem"><p style="margin:0;color:#b91c1c">{{ error }}</p></div>
 {% endif %}
 
 <div class="card">
-  <h2 style="margin-top:0">إضافة غرفة جديدة</h2>
-  <form method="post" action="/admin/hotel/rooms/add">
-    <div class="row" style="gap:0.6rem; align-items:flex-end; flex-wrap:wrap">
-      <div style="flex:1; min-width:160px">
-        <label>رقم الغرفة/الشقة <span style="color:#dc2626">*</span></label>
-        <input name="number" required placeholder="مثلاً: 101 أو شقة 3" />
+  <h2 style="margin-top:0">إضافة شقة جديدة</h2>
+  <form method="post" action="/admin/hotel/rooms/add" enctype="multipart/form-data">
+    <div class="row" style="gap:0.6rem;align-items:flex-end;flex-wrap:wrap">
+      <div style="flex:1;min-width:140px">
+        <label>اسم الشقة *</label>
+        <input name="name_ar" required placeholder="شقة 001" />
       </div>
-      <div style="flex:3; min-width:240px">
-        <label>ملاحظة داخلية (اختياري)</label>
-        <input name="notes" placeholder="مثلاً: شقة فاخرة، الطابق الأول..." />
+      <div style="flex:0.7;min-width:100px">
+        <label>الرقم *</label>
+        <input name="number" required placeholder="001" />
       </div>
-      <div>
-        <button class="btn btn-primary" type="submit">إضافة الغرفة</button>
+      <div style="flex:0.7;min-width:100px">
+        <label>سعر الليلة</label>
+        <input name="nightly_price" type="number" step="0.001" min="0" placeholder="700" />
       </div>
+      <div style="flex:1;min-width:140px">
+        <label>نوع الغرفة</label>
+        <select name="room_type_id">
+          <option value="">— اختياري —</option>
+          {% for t in room_types %}
+          <option value="{{ t.id }}">{{ t.name_ar }} ({{ t.base_price }} د.ل)</option>
+          {% endfor %}
+        </select>
+        <p class="muted" style="margin:0.2rem 0 0;font-size:0.8rem"><a href="/admin/hotel/room-types">أنواع الغرف</a></p>
+      </div>
+      <div style="flex:0.5;min-width:70px">
+        <label>الطابق</label>
+        <input name="floor" placeholder="1" />
+      </div>
+      <div style="flex:1;min-width:140px">
+        <label>صورة</label>
+        <input name="image" type="file" accept="image/jpeg,image/png,image/webp" />
+      </div>
+      <div style="flex:1;min-width:160px">
+        <label>ملاحظة</label>
+        <input name="notes" placeholder="اختياري" />
+      </div>
+      <div style="flex:1;min-width:200px">
+        <label>وصف المتجر الأونلاين</label>
+        <input name="online_description" placeholder="يظهر للزائر في /suites" />
+      </div>
+      <label style="display:flex;align-items:center;gap:0.35rem;white-space:nowrap">
+        <input type="checkbox" name="show_online" />
+        عرض في المتجر الأونلاين
+      </label>
+      <div><button class="btn btn-primary" type="submit">إضافة</button></div>
     </div>
   </form>
 </div>
 
-<div class="card">
-  <h2 style="margin-top:0">قائمة الغرف ({{ rooms|length }})</h2>
-  {% if not rooms %}
-  <p class="muted">لا توجد غرف بعد — أضف أول غرفة من الأعلى.</p>
-  {% else %}
-  <table>
-    <thead>
-      <tr>
-        <th>الرقم</th>
-        <th>الحالة</th>
-        <th>رصيد مفتوح</th>
-        <th>ملاحظة</th>
-        <th>إجراءات</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for r in rooms %}
-      {% set total, count = open_totals.get(r.id, (0, 0)) %}
-      <tr{% if not r.is_active %} style="opacity:0.55"{% endif %}>
-        <td><strong style="font-size:1.1rem">#{{ r.number }}</strong></td>
-        <td>
-          {% if r.is_active %}<span style="color:#15803d;font-weight:600">نشطة</span>
-          {% else %}<span style="color:#6b7280">معطّلة</span>{% endif %}
-        </td>
-        <td>
-          {% if count > 0 %}
-          <span style="background:#fef3c7;color:#b45309;padding:0.15rem 0.5rem;border-radius:6px;font-weight:700">
-            {{ '%.3f' % total }} د.ل · {{ count }} فاتورة
-          </span>
-          {% else %}
-          <span class="muted">—</span>
-          {% endif %}
-        </td>
-        <td style="max-width:280px">{{ r.notes or '' }}</td>
-        <td>
-          <details>
-            <summary class="btn" style="display:inline-block;cursor:pointer">تعديل</summary>
-            <form method="post" action="/admin/hotel/rooms/{{ r.id }}/edit" style="margin-top:0.5rem; display:flex; flex-direction:column; gap:0.4rem; min-width:280px">
-              <input name="number" value="{{ r.number }}" required placeholder="رقم الغرفة" />
-              <input name="notes" value="{{ r.notes or '' }}" placeholder="ملاحظة داخلية" />
-              <label style="display:flex;align-items:center;gap:0.4rem">
-                <input type="checkbox" name="is_active" {% if r.is_active %}checked{% endif %} />
-                نشطة
-              </label>
-              <div style="display:flex;gap:0.4rem">
-                <button class="btn btn-primary" type="submit">حفظ</button>
-              </div>
-            </form>
-            <form method="post" action="/admin/hotel/rooms/{{ r.id }}/delete" style="margin-top:0.4rem"
-                  onsubmit="return confirm('حذف الغرفة #{{ r.number }} نهائياً؟');">
-              <button class="btn" style="background:#fee2e2;color:#b91c1c" type="submit">حذف الغرفة</button>
-            </form>
-          </details>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% endif %}
+{% if cards %}
+<h2 style="margin:1rem 0 0.65rem;font-size:1.05rem">الشقق المسجّلة ({{ cards|length }})</h2>
+<div class="apt-grid">
+  {% for c in cards %}
+  {% set tile_mode = 'setup' %}
+  {% include "_hotel_apartment_tile.html" %}
+  {% endfor %}
 </div>
+{% endif %}
+
+<dialog id="room-edit-dialog" class="hotel-room-edit-dialog">
+  <div class="hotel-room-edit-dialog__inner">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;margin-bottom:0.75rem">
+      <h2 style="margin:0">تعديل الشقة</h2>
+      <button type="button" class="btn" id="room-edit-close">إغلاق</button>
+    </div>
+    <form method="post" action="" enctype="multipart/form-data" id="room-edit-form">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:0.65rem">
+        <label>اسم الشقة
+          <input name="name_ar" id="edit-room-name" placeholder="اسم الشقة" />
+        </label>
+        <label>الرقم *
+          <input name="number" id="edit-room-number" required placeholder="الرقم" />
+        </label>
+        <label>سعر الليلة
+          <input name="nightly_price" id="edit-room-price" type="number" step="0.001" min="0" placeholder="سعر الليلة" />
+        </label>
+        <label>نوع الغرفة
+          <select name="room_type_id" id="edit-room-type">
+            <option value="">— نوع —</option>
+            {% for t in room_types %}
+            <option value="{{ t.id }}">{{ t.name_ar }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>الطابق
+          <input name="floor" id="edit-room-floor" placeholder="الطابق" />
+        </label>
+        <label>ملاحظة
+          <input name="notes" id="edit-room-notes" placeholder="ملاحظة" />
+        </label>
+        <label>صورة
+          <input name="image" type="file" accept="image/jpeg,image/png,image/webp" />
+        </label>
+        <label style="display:flex;align-items:center;gap:0.4rem;margin-top:1.55rem">
+          <input type="checkbox" name="is_active" id="edit-room-active" />
+          نشطة
+        </label>
+        <label style="display:flex;align-items:center;gap:0.4rem;margin-top:1.55rem">
+          <input type="checkbox" name="show_online" id="edit-room-online" />
+          عرض أونلاين
+        </label>
+        <label style="grid-column:1/-1">وصف المتجر
+          <input name="online_description" id="edit-room-online-desc" placeholder="محتوى الشقة للزائر" />
+        </label>
+      </div>
+      <div style="display:flex;gap:0.5rem;justify-content:flex-end;flex-wrap:wrap;margin-top:1rem">
+        <button type="submit" class="btn btn-primary">حفظ التعديل</button>
+        <button type="button" class="btn" id="room-edit-cancel">إلغاء</button>
+      </div>
+    </form>
+    <p id="room-delete-blocked-note" class="muted" style="display:none;margin:0.75rem 0 0;color:#b45309;font-size:0.86rem">
+      لا يمكن حذف هذه الشقة لأنها مرتبطة بحجوزات. يمكنك تعطيلها بإلغاء خيار "نشطة" ثم حفظ التعديل.
+    </p>
+    <form method="post" action="" id="room-delete-form" style="margin-top:0.65rem;text-align:left">
+      <button type="submit" class="apt-tile__delete" id="room-delete-btn">حذف</button>
+    </form>
+  </div>
+</dialog>
+
+<script>
+(function () {
+  var dlg = document.getElementById('room-edit-dialog');
+  var form = document.getElementById('room-edit-form');
+  var delForm = document.getElementById('room-delete-form');
+  if (!dlg || !form || !delForm) return;
+  function setValue(id, value) {
+    var el = document.getElementById(id);
+    if (el) el.value = value || '';
+  }
+  document.querySelectorAll('[data-room-edit]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var d = btn.dataset;
+      form.action = '/admin/hotel/rooms/' + d.id + '/edit';
+      delForm.action = '/admin/hotel/rooms/' + d.id + '/delete';
+      setValue('edit-room-name', d.name);
+      setValue('edit-room-number', d.number);
+      setValue('edit-room-price', d.price);
+      setValue('edit-room-type', d.roomTypeId);
+      setValue('edit-room-floor', d.floor);
+      setValue('edit-room-notes', d.notes);
+      var active = document.getElementById('edit-room-active');
+      if (active) active.checked = d.active === '1';
+      var onlineEl = document.getElementById('edit-room-online');
+      if (onlineEl) onlineEl.checked = d.showOnline === '1';
+      setValue('edit-room-online-desc', d.onlineDesc || '');
+      var delBtn = document.getElementById('room-delete-btn');
+      var blockedNote = document.getElementById('room-delete-blocked-note');
+      var canDelete = d.canDelete === '1';
+      delForm.style.display = canDelete ? '' : 'none';
+      if (blockedNote) {
+        blockedNote.style.display = canDelete ? 'none' : 'block';
+        blockedNote.textContent = 'لا يمكن حذف هذه الشقة لأنها مرتبطة بـ ' + (d.bookingCount || '0') + ' حجز. يمكنك تعطيلها بإلغاء خيار "نشطة" ثم حفظ التعديل.';
+      }
+      if (delBtn) {
+        delBtn.onclick = function () {
+          return confirm('حذف ' + (d.deleteLabel || d.number) + '؟');
+        };
+      }
+      if (typeof dlg.showModal === 'function') dlg.showModal();
+      else dlg.setAttribute('open', 'open');
+    });
+  });
+  ['room-edit-close', 'room-edit-cancel'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener('click', function () { dlg.close(); });
+  });
+})();
+</script>
+{% if can_maintain %}
+{% include "_hotel_maintenance_dialog.html" %}
+{% endif %}
 {% endblock %}

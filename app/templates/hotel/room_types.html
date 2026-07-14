@@ -1,0 +1,115 @@
+﻿{% extends "base.html" %}
+{% block title %}أنواع الغرف{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/hotel_dashboard.css?v=13" />
+{% endblock %}
+{% block body %}
+<div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.4rem">
+  <h1 style="margin-top:0">🏷️ أنواع الغرف</h1>
+  <a class="btn" href="/admin/hotel/rooms">← إعداد الشقق</a>
+</div>
+<p class="muted" style="margin-top:0">
+  أنواع الغرف (مثل: جناح، عائلي، VIP) تحدد السعر الافتراضي والسعة. تُختار لكل شقة عند الإعداد — ويمكن لكل شقة سعر خاص يتجاوز السعر هنا.
+  الأنواع <strong>المعطّلة</strong> لا تظهر في الحجز الجديد ولا في قوائم إعداد الشقق، لكن تبقى مرئية هنا.
+</p>
+
+{% set active = 'room-types' %}
+{% include "_hotel_nav.html" %}
+
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+{% if saved %}<div class="alert" style="background:#ecfdf5">تم ✓</div>{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0">إضافة نوع جديد</h2>
+  <form method="post" action="/admin/hotel/room-types/save" class="row" style="gap:0.4rem;flex-wrap:wrap;align-items:flex-end">
+    <div><label>الاسم *</label><input name="name_ar" placeholder="مثلاً: جناح" required /></div>
+    <div><label>رمز</label><input name="code" placeholder="SUITE" /></div>
+    <div><label>بالغون</label><input name="capacity_adults" type="number" value="2" min="1" /></div>
+    <div><label>أطفال</label><input name="capacity_children" type="number" value="0" min="0" /></div>
+    <div><label>سعر الليلة (د.ل)</label><input name="base_price" type="number" step="0.001" min="0" placeholder="200" /></div>
+    <button class="btn btn-primary" type="submit">إضافة النوع</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">الأنواع المسجّلة ({{ items|length }})</h2>
+  {% if not items %}
+  <p class="muted">لا توجد أنواع بعد.</p>
+  {% else %}
+  <table>
+    <thead>
+      <tr>
+        <th>الاسم</th>
+        <th>الرمز</th>
+        <th>السعة</th>
+        <th>السعر/ليلة</th>
+        <th>الحالة</th>
+        <th>الاستخدام</th>
+        <th>إجراءات</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for row in items %}
+    {% set t = row.room_type if row is mapping else row %}
+    {% set u = row.usage if row is mapping else {'rooms': 0, 'bookings': 0} %}
+    {% set can_del = row.can_delete if row is mapping else false %}
+    <tr{% if not t.is_active %} style="opacity:0.72;background:#f9fafb"{% endif %}>
+      <td><strong>{{ t.name_ar }}</strong></td>
+      <td>{{ t.code or '—' }}</td>
+      <td>{{ t.capacity_adults }} بالغ{% if t.capacity_children %} + {{ t.capacity_children }} طفل{% endif %}</td>
+      <td>{{ '%.3f'|format(t.base_price) }} د.ل</td>
+      <td>
+        {% if t.is_active %}
+        <span class="hotel-badge hotel-badge--ok">متاح</span>
+        {% else %}
+        <span class="hotel-badge hotel-badge--muted">معطّل</span>
+        {% endif %}
+      </td>
+      <td class="muted" style="font-size:0.82rem">
+        {% if u.rooms %}{{ u.rooms }} شقة{% else %}—{% endif %}
+        {% if u.bookings %} · {{ u.bookings }} حجز{% endif %}
+      </td>
+      <td>
+        <div style="display:flex;flex-wrap:wrap;gap:0.35rem;align-items:flex-start">
+          <details>
+            <summary class="btn" style="cursor:pointer;display:inline-block">تعديل</summary>
+            <form method="post" action="/admin/hotel/room-types/save" style="margin-top:0.5rem;display:flex;flex-direction:column;gap:0.35rem;min-width:240px">
+              <input type="hidden" name="type_id" value="{{ t.id }}" />
+              <input name="name_ar" value="{{ t.name_ar }}" required />
+              <input name="code" value="{{ t.code or '' }}" placeholder="رمز" />
+              <input name="capacity_adults" type="number" value="{{ t.capacity_adults }}" min="1" />
+              <input name="capacity_children" type="number" value="{{ t.capacity_children }}" min="0" />
+              <input name="base_price" type="number" step="0.001" value="{{ t.base_price }}" />
+              <label style="display:flex;align-items:center;gap:0.35rem;font-size:0.88rem">
+                <input type="checkbox" name="is_active" value="on"{% if t.is_active %} checked{% endif %} />
+                متاح للحجز وإعداد الشقق
+              </label>
+              <button class="btn btn-primary" type="submit">حفظ التعديل</button>
+            </form>
+          </details>
+          {% if t.is_active %}
+          <form method="post" action="/admin/hotel/room-types/{{ t.id }}/toggle" style="display:inline">
+            <input type="hidden" name="active" value="0" />
+            <button class="btn" type="submit" title="إخفاء من الحجز والقوائم">تعطيل</button>
+          </form>
+          {% else %}
+          <form method="post" action="/admin/hotel/room-types/{{ t.id }}/toggle" style="display:inline">
+            <input type="hidden" name="active" value="1" />
+            <button class="btn btn-primary" type="submit">تفعيل</button>
+          </form>
+          {% endif %}
+          {% if can_del %}
+          <form method="post" action="/admin/hotel/room-types/{{ t.id }}/delete" style="display:inline"
+                onsubmit="return confirm('حذف نوع «{{ t.name_ar|e }}» نهائياً؟');">
+            <button class="btn" type="submit" style="color:#b91c1c;border-color:#fecaca">حذف</button>
+          </form>
+          {% endif %}
+        </div>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,217 @@
+{# ملخص مالي للجلسة — جداول واضحة للإغلاق والتقرير #}
+{% if shift_financial %}
+{% set _sid = shift_id|default(none) %}
+{% if not _sid and open_shift is defined and open_shift %}{% set _sid = open_shift.id %}{% endif %}
+<section class="shift-financial-summary" id="shift-summary-print" aria-labelledby="shift-summary-title">
+  <div class="shift-summary-head">
+    <h3 class="shift-summary-title" id="shift-summary-title">ملخص الجلسة المالية</h3>
+    {% if _sid %}
+    <div class="shift-summary-actions no-print">
+      <button type="button" class="btn shift-btn-pdf" onclick="posPrintShiftSummary()" title="طباعة أو حفظ PDF">
+        حفظ PDF
+      </button>
+      <a class="btn" href="/pos/shift/{{ _sid }}/report" target="_blank" rel="noopener">تقرير كامل</a>
+      <a class="btn" href="/pos/shift/{{ _sid }}/export.csv">CSV</a>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="shift-table-wrap">
+    <table class="shift-summary-table">
+      <thead>
+        <tr>
+          <th scope="col">البيان</th>
+          <th scope="col" class="col-amount">المبلغ (د.ل)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>
+            <span class="shift-row-label">إجمالي فواتير (بنود)</span>
+            <span class="shift-row-hint">قيمة الطلبات قبل خصم النقاط</span>
+          </td>
+          <td class="col-amount">{{ pos_money(shift_financial.invoice_sales_total) }}</td>
+        </tr>
+        {% if shift_financial.opening_cash and shift_financial.opening_cash > 0 %}
+        <tr>
+          <td>
+            <span class="shift-row-label">رصيد افتتاحي (فكة الدرج)</span>
+            <span class="shift-row-hint">مبلّغ من أمين الخزينة عند فتح الجلسة — ليس مبيعات</span>
+          </td>
+          <td class="col-amount amt-cash">{{ pos_money(shift_financial.opening_cash) }}</td>
+        </tr>
+        {% endif %}
+        {% if shift_financial.loyalty_dinar_cost and shift_financial.loyalty_dinar_cost > 0 %}
+        <tr>
+          <td>
+            <span class="shift-row-label">خصم نقاط ولاء (غير نقدي)</span>
+            <span class="shift-row-hint">{{ shift_financial.loyalty_redeem_count }} عملية — {{ pos_money_plain(shift_financial.loyalty_points_redeemed) }} نقطة</span>
+          </td>
+          <td class="col-amount amt-expense">
+            −{% if _sid %}
+            <a href="/reports/shifts/{{ _sid }}/loyalty" class="no-print" style="font-weight:700;color:#b45309">{{ pos_money(shift_financial.loyalty_dinar_cost) }}</a>
+            {% else %}
+            {{ pos_money(shift_financial.loyalty_dinar_cost) }}
+            {% endif %}
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <span class="shift-row-label">صافي محصّل (كاش + مصرف)</span>
+            <span class="shift-row-hint">ما دفعه الزبون فعلاً — يدخل الدرج/المصرف</span>
+          </td>
+          <td class="col-amount amt-cash" style="font-weight:700">{{ pos_money(shift_financial.net_collected) }}</td>
+        </tr>
+        {% endif %}
+        <tr>
+          <td>
+            <span class="shift-row-label">إجمالي مبيعات كاش</span>
+            <span class="shift-row-hint">قبض فعلي — بعد خصم نقاط الولاء</span>
+          </td>
+          <td class="col-amount amt-cash">{{ pos_money(shift_financial.cash_sales) }}</td>
+        </tr>
+        <tr>
+          <td>
+            <span class="shift-row-label">إجمالي مبيعات مصرف</span>
+            <span class="shift-row-hint">قبض تحويل / بطاقة</span>
+          </td>
+          <td class="col-amount amt-bank">{{ pos_money(shift_financial.bank_sales) }}</td>
+        </tr>
+        <tr>
+          <td>
+            <span class="shift-row-label">بيع على حساب الشقة / النزلاء</span>
+            <span class="shift-row-hint">لم يُحصّل من الكاشير</span>
+          </td>
+          <td class="col-amount amt-room">{{ pos_money(shift_financial.room_account_sales) }}</td>
+        </tr>
+        <tr>
+          <td>
+            <span class="shift-row-label">مصروفات توصيل</span>
+            <span class="shift-row-hint">صرف للسائق من الكاش</span>
+          </td>
+          <td class="col-amount amt-expense">{{ pos_money(shift_financial.delivery_expenses) }}</td>
+        </tr>
+        {% if shift_financial.shift_cash_expenses and shift_financial.shift_cash_expenses > 0 %}
+        <tr>
+          <td>
+            <span class="shift-row-label">مصروفات جلسة (كاش)</span>
+            <span class="shift-row-hint">مسجّلة من الكاشير أثناء الجلسة</span>
+          </td>
+          <td class="col-amount amt-expense">−{{ pos_money(shift_financial.shift_cash_expenses) }}</td>
+        </tr>
+        {% endif %}
+        {% if shift_financial.shift_bank_expenses and shift_financial.shift_bank_expenses > 0 %}
+        <tr>
+          <td>
+            <span class="shift-row-label">مصروفات جلسة (مصرف)</span>
+            <span class="shift-row-hint">مسجّلة من الكاشير أثناء الجلسة</span>
+          </td>
+          <td class="col-amount amt-expense">−{{ pos_money(shift_financial.shift_bank_expenses) }}</td>
+        </tr>
+        {% endif %}
+        {% if shift_financial.cash_refunds and shift_financial.cash_refunds > 0 %}
+        <tr>
+          <td><span class="shift-row-label">مرتجعات كاش</span></td>
+          <td class="col-amount amt-refund">−{{ pos_money(shift_financial.cash_refunds) }}</td>
+        </tr>
+        {% endif %}
+        {% if shift_financial.bank_refunds and shift_financial.bank_refunds > 0 %}
+        <tr>
+          <td><span class="shift-row-label">مرتجعات مصرف</span></td>
+          <td class="col-amount amt-refund">−{{ pos_money(shift_financial.bank_refunds) }}</td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if show_drawer_expected %}
+  <div class="shift-table-wrap shift-table-wrap--highlight">
+    <table class="shift-summary-table shift-summary-table--expected">
+      <thead>
+        <tr>
+          <th scope="col">المتوقع عند الإغلاق</th>
+          <th scope="col" class="col-amount">المبلغ (د.ل)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="row-emphasis">
+          <td>
+            <span class="shift-row-label">كاش متوقع في الدرج</span>
+            <span class="shift-row-hint">
+              {% if shift_financial.opening_cash and shift_financial.opening_cash > 0 %}
+              فكة افتتاح + محصّل كاش − توصيل − مصروفات − مرتجعات
+              {% else %}
+              محصّل فعلي (بعد النقاط) − توصيل − مصروفات الجلسة − مرتجعات
+              {% endif %}
+            </span>
+          </td>
+          <td class="col-amount">{{ pos_money(shift_financial.expected_cash_drawer) }}</td>
+        </tr>
+        <tr>
+          <td>
+            <span class="shift-row-label">مصرف متوقع</span>
+            <span class="shift-row-hint">مبيعات مصرف − مرتجعات</span>
+          </td>
+          <td class="col-amount">{{ pos_money(shift_financial.expected_bank) }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  {% if show_count_preview is defined and show_count_preview %}
+  <div class="shift-table-wrap" id="shift-count-preview"
+    data-expected-cash="{{ shift_financial.expected_cash_drawer }}"
+    data-expected-bank="{{ shift_financial.expected_bank }}"
+    data-loyalty-cost="{{ shift_financial.loyalty_dinar_cost or 0 }}">
+    <table class="shift-summary-table shift-summary-table--diff">
+      <thead>
+        <tr>
+          <th scope="col">فروقات العد</th>
+          <th scope="col" class="col-amount">الفرق (د.ل)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>
+            <span class="shift-row-label">فرق الكاش</span>
+            <span class="shift-row-hint">معدود − متوقع (سالب = عجز)</span>
+          </td>
+          <td class="col-amount"><strong id="shift-preview-cash-diff" class="muted">—</strong></td>
+        </tr>
+        <tr>
+          <td><span class="shift-row-label">فرق المصرف</span></td>
+          <td class="col-amount"><strong id="shift-preview-bank-diff" class="muted">—</strong></td>
+        </tr>
+        <tr class="row-shortage">
+          <td>
+            <span class="shift-row-label">عجز فعلي (بعد استثناء نقاط الولاء)</span>
+            <span class="shift-row-hint">يُحمَّل على الكاشير فقط — النقاط تكلفة تشغيل</span>
+          </td>
+          <td class="col-amount"><strong id="shift-preview-total-shortage">0.000</strong></td>
+        </tr>
+        <tr class="row-surplus">
+          <td>
+            <span class="shift-row-label">فائض (زيادة عن المتوقع)</span>
+            <span class="shift-row-hint">معدود أكبر من المتوقع — كاش أو مصرف</span>
+          </td>
+          <td class="col-amount"><strong id="shift-preview-total-surplus" style="color:#15803d">0.000</strong></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+  {% endif %}
+</section>
+<script>
+if (typeof window.posPrintShiftSummary !== "function") {
+  window.posPrintShiftSummary = function () {
+    document.body.classList.add("pos-shift-printing");
+    window.print();
+    setTimeout(function () {
+      document.body.classList.remove("pos-shift-printing");
+    }, 900);
+  };
+}
+</script>
+{% endif %}

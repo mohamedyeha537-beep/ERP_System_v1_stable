@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block title %}إرسال جماعي{% endblock %}
+
+{% block body %}
+
+<h1>الرسائل الدعائية — إرسال جماعي</h1>
+<p class="muted pos-guide-intro" data-guide-title="ℹ️ عن الإرسال الجماعي">عروض وإعلانات — <strong>لا علاقة</strong> بتنبيهات المخزون التلقائية. قوائم الأرقام الخارجية <strong>لا تُنشئ عملاء</strong> في النظام إلا عند التسجيل أو الطلب.</p>
+
+<a class="btn" href="/admin/notifications/delivery">رجوع للإعدادات</a>
+
+{% if err %}
+<div class="alert" style="margin-top:1rem">{{ err }}</div>
+{% endif %}
+
+{% if sent %}
+<div class="card" style="margin-top:1rem;border-color:#86efac;background:#f0fdf4">
+  <p style="margin:0">تمت جدولة <strong>{{ sent }}</strong> رسالة في الطابور. الإرسال يتم تلقائياً ({{ delay }} ث بين الرسائل).</p>
+  <p class="muted" style="margin:0.35rem 0 0;font-size:0.88rem">راجع <a href="/admin/messaging/log">سجل الإرسال</a> للمتابعة.</p>
+</div>
+{% endif %}
+
+{% if list_imported %}
+<div class="card" style="margin-top:1rem;border-color:#86efac;background:#f0fdf4">
+  <p style="margin:0">تم استيراد <strong>{{ list_imported }}</strong> رقم صالح إلى قائمة «{{ list_name }}».
+  {% if list_invalid and list_invalid != '0' %} — {{ list_invalid }} غير صالح{% endif %}
+  {% if list_duplicates and list_duplicates != '0' %} — {{ list_duplicates }} مكرر{% endif %}
+  </p>
+</div>
+{% endif %}
+
+<div class="card" style="margin-top:1rem">
+  <p>عملاء نشطون: <strong>{{ total_customers }}</strong> — موافقون على المراسلات: <strong>{{ opt_in_customers }}</strong></p>
+  <p>طابور حالياً: <strong>{{ pending }}</strong> {% if eta_minutes %}— تقدير: ~{{ eta_minutes }} د{% endif %}</p>
+  <p class="muted" style="font-size:0.85rem">الإعداد: {{ batch }} رسالة/دورة — {{ delay }} ث بين كل رسالة.</p>
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0">رفع قائمة أرقام خارجية</h2>
+  <p class="muted" style="font-size:0.88rem">ملف <strong>CSV</strong> أو <strong>TXT</strong> — الأرقام تُستخدم للإرسال فقط ولا تُضاف كعملاء.</p>
+  <details style="margin:0.75rem 0;font-size:0.88rem">
+    <summary style="cursor:pointer;font-weight:600">تنسيق الملف المقبول</summary>
+    <ul class="muted" style="margin:0.5rem 0 0;padding-inline-start:1.2rem">
+      <li><strong>CSV:</strong> عمودان — <code dir="ltr">phone,name</code> — السطر الأول عنوان (يُتجاهل).</li>
+      <li><strong>TXT:</strong> رقم واحد في كل سطر، أو <code dir="ltr">رقم، اسم</code> أو <code dir="ltr">رقم; اسم</code> أو <code dir="ltr">رقم اسم</code>.</li>
+      <li>الأرقام: محلية (<code dir="ltr">09xxxxxxxx</code>) أو مع كود الدولة (<code dir="ltr">2189xxxxxxxx</code>).</li>
+      <li>الأسطر الفارغة أو التي تبدأ بـ <code>#</code> تُتجاهل. التكرار في نفس الملف يُحذف تلقائياً.</li>
+    </ul>
+    <p style="margin:0.5rem 0 0">
+      <a class="btn" href="/admin/messaging/phone-lists/template?fmt=csv">تنزيل قالب CSV</a>
+      <a class="btn" href="/admin/messaging/phone-lists/template?fmt=txt" style="margin-inline-start:0.35rem">تنزيل قالب TXT</a>
+    </p>
+  </details>
+  <form method="post" action="/admin/messaging/phone-lists/import" enctype="multipart/form-data">
+    <label>اسم القائمة</label>
+    <input name="name" placeholder="حملة يوليو 2026" style="width:100%;max-width:24rem" />
+    <label style="margin-top:0.5rem">ملاحظة (اختياري)</label>
+    <input name="note" placeholder="مصدر الأرقام…" style="width:100%;max-width:24rem" />
+    <label style="margin-top:0.5rem">الملف</label>
+    <input type="file" name="file" accept=".csv,.txt,text/csv,text/plain" required />
+    <div style="margin-top:0.75rem">
+      <button type="submit" class="btn">استيراد القائمة</button>
+    </div>
+  </form>
+  {% if phone_lists %}
+  <h3 style="margin-top:1.25rem;font-size:1rem">القوائم المحفوظة</h3>
+  <table class="table" style="margin-top:0.5rem">
+    <thead><tr><th>الاسم</th><th>أرقام صالحة</th><th>تاريخ</th></tr></thead>
+    <tbody>
+    {% for pl in phone_lists %}
+    <tr>
+      <td>{{ pl.name }}{% if pl.note %} <span class="muted">— {{ pl.note }}</span>{% endif %}</td>
+      <td><strong>{{ pl.valid_count }}</strong></td>
+      <td class="muted">{{ pl.created_at.strftime('%Y-%m-%d %H:%M') if pl.created_at else '—' }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0">رسالة جديدة</h2>
+  <form method="post" action="/admin/messaging/broadcast/send" id="broadcast-form" enctype="multipart/form-data">
+    <label>نص الرسالة</label>
+    <textarea name="message" rows="5" required style="width:100%" placeholder="عرض خاص — خصم 20% اليوم فقط"></textarea>
+    <label style="margin-top:0.5rem">صورة مرفقة (اختياري)</label>
+    <input type="file" name="image_file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" />
+    <p class="muted" style="font-size:0.85rem;margin-top:0.35rem">اختر صورة من جهازك (jpg, png, webp — حتى 2 م.ب). يُحفظ الملف على السيرفر ويُرسل عبر TextMeBot بنفس جودة الرابط.</p>
+    <details style="margin-top:0.5rem;font-size:0.88rem">
+      <summary style="cursor:pointer">أو ألصق رابط صورة خارجي</summary>
+      <input name="image_url" dir="ltr" placeholder="https://example.com/promo.jpg" style="width:100%;max-width:36rem;margin-top:0.35rem" />
+      <p class="muted" style="font-size:0.85rem;margin-top:0.25rem">يجب أن يكون الرابط عاماً (HTTPS) ليتمكن TextMeBot من تحميله.</p>
+    </details>
+    <label style="margin-top:0.5rem">المستلمون</label>
+    <select name="segment" id="broadcast-segment">
+      <option value="opt_in">الموافقون على المراسلات فقط (موصى به)</option>
+      <option value="all_whatsapp">كل العملاء النشطين — WhatsApp</option>
+      <option value="phone_list">قائمة أرقام خارجية (بدون إنشاء عملاء)</option>
+    </select>
+    <div id="phone-list-picker" style="display:none;margin-top:0.5rem">
+      <label>اختر القائمة</label>
+      <select name="phone_list_id">
+        <option value="">— اختر —</option>
+        {% for pl in phone_lists %}
+        <option value="{{ pl.id }}">{{ pl.name }} ({{ pl.valid_count }} رقم)</option>
+        {% endfor %}
+      </select>
+      {% if not phone_lists %}
+      <p class="muted" style="font-size:0.85rem;margin-top:0.35rem">ارفع قائمة أرقام أولاً من القسم أعلاه.</p>
+      {% endif %}
+    </div>
+    <div style="margin-top:0.75rem">
+      <button type="submit" class="btn btn-primary">جدولة الإرسال</button>
+    </div>
+  </form>
+</div>
+
+<div class="card pos-guide-panel" data-guide-title="ℹ️ ملاحظات الإرسال الجماعي" style="margin-top:1rem;background:#eff6ff;border-color:#93c5fd">
+  <h3 style="margin-top:0">ملاحظات</h3>
+  <ul class="muted" style="font-size:0.88rem;margin:0;padding-inline-start:1.2rem">
+    <li>الأحداث التلقائية (نقاط، ترحيب…) من <a href="/admin/notifications/rules">القواعد</a>.</li>
+    <li>الأرقام الخارجية تُرسل عبر WhatsApp فقط — لا يُنشأ سجل عميل حتى يتفاعل ويسجّل عند الطلب.</li>
+    <li>لا تُرسل رسائل spam — احترم فترة التجربة في TextMeBot (5+ ثوانٍ).</li>
+    <li>لآلاف المستخدمين: اترك «عامل الإرسال» مفعّلاً — يُوزّع الإرسال على مدار اليوم.</li>
+  </ul>
+</div>
+
+<script>
+(function () {
+  var seg = document.getElementById('broadcast-segment');
+  var picker = document.getElementById('phone-list-picker');
+  if (!seg || !picker) return;
+  function sync() {
+    picker.style.display = seg.value === 'phone_list' ? 'block' : 'none';
+  }
+  seg.addEventListener('change', sync);
+  sync();
+})();
+</script>
+
+{% endblock %}

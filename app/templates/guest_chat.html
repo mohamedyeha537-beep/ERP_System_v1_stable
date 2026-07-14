@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    {% set brand = pos_brand(request) %}
+    <title>محادثة — {{ pos_display_name(request) }}</title>
+    <link rel="stylesheet" href="/static/guest_chat.css?v=8" />
+    <style>
+      :root {
+        --brand-primary: {{ brand.primary_color }};
+        --brand-accent: {{ brand.accent_color }};
+      }
+    </style>
+  </head>
+  <body class="guest-chat-page">
+    <header class="guest-chat-header">
+      <div class="guest-chat-header-inner">
+        <div>
+          <h1>{{ store_name }}</h1>
+          <p class="guest-chat-sub">محادثة مباشرة — الدعم والمبيعات · <a href="/suites">حجز شقة</a></p>
+        </div>
+        <div class="guest-chat-header-actions">
+          {% if shop_enabled %}
+          <a href="/shop" class="guest-chat-link-btn" title="المتجر" aria-label="المتجر">🛒</a>
+          {% endif %}
+          <button type="button" id="btn-profile" class="guest-chat-icon-btn" title="بيانات الطلب" aria-label="بيانات الطلب">
+            👤
+          </button>
+        </div>
+      </div>
+    </header>
+
+    {% if not enabled %}
+    <main class="guest-chat-disabled">
+      <p>المحادثة غير متاحة حالياً. حاول لاحقاً أو تواصل معنا عبر الهاتف.</p>
+    </main>
+    {% else %}
+    <main class="guest-chat-main" id="chat-main">
+      <div class="guest-chat-messages" id="chat-messages" aria-live="polite"></div>
+      <div class="guest-chat-typing" id="chat-typing" hidden>جاري الكتابة…</div>
+    </main>
+
+    <div id="chat-rating-wrap" class="guest-chat-rating-wrap" hidden>
+      <p class="guest-chat-rating-label">قيّم تجربتك</p>
+      <div class="guest-chat-stars" id="chat-stars" role="group" aria-label="تقييم من 1 إلى 5"></div>
+      <p class="guest-chat-rating-hint">اضغط على النجمة المناسبة — 1 ضعيف، 5 ممتاز</p>
+    </div>
+
+    <div id="chat-receipt-wrap" class="guest-chat-receipt-wrap" hidden>
+      <p class="guest-chat-receipt-label">إثبات التحويل المصرفي</p>
+      <button type="button" id="chat-receipt-btn" class="guest-chat-receipt-btn">
+        📷 رفع إيصال التحويل
+      </button>
+      <p class="guest-chat-receipt-hint">jpg أو png — حتى 2 ميجابايت</p>
+    </div>
+
+    <footer class="guest-chat-footer">
+      <form id="chat-form" class="guest-chat-form" autocomplete="off">
+        <input type="file" id="chat-file" accept="image/jpeg,image/png,image/webp" hidden />
+        <textarea
+          id="chat-input"
+          rows="1"
+          placeholder="اكتب رسالتك…"
+          maxlength="4000"
+          aria-label="رسالتك"
+        ></textarea>
+        <button type="button" id="chat-new" class="guest-chat-new-btn" title="محادثة جديدة / طلب جديد" aria-label="محادثة جديدة">+</button>
+        <button type="submit" id="chat-send" aria-label="إرسال">إرسال</button>
+      </form>
+    </footer>
+
+    <dialog id="profile-dialog" class="guest-chat-dialog">
+      <form method="dialog" id="profile-form">
+        <h2>بيانات الطلب</h2>
+        <p class="muted">الهاتف مطلوب لإتمام الطلب. الاسم اختياري.</p>
+        <label>الاسم (اختياري)</label>
+        <input type="text" id="profile-name" maxlength="120" placeholder="اسمك (اختياري)" />
+        <label>الهاتف *</label>
+        <input type="tel" id="profile-phone" maxlength="40" dir="ltr" placeholder="09xxxxxxxx" required />
+        <div class="guest-chat-dialog-actions">
+          <button type="button" value="cancel" id="profile-cancel">إلغاء</button>
+          <button type="submit" value="save" id="profile-save">حفظ</button>
+        </div>
+      </form>
+    </dialog>
+    {% endif %}
+
+    {% if enabled %}
+    <script>window.__CHAT_BOT_NAME__ = {{ web_chat_bot_name|tojson }};</script>
+    <script src="/static/guest_chat.js?v=9"></script>
+    {% endif %}
+  </body>
+</html>

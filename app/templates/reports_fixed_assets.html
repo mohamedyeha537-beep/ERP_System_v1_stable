@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button with context %}
 {% block title %}سجل الأصول الثابتة{% endblock %}
 {% block head_extra %}
 <style>
@@ -9,7 +9,7 @@
 </style>
 {% endblock %}
 {% block body %}
-<h1>سجل الأصول الثابتة وحسابات الإهلاك</h1>
+<h1>سجل الأصول الثابتة وحسابات الإهلاك{% if domain_label %} — {{ domain_label }}{% endif %}</h1>
 {{ reports_nav('fixed-assets') }}
 {{ period_filter('/reports/fixed-assets', period, period_labels, start, end, start_str, end_str) }}
 {{ report_export_format_help() }}
@@ -18,6 +18,57 @@
   {{ export_button('/reports/export/comprehensive.csv?period=' ~ period, 'تقرير شامل') }}
   <span class="label no-print" style="margin-inline-start:0.75rem">PDF:</span>
   {{ pdf_export_button() }}
+</div>
+
+{% if request.query_params.get('depr_posted') %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4">
+  <p style="margin:0">تم ترحيل إهلاك الفترة إلى GL ({{ request.query_params.get('depr_posted') }} قيد).</p>
+</div>
+{% endif %}
+
+<div class="card" style="border-color:#0ea5e9;background:linear-gradient(180deg,#e0f2fe 0%,#fff 55%)">
+  <h2 style="margin-top:0">الأرقام الرسمية — من شجرة الحسابات</h2>
+  <p style="margin:0 0 0.75rem;line-height:1.65">
+    هذا السجل يحسب الإهلاك تشغيلياً (عمر، خردة). للميزانية وقائمة الدخل استخدم
+    <a href="/admin/gl/reports">تقارير GL</a> بعد
+    <a href="/admin/gl/role-maps">ربط حسابات الأصول والإهلاك</a>.
+  </p>
+  {% if gl_asset.enabled and gl_asset.roles %}
+  <table style="margin:0 0 0.75rem">
+    <thead>
+      <tr><th>GL</th><th>رصيد GL</th><th>مقابل تشغيلي</th></tr>
+    </thead>
+    <tbody>
+      {% for r in gl_asset.roles %}
+      {% if r.key == 'fixed_asset' %}
+      <tr>
+        <td>{% if r.account_id %}<a href="/admin/gl/accounts/{{ r.account_id }}">{{ r.code }}</a>{% else %}{{ r.code }}{% endif %} — كلفة أصول</td>
+        <td>{% if r.balance is not none %}{{ r.balance }} د.ل{% else %}—{% endif %}</td>
+        <td class="muted">سجل: {{ summary.total_cost }} د.ل</td>
+      </tr>
+      {% elif r.key == 'accumulated_depreciation' %}
+      <tr>
+        <td>{% if r.account_id %}<a href="/admin/gl/accounts/{{ r.account_id }}">{{ r.code }}</a>{% else %}{{ r.code }}{% endif %} — مجمع إهلاك</td>
+        <td>{% if r.balance is not none %}{{ r.balance }} د.ل{% else %}—{% endif %}</td>
+        <td class="muted">سجل: {{ summary.total_accumulated }} د.ل</td>
+      </tr>
+      {% elif r.key == 'depreciation_expense' %}
+      <tr>
+        <td>{% if r.account_id %}<a href="/admin/gl/accounts/{{ r.account_id }}">{{ r.code }}</a>{% else %}{{ r.code }}{% endif %} — مصروف إهلاك</td>
+        <td class="muted">—</td>
+        <td class="muted">إهلاك الفترة (سجل): {{ period_depr_total }} د.ل — مدين GL: {% if r.period_debit is not none %}{{ r.period_debit }} د.ل{% else %}—{% endif %}</td>
+      </tr>
+      {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  <form method="post" action="/admin/gl/post-depreciation" class="row" style="flex-wrap:wrap;gap:0.5rem;align-items:flex-end;margin:0">
+    <input type="hidden" name="start" value="{{ start_str }}" />
+    <input type="hidden" name="end" value="{{ end_str }}" />
+    <input type="hidden" name="redirect_to" value="/reports/fixed-assets?period={{ period }}&start={{ start_str }}&end={{ end_str }}" />
+    <button class="btn btn-primary" type="submit">ترحيل إهلاك هذه الفترة إلى GL</button>
+  </form>
 </div>
 
 
@@ -77,8 +128,8 @@
       {% for item in snapshots %}
       {% set s = item.snap %}
       <tr {% if s.is_fully_depreciated %}style="background: #f1f5f9; opacity: 0.7"{% endif %}>
-        <td><strong>{{ s.line.item_name or '—' }}</strong>{% if s.line.unit %} <span class="muted">({{ s.line.quantity }} {{ s.line.unit }}){% endif %}</span></td>
-        <td>{{ s.purchase.created_at.strftime('%Y-%m-%d') }}</td>
+        <td><strong>{{ s.line.item_name or '—' }}</strong>{% if s.line.unit %} <span class="muted">({{ pos_qty(s.line.quantity) }} {{ s.line.unit }}){% endif %}</span></td>
+        <td>{{ pos_format_dt(s.purchase.created_at, '%Y-%m-%d') }}</td>
         <td>{{ s.cost }} د.ل</td>
         <td>{{ s.salvage_value }}</td>
         <td>{{ s.useful_life_months }} ش</td>

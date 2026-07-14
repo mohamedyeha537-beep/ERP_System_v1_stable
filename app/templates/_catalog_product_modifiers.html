@@ -1,0 +1,96 @@
+{# اختيار ملاحظات الكاشير من القائمة العامة (الإعدادات) #}
+<style>
+  .mod-pick-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    margin: 0.65rem 0 0.85rem;
+  }
+  .mod-pick-chip {
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    color: #334155;
+    border-radius: 999px;
+    padding: 0.38rem 0.75rem;
+    font-size: 0.88rem;
+    font-weight: 600;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+  }
+  .mod-pick-chip input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+  }
+  .mod-pick-chip:has(input:checked) {
+    background: #eff6ff;
+    border-color: #2563eb;
+    color: #1d4ed8;
+    box-shadow: 0 0 0 1px #2563eb inset;
+  }
+  .mod-pick-chip:hover {
+    border-color: #94a3b8;
+  }
+</style>
+
+<div class="product-modifiers-block" style="margin-top:0.75rem">
+  <label style="display:block;font-weight:600;margin-bottom:0.25rem">ملاحظات الكاشير لهذا الصنف</label>
+  <p class="muted" style="margin:0;font-size:0.85rem">
+    اختر من القائمة العامة ما يناسب هذا الصنف — تظهر للكاشير كأزرار عند الإضافة.
+    {% if not global_modifier_presets or global_modifier_presets|length == 0 %}
+    <a href="/admin/settings">أضف عبارات في الإعدادات أولاً</a>.
+    {% else %}
+    <a href="/admin/settings">إدارة القائمة العامة</a>.
+    {% endif %}
+    إن لم تختر شيئاً يُضاف الصنف مباشرة للسلة.
+  </p>
+
+  {% set pool = global_modifier_presets if global_modifier_presets is defined else [] %}
+  {% set selected = product_modifier_presets if product_modifier_presets is defined else [] %}
+  {% if modifier_saved %}
+  <p style="margin:0.65rem 0 0;color:#15803d;font-weight:600">تم حفظ ملاحظات هذا الصنف.</p>
+  {% endif %}
+
+  {% if pool and pool|length > 0 %}
+  {% if product %}
+  <form method="post" action="/catalog/products/{{ product.id }}/line-modifiers/save" style="margin-top:0.5rem">
+    <div class="mod-pick-grid">
+      {% for p in pool %}
+      <label class="mod-pick-chip">
+        <input type="checkbox" name="preset" value="{{ p }}" {% if p in selected %}checked{% endif %} />
+        {{ p }}
+      </label>
+      {% endfor %}
+    </div>
+    <button type="submit" class="btn btn-primary" style="margin-top:0.25rem">حفظ اختيار الملاحظات</button>
+  </form>
+  {% else %}
+  <div class="mod-pick-grid">
+    {% for p in pool %}
+    <label class="mod-pick-chip">
+      <input type="checkbox" name="preset" value="{{ p }}" />
+      {{ p }}
+    </label>
+    {% endfor %}
+  </div>
+  <p class="muted" style="margin:0.35rem 0 0;font-size:0.82rem">يُحفظ الاختيار مع زر «حفظ» للصنف.</p>
+  {% endif %}
+  {% if selected and selected|length > 0 %}
+  <p style="margin:0.75rem 0 0;font-size:0.85rem;color:#047857">
+    <strong>مفعّل لهذا الصنف:</strong> {{ selected|join(' · ') }}
+  </p>
+  {% elif product %}
+  <p class="muted" style="margin:0.75rem 0 0;font-size:0.85rem">لم تُفعَّل أي ملاحظة بعد.</p>
+  {% endif %}
+  {% else %}
+  <p class="muted" style="margin:0.75rem 0 0">
+    لا توجد عبارات في القائمة العامة —
+    <a href="/admin/settings">افتح الإعدادات</a> وأضف الملاحظات الأكثر استخداماً (مثل: بدون هريسة، زيادة ملح).
+  </p>
+  {% endif %}
+</div>

@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}الورديات{% endblock %}
+{% block body %}
+<h1 style="margin-top:0">الورديات</h1>
+<p class="muted" style="margin:-0.35rem 0 1rem;line-height:1.55">
+  مراجعة ورديات الكاشير وورديات الفندق — فلترة حسب التاريخ والموظف، ثم تفاصيل الإيراد والمصروف والفواتير.
+</p>
+
+<div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-bottom:1rem">
+  {% if show_hotel %}
+  <a class="btn {% if kind == 'hotel' %}btn-primary{% endif %}" href="/admin/shifts?kind=hotel&status={{ status_filter }}&date_from={{ date_from }}&date_to={{ date_to }}{% if employee_id %}&employee_id={{ employee_id }}{% endif %}">ورديات الفندق</a>
+  {% endif %}
+  {% if show_pos %}
+  <a class="btn {% if kind == 'pos' %}btn-primary{% endif %}" href="/admin/shifts?kind=pos&status={{ status_filter }}&date_from={{ date_from }}&date_to={{ date_to }}{% if employee_id %}&employee_id={{ employee_id }}{% endif %}">جلسات الكاشير</a>
+  {% endif %}
+  {% if kind == 'hotel' %}
+  <a class="btn" href="/admin/hotel/shift" style="margin-inline-start:auto">فتح / إقفال وردية</a>
+  {% elif kind == 'pos' %}
+  <a class="btn" href="/pos/shift" style="margin-inline-start:auto">إدارة جلسة الكاشير</a>
+  {% endif %}
+</div>
+
+<form method="get" action="/admin/shifts" class="card" style="margin-bottom:1rem;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0.65rem;align-items:end">
+  <input type="hidden" name="kind" value="{{ kind }}" />
+  <div>
+    <label style="font-size:0.82rem">من تاريخ</label>
+    <input type="date" name="date_from" value="{{ date_from }}" required />
+  </div>
+  <div>
+    <label style="font-size:0.82rem">إلى تاريخ</label>
+    <input type="date" name="date_to" value="{{ date_to }}" required />
+  </div>
+  <div>
+    <label style="font-size:0.82rem">الموظف</label>
+    <select name="employee_id">
+      <option value="">— الكل —</option>
+      {% for e in employees %}
+      <option value="{{ e.id }}"{% if employee_id == e.id %} selected{% endif %}>{{ e.full_name_ar }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label style="font-size:0.82rem">الحالة</label>
+    <select name="status">
+      <option value="all"{% if status_filter == 'all' %} selected{% endif %}>الكل</option>
+      <option value="closed"{% if status_filter == 'closed' %} selected{% endif %}>مغلقة</option>
+      <option value="open"{% if status_filter == 'open' %} selected{% endif %}>مفتوحة</option>
+    </select>
+  </div>
+  <div>
+    <button class="btn btn-primary" type="submit">تطبيق الفلتر</button>
+  </div>
+</form>
+
+{% if kind == 'pos' and stale_count > 0 %}
+<div class="card" style="margin-bottom:1rem;background:#fff7ed;border-color:#fdba74">
+  <strong style="color:#c2410c">⚠ {{ stale_count }} جلسة كاشير مفتوحة منذ أكثر من 24 ساعة</strong>
+</div>
+{% endif %}
+
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.75rem">
+    <h2 style="margin:0">{% if kind == 'hotel' %}ورديات الفندق{% else %}جلسات الكاشير{% endif %}</h2>
+    <span class="muted" style="font-size:0.88rem">{{ total }} وردية</span>
+  </div>
+
+  {% if kind == 'pos' %}
+  <div style="overflow-x:auto">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>الكاشير</th>
+          <th>الحالة</th>
+          <th>فتح</th>
+          <th>إغلاق</th>
+          <th>فواتير</th>
+          <th>مبيعات</th>
+          <th>عجز</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in pos_rows %}
+        <tr{% if r.status == 'OPEN' and r.shift_id in stale_ids %} style="background:#fff7ed"{% endif %}>
+          <td><strong>{{ r.shift_id }}</strong></td>
+          <td>{{ r.cashier_label }}</td>
+          <td>{% if r.status == 'OPEN' %}<span class="badge" style="background:#dbeafe;color:#1d4ed8">مفتوحة</span>{% else %}<span class="badge">مغلقة</span>{% endif %}</td>
+          <td>{% if r.opened_at %}{{ pos_format_dt(r.opened_at, '%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+          <td>{% if r.closed_at %}{{ pos_format_dt(r.closed_at, '%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+          <td>{{ r.sales_count }}</td>
+          <td>{{ pos_money(r.sales_total) }} د.ل</td>
+          <td>{% if r.shortage_total > 0 %}<span style="color:#b91c1c;font-weight:600">{{ pos_money(r.shortage_total) }}</span>{% else %}—{% endif %}</td>
+          <td><a class="btn btn-primary" style="padding:0.25rem 0.55rem;font-size:0.82rem" href="/reports/shifts/{{ r.shift_id }}">تفاصيل</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="muted" style="text-align:center;padding:1.5rem">لا توجد جلسات في هذه الفترة.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div style="overflow-x:auto">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>الوردية</th>
+          <th>المشغّل</th>
+          <th>الحالة</th>
+          <th>فتح</th>
+          <th>إقفال</th>
+          <th>إيراد</th>
+          <th>مصروف</th>
+          <th>صافي</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in hotel_rows %}
+        <tr>
+          <td><strong>{{ r.shift_id }}</strong></td>
+          <td>{{ r.shift_name_ar }}</td>
+          <td>{{ r.operator_label }}</td>
+          <td>{% if r.status == 'OPEN' %}<span class="badge" style="background:#dbeafe;color:#1d4ed8">مفتوحة</span>{% else %}<span class="badge">مغلقة</span>{% endif %}</td>
+          <td>{% if r.opened_at %}{{ pos_format_dt(r.opened_at, '%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+          <td>{% if r.closed_at %}{{ pos_format_dt(r.closed_at, '%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+          <td>{{ '%.3f'|format(r.total_revenue) }} د.ل</td>
+          <td>{{ '%.3f'|format(r.total_expenses) }} د.ل</td>
+          <td style="font-weight:700;color:#047857">{{ '%.3f'|format(r.net_total) }} د.ل</td>
+          <td><a class="btn btn-primary" style="padding:0.25rem 0.55rem;font-size:0.82rem" href="/admin/hotel/shift/{{ r.shift_id }}/report">تفاصيل</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="10" class="muted" style="text-align:center;padding:1.5rem">لا توجد ورديات في هذه الفترة.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if total_pages > 1 %}
+  <div style="display:flex;gap:0.5rem;justify-content:center;margin-top:1rem;flex-wrap:wrap">
+    {% if page > 1 %}
+    <a class="btn" href="/admin/shifts?{{ page_prev_qs }}">← السابق</a>
+    {% endif %}
+    <span class="muted" style="align-self:center;font-size:0.88rem">صفحة {{ page }} من {{ total_pages }}</span>
+    {% if page < total_pages %}
+    <a class="btn" href="/admin/shifts?{{ page_next_qs }}">التالي →</a>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

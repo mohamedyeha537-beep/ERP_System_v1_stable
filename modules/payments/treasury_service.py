@@ -59,6 +59,8 @@ def _transfer_in_label(tr: PaymentTransfer) -> str:
         return "تحويل وارد (استلام عهدة/تمويل)"
     if tt == PaymentTransferType.REFUND_SETTLEMENT:
         return "تسوية مرتجع واردة"
+    if tt == PaymentTransferType.SHIFT_HANDOFF:
+        return "اعتماد جلسة — وارد للخزينة الرئيسية"
     return "تحويل وارد بين الحسابات"
 
 
@@ -70,6 +72,8 @@ def _transfer_out_label(tr: PaymentTransfer) -> str:
         return "سحب مالك (حقوق ملكية)"
     if tt == PaymentTransferType.REFUND_SETTLEMENT:
         return "تسوية مرتجع صادرة"
+    if tt == PaymentTransferType.SHIFT_HANDOFF:
+        return "اعتماد جلسة — تصفير خزينة الكاشير"
     return "تحويل صادر بين الحسابات"
 
 
@@ -252,6 +256,68 @@ def list_ledger_entries(
                 amount=amt,
                 category_ar="صرف (شراء/مصروف)",
                 reference=f"عملية #{pp.purchase_id}",
+                method_name=pm.name_ar,
+                method_id=pm.id,
+            )
+        )
+
+    from modules.hotel.booking_models import (
+        HotelBooking,
+        HotelBookingPayment,
+        HotelBookingPaymentRefund,
+    )
+
+    hp_rows = db.execute(
+        select(HotelBookingPayment, PaymentMethod, HotelBooking.reference)
+        .join(PaymentMethod, PaymentMethod.id == HotelBookingPayment.payment_method_id)
+        .join(HotelBooking, HotelBooking.id == HotelBookingPayment.booking_id)
+        .where(HotelBookingPayment.payment_method_id.in_(method_ids))
+    ).all()
+    for hp, pm, booking_ref in hp_rows:
+        amt = Decimal(str(hp.amount or 0)).quantize(Decimal("0.001"))
+        if amt <= 0:
+            continue
+        ref = (booking_ref or "").strip() or f"#{hp.booking_id}"
+        cat = "عربون حجز" if hp.is_deposit else "تحصيل حجز"
+        entries.append(
+            LedgerEntry(
+                at=hp.created_at or datetime.now(timezone.utc),
+                direction="IN",
+                amount=amt,
+                category_ar=cat,
+                reference=f"حجز {ref}",
+                method_name=pm.name_ar,
+                method_id=pm.id,
+            )
+        )
+
+    hr_rows = db.execute(
+        select(
+            HotelBookingPaymentRefund,
+            PaymentMethod,
+            HotelBooking.reference,
+            HotelBooking.id,
+        )
+        .join(
+            HotelBookingPayment,
+            HotelBookingPayment.id == HotelBookingPaymentRefund.payment_id,
+        )
+        .join(PaymentMethod, PaymentMethod.id == HotelBookingPayment.payment_method_id)
+        .join(HotelBooking, HotelBooking.id == HotelBookingPayment.booking_id)
+        .where(HotelBookingPayment.payment_method_id.in_(method_ids))
+    ).all()
+    for hr, pm, booking_ref, booking_id in hr_rows:
+        amt = Decimal(str(hr.amount or 0)).quantize(Decimal("0.001"))
+        if amt <= 0:
+            continue
+        ref = (booking_ref or "").strip() or f"#{booking_id}"
+        entries.append(
+            LedgerEntry(
+                at=hr.created_at or datetime.now(timezone.utc),
+                direction="OUT",
+                amount=amt,
+                category_ar="مرتجع حجز",
+                reference=f"حجز {ref}",
                 method_name=pm.name_ar,
                 method_id=pm.id,
             )

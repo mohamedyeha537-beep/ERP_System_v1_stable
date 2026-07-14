@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}نقاط ولاء — جلسة #{{ shift.id }}{% endblock %}
+{% block body %}
+<div class="no-print" style="display:flex;justify-content:space-between;align-items:flex-start;gap:0.75rem;margin-bottom:1rem;flex-wrap:wrap">
+  <div>
+    <a class="btn" href="/reports/shifts/{{ shift.id }}">← تفاصيل الجلسة</a>
+    <h1 style="margin:0.35rem 0 0;font-size:1.35rem">صرف نقاط الولاء — جلسة #{{ shift.id }}</h1>
+    <p class="muted" style="margin:0.25rem 0 0;font-size:0.88rem">
+      تكلفة تسويقية/خصم غير نقدي — تُخصم من الربح ولا تُحصَّل نقداً من الزبون.
+      النقطة = {{ '%.3f' % loyalty.redeem_value_per_point }} د.ل.
+    </p>
+  </div>
+  <button type="button" class="btn btn-primary no-print" onclick="window.print()">طباعة / PDF</button>
+</div>
+
+<div class="row" style="gap:0.6rem;flex-wrap:wrap;margin-bottom:1rem">
+  <div class="card" style="flex:1;min-width:160px;text-align:center;background:#fff7ed;border-color:#fdba74">
+    <div class="muted" style="font-size:0.85rem">إجمالي التكلفة</div>
+    <div style="font-size:1.75rem;font-weight:800;color:#c2410c">{{ pos_money(loyalty.dinar_cost) }} <span class="money-currency">د.ل</span></div>
+  </div>
+  <div class="card" style="flex:1;min-width:140px;text-align:center">
+    <div class="muted" style="font-size:0.85rem">نقاط مُصرفة</div>
+    <div style="font-size:1.5rem;font-weight:700">{{ pos_money_plain(loyalty.points_redeemed) }}</div>
+  </div>
+  <div class="card" style="flex:1;min-width:140px;text-align:center">
+    <div class="muted" style="font-size:0.85rem">عمليات صرف</div>
+    <div style="font-size:1.5rem;font-weight:700">{{ loyalty.redeem_count }}</div>
+  </div>
+</div>
+
+{% if loyalty.by_user %}
+<div class="card">
+  <h2 style="margin-top:0">حسب مستخدم النظام (الكاشير)</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>المستخدم</th>
+        <th>عمليات</th>
+        <th>نقاط</th>
+        <th>التكلفة (د.ل)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in loyalty.by_user %}
+      <tr>
+        <td><strong>{{ u.user_label }}</strong></td>
+        <td>{{ u.redeem_count }}</td>
+        <td>{{ pos_money_plain(u.points_redeemed) }}</td>
+        <td style="font-weight:700;color:#c2410c">{{ pos_money(u.dinar_cost) }}</td>
+      </tr>
+      {% endfor %}
+      <tr style="background:#fef3c7;font-weight:700">
+        <td>الإجمالي</td>
+        <td>{{ loyalty.redeem_count }}</td>
+        <td>{{ pos_money_plain(loyalty.points_redeemed) }}</td>
+        <td style="color:#c2410c">{{ pos_money(loyalty.dinar_cost) }} د.ل</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<div class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0">تفاصيل كل عملية</h2>
+  {% if loyalty.rows %}
+  <div style="overflow-x:auto">
+    <table>
+      <thead>
+        <tr>
+          <th>التاريخ</th>
+          <th>فاتورة</th>
+          <th>العميل</th>
+          <th>الكاشير</th>
+          <th>نقاط</th>
+          <th>القيمة (د.ل)</th>
+          <th>ملاحظة</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in loyalty.rows %}
+        <tr>
+          <td class="muted">{% if r.created_at %}{{ pos_format_dt(r.created_at, '%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+          <td><a href="/pos/receipt/{{ r.sale_id }}">#{{ r.sale_id }}</a></td>
+          <td>
+            <strong>{{ r.customer_name }}</strong>
+            {% if r.customer_phone %}<br><span class="muted" style="font-size:0.82rem" dir="ltr">{{ r.customer_phone }}</span>{% endif %}
+          </td>
+          <td>{{ r.cashier_label }}</td>
+          <td style="color:#dc2626;font-weight:600">−{{ pos_money_plain(r.points_redeemed) }}</td>
+          <td style="font-weight:700;color:#c2410c">{{ pos_money(r.dinar_value) }}</td>
+          <td class="muted" style="font-size:0.85rem">{{ r.note or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted" style="margin:0">لم يُصرف أي نقاط ولاء خلال هذه الجلسة.</p>
+  {% endif %}
+</div>
+{% endblock %}

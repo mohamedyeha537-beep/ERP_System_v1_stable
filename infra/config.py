@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -8,8 +8,24 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     database_url: str = Field(
-        default="sqlite:///./pos.db",
         validation_alias=AliasChoices("DATABASE_URL", "database_url"),
+    )
+    # إعدادات تجميع الاتصالات — تُستخدم مع PostgreSQL على VPS
+    db_pool_size: int = Field(
+        default=5,
+        validation_alias=AliasChoices("DB_POOL_SIZE", "db_pool_size"),
+    )
+    db_max_overflow: int = Field(
+        default=10,
+        validation_alias=AliasChoices("DB_MAX_OVERFLOW", "db_max_overflow"),
+    )
+    db_pool_pre_ping: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("DB_POOL_PRE_PING", "db_pool_pre_ping"),
+    )
+    db_pool_recycle: int = Field(
+        default=1800,
+        validation_alias=AliasChoices("DB_POOL_RECYCLE", "db_pool_recycle"),
     )
     secret_key: str = Field(
         default="change-me-in-production-use-long-random-string",
@@ -39,6 +55,16 @@ class Settings(BaseSettings):
         default="demo123",
         validation_alias=AliasChoices("DEMO_USERS_PASSWORD", "demo_users_password"),
     )
+
+    @field_validator("database_url")
+    @classmethod
+    def _database_url_required(cls, value: str) -> str:
+        url = (value or "").strip()
+        if not url:
+            raise ValueError(
+                "DATABASE_URL مطلوب في ملف .env (مثال محلي: sqlite:///./pos.db)"
+            )
+        return url
 
 
 @lru_cache

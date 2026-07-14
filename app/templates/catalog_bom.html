@@ -1,55 +1,965 @@
 {% extends "base.html" %}
+
 {% block title %}تركيبة {{ parent.name_ar }}{% endblock %}
+
 {% block body %}
-<h1>تركيبة: {{ parent.name_ar }}</h1>
-<p class="muted">كميات المكوّنات لكل وحدة واحدة من المنتج النهائي.</p>
-{% if error %}
-<div class="alert">{{ error }}</div>
+
+<h1>{% if is_semi_finished %}وصفة منتج وسيط{% else %}تركيبة{% endif %}: {{ parent.name_ar }}</h1>
+
+{% if is_semi_finished %}
+<p class="muted" style="background:#fef3c7;border:1px solid #fcd34d;padding:0.65rem 1rem;border-radius:8px">
+  <strong>منتج وسيط</strong> (مثل صوص) — لا يُباع مباشرة. عرّف مكوناته هنا، ثم أضف «{{ parent.name_ar }}»
+  كمكوّن واحد في تركيبة البرجر والبيتزا. عند البيع تُخصم مكونات الصوص تلقائياً من المخزون.
+</p>
+{% else %}
+<p class="muted">عدّل الكميات وتكلفة المرجع لكل مكوّن — يمكنك إضافة منتجات وسيطة (صوص) كمكوّن واحد. أسعار الشراء من <a href="/admin/purchases/new">المشتريات</a>.</p>
+<p class="muted" style="background:#eff6ff;border:1px solid #bfdbfe;padding:0.65rem 1rem;border-radius:8px;margin-top:0.65rem">
+  <strong>مواد التغليف:</strong> أضف أكياس/علب/مناديل كمكوّن وفعّل «تغليف فقط».
+  تُخصم من المخزون وتُحسب في تقارير الربح لطلبات <strong>أونلاين / استلام / توصيل</strong> فقط —
+  ولا تظهر في فاتورة الزبون ولا تؤثر على سعر البيع.
+</p>
 {% endif %}
+
+
+
+{% if error %}
+
+<div class="alert">{{ error }}</div>
+
+{% endif %}
+
+{% if lines_saved %}
+
+<div class="card" style="border-color:#86efac;background:#f0fdf4">
+
+  <p style="margin:0">تم حفظ التركيبة.</p>
+
+</div>
+
+{% endif %}
+
+{% if pricing_saved %}
+
+<div class="card" style="border-color:#86efac;background:#f0fdf4">
+
+  <p style="margin:0">تم حفظ التسعير.</p>
+
+</div>
+
+{% endif %}
+
+
+
 <div class="card">
+
   <h2 style="margin-top: 0">إضافة مكوّن</h2>
-  <form method="post" action="/catalog/products/{{ parent.id }}/bom/add">
-    <label for="component_product_id">المكوّن (مخزني فقط)</label>
-    <select id="component_product_id" name="component_product_id" required>
-      {% for c in components %}
-      <option value="{{ c.id }}">{{ c.name_ar }} ({{ c.unit }})</option>
-      {% endfor %}
-    </select>
-    <label for="qty_per_parent">الكمية لكل وحدة منتج نهائي</label>
-    <input id="qty_per_parent" name="qty_per_parent" required value="1" />
-    <div class="row" style="margin-top: 1rem">
-      <button class="btn btn-primary" type="submit">إضافة</button>
+
+  <form method="post" action="/catalog/products/{{ parent.id }}/bom/add" id="bom-add-form">
+
+    <label for="component_combobox_input">المكوّن (مخزني أو منتج نهائي بسيط)</label>
+
+    <div class="bom-combobox" id="component_combobox" style="max-width:28rem">
+
+      <input type="hidden" name="component_product_id" id="component_product_id" required />
+
+      <div class="bom-combobox-field">
+
+        <input
+          type="text"
+          id="component_combobox_input"
+          class="bom-combobox-input"
+          placeholder="ابحث واختر المكوّن…"
+          autocomplete="off"
+          role="combobox"
+          aria-expanded="false"
+          aria-controls="component_combobox_list"
+          aria-autocomplete="list"
+        />
+
+        <button type="button" class="bom-combobox-toggle" aria-label="فتح القائمة" tabindex="-1">▾</button>
+
+      </div>
+
+      <div class="bom-combobox-menu" id="component_combobox_list" hidden role="listbox">
+
+        {% for c in components %}
+
+        <button
+          type="button"
+          class="bom-combobox-option"
+          role="option"
+          data-id="{{ c.id }}"
+          data-label="{{ c.name_ar }} ({{ c.unit }})"
+        >{{ c.name_ar }} ({{ c.unit }})</button>
+
+        {% endfor %}
+
+        <p class="bom-combobox-empty muted" id="component_combobox_empty" hidden>لا توجد نتائج مطابقة</p>
+
+      </div>
+
     </div>
+
+    <label for="qty_per_parent">الكمية لكل وحدة منتج نهائي</label>
+
+    <input id="qty_per_parent" name="qty_per_parent" class="input-num-ltr" type="number" step="0.0001" min="0" required value="1" />
+
+    <label style="display:block;margin-top:0.65rem">
+      <input type="checkbox" name="packaging_only" value="on" /> مكوّن تغليف فقط (أونلاين / استلام / توصيل — لا يظهر في الفاتورة)
+    </label>
+
+    <div class="row" style="margin-top: 1rem">
+
+      <button class="btn btn-primary" type="submit">إضافة</button>
+
+    </div>
+
   </form>
+
 </div>
+
+
+
+{% if cost_by_line is not defined %}
+
+{% set cost_by_line = {} %}
+
+{% for cr in cost_rows %}
+
+  {% if cost_by_line.update({cr.line_id: cr}) %}{% endif %}
+
+{% endfor %}
+
+{% endif %}
+
+
+
 <div class="card">
-  <h2 style="margin-top: 0">المكوّنات الحالية</h2>
+
+  <h2 style="margin-top:0">المكوّنات الحالية</h2>
+
+  {% if lines %}
+  <form method="post" action="/catalog/products/{{ parent.id }}/bom/save-lines" id="bom-lines-form"></form>
+  {% endif %}
   <table>
+
     <thead>
+
       <tr>
+
         <th>المكوّن</th>
+
         <th>الكمية / وحدة أب</th>
+
+        <th>وحدة القياس</th>
+
+        <th>تكلفة الوحدة</th>
+
+        <th>الإجمالي</th>
+
+        <th>تغليف</th>
+
         <th></th>
+
       </tr>
+
     </thead>
+
     <tbody>
+
       {% for line in lines %}
-      <tr>
-        <td>{{ line.component_product.name_ar }}</td>
-        <td>{{ line.qty_per_parent }}</td>
+
+      {% set cr = cost_by_line.get(line.id) %}
+
+      {% set uc = cr.reference_unit_cost if cr and cr.reference_unit_cost is not none else '' %}
+
+      <tr data-bom-line data-default-cost="{{ cr.unit_cost if cr else 0 }}" {% if line.packaging_only %}style="background:#f0f9ff"{% endif %}>
+
+        <td>{{ line.component_product.name_ar }}{% if line.packaging_only %} <span class="muted" style="font-size:0.75rem">📦</span>{% endif %}</td>
+
         <td>
-          <form method="post" action="/catalog/products/{{ parent.id }}/bom/{{ line.id }}/delete" style="display: inline">
-            <button class="btn btn-danger" type="submit">حذف</button>
-          </form>
+
+          <input form="bom-lines-form" name="qty_line_{{ line.id }}" type="number" step="0.0001" min="0.0001" class="input-num-ltr" value="{{ pos_qty_plain(line.qty_per_parent) }}" required style="width:6rem" data-qty />
+
         </td>
+
+        <td>{{ cr.unit if cr else (line.component_product.unit or '—') }}</td>
+
+        <td>
+
+          <input form="bom-lines-form" name="unit_cost_line_{{ line.id }}" type="number" step="0.001" min="0" class="input-num-ltr" value="{{ uc }}" placeholder="0" style="width:6.5rem" data-unit-cost title="اتركه فارغاً لاستخدام متوسط الشراء" />
+
+          {% if cr and cr.cost_from_purchase and cr.reference_unit_cost is none %}
+
+          <div class="muted" style="font-size:0.72rem;margin-top:0.15rem">شراء: {{ pos_money(cr.unit_cost) }}</div>
+
+          {% endif %}
+
+        </td>
+
+        <td><span data-line-total>{{ pos_money(cr.line_cost if cr else 0) }}</span></td>
+
+        <td style="text-align:center">
+          <input form="bom-lines-form" type="checkbox" name="packaging_line_{{ line.id }}" value="on" {% if line.packaging_only %}checked{% endif %} title="يُحسب للطلبات الخارجية فقط" />
+        </td>
+
+        <td>
+
+          <form method="post" action="/catalog/products/{{ parent.id }}/bom/{{ line.id }}/delete" style="display: inline">
+
+            <button class="btn btn-danger" type="submit">حذف</button>
+
+          </form>
+
+        </td>
+
       </tr>
+
       {% else %}
+
       <tr>
-        <td colspan="3" class="muted">لا توجد أسطر تركيبة.</td>
+
+        <td colspan="7" class="muted">لا توجد أسطر تركيبة.</td>
+
       </tr>
+
       {% endfor %}
+
     </tbody>
+
+    {% if lines %}
+
+    <tfoot>
+
+      <tr style="font-weight:700;background:#f8fafc">
+
+        <td colspan="4" style="text-align:end">إجمالي تكلفة التركيبة (للوحدة الواحدة)</td>
+
+        <td id="bom-total-cost-display">{{ pos_money(total_cost) }}</td>
+
+        <td></td>
+
+      </tr>
+
+    </tfoot>
+
+    {% endif %}
+
   </table>
+
+  {% if lines %}
+  <div class="row" style="margin-top:0.75rem;gap:0.5rem">
+    <button class="btn btn-primary" type="submit" form="bom-lines-form">حفظ التركيبة</button>
+  </div>
+
+  <p class="muted" style="margin:0.5rem 0 0;font-size:0.82rem">
+
+    تكلفة الوحدة: أدخل سعراً مرجعياً للتقدير، أو اترك الحقل فارغاً لاستخدام متوسط فواتير الشراء.
+
+  </p>
+
+  {% endif %}
+
 </div>
-<a class="btn" href="/catalog/products">رجوع للأصناف</a>
+
+
+
+{% if is_final_sellable %}
+<div class="card" id="bom-pricing-card">
+
+  <h2 style="margin-top:0">التسعير من التركيبة</h2>
+
+  <p class="muted" style="margin-top:0;font-size:0.88rem">
+
+    سعر البيع المقترح = التكلفة × (1 + (نسبة الربح + التعديل العام) ÷ 100).
+
+    {% if global_adjust_pct != 0 %}
+
+    <br>التعديل العام من الإعدادات: <strong>{{ global_adjust_pct }}%</strong>.
+
+    {% endif %}
+
+    السعر الحالي في بطاقة الصنف: <strong>{{ pos_money(parent.sell_price) }}</strong>
+
+  </p>
+
+
+
+  <form method="post" action="/catalog/products/{{ parent.id }}/bom/pricing" id="bom-pricing-form">
+
+    <input type="hidden" name="pricing_mode" id="pricing_mode" value="{% if parent.price_linked_to_bom %}linked{% else %}manual{% endif %}" />
+
+
+
+    <div style="display:flex;flex-wrap:wrap;gap:1rem;align-items:flex-end;margin-top:0.75rem">
+
+      <div>
+
+        <label for="bom_markup_pct">نسبة الربح %</label>
+
+        <input
+
+          id="bom_markup_pct"
+
+          name="bom_markup_pct"
+
+          type="number"
+
+          step="0.01"
+
+          class="input-num-ltr"
+
+          style="width:7rem"
+
+          value="{{ parent.bom_markup_pct if parent.bom_markup_pct is not none else '' }}"
+
+          placeholder="مثلاً 30"
+
+        />
+
+      </div>
+
+      <div>
+
+        <label for="sell_price">سعر البيع</label>
+
+        <input
+
+          id="sell_price"
+
+          name="sell_price"
+
+          type="number"
+
+          step="0.001"
+
+          min="0"
+
+          class="input-num-ltr"
+
+          style="width:8rem"
+
+          value="{{ parent.sell_price }}"
+
+        />
+
+      </div>
+
+      <label style="display:flex;gap:0.4rem;align-items:center;margin-bottom:0.35rem">
+
+        <input
+
+          type="checkbox"
+
+          id="price_linked_to_bom"
+
+          name="price_linked_to_bom"
+
+          {% if parent.price_linked_to_bom %}checked{% endif %}
+
+        />
+
+        ربط السعر بالتركيبة (تحديث تلقائي عند تغيير المكوّنات)
+
+      </label>
+
+    </div>
+
+
+
+    <p class="muted" id="bom-pricing-hint" style="margin:0.65rem 0 0;font-size:0.85rem"></p>
+
+
+
+    <div class="row" style="margin-top:1rem;gap:0.5rem">
+
+      <button class="btn btn-primary" type="submit">حفظ التسعير</button>
+
+      <a class="btn" href="/catalog/products/{{ parent.id }}/edit">تعديل بطاقة الصنف</a>
+
+    </div>
+
+  </form>
+
+</div>
+{% endif %}
+
+
+
+<div class="row" style="gap: 0.5rem; margin-top: 1rem">
+
+  <a class="btn" href="/catalog/import-export">استيراد / تصدير وصفات (CSV)</a>
+
+  <a class="btn" href="/catalog/products">رجوع للأصناف</a>
+
+</div>
+
+
+
+<script>
+
+(function () {
+
+  var root = document.getElementById("component_combobox");
+
+  if (!root) return;
+
+  var hidden = document.getElementById("component_product_id");
+
+  var input = document.getElementById("component_combobox_input");
+
+  var menu = document.getElementById("component_combobox_list");
+
+  var emptyMsg = document.getElementById("component_combobox_empty");
+
+  var toggle = root.querySelector(".bom-combobox-toggle");
+
+  var options = Array.prototype.slice.call(menu.querySelectorAll(".bom-combobox-option"));
+
+  var open = false;
+
+  var selectedLabel = "";
+
+  var activeIndex = -1;
+
+
+
+  function visibleOptions() {
+
+    return options.filter(function (o) { return !o.hidden; });
+
+  }
+
+
+
+  function filterOptions() {
+
+    var q = (input.value || "").trim().toLowerCase();
+
+    var count = 0;
+
+    options.forEach(function (opt) {
+
+      var text = (opt.getAttribute("data-label") || opt.textContent || "").toLowerCase();
+
+      var match = !q || text.indexOf(q) !== -1;
+
+      opt.hidden = !match;
+
+      opt.classList.remove("is-active");
+
+      if (match) count += 1;
+
+    });
+
+    activeIndex = -1;
+
+    if (emptyMsg) emptyMsg.hidden = count > 0;
+
+    var vis = visibleOptions();
+
+    if (vis.length && q) setActive(0);
+
+    return count;
+
+  }
+
+
+
+  function setActive(idx) {
+
+    var vis = visibleOptions();
+
+    vis.forEach(function (o) { o.classList.remove("is-active"); });
+
+    activeIndex = idx;
+
+    if (idx >= 0 && idx < vis.length) {
+
+      vis[idx].classList.add("is-active");
+
+      vis[idx].scrollIntoView({ block: "nearest" });
+
+    }
+
+  }
+
+
+
+  function openMenu() {
+
+    if (open) return;
+
+    open = true;
+
+    menu.hidden = false;
+
+    input.setAttribute("aria-expanded", "true");
+
+    filterOptions();
+
+  }
+
+
+
+  function closeMenu() {
+
+    open = false;
+
+    menu.hidden = true;
+
+    input.setAttribute("aria-expanded", "false");
+
+    options.forEach(function (o) {
+
+      o.classList.remove("is-active");
+
+      o.hidden = false;
+
+    });
+
+    if (emptyMsg) emptyMsg.hidden = true;
+
+    activeIndex = -1;
+
+    input.value = selectedLabel;
+
+  }
+
+
+
+  function selectOption(opt) {
+
+    hidden.value = opt.getAttribute("data-id") || "";
+
+    selectedLabel = opt.getAttribute("data-label") || opt.textContent.trim();
+
+    input.value = selectedLabel;
+
+    closeMenu();
+
+  }
+
+
+
+  input.addEventListener("focus", function () {
+
+    openMenu();
+
+    if (selectedLabel) input.select();
+
+  });
+
+
+
+  input.addEventListener("input", function () {
+
+    if (!open) openMenu();
+
+    hidden.value = "";
+
+    selectedLabel = "";
+
+    filterOptions();
+
+  });
+
+
+
+  input.addEventListener("keydown", function (e) {
+
+    var vis = visibleOptions();
+
+    if (e.key === "Escape") {
+
+      e.preventDefault();
+
+      closeMenu();
+
+      input.blur();
+
+      return;
+
+    }
+
+    if (e.key === "ArrowDown") {
+
+      e.preventDefault();
+
+      if (!open) openMenu();
+
+      setActive(activeIndex < 0 ? 0 : Math.min(activeIndex + 1, vis.length - 1));
+
+      return;
+
+    }
+
+    if (e.key === "ArrowUp") {
+
+      e.preventDefault();
+
+      setActive(activeIndex < 0 ? vis.length - 1 : Math.max(activeIndex - 1, 0));
+
+      return;
+
+    }
+
+    if (e.key === "Enter" && open) {
+
+      e.preventDefault();
+
+      if (activeIndex >= 0 && vis[activeIndex]) {
+
+        selectOption(vis[activeIndex]);
+
+      } else if (vis.length === 1) {
+
+        selectOption(vis[0]);
+
+      }
+
+    }
+
+  });
+
+
+
+  if (toggle) {
+
+    toggle.addEventListener("click", function () {
+
+      if (open) {
+
+        closeMenu();
+
+        input.blur();
+
+      } else {
+
+        input.focus();
+
+      }
+
+    });
+
+  }
+
+
+
+  options.forEach(function (opt) {
+
+    opt.addEventListener("mousedown", function (e) {
+
+      e.preventDefault();
+
+    });
+
+    opt.addEventListener("click", function () {
+
+      selectOption(opt);
+
+    });
+
+  });
+
+
+
+  document.addEventListener("click", function (e) {
+
+    if (!root.contains(e.target)) closeMenu();
+
+  });
+
+
+
+  var addForm = document.getElementById("bom-add-form");
+
+  if (addForm) {
+
+    addForm.addEventListener("submit", function (e) {
+
+      if (!hidden.value) {
+
+        e.preventDefault();
+
+        openMenu();
+
+        input.focus();
+
+      }
+
+    });
+
+  }
+
+})();
+
+
+
+(function () {
+
+  var totalCost = Number("{{ total_cost }}");
+
+  var globalAdj = Number("{{ global_adjust_pct }}");
+
+  var markupInput = document.getElementById("bom_markup_pct");
+
+  var priceInput = document.getElementById("sell_price");
+
+  var linkedCb = document.getElementById("price_linked_to_bom");
+
+  var modeInput = document.getElementById("pricing_mode");
+
+  var hint = document.getElementById("bom-pricing-hint");
+
+  var updating = false;
+
+
+
+  function parseNum(el) {
+
+    if (!el) return null;
+
+    var s = (el.value || "").trim().replace(",", ".");
+
+    if (!s) return null;
+
+    var n = parseFloat(s);
+
+    return isNaN(n) ? null : n;
+
+  }
+
+
+
+  function fmt(n) {
+
+    if (n == null || isNaN(n)) return "—";
+
+    return n.toFixed(3);
+
+  }
+
+
+
+  function recalcLineTotals() {
+
+    var sum = 0;
+
+    document.querySelectorAll("[data-bom-line]").forEach(function (row) {
+
+      var qty = parseNum(row.querySelector("[data-qty]")) || 0;
+
+      var cost = parseNum(row.querySelector("[data-unit-cost]"));
+      if (cost == null) {
+        cost = parseFloat(row.getAttribute("data-default-cost") || "0") || 0;
+      }
+
+      var lineTotal = qty * cost;
+
+      sum += lineTotal;
+
+      var el = row.querySelector("[data-line-total]");
+
+      if (el) el.textContent = fmt(lineTotal);
+
+    });
+
+    totalCost = sum;
+
+    var disp = document.getElementById("bom-total-cost-display");
+
+    if (disp) disp.textContent = fmt(sum);
+
+    refreshHint();
+
+  }
+
+
+
+  document.querySelectorAll("[data-qty], [data-unit-cost]").forEach(function (inp) {
+
+    inp.addEventListener("input", recalcLineTotals);
+
+  });
+
+
+
+  function suggestedFromMarkup(markup) {
+
+    if (totalCost <= 0 || markup == null) return null;
+
+    var eff = markup + globalAdj;
+
+    return totalCost * (1 + eff / 100);
+
+  }
+
+
+
+  function impliedMarkup(price) {
+
+    if (totalCost <= 0 || price == null || price <= 0) return null;
+
+    return ((price / totalCost) - 1) * 100 - globalAdj;
+
+  }
+
+
+
+  function refreshHint() {
+
+    if (!hint) return;
+
+    var linked = linkedCb && linkedCb.checked;
+
+    var markup = parseNum(markupInput);
+
+    var price = parseNum(priceInput);
+
+    if (totalCost <= 0) {
+
+      hint.textContent = "أدخل تكلفة المرجع للمكوّنات أو سجّل مشتريات.";
+
+      return;
+
+    }
+
+    if (linked) {
+
+      var sug = suggestedFromMarkup(markup != null ? markup : 0);
+
+      hint.textContent = sug != null
+
+        ? "سعر مقترح (مرتبط): " + fmt(sug) + " — التكلفة " + fmt(totalCost) + " + نسبة فعّالة " + fmt((markup || 0) + globalAdj) + "%"
+
+        : "أدخل نسبة الربح لتفعيل الربط.";
+
+    } else {
+
+      hint.textContent = "سعر يدوي — لن يتغيّر تلقائياً عند تعديل التركيبة.";
+
+    }
+
+  }
+
+
+
+  if (markupInput) {
+
+    markupInput.addEventListener("input", function () {
+
+      if (updating) return;
+
+      updating = true;
+
+      var markup = parseNum(markupInput);
+
+      var sug = suggestedFromMarkup(markup);
+
+      if (sug != null && priceInput) priceInput.value = sug.toFixed(3);
+
+      if (linkedCb) linkedCb.checked = true;
+
+      if (modeInput) modeInput.value = "linked";
+
+      updating = false;
+
+      refreshHint();
+
+    });
+
+  }
+
+
+
+  if (priceInput) {
+
+    priceInput.addEventListener("input", function () {
+
+      if (updating) return;
+
+      updating = true;
+
+      var price = parseNum(priceInput);
+
+      var imp = impliedMarkup(price);
+
+      if (imp != null && markupInput) markupInput.value = imp.toFixed(2);
+
+      if (linkedCb) linkedCb.checked = false;
+
+      if (modeInput) modeInput.value = "manual";
+
+      updating = false;
+
+      refreshHint();
+
+    });
+
+  }
+
+
+
+  if (linkedCb) {
+
+    linkedCb.addEventListener("change", function () {
+
+      if (linkedCb.checked) {
+
+        if (modeInput) modeInput.value = "linked";
+
+        updating = true;
+
+        var markup = parseNum(markupInput);
+
+        var sug = suggestedFromMarkup(markup);
+
+        if (sug != null && priceInput) priceInput.value = sug.toFixed(3);
+
+        updating = false;
+
+      } else if (modeInput) {
+
+        modeInput.value = "manual";
+
+      }
+
+      refreshHint();
+
+    });
+
+  }
+
+
+
+  var form = document.getElementById("bom-pricing-form");
+
+  if (form) {
+
+    form.addEventListener("submit", function () {
+
+      if (linkedCb && linkedCb.checked) {
+
+        if (modeInput) modeInput.value = "linked";
+
+      } else if (modeInput) {
+
+        modeInput.value = "manual";
+
+      }
+
+    });
+
+  }
+
+
+
+  refreshHint();
+
+})();
+
+</script>
+
 {% endblock %}
+

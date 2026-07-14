@@ -1,0 +1,63 @@
+{# إغلاق وردية الفندق — متوقع مقابل معدود #}
+{% if close_rows and close_rows|length > 0 %}
+<div class="shift-close-wallets" id="hotel-shift-close-wallets">
+  <div class="shift-close-wallets__head" aria-hidden="true">
+    <span class="shift-close-wallets__head-name">البند</span>
+    <span class="shift-close-wallets__head-col">المتوقع</span>
+    <span class="shift-close-wallets__head-col">المعدود</span>
+    <span class="shift-close-wallets__head-col">الفرق</span>
+  </div>
+
+  {% for row in close_rows %}
+  {% if row.closable %}
+  <article class="shift-close-wallet-row shift-close-wallet-row--{{ row.key }}"
+    data-closable="1"
+    data-kind="{{ row.kind }}"
+    data-is-count="{{ '1' if row.is_count else '0' }}"
+    data-expected="{{ row.expected }}">
+    <div class="shift-close-wallet-row__info">
+      <span class="shift-close-wallet-row__icon" aria-hidden="true">
+        {% if row.key == 'cash' %}💵{% elif row.key == 'bank' %}🏦{% elif row.key == 'meals' %}🍽️{% elif row.key == 'laundry' %}🧺{% elif row.key == 'bookings' %}📋{% else %}📌{% endif %}
+      </span>
+      <div class="shift-close-wallet-row__meta">
+        <strong class="shift-close-wallet-row__name">{{ row.name_ar }} <span class="shift-required-mark">*</span></strong>
+        <span class="shift-close-wallet-row__sub">{{ row.subtitle }}</span>
+      </div>
+    </div>
+    <div class="shift-close-wallet-row__box shift-close-wallet-row__box--expected">
+      <span class="shift-close-wallet-row__box-label">المتوقع</span>
+      <span class="shift-close-wallet-row__box-value hotel-close-expected">
+        {% if row.is_count %}{{ row.expected }}{% else %}{{ '%.3f'|format(row.sales_total) }} د.ل{% endif %}
+      </span>
+    </div>
+    <div class="shift-close-wallet-row__box shift-close-wallet-row__box--counted">
+      <span class="shift-close-wallet-row__box-label">المعدود *</span>
+      <input type="text" inputmode="decimal"
+        class="shift-counted-input hotel-counted-input"
+        data-kind="{{ row.kind }}"
+        data-field="{{ row.key }}"
+        placeholder="أدخل بعد المراجعة"
+        required autocomplete="off" dir="ltr" />
+    </div>
+    <div class="shift-close-wallet-row__box shift-close-wallet-row__box--deficit">
+      <span class="shift-close-wallet-row__box-label">الفرق</span>
+      <span class="shift-close-wallet-row__box-value hotel-close-diff">—</span>
+    </div>
+  </article>
+  {% else %}
+  <article class="shift-close-wallet-row shift-close-wallet-row--info">
+    <div class="shift-close-wallet-row__info">
+      <span class="shift-close-wallet-row__icon" aria-hidden="true">💰</span>
+      <div class="shift-close-wallet-row__meta">
+        <strong class="shift-close-wallet-row__name">{{ row.name_ar }}</strong>
+        <span class="shift-close-wallet-row__sub">{{ row.subtitle }}</span>
+      </div>
+    </div>
+    <div class="shift-close-wallet-row__info-amount">
+      <span class="shift-close-wallet-row__info-value">{{ '%.3f'|format(row.amount) }} د.ل</span>
+    </div>
+  </article>
+  {% endif %}
+  {% endfor %}
+</div>
+{% endif %}

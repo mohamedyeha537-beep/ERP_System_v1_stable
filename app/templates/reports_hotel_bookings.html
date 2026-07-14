@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button with context %}
+{% block title %}حجوزات الفندق — استحقاق{% endblock %}
+{% block body %}
+<h1>حجوزات الفندق — استحقاق الإقامة{% if domain_label %} — {{ domain_label }}{% endif %}</h1>
+<p class="muted" style="margin-top:-0.35rem;margin-bottom:0.75rem">حجوزات تتقاطع مع الفترة المحددة — مقارنة استحقاق الإقامة بالمدفوع والرصيد المتبقي.</p>
+{{ reports_nav('hotel_bookings') }}
+{{ period_filter('/reports/hotel-bookings', period, period_labels, start, end, start_str, end_str) }}
+{{ report_export_format_help() }}
+<div class="export-bar">
+  <span class="label">Excel (.csv):</span>
+  {{ export_button('/reports/export/hotel-bookings.csv?period=' ~ period, 'سجل الحجوزات') }}
+  <span class="label no-print" style="margin-inline-start:0.75rem">PDF:</span>
+  {{ pdf_export_button() }}
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">ملخص الفترة</h2>
+  <div class="stat-grid">
+    <div class="stat-card"><div class="label">عدد الحجوزات</div><div class="value">{{ summary.booking_count }}</div></div>
+    <div class="stat-card"><div class="label">إجمالي الليالي</div><div class="value">{{ summary.nights_total }}</div></div>
+    <div class="stat-card"><div class="label">استحقاق الإقامة</div><div class="value">{{ summary.accommodation_total }} د.ل</div></div>
+    <div class="stat-card good"><div class="label">المدفوع</div><div class="value">{{ summary.paid_total }} د.ل</div></div>
+    <div class="stat-card {% if summary.balance_total > 0 %}bad{% else %}good{% endif %}"><div class="label">الرصيد المتبقي</div><div class="value">{{ summary.balance_total }} د.ل</div></div>
+    <div class="stat-card"><div class="label">مسكّن / مغادر</div><div class="value">{{ summary.checked_in_count }} / {{ summary.checked_out_count }}</div></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">تفاصيل الحجوزات</h2>
+  {% if rows %}
+  <table>
+    <thead>
+      <tr>
+        <th>مرجع</th>
+        <th>النزيل</th>
+        <th>دخول</th>
+        <th>خروج</th>
+        <th>ليالي</th>
+        <th>حالة الحجز</th>
+        <th>حالة الدفع</th>
+        <th>استحقاق</th>
+        <th>مدفوع</th>
+        <th>رصيد</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td><a href="/admin/hotel/bookings/{{ r.booking_id }}">{{ r.reference }}</a></td>
+        <td>{{ r.guest_name }}</td>
+        <td>{{ r.check_in }}</td>
+        <td>{{ r.check_out }}</td>
+        <td>{{ r.nights }}</td>
+        <td>{{ r.booking_status_label }}</td>
+        <td>{{ r.payment_status_label }}</td>
+        <td>{{ r.accommodation_total }} د.ل</td>
+        <td style="color:#16a34a">{{ r.paid_amount }} د.ل</td>
+        <td style="font-weight:700;{% if r.balance > 0 %}color:#b91c1c{% endif %}">{{ r.balance }} د.ل</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">لا توجد حجوزات نشطة تتقاطع مع هذه الفترة.</p>
+  {% endif %}
+</div>
+{% endblock %}

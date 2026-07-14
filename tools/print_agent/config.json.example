@@ -1,0 +1,39 @@
+{
+  "server_url": "https://pos.baytak.ly",
+  "agent_token": "ضع_الرمز_من_/admin/printing/agents",
+  "poll_interval_seconds": 2,
+  "heartbeat_interval_seconds": 30,
+  "escpos_profile": "cp1256_22",
+  "raster_threshold": 200,
+  "prefer_windows_name": true,
+  "printers": {
+    "grill": {
+      "windows_name": "POS-80",
+      "host": "192.168.1.101",
+      "port": 9100,
+      "profile": "cp1256_22",
+      "raster_threshold": 200
+    },
+    "salad": {
+      "windows_name": "POS-80",
+      "host": "192.168.1.102",
+      "port": 9100,
+      "profile": "cp1256_22",
+      "raster_threshold": 200
+    },
+    "drinks": {
+      "windows_name": "POS-80",
+      "host": "192.168.1.103",
+      "port": 9100,
+      "profile": "cp1256_22",
+      "raster_threshold": 200
+    },
+    "cashier": {
+      "windows_name": "POS-80",
+      "host": "192.168.1.100",
+      "port": 9100,
+      "profile": "cp1256_22",
+      "raster_threshold": 200
+    }
+  }
+}

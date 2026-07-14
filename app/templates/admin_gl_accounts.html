@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}شجرة الحسابات (GL){% endblock %}
+{% block body %}
+<div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem">
+  <div>
+    <h1 style="margin:0">شجرة / دليل الحسابات</h1>
+    <p class="muted" style="margin:0.35rem 0 0">عرض: <strong>{{ domain_label }}</strong></p>
+  </div>
+  <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+    <a class="btn" href="/admin/gl">إعدادات GL</a>
+    <a class="btn" href="/admin/gl/journal">قيود اليومية</a>
+    <a class="btn" href="/admin/gl/reconciliation">مطابقة GL</a>
+    <a class="btn btn-primary" href="/admin/gl/reports">التقارير المالية</a>
+    <a class="btn" href="/reports/financial-operational">التقرير التشغيلي</a>
+  </div>
+</div>
+
+{% if saved %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4">
+  <p style="margin:0">تم حفظ التعديلات.{% if pos_linked %} تم ربط الحساب بجلسة البيع (محفظة خلفية).{% endif %}</p>
+</div>
+{% endif %}
+{% if err_msg and err_msg not in ('mode', 'live') %}
+<div class="card" style="border-color:#fca5a5;background:#fef2f2">
+  <p style="margin:0">{{ err_msg }}</p>
+</div>
+{% endif %}
+
+<div class="card" style="border-color:#bae6fd;background:#f0f9ff">
+  <p style="margin:0;line-height:1.65;font-size:0.92rem">
+    اضغط <strong>عرض الحركة</strong> لرؤية الرصيد وسجل القيود على الحساب (مثل Odoo).
+    {% if gl_status and not gl_status.enabled %}
+    — <strong>GL غير مفعّل</strong>: فعّله من <a href="/admin/gl">الإعدادات</a>.
+    {% elif gl_status and gl_status.entry_count == 0 %}
+    — نفّذ <a href="/admin/gl/journal">ترحيل الحركات السابقة</a> لملء الحركات.
+    {% endif %}
+  </p>
+</div>
+
+<div class="card" style="border-color:#6ee7b7;background:linear-gradient(180deg,#ecfdf5 0%,#fff 55%)">
+  <h2 style="margin-top:0">إضافة حساب جديد</h2>
+  <form method="post" action="/admin/gl/accounts/create" class="row" style="flex-wrap:wrap;gap:0.75rem;align-items:flex-end">
+    <div>
+      <label class="muted" style="font-size:0.8rem;display:block">الرمز</label>
+      <input name="code" required pattern="[0-9A-Za-z.\-]{2,16}" placeholder="مثال: 5210" style="width:6rem;direction:ltr" />
+    </div>
+    <div style="min-width:12rem;flex:1">
+      <label class="muted" style="font-size:0.8rem;display:block">الاسم بالعربية</label>
+      <input name="name_ar" required maxlength="160" placeholder="مصروف كهرباء" style="width:100%" />
+    </div>
+    <div>
+      <label class="muted" style="font-size:0.8rem;display:block">النوع</label>
+      <select name="account_type" required>
+        {% for val, label in account_types %}
+        <option value="{{ val.value }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="muted" style="font-size:0.8rem;display:block">تحت حساب (اختياري)</label>
+      <select name="parent_id">
+        <option value="">— رئيسي —</option>
+        {% for p in parent_options %}
+        <option value="{{ p.id }}">{{ p.code }} — {{ p.name_ar }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div style="min-width:10rem;flex:1">
+      <label class="muted" style="font-size:0.8rem;display:block">ملاحظة</label>
+      <input name="notes" maxlength="500" placeholder="اختياري" style="width:100%" />
+    </div>
+    <button class="btn btn-primary" type="submit">إضافة</button>
+  </form>
+  <p class="muted" style="margin:0.75rem 0 0;font-size:0.85rem">
+    الحسابات <strong>النظامية</strong> (افتراضية): يمكن تغيير الاسم فقط — الرمز ثابت لسلامة الربط مع المحافظ والترحيل لاحقاً.
+    علّم <strong>لوحة</strong> لعرض الحساب في «الخزينة والذمم» بالصفحة الرئيسية (رصيد GL).
+    لحسابات النقد/المصرف: اضغط <strong>ربط جلسة البيع</strong> لإتاحة التحصيل في نقطة البيع دون إنشاء محفظة يدوياً.
+  </p>
+</div>
+
+{% for acc_type, type_label, rows in grouped %}
+<div class="card">
+  <h2 style="margin-top:0">{{ type_label }}</h2>
+  <table style="width:100%;border-collapse:collapse;font-size:0.92rem">
+    <thead>
+      <tr style="border-bottom:2px solid var(--border)">
+        <th style="text-align:right;padding:0.4rem;width:5rem">الرمز</th>
+        <th style="text-align:right;padding:0.4rem">الاسم / التعديل</th>
+        <th style="text-align:left;padding:0.4rem;width:7rem;direction:ltr">رصيد GL</th>
+        <th style="text-align:right;padding:0.4rem;width:7rem">الحركة</th>
+        <th style="text-align:right;padding:0.4rem;width:6rem">الحالة</th>
+        <th style="text-align:right;padding:0.4rem;width:5.5rem">لوحة التحكم</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for acc in rows %}
+      {% set bal = balances.get(acc.id, 0) %}
+      {% set depth = depths.get(acc.id, 0) %}
+      {% set is_hdr = acc.id in header_ids %}
+      <tr style="border-bottom:1px dashed var(--border);{% if not acc.is_active %}opacity:0.55{% endif %}">
+        <td colspan="5" style="padding:0.5rem 0.35rem;padding-inline-start:{{ 0.35 + depth * 1.1 }}rem">
+          <form method="post" action="/admin/gl/accounts/{{ acc.id }}/update" class="row" style="flex-wrap:wrap;gap:0.5rem;align-items:center;margin:0">
+            {% if acc.is_system %}
+            <span style="direction:ltr;font-variant-numeric:tabular-nums;font-weight:600;min-width:4rem">{{ acc.code }}</span>
+            <input type="hidden" name="code" value="{{ acc.code }}" />
+            {% else %}
+            <input name="code" value="{{ acc.code }}" required pattern="[0-9A-Za-z.\-]{2,16}" style="width:5rem;direction:ltr" title="رمز الحساب" />
+            {% endif %}
+            {% if is_hdr %}
+            <span style="font-size:0.72rem;background:#e0f2fe;color:#0369a1;border-radius:999px;padding:0.12rem 0.45rem;white-space:nowrap">تجميعي</span>
+            {% endif %}
+            <input name="name_ar" value="{{ acc.name_ar }}" required maxlength="160" style="flex:1;min-width:10rem" />
+            <span style="font-size:0.78rem;background:#e0e7ff;color:#1e40af;padding:0.12rem 0.45rem;border-radius:999px;white-space:nowrap">{{ pos_domain_label(acc.business_domain or 'shared') }}</span>
+            <input name="notes" value="{{ acc.notes or '' }}" placeholder="ملاحظة" style="min-width:8rem;flex:0.5" />
+            {% if acc.is_system %}
+            <span class="muted" style="font-size:0.8rem;white-space:nowrap">نظامي</span>
+            <input type="hidden" name="is_active" value="1" />
+            {% else %}
+            <label style="display:flex;align-items:center;gap:0.25rem;font-size:0.85rem;white-space:nowrap">
+              <input type="checkbox" name="is_active" value="1" {% if acc.is_active %}checked{% endif %} />
+              نشط
+            </label>
+            {% endif %}
+            {% if not is_hdr %}
+            <label style="display:flex;align-items:center;gap:0.25rem;font-size:0.78rem;white-space:nowrap" title="عرض في بلوك الخزينة والذمم بالرئيسية">
+              <input type="checkbox" name="show_on_dashboard" value="1" {% if acc.show_on_dashboard %}checked{% endif %} />
+              لوحة
+            </label>
+            {% else %}
+            <input type="hidden" name="show_on_dashboard" value="0" />
+            {% endif %}
+            {% if acc.parent_id %}
+            <span class="muted" style="font-size:0.78rem">أب: #{{ acc.parent_id }}</span>
+            {% endif %}
+            <span style="direction:ltr;font-variant-numeric:tabular-nums;font-weight:600;min-width:5.5rem;{% if bal < 0 %}color:#b45309{% endif %}" title="{% if is_hdr %}مجموع الحسابات الفرعية — لا يُرحَّل إليه مباشرة{% endif %}">{{ "%.3f"|format(bal) }}{% if is_hdr %} Σ{% endif %}</span>
+            <a class="btn btn-primary" href="/admin/gl/accounts/{{ acc.id }}" style="white-space:nowrap;padding:0.35rem 0.65rem">عرض الحركة</a>
+            {% if not is_hdr and acc.account_type.value == 'ASSET' and acc.is_active %}
+              {% if acc.id in pos_wallet_ids %}
+              <span style="font-size:0.75rem;color:#16a34a;white-space:nowrap" title="محفظة POS مربوطة">✓ جلسة بيع</span>
+              {% else %}
+              <button class="btn" type="submit" formaction="/admin/gl/accounts/{{ acc.id }}/provision-pos-wallet" formmethod="post" style="white-space:nowrap;padding:0.35rem 0.55rem;font-size:0.78rem" title="إنشاء ربط خلفي مع نقطة البيع">ربط جلسة البيع</button>
+              {% endif %}
+            {% endif %}
+            <button class="btn" type="submit" style="white-space:nowrap">حفظ</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endfor %}
+{% endblock %}

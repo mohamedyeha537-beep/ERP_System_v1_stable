@@ -1,0 +1,36 @@
+{
+  "server_url": "https://pos.baytak.ly",
+  "agent_token": "3WfZIK-4uqlO_c_l8zxgmbUaj8nOfgy9IqwfyBJJ37c",
+  "poll_interval_seconds": 2,
+  "heartbeat_interval_seconds": 30,
+  "escpos_profile": "cp1256_22",
+  "raster_threshold": 220,
+  "prefer_windows_name": true,
+  "printers": {
+    "cashier": {
+      "windows_name": "POS-80(copy of 1)",
+      "profile": "cp1256_22",
+      "raster_threshold": 220
+    },
+    "drinks": {
+      "windows_name": "اسم الطابعة في ويندوز",
+      "profile": "cp1256_22",
+      "raster_threshold": 220
+    },
+    "grill": {
+      "windows_name": "اسم الطابعة في ويندوز",
+      "profile": "cp1256_22",
+      "raster_threshold": 220
+    },
+    "salad": {
+      "windows_name": "اسم الطابعة في ويندوز",
+      "profile": "cp1256_22",
+      "raster_threshold": 220
+    },
+    "pasta": {
+      "windows_name": "اسم الطابعة في ويندوز",
+      "profile": "cp1256_22",
+      "raster_threshold": 220
+    }
+  }
+}

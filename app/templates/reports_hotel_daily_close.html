@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button with context %}
+{% block title %}الإقفال اليومي — الفندق{% endblock %}
+{% block body %}
+<h1>الإقفال اليومي للفندق{% if domain_label %} — {{ domain_label }}{% endif %}</h1>
+<p class="muted" style="margin-top:-0.35rem;margin-bottom:0.75rem">ملخص يومي: إشغال، حركات الحجز، وصافي التحصيل — الأيام المُقفلة تُعرض من سجل الإقفال.</p>
+{{ reports_nav('hotel_daily_close') }}
+{{ period_filter('/reports/hotel-daily-close', period, period_labels, start, end, start_str, end_str) }}
+{{ report_export_format_help() }}
+<div class="export-bar">
+  <span class="label">Excel (.csv):</span>
+  {{ export_button('/reports/export/hotel-daily-close.csv?period=' ~ period, 'الإقفال اليومي') }}
+  <span class="label no-print" style="margin-inline-start:0.75rem">PDF:</span>
+  {{ pdf_export_button() }}
+</div>
+
+{% if finance_on %}
+<div class="card no-print" style="background:#eff6ff;border-color:#93c5fd">
+  <p style="margin:0;font-size:0.9rem">لتسجيل إقفال يوم محدّد رسمياً، استخدم <a href="/admin/hotel/reports">تقارير الفندق → إقفال يومي</a>.</p>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top: 0">ملخص الفترة</h2>
+  <div class="stat-grid">
+    <div class="stat-card"><div class="label">عدد الأيام</div><div class="value">{{ summary.day_count }}</div></div>
+    <div class="stat-card good"><div class="label">أيام مُقفلة</div><div class="value">{{ summary.closed_days }}</div></div>
+    <div class="stat-card warn"><div class="label">أيام غير مُقفلة</div><div class="value">{{ summary.open_days }}</div></div>
+    <div class="stat-card good"><div class="label">إجمالي التحصيل</div><div class="value">{{ summary.total_revenue }} د.ل</div></div>
+    <div class="stat-card"><div class="label">إجمالي العربونات</div><div class="value">{{ summary.total_deposits }} د.ل</div></div>
+    <div class="stat-card"><div class="label">تسكين / مغادرة</div><div class="value">{{ summary.total_check_ins }} / {{ summary.total_check_outs }}</div></div>
+    <div class="stat-card"><div class="label">متوسط الإشغال</div><div class="value">{{ summary.avg_occupancy }}٪</div></div>
+    {% if summary.days_with_gl_mismatch is defined %}
+    <div class="stat-card {% if summary.days_with_gl_mismatch > 0 %}bad{% else %}good{% endif %}"><div class="label">أيام بفارق GL</div><div class="value">{{ summary.days_with_gl_mismatch }}</div></div>
+    {% endif %}
+  </div>
+</div>
+
+{% if hotel_gl_recon %}
+<div class="card" style="border-color:#6ee7b7;background:linear-gradient(180deg,#ecfdf5 0%,#fff 55%)">
+  <h2 style="margin-top: 0">مطابقة GL — حساب {{ hotel_gl_recon.account_code }}</h2>
+  <p class="muted" style="margin-top:0;font-size:0.85rem">{{ hotel_gl_recon.account_name }} · {{ hotel_gl_recon.from_date }} → {{ hotel_gl_recon.to_date }}</p>
+  <div class="stat-grid">
+    <div class="stat-card good"><div class="label">تحصيل تشغيلي (الفترة)</div><div class="value">{{ hotel_gl_recon.operational_net }} د.ل</div></div>
+    <div class="stat-card"><div class="label">صافي دائن GL</div><div class="value">{{ hotel_gl_recon.gl_revenue_net }} د.ل</div></div>
+    <div class="stat-card {% if hotel_gl_recon.gap == 0 %}good{% else %}bad{% endif %}"><div class="label">الفارق (تشغيل − GL)</div><div class="value">{{ hotel_gl_recon.gap }} د.ل</div></div>
+  </div>
+  {% if hotel_gl_recon.account_id %}
+  <p style="margin:0.65rem 0 0;font-size:0.88rem"><a href="/admin/gl/accounts/{{ hotel_gl_recon.account_id }}/ledger">دفتر حساب {{ hotel_gl_recon.account_code }} ←</a> · <a href="/reports/comprehensive?period={{ period }}">التقرير الشامل</a></p>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top: 0">تفاصيل الأيام{% if hotel_gl_recon %} · مطابقة GL 4150 يومياً{% endif %}</h2>
+  {% if rows %}
+  <table>
+    <thead>
+      <tr>
+        <th>التاريخ</th>
+        <th>الإقفال</th>
+        <th>جديد</th>
+        <th>تسكين</th>
+        <th>مغادرة</th>
+        <th>إلغاء</th>
+        <th>تحصيل</th>
+        {% if hotel_gl_recon %}<th>GL 4150</th><th>فارق</th>{% endif %}
+        <th>عربونات</th>
+        <th>إشغال</th>
+        <th>ملاحظة</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr{% if r.gl_gap is not none and r.gl_gap != 0 %} style="background:#fef2f2"{% endif %}>
+        <td><strong>{{ r.day }}</strong></td>
+        <td>{% if r.is_closed %}<span style="color:#16a34a">مُقفَل</span>{% if r.closed_by %}<br><span class="muted" style="font-size:0.78rem">{{ r.closed_by }}</span>{% endif %}{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td>{{ r.bookings_new }}</td>
+        <td>{{ r.check_ins }}</td>
+        <td>{{ r.check_outs }}</td>
+        <td>{{ r.cancellations }}{% if r.no_shows %} / {{ r.no_shows }} لم يحضر{% endif %}</td>
+        <td style="font-weight:700;color:#16a34a">{{ r.revenue_net }} د.ل</td>
+        {% if hotel_gl_recon %}
+        <td>{% if r.gl_revenue_net is not none %}{{ r.gl_revenue_net }} د.ل{% else %}—{% endif %}</td>
+        <td style="font-weight:700;{% if r.gl_gap is not none and r.gl_gap != 0 %}color:#b91c1c{% endif %}">{% if r.gl_gap is not none %}{{ r.gl_gap }} د.ل{% else %}—{% endif %}</td>
+        {% endif %}
+        <td>{{ r.deposits_total }} د.ل</td>
+        <td>{{ r.occupancy_rate }}٪ <span class="muted">({{ r.occupied }}/{{ r.total_rooms }})</span></td>
+        <td>{{ r.notes or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">لا توجد أيام في هذه الفترة.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_reports_macros.html" import reports_nav, period_filter, report_export_format_help, pdf_export_button %}
+{% from "_reports_macros.html" import reports_nav, period_filter, report_export_format_help, pdf_export_button with context %}
 {% block title %}تقرير التوصيل{% endblock %}
 {% block body %}
 <h1>تقرير طلبات التوصيل</h1>
@@ -47,7 +47,7 @@
       {% for row in rows %}
       <tr>
         <td><strong>#{{ row.sale_id }}</strong></td>
-        <td>{{ row.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td>{{ pos_format_dt(row.created_at, '%Y-%m-%d %H:%M') }}</td>
         <td>
           {% if row.customer_name %}{{ row.customer_name }}{% else %}<span class="muted">بدون اسم</span>{% endif %}
           {% if row.customer_phone %}<div class="muted" style="font-size:0.82rem">{{ row.customer_phone }}</div>{% endif %}

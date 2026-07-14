@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}إصلاح قاعدة البيانات{% endblock %}
+{% block body %}
+<h1 style="margin-top:0">إصلاح أعمدة قاعدة البيانات</h1>
+<p class="muted">قاعدة البيانات: <code>{{ db_label }}</code></p>
+
+{% if ok == '1' %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4">
+  <p style="margin:0">تم إصلاح الأعمدة الناقصة بنجاح. جرّب الآن <a href="/catalog/products/new">إضافة صنف جديد</a>.</p>
+</div>
+{% elif ok == 'already_ok' %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4">
+  <p style="margin:0">جميع الأعمدة موجودة — لا حاجة لإصلاح.</p>
+</div>
+{% endif %}
+
+{% if error %}
+<div class="card" style="border-color:#fca5a5;background:#fef2f2">
+  <p style="margin:0"><strong>خطأ:</strong> {{ error }}</p>
+  {% if error == 'still_missing' %}
+  <p class="muted" style="margin:0.5rem 0 0">تأكد أن مستخدم MySQL يملك صلاحية ALTER TABLE، أو نفّذ يدوياً:
+    <code>deploy/mysql-catalog-columns.sql</code></p>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0">الأعمدة الناقصة</h2>
+  {% if missing %}
+  <ul style="margin:0;padding-inline-start:1.2rem">
+    {% for table, cols in missing.items() %}
+    <li><strong>{{ table }}</strong>: {{ cols|join(', ') }}</li>
+    {% endfor %}
+  </ul>
+  <form method="post" action="/admin/schema-fix/run" style="margin-top:1rem">
+    <button type="submit" class="btn btn-primary">🔧 إصلاح الآن</button>
+  </form>
+  {% else %}
+  <p style="margin:0;color:#15803d">✓ لا توجد أعمدة ناقصة في جداول الكatalog.</p>
+  {% endif %}
+</div>
+
+<p class="muted"><a href="/admin/settings">← رجوع للإعدادات</a></p>
+{% endblock %}

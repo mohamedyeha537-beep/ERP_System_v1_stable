@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_reports_macros.html" import financial_statement_styles, stmt_table_open, stmt_table_close, stmt_row %}
 {% block title %}لوحة التحكم{% endblock %}
 {% block head_extra %}
 <style>
@@ -6,12 +7,17 @@
   .dash-hero {
     position: relative;
     overflow: hidden;
-    background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 55%, #3b82f6 100%);
-    color: #fff;
+    background: linear-gradient(
+      135deg,
+      var(--brand-header-from) 0%,
+      var(--brand-primary) 55%,
+      var(--brand-header-to) 100%
+    );
+    color: var(--brand-header-fg);
     padding: 1.4rem 1.5rem;
     border-radius: 14px;
     margin-bottom: 1.25rem;
-    box-shadow: 0 12px 28px -16px rgba(37, 99, 235, 0.55);
+    box-shadow: 0 12px 28px -16px color-mix(in srgb, var(--brand-primary) 55%, transparent);
   }
   .dash-hero::after {
     content: "";
@@ -112,6 +118,8 @@
   .kpi.kpi-bank .kpi-icon { background: linear-gradient(135deg,#2563eb,#1d4ed8); }
   .kpi.kpi-ar .kpi-icon { background: linear-gradient(135deg,#dc2626,#991b1b); }
   .kpi.kpi-ap .kpi-icon { background: linear-gradient(135deg,#ea580c,#c2410c); }
+  .kpi.kpi-shortage-cash .kpi-icon { background: linear-gradient(135deg,#b91c1c,#7f1d1d); }
+  .kpi.kpi-shortage-bank .kpi-icon { background: linear-gradient(135deg,#9f1239,#881337); }
   /* نفس توزيع kpi-grid — يملأ عرض البلوك بالكامل */
   .kpi-grid-treasury {
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -216,6 +224,24 @@
   }
   .qlink .qtitle { font-weight: 600; line-height: 1.2; font-size: 0.95rem; }
   .qlink .qhint { color: var(--muted); font-size: 0.78rem; }
+  .ql-badge {
+    position: absolute;
+    top: 0.3rem;
+    inset-inline-end: 0.35rem;
+    min-width: 1.4rem;
+    height: 1.4rem;
+    padding: 0 0.35rem;
+    border-radius: 999px;
+    background: #dc2626;
+    color: #fff;
+    font-size: 0.72rem;
+    font-weight: 700;
+    display: grid;
+    place-items: center;
+    line-height: 1;
+    box-shadow: 0 2px 8px rgba(220, 38, 38, 0.4);
+    z-index: 2;
+  }
 
   /* Empty state */
   .empty {
@@ -340,57 +366,6 @@
     font-size: 0.85rem;
     margin-bottom: 1rem;
   }
-  .income-line {
-    display: grid;
-    grid-template-columns: auto 1fr auto;
-    gap: 0.6rem;
-    align-items: baseline;
-    padding: 0.55rem 0;
-    border-bottom: 1px dashed #e2e8f0;
-  }
-  .income-line:last-of-type { border-bottom: none; }
-  .income-line .op {
-    width: 1.4rem;
-    text-align: center;
-    color: var(--muted);
-    font-weight: 700;
-    font-size: 1.05rem;
-  }
-  .income-line .lbl { color: #334155; font-size: 0.95rem; }
-  .income-line .lbl small { color: var(--muted); display: block; font-size: 0.78rem; margin-top: 0.1rem; }
-  .income-line .val {
-    font-weight: 700;
-    font-size: 1.02rem;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-  }
-  .income-line.subtotal {
-    background: #eef2ff;
-    margin: 0.2rem -0.5rem;
-    padding: 0.55rem 0.5rem;
-    border-radius: 8px;
-    border: none;
-  }
-  .income-line.subtotal .lbl { color: #3730a3; font-weight: 700; }
-  .income-line.subtotal .val { color: #3730a3; }
-  .income-line.subtotal.pos { background: #d1fae5; }
-  .income-line.subtotal.pos .lbl, .income-line.subtotal.pos .val { color: #065f46; }
-  .income-line.subtotal.neg { background: #fee2e2; }
-  .income-line.subtotal.neg .lbl, .income-line.subtotal.neg .val { color: #991b1b; }
-  .income-line.total {
-    margin-top: 0.5rem;
-    padding: 0.85rem 0.6rem;
-    border-radius: 10px;
-    border: none;
-  }
-  .income-line.total.pos { background: #dcfce7; color: #14532d; }
-  .income-line.total.neg { background: #fee2e2; color: #7f1d1d; }
-  .income-line.total .lbl { font-weight: 800; font-size: 1.05rem; color: inherit; }
-  .income-line.total .val { font-size: 1.2rem; color: inherit; }
-  .income-line a.row-link { display: contents; color: inherit; text-decoration: none; }
-  .income-line:has(a.row-link):hover { background: rgba(99,102,241,0.06); cursor: pointer; }
-  .income-line a.row-link::after { content: "↗"; color: var(--muted); font-size: 0.7rem; margin-inline-start: 0.4rem; opacity: 0; }
-  .income-line:has(a.row-link):hover a.row-link::after { opacity: 0.7; }
   .income .footnote {
     margin-top: 0.85rem;
     font-size: 0.78rem;
@@ -409,13 +384,26 @@
     background: rgba(255,255,255,0.55);
   }
 </style>
+{{ financial_statement_styles() }}
 {% endblock %}
 {% block body %}
+{% from "_dash_qlink_badge.html" import dash_badge %}
+{% set badge_counts = badge_counts|default({}) %}
 
 {# ====================== HERO ====================== #}
 <div class="dash-hero">
   <h1>أهلاً، {{ user.username }}</h1>
-  <p>نظرة سريعة على أداء متجرك اليوم — التاريخ والإيرادات والمخزون والتنبيهات.</p>
+  <p>
+    نظرة سريعة على الأداء — مجال العرض: <strong>{{ finance_domain_label|default(stats.finance_domain_label if stats else 'الكل') }}</strong>
+    {% if perm('reports:view') or perm('gl:manage') %}
+    · <a href="/admin/finance-hub" style="color:#fde68a">مركز الربح</a>
+    {% endif %}
+  </p>
+  {% if stats and stats.revenue_source == 'hotel' %}
+  <p style="margin-top:0.35rem;font-size:0.88rem;opacity:0.92">الإيراد من تحصيلات الحجز (مدفوعات − مرتجعات).</p>
+  {% elif stats and stats.revenue_source == 'combined' %}
+  <p style="margin-top:0.35rem;font-size:0.88rem;opacity:0.92">إيراد مجمّع: مبيعات POS + تحصيلات الفندق.</p>
+  {% endif %}
   {% if user.roles %}
   <div>
     {% for r in user.roles %}<span class="role">{{ r.name_ar }}</span>{% endfor %}
@@ -424,6 +412,7 @@
 </div>
 
 {# ====================== Quick Links (TOP) ====================== #}
+{% if pos_ui_show(request, 'ui_ql_bar') %}
 <div class="ql-bar">
   <div class="ql-bar-title">
     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -433,164 +422,237 @@
     <span class="pill">انقر للوصول المباشر</span>
   </div>
   <div class="quick-grid">
-    {% if perm('sales:create') %}
+    {% set nav_sales = pos_nav_show_restaurant(request) %}
+    {% set nav_hotel = pos_nav_show_hotel(request) %}
+    {% if perm('sales:create') and nav_sales and pos_ui_show(request, 'ui_pos') %}
     <a class="qlink" href="/pos" style="--accent:#10b981">
+      {{ dash_badge(badge_counts, 'pos') }}
       <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"></rect><circle cx="12" cy="12" r="3"></circle></svg></div>
       <div><div class="qtitle">نقطة البيع</div><div class="qhint">شاشة الكاشير</div></div>
     </a>
     {% endif %}
-    {% if perm('reports:view') %}
+    {% if perm('reports:view') and pos_ui_show(request, 'ui_reports') %}
     <a class="qlink" href="/reports" style="--accent:#0ea5e9">
+      {{ dash_badge(badge_counts, 'reports') }}
       <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"></line><line x1="18" y1="20" x2="18" y2="4"></line><line x1="6" y1="20" x2="6" y2="16"></line></svg></div>
       <div><div class="qtitle">مركز التقارير</div><div class="qhint">مبيعات/أرباح/مخزون</div></div>
     </a>
     {% endif %}
-    {% if perm('inventory:view') %}
+    {% if perm('inventory:view') and nav_sales and pos_ui_show(request, 'ui_inventory') %}
     <a class="qlink" href="/inventory" style="--accent:#14b8a6">
+      {{ dash_badge(badge_counts, 'inventory') }}
       <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7l-8-4-8 4 8 4 8-4z"></path><path d="M4 12l8 4 8-4"></path></svg></div>
       <div><div class="qtitle">المخزون</div><div class="qhint">الأرصدة والحركات</div></div>
     </a>
     {% endif %}
-    {% if perm('catalog:write') %}
+    {% if perm('purchases:manage') and nav_hotel and not nav_sales and pos_ui_show(request, 'ui_inventory') %}
+    <a class="qlink" href="/admin/consumables" style="--accent:#14b8a6">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7l-8-4-8 4 8 4 8-4z"></path><path d="M4 12l8 4 8-4"></path></svg></div>
+      <div><div class="qtitle">مستهلكات الفندق</div><div class="qhint">فراش · تنظيف · مستلزمات</div></div>
+    </a>
+    {% endif %}
+    {% if perm('catalog:write') and nav_sales and pos_ui_show(request, 'ui_catalog') %}
     <a class="qlink" href="/catalog/products" style="--accent:#8b5cf6">
+      {{ dash_badge(badge_counts, 'catalog_products') }}
       <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg></div>
       <div><div class="qtitle">الأصناف</div><div class="qhint">منتجات ووصفات</div></div>
     </a>
     {% endif %}
-    {% if perm('catalog:write') %}
+    {% if perm('catalog:write') and nav_sales and pos_ui_show(request, 'ui_categories') %}
     <a class="qlink" href="/catalog/categories" style="--accent:#ec4899">
+      {{ dash_badge(badge_counts, 'catalog_categories') }}
       <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></div>
       <div><div class="qtitle">الفئات</div><div class="qhint">رئيسية وفرعية</div></div>
     </a>
     {% endif %}
-    {% if perm('tables:manage') %}
+    {% if perm('tables:manage') and nav_sales and pos_ui_show(request, 'ui_tables') %}
     <a class="qlink" href="/admin/tables" style="--accent:#0891b2">
+      {{ dash_badge(badge_counts, 'tables') }}
       <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="14" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="8" y1="17" x2="8" y2="21"></line><line x1="16" y1="17" x2="16" y2="21"></line></svg></div>
       <div><div class="qtitle">الطاولات</div><div class="qhint">مطعم/مقهى</div></div>
     </a>
     {% endif %}
-    {% if perm('kds:view') %}
+    {% if perm('kds:view') and nav_sales and pos_ui_show(request, 'ui_kds') %}
     <a class="qlink" href="/admin/kds" style="--accent:#dc2626">
+      {{ dash_badge(badge_counts, 'kds') }}
       <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg></div>
       <div><div class="qtitle">شاشة المطبخ</div><div class="qhint">KDS — الطلبات</div></div>
     </a>
     {% endif %}
-    {% if perm('hr:view') %}
+    {% if perm('hr:view') and pos_ui_show(request, 'ui_hr') %}
     <a class="qlink" href="/admin/employees" style="--accent:#0d9488">
+      {{ dash_badge(badge_counts, 'hr_employees') }}
       <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></div>
       <div><div class="qtitle">الموظفون</div><div class="qhint">بيانات وأجور</div></div>
     </a>
     <a class="qlink" href="/admin/attendance" style="--accent:#16a34a">
+      {{ dash_badge(badge_counts, 'hr_attendance') }}
       <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></div>
       <div><div class="qtitle">الحضور والانصراف</div><div class="qhint">دخول/خروج وتسجيل سريع</div></div>
     </a>
     <a class="qlink" href="/admin/payroll" style="--accent:#7c2d12">
+      {{ dash_badge(badge_counts, 'hr_payroll') }}
       <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line><circle cx="7" cy="15" r="1.5"></circle></svg></div>
       <div><div class="qtitle">الرواتب الشهرية</div><div class="qhint">دفعات وصرف</div></div>
     </a>
     <a class="qlink" href="/admin/advances" style="--accent:#b45309">
+      {{ dash_badge(badge_counts, 'hr_advances') }}
       <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22"></path><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></div>
       <div><div class="qtitle">سلف الموظفين</div><div class="qhint">صرف واسترداد</div></div>
     </a>
     {% endif %}
-    {% if perm('hotel:rooms:manage') %}
-    <a class="qlink" href="/admin/hotel/rooms" style="--accent:#b45309">
-      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"></path><path d="M5 21V7l8-4 8 4v14"></path><path d="M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01"></path></svg></div>
-      <div><div class="qtitle">غرف الفندق</div><div class="qhint">إدارة الأرقام والنزلاء</div></div>
+    {% if perm('hotel:booking:view') and nav_hotel and pos_ui_show(request, 'ui_hotel') %}
+    <a class="qlink" href="/admin/hotel/bookings" style="--accent:#8b5cf6">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg></div>
+      <div><div class="qtitle">حجوزات الشقق</div><div class="qhint">قائمة · وصول · مغادرة</div></div>
     </a>
     {% endif %}
-    {% if perm('hotel:settle') %}
+    {% if perm('hotel:settle') and pos_ui_show(request, 'ui_hotel_settle') %}
     <a class="qlink" href="/hotel/settle" style="--accent:#f59e0b">
+      {{ dash_badge(badge_counts, 'hotel_settle') }}
       <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14"></path><circle cx="18" cy="17" r="3"></circle><path d="M16 17h.01M20 17h.01"></path></svg></div>
       <div><div class="qtitle">تسوية حسابات الغرف</div><div class="qhint">للاستقبال — استلام النقد</div></div>
     </a>
     {% endif %}
-    {% if perm('customers:view') %}
+    {% if perm('customers:view') and pos_ui_show(request, 'ui_customers') %}
     <a class="qlink" href="/admin/customers" style="--accent:#10b981">
+      {{ dash_badge(badge_counts, 'customers') }}
       <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></div>
       <div><div class="qtitle">العملاء ونقاط الولاء</div><div class="qhint">قاعدة العملاء + الولاء</div></div>
     </a>
     {% endif %}
-    {% if perm('customers:manage') %}
+    {% if perm('customers:manage') and nav_sales and pos_ui_show(request, 'ui_loyalty') %}
     <a class="qlink" href="/admin/loyalty" style="--accent:#f59e0b">
+      {{ dash_badge(badge_counts, 'loyalty') }}
       <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg></div>
       <div><div class="qtitle">إعدادات الولاء</div><div class="qhint">معدلات الكسب والاستخدام</div></div>
     </a>
     {% endif %}
-    {% if perm('purchases:manage') %}
+    {% if (perm('purchases:manage') or perm('purchases:invoices')) and pos_ui_show(request, 'ui_purchases') %}
     <a class="qlink" href="/admin/purchases" style="--accent:#f59e0b">
+      {{ dash_badge(badge_counts, 'purchases') }}
       <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11H5a2 2 0 0 0-2 2v7h18v-7a2 2 0 0 0-2-2h-4"></path><path d="M9 7h6"></path><path d="M12 7v8"></path></svg></div>
-      <div><div class="qtitle">فواتير الشراء</div><div class="qhint">بضاعة للمخزون</div></div>
+      <div><div class="qtitle">فواتير الشراء</div><div class="qhint">{% if nav_hotel and not nav_sales %}مشتريات الفندق{% else %}بضاعة للمخزون{% endif %}</div></div>
     </a>
+    {% endif %}
+    {% if perm('purchases:manage') and pos_ui_show(request, 'ui_expenses') %}
     <a class="qlink" href="/admin/expenses" style="--accent:#dc2626">
+      {{ dash_badge(badge_counts, 'expenses') }}
       <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22"></path><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></div>
       <div><div class="qtitle">المصروفات</div><div class="qhint">إيجار/فواتير/رواتب</div></div>
     </a>
     <a class="qlink" href="/admin/assets" style="--accent:#7c3aed">
+      {{ dash_badge(badge_counts, 'assets') }}
       <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg></div>
       <div><div class="qtitle">الأصول/الأدوات</div><div class="qhint">للاستهلاك الداخلي</div></div>
     </a>
     <a class="qlink" href="/admin/recurring-costs" style="--accent:#f59e0b">
+      {{ dash_badge(badge_counts, 'recurring_costs') }}
       <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"></line><line x1="18" y1="20" x2="18" y2="4"></line><line x1="6" y1="20" x2="6" y2="16"></line></svg></div>
       <div><div class="qtitle">التكاليف الشهرية</div><div class="qhint">عتبة التعادل</div></div>
     </a>
     {% endif %}
-    {% if perm('payments:manage') %}
+    {% if perm('payments:manage') and not stats.gl_enabled and pos_ui_show(request, 'ui_payment_methods') %}
     <a class="qlink" href="/admin/payment-methods" style="--accent:#2563eb">
+      {{ dash_badge(badge_counts, 'payment_methods') }}
       <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line></svg></div>
       <div><div class="qtitle">أساليب الدفع</div><div class="qhint">مصارف وكاش</div></div>
     </a>
     {% endif %}
-    {% if perm('admin:roles') %}
+    {% if perm('gl:manage') and stats.gl_enabled and pos_ui_show(request, 'ui_gl') %}
+    <a class="qlink" href="/admin/gl/accounts" style="--accent:#059669">
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></div>
+      <div><div class="qtitle">شجرة الحسابات</div><div class="qhint">الخزينة والذمم — GL</div></div>
+    </a>
+    {% endif %}
+    {% if perm('admin:roles') and nav_sales and pos_ui_show(request, 'ui_catalog') %}
     <a class="qlink" href="/catalog/units" style="--accent:#06b6d4">
+      {{ dash_badge(badge_counts, 'units') }}
       <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg></div>
       <div><div class="qtitle">وحدات القياس</div><div class="qhint">جرام، كيلو، لتر...</div></div>
     </a>
     {% endif %}
-    {% if perm('admin:users') %}
+    {% if perm('admin:users') and pos_ui_show(request, 'ui_users') %}
     <a class="qlink" href="/admin/users" style="--accent:#0891b2">
+      {{ dash_badge(badge_counts, 'users') }}
       <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg></div>
       <div><div class="qtitle">المستخدمون</div><div class="qhint">إدارة الحسابات</div></div>
     </a>
     {% endif %}
-    {% if perm('admin:roles') %}
+    {% if perm('admin:roles') and pos_ui_show(request, 'ui_roles') %}
     <a class="qlink" href="/admin/roles" style="--accent:#9333ea">
+      {{ dash_badge(badge_counts, 'roles') }}
       <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg></div>
       <div><div class="qtitle">الأدوار</div><div class="qhint">RBAC</div></div>
     </a>
     {% endif %}
-    {% if perm('admin:settings') %}
+    {% if perm('admin:settings') and pos_ui_show(request, 'ui_settings') %}
     <a class="qlink" href="/admin/settings" style="--accent:#475569">
+      {{ dash_badge(badge_counts, 'settings') }}
       <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle></svg></div>
       <div><div class="qtitle">الإعدادات</div><div class="qhint">الطباعة/المتجر</div></div>
     </a>
+    {% if nav_sales and pos_ui_show(request, 'ui_settings') %}
     <a class="qlink" href="/admin/alerts" style="--accent:#ef4444">
+      {{ dash_badge(badge_counts, 'alerts') }}
       <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg></div>
       <div><div class="qtitle">تنبيهات النفاد</div><div class="qhint">إيميل/WhatsApp</div></div>
     </a>
     {% endif %}
-    {% if perm('branding:manage') %}
+    {% endif %}
+    {% if perm('messaging:manage') and pos_ui_show(request, 'ui_messaging') %}
+    <a class="qlink" href="/admin/notifications" style="--accent:#7c3aed">
+      {{ dash_badge(badge_counts, 'messaging_inbox') }}
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg></div>
+      <div><div class="qtitle">محرك الإشعارات</div><div class="qhint">قوالب · قواعد · WhatsApp · صندوق الوارد</div></div>
+    </a>
+    {% if nav_sales and pos_ui_show(request, 'ui_messaging') %}
+    <a class="qlink" href="/admin/messaging/chat-orders" style="--accent:#f97316">
+      {{ dash_badge(badge_counts, 'messaging_chat_orders') }}
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></svg></div>
+      <div><div class="qtitle">طلبات الشات</div><div class="qhint">تأكيد طلبات /chat</div></div>
+    </a>
+    {% endif %}
+    {% endif %}
+    {% if (perm('messaging:manage') or perm('messaging:send') or perm('messaging:view')) and nav_sales and pos_ui_show(request, 'ui_messaging') %}
+    <a class="qlink" href="/admin/messaging/inbox" style="--accent:#0ea5e9">
+      {{ dash_badge(badge_counts, 'messaging_inbox') }}
+      <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg></div>
+      <div><div class="qtitle">صندوق الوارد</div><div class="qhint">ردّ على عملاء واتساب</div></div>
+    </a>
+    {% endif %}
+    {% if perm('branding:manage') and pos_ui_show(request, 'ui_branding') %}
     <a class="qlink" href="/admin/branding" style="--accent:#ec4899">
+      {{ dash_badge(badge_counts, 'branding') }}
       <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".5"></circle><circle cx="17.5" cy="10.5" r=".5"></circle><circle cx="8.5" cy="7.5" r=".5"></circle><circle cx="6.5" cy="12.5" r=".5"></circle><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"></path></svg></div>
       <div><div class="qtitle">الهويّة البصرية</div><div class="qhint">شعار + ألوان</div></div>
     </a>
     {% endif %}
-    {% if perm('backup:manage') %}
+    {% if perm('backup:manage') and pos_ui_show(request, 'ui_backup') %}
     <a class="qlink" href="/admin/backup" style="--accent:#0ea5e9">
+      {{ dash_badge(badge_counts, 'backup') }}
       <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg></div>
       <div><div class="qtitle">نسخ احتياطي</div><div class="qhint">حفظ/استعادة</div></div>
     </a>
     {% endif %}
   </div>
 </div>
+{% endif %}
 
-{% if not stats %}
+{% set can_view_dashboard_metrics = perm('reports:view') or perm('payments:manage') or perm('inventory:view') or perm('gl:manage') %}
+
+{% if not can_view_dashboard_metrics %}
+{# مستخدمون مثل عامل KDS يحتاجون روابط التشغيل فقط، وليس ملخصات مالية أو إدارية. #}
+{% elif not stats %}
 <div class="alert">تعذّر تحميل الإحصائيات الآن. يمكنك استخدام الروابط أعلاه.</div>
 {% else %}
 
 {# ====================== KPIs (sales focus) ====================== #}
-<details class="dash-section" open>
-  <summary>المبيعات <span class="section-meta">اليوم وأمس والشهر</span></summary>
+{% set rev_label = 'تحصيلات' if stats.revenue_source == 'hotel' else 'إيرادات' %}
+{% set rev_unit = 'دفعة' if stats.revenue_source == 'hotel' else 'فاتورة' %}
+{% if pos_ui_show(request, 'ui_dash_revenue') %}
+<details class="dash-section">
+  <summary>{{ rev_label }} <span class="section-meta">اليوم وأمس والشهر{% if stats.finance_domain_label != 'الكل' %} — {{ stats.finance_domain_label }}{% endif %}</span></summary>
   <div class="dash-section-body">
 <div class="kpi-grid">
   <div class="kpi kpi-rev" title="انقر لعرض تفاصيل مبيعات اليوم">
@@ -601,9 +663,9 @@
           <path d="M17 5H9.5a3.5 3.5 0 1 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
         </svg>
       </div>
-      <div class="kpi-label">إيرادات اليوم</div>
+      <div class="kpi-label">{{ rev_label }} اليوم</div>
       <div class="kpi-value">{{ stats.today.revenue }} <span style="font-size:0.65em;color:var(--muted)">د.ل</span></div>
-      <div class="kpi-sub">{{ stats.today.count }} فاتورة — متوسط {{ stats.today.avg_basket }} د.ل</div>
+      <div class="kpi-sub">{{ stats.today.count }} {{ rev_unit }} — متوسط {{ stats.today.avg_basket }} د.ل</div>
       {% if stats.revenue_change_dir == 'up' %}
       <span class="delta up">▲ {{ stats.revenue_change_pct }}% مقارنة بالأمس</span>
       {% elif stats.revenue_change_dir == 'down' %}
@@ -622,9 +684,9 @@
           <polyline points="12 6 12 12 16 14"></polyline>
         </svg>
       </div>
-      <div class="kpi-label">إيرادات أمس</div>
+      <div class="kpi-label">{{ rev_label }} أمس</div>
       <div class="kpi-value">{{ stats.yesterday.revenue }} <span style="font-size:0.65em;color:var(--muted)">د.ل</span></div>
-      <div class="kpi-sub">{{ stats.yesterday.count }} فاتورة</div>
+      <div class="kpi-sub">{{ stats.yesterday.count }} {{ rev_unit }}</div>
     </a>
   </div>
 
@@ -638,9 +700,9 @@
           <line x1="3" y1="10" x2="21" y2="10"></line>
         </svg>
       </div>
-      <div class="kpi-label">إيرادات الشهر</div>
+      <div class="kpi-label">{{ rev_label }} الشهر</div>
       <div class="kpi-value">{{ stats.month.revenue }} <span style="font-size:0.65em;color:var(--muted)">د.ل</span></div>
-      <div class="kpi-sub">{{ stats.month.count }} فاتورة منذ بداية الشهر</div>
+      <div class="kpi-sub">{{ stats.month.count }} {{ rev_unit }} منذ بداية الشهر</div>
     </a>
   </div>
 
@@ -656,18 +718,90 @@
       <div class="kpi-value" style="color: {% if stats.month_net_profit >= 0 %}#16a34a{% else %}#b91c1c{% endif %}">
         {{ stats.month_net_profit }} <span style="font-size:0.65em;color:var(--muted)">د.ل</span>
       </div>
-      <div class="kpi-sub">بعد طرح تكلفة المباع والمصروفات والأصول</div>
+      <div class="kpi-sub">بعد طرح التكلفة المتغيّرة والمصروفات{% if stats.revenue_source == 'hotel' %} (فندق){% endif %}</div>
     </a>
   </div>
+  {% if stats.gl_pl_net is not none and perm('gl:manage') %}
+  <div class="kpi kpi-profit" title="من دفتر GL — قائمة الدخل">
+    <a class="kpi-link" href="/admin/gl/reports?report=pl&period=month">
+      <div class="kpi-icon">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+        </svg>
+      </div>
+      <div class="kpi-label">صافي GL (الشهر)</div>
+      <div class="kpi-value" style="color: {% if stats.gl_pl_net >= 0 %}#16a34a{% else %}#b91c1c{% endif %}">
+        {{ stats.gl_pl_net }} <span style="font-size:0.65em;color:var(--muted)">د.ل</span>
+      </div>
+      <div class="kpi-sub">إيراد {{ stats.gl_pl_revenue }} − مصروف {{ stats.gl_pl_expense }}</div>
+    </a>
+  </div>
+  {% endif %}
 </div>
   </div>
 </details>
+{% endif %}
 
 {# ====================== Treasury & receivables ====================== #}
-<details class="dash-section" open>
-  <summary>الخزينة والذمم <span class="section-meta">الرصيد الحالي والديون المستحقة</span></summary>
+{% if pos_ui_show(request, 'ui_dash_treasury') %}
+<details class="dash-section">
+  <summary>الخزينة والذمم <span class="section-meta">{% if stats.treasury_source == 'gl' %}من شجرة الحسابات (GL){% else %}الرصيد الحالي والديون المستحقة{% endif %}</span></summary>
   <div class="dash-section-body">
+{% if stats.treasury_source == 'gl' and perm('gl:manage') %}
+<p class="muted" style="margin:0 0 0.75rem;font-size:0.85rem">
+  الأرصدة من <strong>دفتر GL</strong> — اختر الحسابات المعروضة من
+  <a href="/admin/gl/accounts">شجرة الحسابات</a> (عمود «لوحة التحكم»).
+</p>
+{% endif %}
 <div class="kpi-grid kpi-grid-treasury">
+  {% if stats.treasury_source == 'gl' %}
+  {% for card in stats.gl_treasury_cards %}
+  <div class="kpi kpi-{{ card.card_kind }}" title="{{ card.code }} — {{ card.name_ar }}">
+    {% if perm('gl:manage') %}
+    <a class="kpi-link" href="/admin/gl/accounts/{{ card.account_id }}">
+    {% elif card.wallet_pm_id and (perm('payments:manage') or perm('reports:view')) %}
+    <a class="kpi-link" href="/pos/treasury?pm={{ card.wallet_pm_id }}">
+    {% else %}
+    <div class="kpi-link" style="cursor:default">
+    {% endif %}
+      <div class="kpi-icon">
+        {% if card.card_kind == 'bank' %}
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 21h18"></path><path d="M5 21V7l7-4 7 4v14"></path><path d="M9 9h1"></path><path d="M14 9h1"></path>
+        </svg>
+        {% elif card.card_kind in ('ar', 'ap') %}
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
+        </svg>
+        {% else %}
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="2" y="6" width="20" height="12" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line><circle cx="12" cy="14" r="2"></circle>
+        </svg>
+        {% endif %}
+      </div>
+      <div class="kpi-label"><span style="direction:ltr;font-variant-numeric:tabular-nums;font-size:0.78rem;color:var(--muted)">{{ card.code }}</span> — {{ card.name_ar }}</div>
+      <div class="kpi-value">{{ card.balance }} <span style="font-size:0.65em;color:var(--muted)">د.ل</span></div>
+      <div class="kpi-sub">
+        {% if card.wallet_names %}
+        محافظ مربوطة: {{ card.wallet_names|join('، ') }} — رصيد GL
+        {% else %}
+        رصيد من دفتر الأستاذ — اضغط للحركة
+        {% endif %}
+      </div>
+    {% if perm('gl:manage') or (card.wallet_pm_id and (perm('payments:manage') or perm('reports:view'))) %}
+    </a>
+    {% else %}
+    </div>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="card" style="grid-column:1/-1">
+    <p style="margin:0">لا حسابات GL معروضة — فعّل GL وحدّد الحسابات من <a href="/admin/gl/accounts">شجرة الحسابات</a>.</p>
+  </div>
+  {% endfor %}
+  {% else %}
   {% for card in stats.treasury_cards %}
   <div class="kpi {% if card.kind == 'BANK' %}kpi-bank{% else %}kpi-cash{% endif %}" title="عرض حركة {{ card.name_ar }}">
     <a class="kpi-link" href="/pos/treasury?pm={{ card.method_id }}">
@@ -710,9 +844,11 @@
   </div>
   {% endif %}
   {% endfor %}
+  {% endif %}
 
-  {% if perm('reports:view') %}
-  <div class="kpi kpi-ar" title="انقر لعرض تفاصيل الذمم المدينة">
+  {% set gl_dash_codes = stats.gl_treasury_cards|map(attribute='code')|list if stats.treasury_source == 'gl' else [] %}
+  {% if perm('reports:view') and '1200' not in gl_dash_codes and pos_reports_show_pos_sections(request) %}
+  <div class="kpi kpi-ar" title="انقر لعرض ديون العملاء والتحصيل">
     <a class="kpi-link" href="/reports/receivables?balance_only=1">
       <div class="kpi-icon">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -722,7 +858,7 @@
           <line x1="9" y1="15" x2="15" y2="15"></line>
         </svg>
       </div>
-      <div class="kpi-label">الذمم المدينة — إجمالي الديون</div>
+      <div class="kpi-label">ديون على العملاء</div>
       <div class="kpi-value">{{ stats.ar_outstanding_total }} <span style="font-size:0.65em;color:var(--muted)">د.ل</span></div>
       <div class="kpi-sub">
         {{ stats.ar_invoice_count }} فاتورة برصيد —
@@ -732,7 +868,42 @@
   </div>
   {% endif %}
 
-  {% if perm('reports:view') %}
+  {% if (perm('reports:view') or perm('sales:create')) and pos_reports_show_pos_sections(request) %}
+  <div class="kpi kpi-shortage-cash" title="عجز الكاش عند إقفال جلسات الكاشير — اضغط للتفاصيل">
+    <a class="kpi-link" href="/pos/shift/shortages?kind=cash">
+      <div class="kpi-icon">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="2" y="6" width="20" height="12" rx="2"></rect>
+          <line x1="2" y1="10" x2="22" y2="10"></line>
+          <path d="M12 14v2M12 10h.01"></path>
+        </svg>
+      </div>
+      <div class="kpi-label">عجز كاش — جلسات الكاشير</div>
+      <div class="kpi-value">{{ stats.shortage_cash_total }} <span style="font-size:0.65em;color:var(--muted)">د.ل</span></div>
+      <div class="kpi-sub">
+        {% if stats.shortage_cash_count %}{{ stats.shortage_cash_count }} حدث عجز — انقر للتفاصيل{% else %}لا عجز مسجّل{% endif %}
+      </div>
+    </a>
+  </div>
+  <div class="kpi kpi-shortage-bank" title="عجز المصرف عند إقفال الجلسات — اضغط للتفاصيل">
+    <a class="kpi-link" href="/pos/shift/shortages?kind=bank">
+      <div class="kpi-icon">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 21h18"></path>
+          <path d="M5 21V7l7-4 7 4v14"></path>
+          <path d="M9 14h1M14 14h1"></path>
+        </svg>
+      </div>
+      <div class="kpi-label">عجز مصرف — جلسات الكاشير</div>
+      <div class="kpi-value">{{ stats.shortage_bank_total }} <span style="font-size:0.65em;color:var(--muted)">د.ل</span></div>
+      <div class="kpi-sub">
+        {% if stats.shortage_bank_count %}{{ stats.shortage_bank_count }} حدث عجز — انقر للتفاصيل{% else %}لا عجز مسجّل{% endif %}
+      </div>
+    </a>
+  </div>
+  {% endif %}
+
+  {% if perm('reports:view') and '2100' not in gl_dash_codes %}
   <div class="kpi kpi-ap" title="ديون المتجر للموردين">
     <a class="kpi-link" href="/reports/payables?balance_only=1">
       <div class="kpi-icon">
@@ -752,11 +923,14 @@
 </div>
   </div>
 </details>
+{% endif %}
 
 {# ====================== KPIs (inventory/admin focus) ====================== #}
-<details class="dash-section" open>
-  <summary>المخزون والكتالوج <span class="section-meta">عدد الأصناف والقيمة والتنبيهات</span></summary>
+{% if pos_ui_show(request, 'ui_dash_inventory') %}
+<details class="dash-section">
+  <summary>{% if pos_reports_show_pos_sections(request) %}المخزون والكتالوج{% else %}الفندق والمحافظ{% endif %} <span class="section-meta">{% if pos_reports_show_pos_sections(request) %}عدد الأصناف والقيمة والتنبيهات{% else %}آخر التحصيلات وأرصدة المحافظ{% endif %}</span></summary>
   <div class="dash-section-body">
+{% if pos_reports_show_pos_sections(request) %}
 <div class="kpi-grid">
   <div class="kpi kpi-products" title="انقر لعرض قائمة الأصناف">
     <a class="kpi-link" href="/catalog/products">
@@ -816,9 +990,39 @@
     </a>
   </div>
 </div>
+{% endif %}
 
 {# ====================== Two-col panels ====================== #}
+{% if pos_ui_show(request, 'ui_dash_activity') %}
 <div class="dash-cols">
+  {% if stats.revenue_source == 'hotel' or stats.recent_hotel_payments %}
+  <div class="panel">
+    <div class="panel-head">
+      <h2>آخر تحصيلات الحجز</h2>
+      <a href="/reports/hotel-collections">عرض التحصيلات →</a>
+    </div>
+    {% if stats.recent_hotel_payments %}
+    <div class="panel-list">
+      {% for p in stats.recent_hotel_payments %}
+      <div class="row-item">
+        <div>
+          <div class="name">{{ p.guest_label }}</div>
+          <div class="meta">{{ pos_format_dt(p.created_at, '%Y-%m-%d %H:%M') }} — حجز #{{ p.booking_id }}</div>
+        </div>
+        <div style="display:flex; gap:0.4rem; align-items:center">
+          <span class="pill-num">{{ p.amount }} د.ل</span>
+          <a href="/admin/hotel/bookings/{{ p.booking_id }}" class="btn" style="padding:0.2rem 0.5rem; font-size:0.8rem">الحجز</a>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">لم تُسجَّل تحصيلات بعد.</div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if pos_reports_show_pos_sections(request) %}
   {# ----- Recent sales ----- #}
   <div class="panel">
     <div class="panel-head">
@@ -831,7 +1035,7 @@
       <div class="row-item">
         <div>
           <div class="name">فاتورة #{{ s.id }}</div>
-          <div class="meta">{{ s.created_at.strftime('%Y-%m-%d %H:%M') }} — {{ s.items }} بند</div>
+          <div class="meta">{{ pos_format_dt(s.created_at, '%Y-%m-%d %H:%M') }} — {{ s.items }} بند</div>
         </div>
         <div style="display:flex; gap:0.4rem; align-items:center">
           <span class="pill-num">{{ s.total }} د.ل</span>
@@ -857,7 +1061,7 @@
       <div class="row-item">
         <div>
           <div class="name">{{ t.name_ar }}</div>
-          <div class="meta">كمية: {{ t.qty }}</div>
+          <div class="meta">كمية: {{ pos_qty(t.qty) }}</div>
         </div>
         <span class="pill-num">{{ t.revenue }} د.ل</span>
       </div>
@@ -867,10 +1071,13 @@
     <div class="empty">لا توجد مبيعات اليوم بعد.</div>
     {% endif %}
   </div>
+  {% endif %}
 </div>
+{% endif %}
 
 {# ====================== Wallets + Low stock ====================== #}
 <div class="dash-cols">
+  {% if not stats.gl_enabled and pos_ui_show(request, 'ui_dash_wallets') %}
   <div class="panel">
     <div class="panel-head">
       <h2>رصيد المحافظ</h2>
@@ -897,7 +1104,9 @@
     <div class="empty">لا توجد محافظ بعد. <a href="/admin/payment-methods">أضف أسلوب دفع</a>.</div>
     {% endif %}
   </div>
+  {% endif %}
 
+  {% if pos_reports_show_pos_sections(request) and pos_ui_show(request, 'ui_dash_low_stock') %}
   <div class="panel">
     <div class="panel-head">
       <h2>أصناف قاربت على النفاد</h2>
@@ -909,9 +1118,9 @@
       <div class="row-item warn">
         <div>
           <div class="name">{{ p.name_ar }}</div>
-          <div class="meta">الحد الأدنى {{ p.reorder_level }} {{ p.unit }}</div>
+          <div class="meta">الحد الأدنى {{ pos_qty(p.reorder_level) }} {{ p.unit }}</div>
         </div>
-        <span class="pill-num" style="color:#b91c1c">{{ qty }} {{ p.unit }}</span>
+        <span class="pill-num" style="color:#b91c1c">{{ pos_qty(qty) }} {{ p.unit }}</span>
       </div>
       {% endfor %}
       {% if stats.low_stock_count > stats.low_rows|length %}
@@ -922,17 +1131,33 @@
     <div class="empty">جميع الأصناف بمستوى آمن.</div>
     {% endif %}
   </div>
+  {% elif stats.revenue_source == 'hotel' %}
+  <div class="panel">
+    <div class="panel-head">
+      <h2>حجوزات الفندق</h2>
+      <a href="/reports/hotel-bookings">تقرير الاستحقاق →</a>
+    </div>
+    <p class="muted" style="margin:0.5rem 0 0">استحقاق الإقامة مقابل المدفوع والرصيد المتبقي لكل حجز.</p>
+    <div style="margin-top:0.65rem;display:flex;gap:0.45rem;flex-wrap:wrap">
+      <a class="btn" href="/reports/hotel-bookings">حجوزات الفترة</a>
+      <a class="btn" href="/reports/hotel-collections">تحصيلات الفترة</a>
+      <a class="btn" href="/reports/hotel-daily-close?period=month">الإقفال اليومي</a>
+      <a class="btn" href="/reports/hotel-balances" style="background:#fef2f2;border-color:#fecaca;color:#b91c1c">ذمم الحجز</a>
+    </div>
+  </div>
+  {% endif %}
 </div>
   </div>
 </details>
+{% endif %}
 
 {# ====================== Break-Even Widget ====================== #}
-{% if stats.daily_burden %}
+{% if stats.daily_burden and pos_ui_show(request, 'ui_dash_break_even') %}
 {% set b = stats.daily_burden %}
-<details class="dash-section" open id="break-even-section">
+<details class="dash-section" id="break-even-section">
   <summary>تحليل التعادل اليومي <span class="section-meta">كم يجب أن تبيع اليوم لتغطية تكاليفك</span></summary>
   <div class="dash-section-body">
-<div style="background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%); color:#fff; padding: 1.4rem 1.6rem; border-radius: 14px; margin-bottom: 1rem">
+<div style="background: linear-gradient(135deg, var(--brand-header-from) 0%, var(--brand-primary) 100%); color: var(--brand-header-fg); padding: 1.4rem 1.6rem; border-radius: 14px; margin-bottom: 1rem">
   <div class="row" style="justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem">
     <div>
       <div style="font-size: 0.82rem; opacity: 0.85; margin-bottom: 0.25rem">عتبة التعادل اليومية للإيراد</div>
@@ -992,129 +1217,41 @@
 {% endif %}
 
 {# ====================== Month income statement ====================== #}
-<details class="dash-section" open id="income-section">
+{% if pos_ui_show(request, 'ui_dash_income') %}
+<details class="dash-section" id="income-section">
   <summary>بيان الدخل الشهري <span class="section-meta">الحسبتان الرئيسيتان</span></summary>
   <div class="dash-section-body">
 <div class="income">
   <h2>الحسبة (١): الفرق بين البيع وتكلفة البضاعة فقط</h2>
   <p class="income-sub">يُسمّى محاسبياً «إجمالي الربح» — يعكس كفاءة سعر البيع مقابل تكلفة الشراء فقط، قبل أي مصاريف أخرى.</p>
 
-  <a class="row-link" href="/reports/sales?period=month" style="display:contents">
-  <div class="income-line">
-    <div class="op">+</div>
-    <div class="lbl">إيرادات المبيعات
-      <small>انقر لعرض تفاصيل {{ stats.month.count }} فاتورة (مبيعات الشهر)</small>
-    </div>
-    <div class="val" style="color:#16a34a">{{ stats.month.revenue }} د.ل</div>
-  </div>
-  </a>
-
-  <a class="row-link" href="/reports/profit?period=month" style="display:contents">
-  <div class="income-line">
-    <div class="op">−</div>
-    <div class="lbl">تكلفة المباع (COGS)
-      <small>تكلفة الوحدة (وصفة التركيب أو متوسط الشراء) × الكميات المباعة — انقر للتفاصيل لكل صنف</small>
-    </div>
-    <div class="val" style="color:#b91c1c">−{{ stats.month_cogs }} د.ل</div>
-  </div>
-  </a>
-
-  <a class="row-link" href="/reports/profit?period=month" style="display:contents">
-  <div class="income-line subtotal {% if stats.month_gross_profit >= 0 %}pos{% else %}neg{% endif %}">
-    <div class="op">=</div>
-    <div class="lbl"><strong>الفرق (إجمالي الربح / هامش المساهمة)</strong>
-      <small>هذا ما تجنيه قبل طرح أي مصروف أو راتب — انقر للتفاصيل بكل منتج</small>
-    </div>
-    <div class="val">
-      <strong>{{ stats.month_gross_profit }} د.ل</strong>
-      {% if stats.month_gross_margin_pct %}
-      <span class="margin-pill">هامش {{ stats.month_gross_margin_pct }}%</span>
-      {% endif %}
-    </div>
-  </div>
-  </a>
+  {{ stmt_table_open() }}
+  {{ stmt_row('+', 'إيرادات المبيعات', stats.month.revenue ~ ' د.ل', 'انقر لعرض تفاصيل الفواتير', '/reports/sales?period=month', stats.month.count ~ ' فاتورة', tone='plus') }}
+  {{ stmt_row('−', 'تكلفة المباع (COGS)', '−' ~ stats.month_cogs ~ ' د.ل', 'تكلفة الوحدة × الكميات المباعة — تفاصيل لكل صنف', '/reports/profit?period=month', '', tone='minus') }}
+  {{ stmt_row('=', 'الفرق (إجمالي الربح / هامش المساهمة)', stats.month_gross_profit ~ ' د.ل', 'قبل أي مصروف أو راتب — تفاصيل بكل منتج', '/reports/profit?period=month', ('هامش ' ~ stats.month_gross_margin_pct ~ '%') if stats.month_gross_margin_pct else '', kind='subtotal', tone='plus' if stats.month_gross_profit >= 0 else 'minus') }}
+  {{ stmt_table_close() }}
 
   <h2 style="margin-top:1.6rem; padding-top:1rem; border-top:2px dashed #cbd5e1">
     الحسبة (٢): صافي الربح بعد كل المصاريف الأخرى
   </h2>
   <p class="income-sub">نأخذ الفرق من الحسبة الأولى ونطرح منه: المصاريف اليومية، الرواتب والإيجار، المستلزمات، وإهلاك الأصول.</p>
 
-  <div class="income-line">
-    <div class="op">+</div>
-    <div class="lbl">الفرق من الحسبة (١)
-      <small>إجمالي الربح من سعر البيع وتكلفة المباع</small>
-    </div>
-    <div class="val" style="color:{% if stats.month_gross_profit >= 0 %}#16a34a{% else %}#b91c1c{% endif %}">
-      {{ stats.month_gross_profit }} د.ل
-    </div>
-  </div>
-
-  <a class="row-link" href="/reports/expenses?period=month" style="display:contents">
-  <div class="income-line">
-    <div class="op">−</div>
-    <div class="lbl">المصاريف التشغيلية اليومية
-      <small>كهرباء، ماء، غاز، صيانة، مواصلات... — انقر لعرض كل المصروفات</small>
-    </div>
-    <div class="val" style="color:#b91c1c">−{{ stats.month_expenses }} د.ل</div>
-  </div>
-  </a>
-
-  <a class="row-link" href="/admin/recurring-costs" style="display:contents">
-  <div class="income-line">
-    <div class="op">−</div>
-    <div class="lbl">الرواتب والإيجار والاشتراكات (حصة الشهر)
-      <small>إجمالي ثابت شهرياً = {{ stats.month_recurring_total }} د.ل — انقر لإدارة التكاليف الشهرية</small>
-    </div>
-    <div class="val" style="color:#b91c1c">−{{ stats.month_recurring_share }} د.ل</div>
-  </div>
-  </a>
-
+  {{ stmt_table_open() }}
+  {{ stmt_row('+', 'الفرق من الحسبة (١)', stats.month_gross_profit ~ ' د.ل', 'إجمالي الربح من سعر البيع وتكلفة المباع', '', '', tone='plus' if stats.month_gross_profit >= 0 else 'minus') }}
+  {{ stmt_row('−', 'المصاريف التشغيلية اليومية', '−' ~ stats.month_expenses ~ ' د.ل', 'كهرباء، ماء، غاز، صيانة، مواصلات...', '/reports/expenses?period=month', 'عرض كل المصروفات', tone='minus') }}
+  {{ stmt_row('−', 'الرواتب والإيجار والاشتراكات (حصة الشهر)', '−' ~ stats.month_recurring_share ~ ' د.ل', 'إدارة التكاليف الشهرية الثابتة', '/admin/recurring-costs', 'ثابت شهرياً = ' ~ stats.month_recurring_total ~ ' د.ل', tone='minus') }}
   {% if stats.month_recurring_breakdown %}
   {% for code, label, monthly, share in stats.month_recurring_breakdown %}
-  <div class="income-line" style="padding-inline-start: 2rem; opacity: 0.78; font-size: 0.92em">
-    <div class="op">·</div>
-    <div class="lbl">{{ label }}
-      <small>{{ monthly }} د.ل/شهر</small>
-    </div>
-    <div class="val" style="color:#b91c1c">−{{ share }} د.ل</div>
-  </div>
+  {{ stmt_row('·', label, '−' ~ share ~ ' د.ل', '', '', monthly ~ ' د.ل/شهر', kind='indent', tone='minus') }}
   {% endfor %}
   {% endif %}
-
-  <a class="row-link" href="/reports/assets?period=month" style="display:contents">
-  <div class="income-line">
-    <div class="op">−</div>
-    <div class="lbl">مستلزمات استهلاكية
-      <small>أكياس، ورق، مواد تنظيف... — تُخصم كاملةً في شهر الشراء</small>
-    </div>
-    <div class="val" style="color:#b91c1c">−{{ stats.month_assets_consumable }} د.ل</div>
-  </div>
-  </a>
-
-  <a class="row-link" href="/reports/fixed-assets?period=month" style="display:contents">
-  <div class="income-line">
-    <div class="op">−</div>
-    <div class="lbl">إهلاك الأصول الثابتة
-      <small>حصة الشهر من قسط الإهلاك (فرن، أثاث، طابعة...) — وفق المعيار الدولي IAS 16</small>
-    </div>
-    <div class="val" style="color:#b91c1c">−{{ stats.month_assets_depreciation }} د.ل</div>
-  </div>
-  </a>
-
-  <a class="row-link" href="/reports/comprehensive?period=month" style="display:contents">
-  <div class="income-line total {% if stats.month_net_profit >= 0 %}pos{% else %}neg{% endif %}">
-    <div class="op">=</div>
-    <div class="lbl">صافي الربح/الخسارة (Net Profit)
-      <small style="color: inherit; opacity: 0.85">المتبقّي فعلياً بعد كل التكاليف — انقر للتقرير الشامل</small>
-    </div>
-    <div class="val">
-      {{ stats.month_net_profit }} د.ل
-      {% if stats.month_net_margin_pct %}
-      <span class="margin-pill">هامش {{ stats.month_net_margin_pct }}%</span>
-      {% endif %}
-    </div>
-  </div>
-  </a>
+  {{ stmt_row('−', 'مستلزمات استهلاكية', '−' ~ stats.month_assets_consumable ~ ' د.ل', 'أكياس، ورق، مواد تنظيف — تُخصم كاملةً في شهر الشراء', '/reports/assets?period=month', '', tone='minus') }}
+  {{ stmt_row('−', 'إهلاك الأصول الثابتة', '−' ~ stats.month_assets_depreciation ~ ' د.ل', 'حصة الشهر من قسط الإهلاك — وفق IAS 16', '/reports/fixed-assets?period=month', '', tone='minus') }}
+  {% if stats.month_loyalty_redeem_cost > 0 %}
+  {{ stmt_row('−', 'نقاط ولاء مُصرفة (تكلفة تسويق)', '−' ~ stats.month_loyalty_redeem_cost ~ ' د.ل', 'خصم غير نقدي — يُطرح من الربح', '/reports/shifts', stats.month_loyalty_redeem_count ~ ' عملية', tone='minus') }}
+  {% endif %}
+  {{ stmt_row('=', 'صافي الربح/الخسارة (Net Profit)', stats.month_net_profit ~ ' د.ل', 'المتبقّي بعد كل التكاليف — التقرير الشامل', '/reports/comprehensive?period=month', ('هامش ' ~ stats.month_net_margin_pct ~ '%') if stats.month_net_margin_pct else '', kind='total', tone='plus' if stats.month_net_profit >= 0 else 'minus') }}
+  {{ stmt_table_close() }}
 
   <div class="footnote">
     <strong>كيف تُحسب تكلفة المباع؟</strong> لكل بيع: الكمية × تكلفة الوحدة. تكلفة الوحدة للمنتج المركّب (برجر، شيش...) = Σ(كمية كل مكوّن في الوصفة × متوسط سعر شراء المكوّن). للمنتج البسيط = متوسط سعر شرائه.
@@ -1136,8 +1273,10 @@
 </div>
   </div>
 </details>
+{% endif %}
 
 {# ====================== Cash movement summary ====================== #}
+{% if pos_ui_show(request, 'ui_dash_cashflow') %}
 <details class="dash-section" id="cashflow-section">
   <summary>حركة الشهر النقدية <span class="section-meta">مدخل/خرج المحافظ</span></summary>
   <div class="dash-section-body">
@@ -1173,6 +1312,7 @@
 </div>
   </div>
 </details>
+{% endif %}
 
 {% endif %}
 

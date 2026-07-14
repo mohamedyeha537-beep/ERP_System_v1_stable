@@ -3,11 +3,23 @@
 {% block body %}
 <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; margin-bottom:0.4rem">
   <h1 style="margin:0">🏨 تسوية الغرفة #{{ room.number }}</h1>
-  <a class="btn" href="/hotel/settle">رجوع للقائمة</a>
+  <div style="display:flex;gap:0.4rem;flex-wrap:wrap">
+    {% if linked_booking %}
+    <a class="btn btn-primary" href="/admin/hotel/bookings/{{ linked_booking.id }}">فتح الحجز {{ linked_booking.reference }}</a>
+    {% endif %}
+    <a class="btn" href="/hotel/settle">رجوع للقائمة</a>
+  </div>
 </div>
 
 {% if error %}
 <div class="card" style="border-color:#fecaca; background:#fef2f2"><p style="margin:0; color:#b91c1c">{{ error }}</p></div>
+{% endif %}
+{% if paid_msg == 'partial' %}
+<div class="card" style="border-color:#93c5fd; background:#eff6ff"><p style="margin:0;color:#1e40af">تم تسجيل الدفعة. ما زال هناك رصيد مفتوح على الغرفة — يمكنك دفع الباقي لاحقاً.</p></div>
+{% elif paid_msg == 'full' %}
+<div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0;color:#065f46">تمت تسوية الفواتير المختارة بالكامل ✓</p></div>
+{% elif paid_msg == 'recorded' %}
+<div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0;color:#065f46">تم تسجيل الدفعة.</p></div>
 {% endif %}
 
 {% set ns = namespace(guests=[]) %}
@@ -62,31 +74,35 @@
           <th>اسم العميل (وقت الطلب)</th>
           <th>الأصناف</th>
           <th>ملاحظة</th>
-          <th>الإجمالي</th>
+          <th>مدفوع</th>
+          <th>متبقي</th>
         </tr>
       </thead>
       <tbody>
         {% for c in open_charges %}
+        {% set due = charge_totals.get(c.id, c.sale.total) %}
+        {% set paid = charge_paid.get(c.id, 0) %}
         <tr>
-          <td><input type="checkbox" name="charge_ids" value="{{ c.id }}" class="charge-check" checked /></td>
+          <td><input type="checkbox" name="charge_ids" value="{{ c.id }}" class="charge-check" checked data-due="{{ due }}" /></td>
           <td>#{{ c.sale_id }}</td>
-          <td style="font-size:0.88rem">{{ c.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td style="font-size:0.88rem">{{ pos_format_dt(c.created_at, '%Y-%m-%d %H:%M') }}</td>
           <td>{{ c.guest_name_snapshot or '—' }}</td>
           <td style="max-width:280px; font-size:0.9rem">
             {% for line in c.sale.lines %}
             <span style="display:inline-block; background:#f3f4f6; padding:0.1rem 0.4rem; border-radius:5px; margin:0.1rem">
-              {{ line.product.name_ar }} × {{ line.quantity }}
+              {{ (line.product.name_ar if line.product else ('منتج محذوف #' ~ line.product_id)) }} × {{ pos_qty(line.quantity) }}
             </span>
             {% endfor %}
           </td>
           <td style="max-width:160px; font-size:0.85rem">{{ c.note or '' }}</td>
-          <td style="font-weight:700; color:#7c2d12">{{ '%.3f' % charge_totals.get(c.id, c.sale.total) }} د.ل</td>
+          <td style="font-size:0.88rem;color:#16a34a">{% if paid > 0 %}{{ '%.3f' % paid }}{% else %}—{% endif %}</td>
+          <td style="font-weight:700; color:#7c2d12">{{ '%.3f' % due }} د.ل</td>
         </tr>
         {% endfor %}
       </tbody>
       <tfoot>
         <tr>
-          <td colspan="6" style="text-align:end; font-weight:700">المجموع المختار:</td>
+          <td colspan="7" style="text-align:end; font-weight:700">المستحق (المختار):</td>
           <td style="font-weight:800; color:#7c2d12; font-size:1.1rem" id="selected-total">
             {{ '%.3f' % open_total }} د.ل
           </td>
@@ -94,24 +110,102 @@
       </tfoot>
     </table>
 
-    <div style="margin-top:1rem">
-      <h3 style="margin-bottom:0.5rem">طريقة استلام المبلغ</h3>
-      {% if methods %}
-      <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(160px, 1fr)); gap:0.5rem">
-        {% for m in methods %}
-        <label style="border:2px solid var(--border); border-radius:10px; padding:0.75rem; cursor:pointer; text-align:center; background:#fff">
-          <input type="radio" name="payment_method_id" value="{{ m.id }}" {% if loop.first %}checked{% endif %} required style="margin-inline-end:0.4rem" />
-          <strong>{{ m.name_ar }}</strong>
-          <div style="font-size:0.8rem; color:var(--muted)">
-            {{ {'CASH': 'كاش', 'BANK': 'مصرف', 'OTHER': 'أخرى'}.get(m.kind.value, '') }}
-          </div>
-        </label>
-        {% endfor %}
+    <div style="margin-top:1rem;padding:0.85rem 1rem;background:#f8fafc;border:1px solid var(--border);border-radius:10px">
+      <h3 style="margin:0 0 0.5rem;font-size:1rem">نقاط الولاء</h3>
+      <p class="muted" style="margin:0 0 0.65rem;font-size:0.85rem">
+        تُمنح النقاط عند تسجيل الدفع هنا (وليس عند القيد على الغرفة من الكاشير).
+        أدخل هاتف النزيل لربط الحساب.
+      </p>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.65rem">
+        <div style="flex:1;min-width:160px">
+          <label style="font-size:0.82rem;color:var(--muted)">هاتف النزيل</label>
+          <input class="input" type="tel" name="guest_phone" dir="ltr" autocomplete="tel"
+                 value="{{ guest_phone_prefill }}" placeholder="09xxxxxxxx" style="width:100%" />
+        </div>
+        <div style="flex:1;min-width:140px">
+          <label style="font-size:0.82rem;color:var(--muted)">الاسم (اختياري)</label>
+          <input class="input" type="text" name="guest_name"
+                 value="{{ guest_name_prefill }}" placeholder="اسم النزيل" style="width:100%" />
+        </div>
       </div>
-      <div style="margin-top:1rem; display:flex; gap:0.5rem">
-        <button class="btn btn-primary" type="submit">
-          ✅ تسجيل الدفع وتسوية الفواتير المختارة
+      {% if customer and loyalty.enabled %}
+      <div style="font-size:0.88rem;color:#1e3a8a;margin-bottom:0.5rem">
+        {% if customer.points_balance and customer.points_balance > 0 %}
+        ⭐ رصيد: {{ '%.0f' % customer.points_balance }} نقطة
+        (≈ {{ '%.3f' % customer_points_value }} د.ل)
+        {% else %}
+        <span class="muted">لا يوجد رصيد نقاط حالياً — سيُمنح رصيد بعد الدفع.</span>
+        {% endif %}
+      </div>
+      {% endif %}
+      {% if loyalty_quote and loyalty_quote.can_redeem %}
+      <label style="display:flex;align-items:flex-start;gap:0.45rem;cursor:pointer;font-weight:600;font-size:0.92rem">
+        <input type="checkbox" name="use_loyalty_redeem" value="on" style="margin-top:0.15rem" />
+        <span>
+          استخدام النقاط كخصم على الفواتير المختارة
+          <span style="display:block;font-weight:400;font-size:0.82rem;color:#92400e;margin-top:0.15rem">
+            يُطبَّق على كل فاتورة على حدة (حتى {{ '%.3f' % loyalty_quote.max_discount }} د.ل تقريباً على المجموع المفتوح).
+          </span>
+        </span>
+      </label>
+      {% elif loyalty.enabled and customer and customer.points_balance and customer.points_balance > 0 %}
+      <p class="muted" style="margin:0;font-size:0.85rem">
+        {% if (loyalty.max_redeem_percent_of_sale | default(0)) <= 0 %}
+        صرف النقاط غير مفعّل من إعدادات الولاء.
+        {% else %}
+        الرصيد أقل من الحد الأدنى للصرف ({{ '%.0f' % loyalty.min_points_to_redeem }} نقطة) أو يتجاوز حد النسبة المسموح بها.
+        {% endif %}
+      </p>
+      {% endif %}
+    </div>
+
+    {% if linked_booking and booking_credit and booking_credit > 0 %}
+    <div style="margin-top:0.75rem;padding:0.65rem 0.85rem;background:#ecfdf5;border:1px solid #86efac;border-radius:8px;font-size:0.92rem">
+      رصيد مسبق على الحجز <strong>{{ linked_booking.reference }}</strong>:
+      <strong style="color:#15803d">{{ '%.3f' % booking_credit }} د.ل</strong>
+      — يُخصم تلقائياً عند التسوية (يمكنك ترك مبلغ الدفع صفراً إن يكفي الرصيد).
+    </div>
+    {% endif %}
+    <div style="margin-top:1rem;padding:0.85rem 1rem;background:#fff;border:1px solid var(--border);border-radius:10px">
+      <h3 style="margin:0 0 0.35rem">تسجيل دفعة (جزئية أو كاملة)</h3>
+      <p class="muted" style="margin:0 0 0.75rem;font-size:0.85rem;line-height:1.55">
+        يمكنك دفع جزء اليوم والباقي لاحقاً، أو تقسيم المبلغ بين كاش ومصرف في نفس العملية.
+        تظهر هنا نفس وسائل الدفع المتاحة في نقطة البيع (كاش ومصرف فقط).
+        الفاتورة تُسوّى تلقائياً عند اكتمال سدادها فقط. أزل التحديد عن فواتير تريد تأجيلها.
+      </p>
+      {% if methods %}
+      <div id="payment-lines" style="display:flex;flex-direction:column;gap:0.5rem">
+        <div class="payment-line row" style="gap:0.45rem;flex-wrap:wrap;align-items:flex-end">
+          <div style="flex:1;min-width:180px">
+            <label style="font-size:0.82rem;color:var(--muted)">الحساب / وسيلة الدفع</label>
+            <select name="pay_method_id" class="input pay-method-select" style="width:100%" required>
+              {% for m in methods %}
+              <option value="{{ m.id }}">{{ m.name_ar }} ({{ {'CASH': 'كاش', 'BANK': 'مصرف', 'OTHER': 'أخرى'}.get(m.kind.value, '') }})</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div style="min-width:140px">
+            <label style="font-size:0.82rem;color:var(--muted)">المبلغ د.ل</label>
+            <input name="pay_amount" type="number" step="0.001" min="0" class="input pay-amount-input" style="width:100%" />
+          </div>
+          <button type="button" class="btn remove-pay-line" style="display:none;color:#b91c1c" title="حذف السطر">✕</button>
+        </div>
+      </div>
+      <button type="button" class="btn" id="add-pay-line" style="margin-top:0.5rem">+ إضافة دفعة (كاش + مصرف)</button>
+      <div style="margin-top:0.75rem;padding:0.65rem 0.85rem;background:#f8fafc;border-radius:8px;font-size:0.92rem">
+        <div>المستحق للفواتير المختارة: <strong id="due-selected">{{ '%.3f' % open_total }}</strong> د.ل</div>
+        {% if linked_booking and booking_credit and booking_credit > 0 %}
+        <div>يُخصم من رصيد الحجز: <strong id="credit-applied" style="color:#15803d">0.000</strong> د.ل</div>
+        <div>المطلوب نقداً بعد الرصيد: <strong id="cash-needed">0.000</strong> د.ل</div>
+        {% endif %}
+        <div>مجموع ما تدفعه الآن: <strong id="paying-now">0.000</strong> د.ل</div>
+        <div>يتبقى بعد هذه الدفعة: <strong id="remain-after" style="color:#7c2d12">—</strong> د.ل</div>
+      </div>
+      <div style="margin-top:1rem; display:flex; gap:0.5rem;flex-wrap:wrap">
+        <button class="btn btn-primary" type="submit" id="submit-pay-btn">
+          ✅ تسجيل الدفعة
         </button>
+        <button type="button" class="btn" id="fill-full-pay">ملء كامل المستحق</button>
         <a class="btn" href="/hotel/settle">رجوع</a>
       </div>
       {% else %}
@@ -125,22 +219,104 @@
 
   <script>
     (function () {
-      var totals = {};
-      document.querySelectorAll(".charge-check").forEach(function (cb) {
-        var row = cb.closest("tr");
-        var cell = row && row.cells[row.cells.length - 1];
-        if (cell) {
-          totals[cb.value] = parseFloat(cell.textContent.replace(/[^\d.]/g, "")) || 0;
-        }
-      });
+      var bookingCredit = {{ (booking_credit or 0) | float }};
 
-      function recalc() {
+      function num(v) {
+        var x = parseFloat(v);
+        return isNaN(x) ? 0 : x;
+      }
+
+      function selectedDue() {
         var sum = 0;
         document.querySelectorAll(".charge-check:checked").forEach(function (cb) {
-          sum += totals[cb.value] || 0;
+          sum += num(cb.getAttribute("data-due"));
         });
-        var el = document.getElementById("selected-total");
-        if (el) el.textContent = sum.toFixed(3) + " د.ل";
+        return sum;
+      }
+
+      function payingNow() {
+        var sum = 0;
+        document.querySelectorAll(".pay-amount-input").forEach(function (inp) {
+          sum += num(inp.value);
+        });
+        return sum;
+      }
+
+      function recalc() {
+        var due = selectedDue();
+        var pay = payingNow();
+        var creditUse = Math.min(bookingCredit, due);
+        var cashNeeded = Math.max(0, due - creditUse);
+        var remain = Math.max(0, cashNeeded - pay);
+        var elDue = document.getElementById("selected-total");
+        var elDue2 = document.getElementById("due-selected");
+        var elPay = document.getElementById("paying-now");
+        var elRem = document.getElementById("remain-after");
+        var elCredit = document.getElementById("credit-applied");
+        var elCash = document.getElementById("cash-needed");
+        if (elDue) elDue.textContent = due.toFixed(3) + " د.ل";
+        if (elDue2) elDue2.textContent = due.toFixed(3);
+        if (elCredit) elCredit.textContent = creditUse.toFixed(3);
+        if (elCash) elCash.textContent = cashNeeded.toFixed(3);
+        if (elPay) elPay.textContent = pay.toFixed(3);
+        if (elRem) elRem.textContent = remain.toFixed(3);
+        var loyaltyCb = document.querySelector('input[name="use_loyalty_redeem"]');
+        if (loyaltyCb) {
+          loyaltyCb.disabled = pay + creditUse + 0.0005 < due;
+        }
+      }
+
+      function bindPayLine(line) {
+        line.querySelectorAll(".pay-amount-input").forEach(function (inp) {
+          inp.addEventListener("input", recalc);
+        });
+        var rm = line.querySelector(".remove-pay-line");
+        if (rm) {
+          rm.addEventListener("click", function () {
+            line.remove();
+            refreshRemoveButtons();
+            recalc();
+          });
+        }
+      }
+
+      function refreshRemoveButtons() {
+        var lines = document.querySelectorAll("#payment-lines .payment-line");
+        lines.forEach(function (line, i) {
+          var rm = line.querySelector(".remove-pay-line");
+          if (rm) rm.style.display = lines.length > 1 ? "inline-block" : "none";
+        });
+      }
+
+      var container = document.getElementById("payment-lines");
+      var addBtn = document.getElementById("add-pay-line");
+      if (addBtn && container) {
+        addBtn.addEventListener("click", function () {
+          var first = container.querySelector(".payment-line");
+          if (!first) return;
+          var clone = first.cloneNode(true);
+          clone.querySelectorAll(".pay-amount-input").forEach(function (inp) {
+            inp.value = "";
+          });
+          container.appendChild(clone);
+          bindPayLine(clone);
+          refreshRemoveButtons();
+          recalc();
+        });
+        container.querySelectorAll(".payment-line").forEach(bindPayLine);
+        refreshRemoveButtons();
+      }
+
+      var fillBtn = document.getElementById("fill-full-pay");
+      if (fillBtn) {
+        fillBtn.addEventListener("click", function () {
+          var due = selectedDue();
+          var creditUse = Math.min(bookingCredit, due);
+          var cashNeeded = Math.max(0, due - creditUse);
+          var firstAmt = document.querySelector(".pay-amount-input");
+          if (firstAmt) firstAmt.value = cashNeeded.toFixed(3);
+          recalc();
+        });
       }
 
       var all = document.getElementById("check-all");
@@ -155,6 +331,35 @@
       document.querySelectorAll(".charge-check").forEach(function (cb) {
         cb.addEventListener("change", recalc);
       });
+
+      var form = document.getElementById("settle-form");
+      if (form) {
+        form.addEventListener("submit", function (e) {
+          var due = selectedDue();
+          var pay = payingNow();
+          var creditUse = Math.min(bookingCredit, due);
+          var cashNeeded = Math.max(0, due - creditUse);
+          if (pay + 0.0005 < cashNeeded) {
+            e.preventDefault();
+            if (cashNeeded <= 0.0005) {
+              return;
+            }
+            alert(
+              "أدخل " +
+                cashNeeded.toFixed(3) +
+                " د.ل على الأقل (بعد خصم الرصيد " +
+                creditUse.toFixed(3) +
+                " د.ل)."
+            );
+            return;
+          }
+          if (pay > cashNeeded + 0.0005) {
+            e.preventDefault();
+            alert("مجموع الدفعات النقدية أكبر من المطلوب بعد خصم الرصيد.");
+          }
+        });
+      }
+      recalc();
     })();
   </script>
   {% endif %}
@@ -176,8 +381,8 @@
       {% for c in history %}
       <tr>
         <td>#{{ c.sale_id }}</td>
-        <td style="font-size:0.88rem">{{ c.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
-        <td style="font-size:0.88rem">{{ c.settled_at.strftime('%Y-%m-%d %H:%M') if c.settled_at else '—' }}</td>
+        <td style="font-size:0.88rem">{{ pos_format_dt(c.created_at, '%Y-%m-%d %H:%M') }}</td>
+        <td style="font-size:0.88rem">{{ pos_format_dt(c.settled_at, '%Y-%m-%d %H:%M') if c.settled_at else '—' }}</td>
         <td style="font-weight:700">{{ '%.3f' % c.sale.total }} د.ل</td>
       </tr>
       {% endfor %}

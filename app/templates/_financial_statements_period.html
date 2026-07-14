@@ -1,0 +1,57 @@
+{# الحسبتان (١) و(٢) للفترة — يتطلب: period, sales_sum, cogs, gross_profit, expenses, rec_* , consumables_period, depreciation_period, net_profit, period_days (اختياري) #}
+{% from "_reports_macros.html" import stmt_table_open, stmt_table_close, stmt_row %}
+<div class="two-statements">
+  <div class="statement s1">
+    <h3><span class="stnum">١</span> الفرق بين البيع وتكلفة البضاعة</h3>
+    <div class="muted" style="font-size:0.85rem; margin-bottom:0.4rem">
+      يُسمّى محاسبياً «إجمالي الربح» أو «هامش المساهمة» — يخبرك بكفاءة سعر بيعك مقابل تكلفة الشراء فقط.
+    </div>
+    {{ stmt_table_open() }}
+    {{ stmt_row('+', 'إجمالي المبيعات', '+ ' ~ sales_sum.gross_revenue ~ ' د.ل', 'تفاصيل المبيعات والفواتير', '/reports/sales?period=' ~ period, '', tone='plus') }}
+    {{ stmt_row('·', 'عدد الفواتير', sales_sum.invoice_count|string, '', '/reports/sales?period=' ~ period, 'فاتورة', kind='indent', tone='neutral') }}
+    {{ stmt_row('−', 'المرتجعات', '− ' ~ sales_sum.returns_total ~ ' د.ل', 'سندات المرتجع', '/refunds', sales_sum.return_count ~ ' سند', tone='minus') }}
+    {{ stmt_row('+', 'صافي المبيعات', '+ ' ~ sales_sum.net_revenue ~ ' د.ل', 'بعد خصم المرتجعات', '/reports/sales?period=' ~ period, '', tone='plus') }}
+    {{ stmt_row('−', 'تكلفة البضاعة المباعة (COGS)', '− ' ~ cogs ~ ' د.ل', 'ربح كل صنف', '/reports/profit?period=' ~ period, '', tone='minus') }}
+    {{ stmt_row('=', 'الفرق (الربح الإجمالي)', gross_profit ~ ' د.ل', 'حسبة (١)', '/reports/profit?period=' ~ period, '', kind='subtotal', tone='plus' if gross_profit >= 0 else 'minus') }}
+    {{ stmt_table_close() }}
+    <div class="stmt-formula">
+      <strong>الصيغة:</strong> الفرق = صافي المبيعات − تكلفة البضاعة المباعة.
+      <br>
+      <strong>المعنى:</strong> هذا ما تجنيه قبل أي مصروف أو راتب أو إيجار. إذا كان سالباً فأنت تبيع بأقل من التكلفة.
+    </div>
+  </div>
+
+  <div class="statement s2">
+    <h3><span class="stnum">٢</span> صافي الربح بعد كل المصاريف</h3>
+    <div class="muted" style="font-size:0.85rem; margin-bottom:0.4rem">
+      يبدأ من الفرق السابق ويطرح <em>كل</em> ما تنفقه: مصاريف يومية، رواتب، إيجار، اشتراكات، مستلزمات، إهلاك أصول.
+    </div>
+    {{ stmt_table_open() }}
+    {{ stmt_row('+', 'الفرق من الحسبة (١)', (('+' if gross_profit >= 0 else '−') ~ ' ' ~ (gross_profit if gross_profit >= 0 else (-gross_profit)) ~ ' د.ل'), 'إجمالي الربح قبل المصاريف', '/reports/profit?period=' ~ period, '', tone='plus' if gross_profit >= 0 else 'minus') }}
+    {{ stmt_row('−', 'المصاريف التشغيلية', '− ' ~ expenses.total ~ ' د.ل', 'كهرباء، ماء، غاز، صيانة...', '/reports/expenses?period=' ~ period, expenses.count ~ ' عملية', tone='minus') }}
+    {{ stmt_row('−', 'الرواتب والإيجار والاشتراكات (حصة الفترة)', '− ' ~ rec_period_share ~ ' د.ل', 'تكاليف شهرية ثابتة', '/admin/recurring-costs', rec_monthly_total ~ ' د.ل/شهر', tone='minus') }}
+    {% if rec_breakdown %}
+    {% for code, label, monthly, share in rec_breakdown %}
+    {{ stmt_row('·', label, '− ' ~ share ~ ' د.ل', '', '/admin/recurring-costs', monthly ~ ' د.ل/شهر', kind='indent', tone='minus') }}
+    {% endfor %}
+    {% endif %}
+    {{ stmt_row('−', 'المستلزمات الاستهلاكية', '− ' ~ consumables_period ~ ' د.ل', 'تُخصم كاملةً في الفترة', '/reports/assets?period=' ~ period, '', tone='minus') }}
+    {{ stmt_row('−', 'إهلاك الأصول الثابتة (IAS 16)', '− ' ~ depreciation_period ~ ' د.ل', 'سجل الأصول والإهلاك', '/reports/fixed-assets?period=' ~ period, '', tone='minus') }}
+    {% if loyalty_redeem is defined and loyalty_redeem.dinar_cost > 0 %}
+    {{ stmt_row('−', 'نقاط ولاء مُصرفة (تكلفة تسويق)', '− ' ~ loyalty_redeem.dinar_cost ~ ' د.ل', 'خصم غير نقدي — ليس إيراداً حقيقياً', '/reports/shifts', loyalty_redeem.redeem_count ~ ' عملية', tone='minus') }}
+    {% endif %}
+    {{ stmt_row('=', 'صافي الربح/الخسارة', net_profit ~ ' د.ل', 'حسبة (٢) — التقرير الشامل', '/reports/comprehensive?period=' ~ period, '', kind='total', tone='plus' if net_profit >= 0 else 'minus') }}
+    {{ stmt_table_close() }}
+    <div class="stmt-formula">
+      <strong>الصيغة:</strong> صافي الربح = الفرق(١) − مصاريف − رواتب وإيجار − مستلزمات − إهلاك − نقاط ولاء مُصرفة.
+      {% if period_days is defined %}
+      <br>
+      <strong>ملاحظة:</strong> الرواتب والإيجار قيم شهرية ثابتة — يطرح منها <em>حصة الفترة</em>.
+      إجمالي ثابت شهرياً = <strong>{{ rec_monthly_total }} د.ل/شهر</strong>،
+      طول الفترة = <strong>{{ "%.1f"|format(period_days|float) }} يوم</strong>.
+      {% endif %}
+      <br>
+      <strong>المعنى:</strong> هذا هو ربحك الحقيقي بعد تغطية كل التكاليف.
+    </div>
+  </div>
+</div>

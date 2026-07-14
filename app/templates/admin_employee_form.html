@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_week_schedule_grid.html" import week_schedule_grid %}
 {% block title %}{% if emp %}تعديل موظف{% else %}موظف جديد{% endif %}{% endblock %}
 {% block head_extra %}
 <style>
@@ -44,6 +45,34 @@
         <input id="job" name="job_title" value="{{ emp.job_title if emp else '' }}" placeholder="مثال: كاشير، طباخ، نادل" />
       </div>
       <div class="field">
+        <label for="dept">القسم</label>
+        <select id="dept" name="department_id">
+          <option value="">— بدون قسم —</option>
+          {% for d in departments %}
+          <option value="{{ d.id }}"
+            {% if emp and emp.department_id == d.id %}selected{% endif %}
+            {% if not d.is_active %}style="color:#94a3b8"{% endif %}>
+            {{ d.name_ar }}{% if not d.is_active %} (معطّل){% endif %}
+          </option>
+          {% endfor %}
+        </select>
+        <a href="/admin/departments" style="font-size:0.82rem;margin-top:0.2rem">إدارة الأقسام</a>
+      </div>
+      {% if not finance_domain_filter %}
+      <div class="field">
+        <label for="emp-domain">مجال العمل *</label>
+        <select id="emp-domain" name="business_domain">
+          {% for code, label in domain_choices %}
+          <option value="{{ code }}"
+            {% if emp and (emp.business_domain or 'restaurant') == code %}selected
+            {% elif not emp and code == 'restaurant' %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% else %}
+      <input type="hidden" name="business_domain" value="{{ finance_domain_filter.value }}" />
+      {% endif %}
+      <div class="field">
         <label for="nid">الرقم الوطني</label>
         <input id="nid" name="national_id" value="{{ emp.national_id if emp else '' }}" />
       </div>
@@ -86,9 +115,121 @@
       <div class="field">
         <label for="hired">تاريخ التعيين</label>
         <input id="hired" name="hired_at" type="date"
-               value="{{ emp.hired_at.strftime('%Y-%m-%d') if emp and emp.hired_at else today }}" />
+               value="{{ pos_format_dt(emp.hired_at, '%Y-%m-%d') if emp and emp.hired_at else today }}" />
       </div>
     </div>
+
+    <h2 style="margin: 0.4rem 0">وردية العمل</h2>
+    <div class="help" style="background:#ecfdf5;border-color:#10b981;color:#065f46">
+      عيّن وردية للموظف لحساب <strong>التأخير</strong> و<strong>الانصراف المبكر</strong> و<strong>الساعات الإضافية</strong> تلقائياً عند تسجيل الحضور.
+      <a href="/admin/work-shifts">إدارة الورديات</a>
+    </div>
+    <div class="grid-2">
+      <div class="field">
+        <label for="wshift">الوردية</label>
+        <select id="wshift" name="work_shift_id">
+          <option value="">— بدون وردية —</option>
+          {% for s in work_shifts %}
+          <option value="{{ s.id }}"
+            {% if emp and emp.work_shift_id == s.id %}selected{% endif %}
+            {% if not s.is_active %}style="color:#94a3b8"{% endif %}>
+            {{ s.name_ar }} — {{ s.schedule_label }}{% if not s.is_active %} (معطّلة){% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <h2 style="margin: 0.4rem 0">جدول أسبوعي (تخصيص يومي)</h2>
+    <div class="help" style="background:#fffbeb;border-color:#f59e0b;color:#92400e">
+      الوردية أعلاه = <strong>الافتراضي</strong> لكل الأيام. فعّل «تخصيص» لأي يوم لتغيير البداية/النهاية/الساعات
+      (مثلاً <strong>الجمعة</strong> ساعات أقل). تخصيص الموظف هنا يتجاوز جدول الوردية.
+    </div>
+    {{ week_schedule_grid("emp_day", emp_day_schedules, emp.work_shift if emp else none, week_days) }}
+
+    <h2 style="margin: 0.4rem 0">جهاز البصمة (ZKBioTime)</h2>
+    <div class="help" style="background:#f0fdf4;border-color:#22c55e;color:#14532d">
+      أدخل <strong>نفس كود الموظف</strong> في ZKBioTime (Employee Code) مثل <code>001</code>.
+      تُنسخ البصمات تلقائياً إلى سجل الحضور في POS.
+    </div>
+    <div class="grid-2">
+      <div class="field">
+        <label for="zk_code">كود البصمة</label>
+        <input id="zk_code" name="zk_emp_code" value="{{ emp.zk_emp_code if emp and emp.zk_emp_code else '' }}"
+               placeholder="001" maxlength="32" dir="ltr" style="font-family:monospace" />
+      </div>
+    </div>
+
+    <h2 style="margin: 0.4rem 0">نقطة البيع (كاشير)</h2>
+    <div class="help" style="background:#eff6ff;border-color:#3b82f6;color:#1e3a8a">
+      فعّل «كاشير نقطة بيع» وحدّد رقماً سرياً من <strong>4 أرقام</strong> — يُستخدم لبدء جلسة البيع بعد تسجيل الدخول للنظام.
+    </div>
+    <div class="grid-2">
+      <div class="field">
+        <label>
+          <input type="checkbox" name="is_pos_cashier" value="on"
+            {% if emp and emp.is_pos_cashier %}checked{% endif %} />
+          كاشير نقطة بيع
+        </label>
+      </div>
+      <div class="field">
+        <label for="pos_pin">رقم سري جديد (4 أرقام)</label>
+        <input id="pos_pin" name="pos_pin" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="new-password" placeholder="مثال: 1234" />
+        <small class="muted">اتركه فارغاً للإبقاء على الرقم الحالي</small>
+      </div>
+      {% if emp and emp.pos_pin_hash %}
+      <div class="field">
+        <label>
+          <input type="checkbox" name="clear_pos_pin" value="on" /> حذف الرقم السري الحالي
+        </label>
+      </div>
+      {% endif %}
+      <div class="field">
+        <label>
+          <input type="checkbox" name="is_pos_supervisor" value="on"
+            {% if emp and emp.is_pos_supervisor %}checked{% endif %} />
+          مشرف نقطة بيع (اعتماد مسح/إلغاء بعد المطبخ)
+        </label>
+        <small class="muted">يستخدم نفس PIN أعلاه عند طلب كود المشرف من الكاشier</small>
+      </div>
+    </div>
+
+    <h2 style="margin: 0.4rem 0">وردية الفندق (استقبال)</h2>
+    <div class="help" style="background:#f0fdf4;border-color:#86efac;color:#166534">
+      فعّل «موظف استقبال فندق» مع مجال <strong>فندق</strong> ورقم سري — يُستخدم لفتح وردية الاستقبال مثل جلسة الكاشير.
+    </div>
+    <div class="field">
+      <label>
+        <input type="checkbox" name="is_hotel_front" value="on"
+          {% if emp and emp.is_hotel_front %}checked{% endif %} />
+        موظف استقبال فندق (رقم سري وردية)
+      </label>
+    </div>
+
+    <h2 style="margin: 0.4rem 0">حساب دخول النظام (اختياري)</h2>
+    <p class="muted" style="font-size:0.88rem;margin:0 0 0.5rem">
+      كلمة مرور الحساب = دخول الجهاز. الرقم السري أعلاه = بداية وردية الكاشير على نقطة البيع.
+    </p>
+    {% if not emp or not emp.user_id %}
+    <div class="field" style="margin-bottom:0.5rem">
+      <label>
+        <input type="checkbox" name="create_pos_user" id="createPosUser" value="on" />
+        إنشاء حساب دخول جديد (دور كاشير — واجهة نقطة بيع فقط)
+      </label>
+    </div>
+    <div id="posUserFields" class="grid-2" style="display:none">
+      <div class="field">
+        <label for="pos_username">اسم المستخدم</label>
+        <input id="pos_username" name="pos_username" placeholder="مثال: cashier_ahmed" autocomplete="username" />
+      </div>
+      <div class="field">
+        <label for="pos_password">كلمة مرور الحساب</label>
+        <input id="pos_password" name="pos_password" type="password" autocomplete="new-password" />
+      </div>
+    </div>
+    {% elif linked_username %}
+    <p class="muted" style="font-size:0.88rem">مرتبط بحساب: <strong>{{ linked_username }}</strong></p>
+    {% endif %}
 
     <h2 style="margin: 0.4rem 0">الحالة والحساب</h2>
     <div class="grid-2">
@@ -122,4 +263,14 @@
     </div>
   </form>
 </div>
+<script>
+(function () {
+  var cb = document.getElementById("createPosUser");
+  var box = document.getElementById("posUserFields");
+  if (!cb || !box) return;
+  function sync() { box.style.display = cb.checked ? "grid" : "none"; }
+  cb.addEventListener("change", sync);
+  sync();
+})();
+</script>
 {% endblock %}

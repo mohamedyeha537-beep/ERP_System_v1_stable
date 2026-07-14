@@ -1,0 +1,481 @@
+{% extends "base.html" %}
+{% from "_messaging_admin_nav.html" import messaging_admin_nav %}
+
+{% block title %}{% if web_chat_only %}إعدادات الشات الذكي{% else %}بوت المراسلات{% endif %}{% endblock %}
+
+{% block body %}
+
+{% set _inbox_unread = inbox_unread_conversations if inbox_unread_conversations is defined else 0 %}
+{% set _chat_pending = pending_chat_orders if pending_chat_orders is defined else 0 %}
+{% set _failed = failed if failed is defined else 0 %}
+
+<h1>{% if web_chat_only %}إعدادات الشات الذكي (Hermes){% else %}بوت المراسلات{% endif %}</h1>
+{{ messaging_admin_nav('web-chat' if web_chat_only else 'settings', _inbox_unread, _chat_pending, _failed) }}
+
+<p class="muted pos-guide-intro" data-guide-title="ℹ️ نظرة عامة">{% if web_chat_only %}إعدادات صفحة /chat والمساعد الذكي. الإرسال وWhatsApp من <a href="/admin/notifications/delivery">محرك الإشعارات ← إرسال WhatsApp</a>.{% else %}الأحداث والقوالب والقواعد من <a href="/admin/notifications">محرك الإشعارات</a>.{% endif %}</p>
+
+
+
+{% if saved %}
+
+<div class="card" style="border-color:#86efac;background:#f0fdf4"><p style="margin:0">تم حفظ الإعدادات.</p></div>
+
+{% endif %}
+
+{% if test %}
+
+<div class="card" style="border-color:#fcd34d;background:#fffbeb"><p style="margin:0"><strong>اختبار:</strong> {{ test }}</p></div>
+
+{% endif %}
+
+<div class="card pos-guide-panel" data-guide-title="ℹ️ أنواع المراسلات" style="border-color:#bbf7d0;background:#f0fdf4;margin-bottom:1rem">
+
+  <p style="margin:0;font-size:0.9rem">
+
+    <strong>نوعان منفصلان:</strong><br>
+
+    • <strong>تلقائية</strong> — <a href="/admin/messaging/events">الأحداث</a> + <a href="/admin/messaging/rules">القواعد</a> + <a href="/admin/messaging/templates">القوالب</a><br>
+
+    • <strong>دعائية</strong> — عروض وإعلانات (<a href="/admin/messaging/broadcast">إرسال جماعي</a> / <a href="/admin/messaging/campaigns">حملات</a>)
+
+  </p>
+
+</div>
+
+
+
+<div class="card" style="{% if enabled %}border-color:#86efac;background:#f0fdf4{% else %}border-color:#fca5a5;background:#fef2f2{% endif %}">
+
+  <div class="row" style="align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap">
+
+    <p style="margin:0">
+
+      الحالة: <strong>{% if enabled %}مفعّل ✓{% else %}معطّل — لن يُرسل شيء{% endif %}</strong>
+
+      — مزود WhatsApp: <strong>{% if provider == 'textmebot' %}TextMeBot مباشر{% else %}Webhook (n8n){% endif %}</strong>
+
+      — معلّق: <strong>{{ pending }}</strong>
+
+      — فاشل: <strong>{{ failed }}</strong>
+
+      {% if pending > 0 and eta_minutes %}<span class="muted">(تقدير إنجاز الطابور: ~{{ eta_minutes }} د)</span>{% endif %}
+
+      {% if pending > 5 %}
+
+      <span style="color:#b45309;font-size:0.88rem"> — طابور مزدحم! <a href="/admin/messaging/log?status=pending">عرض المعلّق</a> أو «معالجة دفعة الآن»</span>
+
+      {% endif %}
+
+    </p>
+
+    <form method="post" action="/admin/messaging/toggle" style="margin:0">
+
+      <button type="submit" class="btn {% if enabled %}btn-danger{% else %}btn-primary{% endif %}">
+
+        {% if enabled %}⏸ إيقاف البوت{% else %}▶ تفعيل البوت الآن{% endif %}
+
+      </button>
+
+    </form>
+
+  </div>
+
+  {% if not enabled %}
+
+  <p style="margin:0.65rem 0 0;color:#b91c1c;font-size:0.9rem">
+
+    البوت <strong>معطّل</strong> — اضغط «تفعيل البوت الآن» أعلاه، أو فعّل المربع في قسم «تفعيل» ثم «حفظ الإعدادات».
+
+  </p>
+
+  {% endif %}
+
+  <p class="muted" style="font-size:0.88rem;margin:0.5rem 0 0">
+
+    لا يُستخدم n8n و TextMeBot معاً لـ WhatsApp — اختر واحداً فقط لتجنّب التضارب.
+
+  </p>
+
+</div>
+
+
+
+<form method="post" action="/admin/messaging/save">
+
+  <div class="card" id="messaging-enable">
+
+    <h2 style="margin-top:0">تفعيل</h2>
+
+    <label style="display:inline-flex;align-items:center;gap:0.4rem">
+
+      <input type="checkbox" name="messaging_enabled" {% if s.messaging_enabled == '1' %}checked{% endif %} style="width:auto" />
+
+      تفعيل بوت المراسلات (رسائل تلقائية + طابور الإرسال)
+
+    </label>
+
+    <label style="display:inline-flex;align-items:center;gap:0.4rem;margin-top:0.5rem">
+
+      <input type="checkbox" name="messaging_outbox_worker_enabled" {% if s.messaging_outbox_worker_enabled != '0' %}checked{% endif %} style="width:auto" />
+
+      عامل الإرسال التلقائي (طابور الرسائل على مدار اليوم)
+
+    </label>
+
+    <p class="muted" style="font-size:0.82rem;margin:0.5rem 0 0">أو استخدم زر «تفعيل البوت الآن» في بطاقة الحالة أعلى الصفحة — ثم احفظ الإعدادات لتثبيت الخيارات.</p>
+
+  </div>
+
+  <div class="card" style="border-color:#dbeafe;background:#eff6ff">
+    <h2 style="margin-top:0">📥 استقبال رسائل العملاء (تفاعلي)</h2>
+    <p class="muted" style="font-size:0.88rem;line-height:1.55">
+      فعّل هذا الخيار لاستقبال ردود واتساب في
+      <a href="/admin/messaging/inbox">صندوق الوارد</a>.
+      اربط n8n (أو أي وسيط) ليُرسل POST إلى الرابط أدناه عند وصول رسالة من عميل.
+    </p>
+    <label style="display:inline-flex;align-items:center;gap:0.4rem;margin-top:0.35rem">
+      <input type="checkbox" name="messaging_inbound_enabled" {% if s.messaging_inbound_enabled == '1' %}checked{% endif %} style="width:auto" />
+      تفعيل استقبال الرسائل الواردة
+    </label>
+    <label style="margin-top:0.65rem">مفتاح الأمان (Secret)</label>
+    <input name="messaging_inbound_secret" value="{{ s.messaging_inbound_secret }}" dir="ltr"
+      placeholder="يُولَّد تلقائياً عند التفعيل إن تُرك فارغاً" style="width:100%;max-width:36rem" autocomplete="off" />
+    <p class="muted" style="font-size:0.82rem;margin:0.5rem 0 0">
+      <strong>رابط الاستقبال:</strong> <code dir="ltr">{{ inbound_url }}</code><br>
+      أرسل الهيدر <code dir="ltr">X-Messaging-Secret: …</code> أو <code>?secret=…</code>
+    </p>
+  </div>
+
+  <div class="card" style="border-color:#fde68a;background:#fffbeb">
+    <h2 style="margin-top:0">💬 محادثة الزوار (صفحة /chat)</h2>
+    <p class="muted" style="font-size:0.88rem;line-height:1.55">
+      صفحة عامة بدون تسجيل دخول للعملاء.
+      <a href="{{ chat_url }}" target="_blank" rel="noopener">افتح /chat</a>
+      — تظهر الرسائل في
+      <a href="/admin/messaging/inbox">صندوق الوارد</a>
+      —
+      <a href="/admin/messaging/chat-orders">طلبات الشات{% if pending_chat_orders %} ({{ pending_chat_orders }}){% endif %}</a>.
+    </p>
+    <div class="pos-guide-panel" data-guide-title="ℹ️ Hermes — الرد التلقائي على /chat" style="margin:0.65rem 0;padding:0.65rem 0.85rem;background:#eff6ff;border:1px solid #93c5fd;border-radius:10px;font-size:0.85rem;line-height:1.65">
+      <p style="margin:0 0 0.45rem"><strong>Hermes يقرأ المنيو مباشرة من POS:</strong> الفئات، الأصناف، الأسعار، والصور من <a href="/catalog/products">صفحة الأصناف</a> (ارفع صورة لكل صنف هناك).</p>
+      <p style="margin:0 0 0.45rem"><strong>أمثلة للزبون:</strong> «منيو» · «عندكم مشاوي؟» · «بيتزا» · «سعر توماهوك»</p>
+      <p style="margin:0"><strong>Webhook خارجي (اختياري):</strong> اترك الحقل فارغاً للرد المحلي — أو شغّل <code dir="ltr">python tools/hermes/web_chat_bridge.py</code></p>
+    </div>
+    <label style="display:inline-flex;align-items:center;gap:0.4rem;margin-top:0.35rem">
+      <input type="checkbox" name="web_chat_enabled" {% if s.web_chat_enabled == '1' %}checked{% endif %} style="width:auto" />
+      تفعيل محادثة الويب
+    </label>
+    <h3 style="margin:1.25rem 0 0.5rem;font-size:0.95rem">🛒 المتجر الإلكتروني (صفحة /shop)</h3>
+    <p class="muted" style="font-size:0.88rem;line-height:1.55;margin:0 0 0.5rem">
+      واجهة catalog تقليدية — نفس منتجات POS ووسائل الدفع. الطلبات تصل لـ
+      <a href="/pos">نقطة البيع</a> كطلبات أونلاين (مثل الشات).
+      <a href="/shop" target="_blank" rel="noopener">افتح /shop</a>
+    </p>
+    <label style="display:inline-flex;align-items:center;gap:0.4rem">
+      <input type="checkbox" name="shop_enabled" {% if s.shop_enabled != '0' %}checked{% endif %} style="width:auto" />
+      تفعيل المتجر الإلكتروني
+    </label>
+    <h3 style="margin:1rem 0 0.5rem;font-size:0.95rem">🤖 شخصية البوت ورسالة الترحيب</h3>
+    <p class="muted" style="font-size:0.82rem;margin:0 0 0.65rem;line-height:1.55">
+      يظهر اسم البوت أسفل رسائله في صفحة <a href="{{ chat_url }}" target="_blank" rel="noopener">/chat</a>.
+      في نص الترحيب يمكنك استخدام:
+      <code>{bot_name}</code> · <code>{store_name}</code> · <code>{menu}</code>
+      — اترك النص فارغاً لاستخدام صيغة افتراضية تذكر اسم البوت تلقائياً.
+    </p>
+    <label>اسم البوت (مثل: ادهم)</label>
+    <input name="web_chat_bot_name" value="{{ s.web_chat_bot_name }}" maxlength="40"
+      placeholder="مساعد" style="width:100%;max-width:20rem" />
+    <label style="margin-top:0.65rem">نص الترحيب الافتتاحي (اختياري)</label>
+    <textarea name="web_chat_greeting_text" rows="5" style="width:100%;max-width:36rem"
+      placeholder="مثال:&#10;مرحباً، أنا {bot_name} من {store_name}!&#10;أنا جاهز لمساعدتك في إتمام طلبيتك.&#10;&#10;اختر من القائمة ما يناسبك:&#10;{menu}">{{ s.web_chat_greeting_text }}</textarea>
+    <label style="margin-top:0.65rem">خيارات القائمة (سطر لكل خيار)</label>
+    <textarea name="web_chat_menu_options" rows="3" style="width:100%;max-width:36rem;font-family:monospace;font-size:0.88rem"
+      placeholder="1|المبيعات والطلبات|sales">{{ web_chat_menu_display if web_chat_menu_display is defined else '1|المبيعات والطلبات|sales' }}</textarea>
+    <p class="muted" style="font-size:0.78rem;margin:0.35rem 0 0">
+      الصيغة: <code dir="ltr">رقم|النص|sales</code> — للمبيعات فقط اكتب سطراً واحداً.
+      الأقسام: <code>sales</code> مبيعات، <code>support</code> دعم، <code>human</code> موظف.
+    </p>
+    <button type="submit" class="btn btn-primary" style="margin-top:0.75rem">💾 حفظ شخصية البوت</button>
+    <h3 style="margin:1.1rem 0 0.5rem;font-size:0.95rem">🧠 فهم ذكي — ما الذي ينقص؟</h3>
+    <div class="pos-guide-panel" style="margin:0 0 0.75rem;padding:0.65rem 0.85rem;background:#f0fdf4;border:1px solid #86efac;border-radius:10px;font-size:0.84rem;line-height:1.65">
+      <p style="margin:0 0 0.45rem"><strong>مستوى 1 — محلي (مجاني، مفعّل تلقائياً):</strong>
+        فهم «جعان»، «منيو»، «اطلب…» + <strong>تصحيح أخطاء إملائية آلياً</strong> (مثل: منييو → منيو) بدون تعديل يدوي لكل خطأ.</p>
+      <p style="margin:0 0 0.45rem"><strong>مستوى 2 — ذكاء كامل (مثل ChatGPT):</strong>
+        فعّل الخيار أدناه + أدخل <strong>مفتاح API</strong> من
+        <a href="https://platform.openai.com" target="_blank" rel="noopener">OpenAI</a>
+        أو <a href="https://console.groq.com" target="_blank" rel="noopener">Groq</a> (مجاني محدود) —
+        عندها يفهم أي صياغة ولهجة ويردّ ليبي أو فصحى.</p>
+      <p style="margin:0"><strong>ليس مطلوباً:</strong> Hermes ليس API ذكاء خارجي — الذكاء مدمج هنا.
+        حقل Webhook أدناه للربط مع n8n فقط (اختياري).</p>
+    </div>
+    <h3 style="margin:0.75rem 0 0.5rem;font-size:0.95rem">⚙️ إعداد API (اختياري — للمستوى 2)</h3>
+    <label style="display:inline-flex;align-items:center;gap:0.4rem;margin-top:0.35rem">
+      <input type="checkbox" name="web_chat_ai_enabled" {% if s.web_chat_ai_enabled == '1' %}checked{% endif %} style="width:auto" />
+      تفعيل ردود الذكاء الاصطناعي (OpenAI-compatible)
+    </label>
+    <label style="margin-top:0.65rem">مفتاح API</label>
+    <input name="web_chat_ai_api_key" value="" dir="ltr" autocomplete="off"
+      placeholder="{% if s.web_chat_ai_api_key %}✓ المفتاح محفوظ — اتركه فارغاً للإبقاء{% else %}sk-proj-…{% endif %}" style="width:100%;max-width:28rem" />
+    <label style="margin-top:0.65rem">النموذج</label>
+    <input name="web_chat_ai_model" value="{{ s.web_chat_ai_model or 'gpt-4o-mini' }}" dir="ltr"
+      placeholder="gpt-4o-mini" style="width:100%;max-width:20rem" />
+    <label style="margin-top:0.65rem">رابط API (اختياري)</label>
+    <input name="web_chat_ai_base_url" value="{{ s.web_chat_ai_base_url or 'https://api.openai.com/v1' }}" dir="ltr"
+      placeholder="https://api.openai.com/v1" style="width:100%;max-width:36rem" />
+    <p class="muted" style="font-size:0.78rem;margin:0.35rem 0 0">
+      يعمل مع OpenAI أو أي خدمة متوافقة (مثل Groq، DeepSeek، Ollama عبر reverse proxy).
+    </p>
+    <label style="margin-top:0.65rem">Webhook خارجي (اختياري — Hermes / n8n / OpenAI)</label>
+    <input name="web_chat_n8n_webhook_url" value="{{ s.web_chat_n8n_webhook_url }}" dir="ltr"
+      placeholder="اتركه فارغاً للرد التلقائي المحلي — أو http://127.0.0.1:8765/webhook" style="width:100%;max-width:36rem" />
+    <label style="margin-top:0.65rem">تعليمات التحويل البنكي (تظهر للزبون في الشات)</label>
+    <textarea name="web_chat_bank_payment_text" rows="4" style="width:100%;max-width:36rem"
+      placeholder="مثال: IBAN: LY… — بنك … — باسم …">{{ s.web_chat_bank_payment_text }}</textarea>
+    <p class="muted" style="font-size:0.82rem;margin:0.75rem 0 0;padding:0.55rem 0.75rem;background:#fef3c7;border:1px solid #fcd34d;border-radius:8px">
+      ⚠️ لحفظ اسم البوت ورسالة الترحيب اضغط زر <strong>«حفظ»</strong> أسفل الصفحة — وليس «رفع» في قسم الملفات.
+    </p>
+    <p class="muted" style="font-size:0.82rem;margin:0.5rem 0 0">
+      <strong>رابط الرد (من n8n → POS):</strong> <code dir="ltr">{{ chat_reply_url }}</code><br>
+      نفس مفتاح <code>X-Messaging-Secret</code> أعلاه.<br>
+      JSON: <code dir="ltr">{"session_token":"…","text":"نص الرد"}</code>
+    </p>
+  </div>
+
+
+
+  <div class="card" style="border-color:#bbf7d0;background:#f0fdf4">
+
+    <h2 style="margin-top:0">WhatsApp — TextMeBot (مباشر)</h2>
+
+    {% if not enabled %}
+    <p style="margin:0 0 0.75rem;padding:0.55rem 0.75rem;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;color:#b91c1c;font-size:0.88rem">
+      ⚠️ البوت معطّل — الرسائل التلقائية لن تُرسل. يمكنك تجربة «اختبار الإرسال» أسفل الصفحة، أو
+      <a href="#messaging-enable">فعّل البوت</a> واحفظ.
+    </p>
+    {% endif %}
+
+    <label>مزود WhatsApp</label>
+
+    <select name="messaging_whatsapp_provider" style="max-width:20rem">
+
+      <option value="textmebot" {% if s.messaging_whatsapp_provider == 'textmebot' %}selected{% endif %}>TextMeBot مباشر (موصى به حالياً)</option>
+
+      <option value="webhook" {% if s.messaging_whatsapp_provider != 'textmebot' %}selected{% endif %}>Webhook / n8n</option>
+
+    </select>
+
+    <label style="margin-top:0.5rem">مفتاح API (TextMeBot)</label>
+
+    <input name="messaging_textmebot_apikey" value="{{ s.messaging_textmebot_apikey }}" dir="ltr" placeholder="اتركه فارغاً للإبقاء على المفتاح الحالي" style="width:100%;max-width:28rem" autocomplete="off" />
+
+    <label style="margin-top:0.5rem">رابط الإرسال</label>
+
+    <input name="messaging_textmebot_base_url" value="{{ s.messaging_textmebot_base_url or 'http://api.textmebot.com/send.php' }}" dir="ltr" style="width:100%;max-width:36rem" />
+
+    <p class="muted" style="font-size:0.82rem;margin:0.5rem 0 0;padding:0.55rem 0.75rem;background:#eff6ff;border:1px solid #93c5fd;border-radius:8px">
+      <strong>TextMeBot Pro:</strong> الأزرار (حتى 3)، نسخ كود، قوائم — تحتاج تفعيل Pro على المفتاح.
+      <a href="https://documenter.getpostman.com/view/20714522/2sAYdfpWCk" target="_blank" rel="noopener">توثيق Pro</a>.
+      لاستقبال ضغطات الأزرار فعّل webhook الوارد أدناه ووجّه TextMeBot إلى <code dir="ltr">{{ inbound_url }}?secret=…</code>.
+    </p>
+
+    <label style="margin-top:0.5rem">رمز الدولة (ليبيا = 218)</label>
+
+    <input name="messaging_country_code" value="{{ s.messaging_country_code or '218' }}" dir="ltr" style="max-width:8rem" />
+
+    <div class="row" style="gap:0.75rem;margin-top:0.75rem;flex-wrap:wrap">
+
+      <div>
+
+        <label>ثوانٍ بين كل رسالة</label>
+
+        <input name="messaging_send_delay_seconds" type="number" min="1" value="{{ s.messaging_send_delay_seconds or '5' }}" style="max-width:6rem" />
+
+      </div>
+
+      <div>
+
+        <label>رسائل لكل دورة عامل</label>
+
+        <input name="messaging_outbox_batch_size" type="number" min="1" value="{{ s.messaging_outbox_batch_size or '1' }}" style="max-width:6rem" />
+
+      </div>
+
+      <div>
+
+        <label>فترة العامل (ثانية)</label>
+
+        <input name="messaging_worker_interval_seconds" type="number" min="10" value="{{ s.messaging_worker_interval_seconds or '30' }}" style="max-width:6rem" />
+
+      </div>
+
+    </div>
+
+    <p class="muted" style="font-size:0.85rem;margin-top:0.5rem">
+
+      مثال: 1000 عميل × 5 ثوانٍ ≈ 83 دقيقة — يُرسل تلقائياً عبر الطابور.
+
+    </p>
+
+  </div>
+
+
+
+  <div class="card">
+
+    <h2 style="margin-top:0">Webhook (n8n) — اختياري</h2>
+
+    <p class="muted" style="font-size:0.85rem;margin-top:0">يُستخدم فقط عند اختيار «Webhook / n8n» أعلاه.</p>
+
+    <label>عنوان Webhook</label>
+
+    <input name="messaging_webhook_url" value="{{ s.messaging_webhook_url }}" placeholder="https://..." style="width:100%;max-width:36rem" />
+
+    <div class="row" style="gap:0.5rem;margin-top:0.5rem;flex-wrap:wrap">
+
+      <div>
+
+        <label>الطريقة</label>
+
+        <select name="messaging_webhook_method">
+
+          <option value="POST" {% if s.messaging_webhook_method == 'POST' %}selected{% endif %}>POST</option>
+
+          <option value="GET" {% if s.messaging_webhook_method == 'GET' %}selected{% endif %}>GET</option>
+
+        </select>
+
+      </div>
+
+      <div>
+
+        <label>اسم الحقل</label>
+
+        <input name="messaging_webhook_param" value="{{ s.messaging_webhook_param or 'text' }}" />
+
+      </div>
+
+    </div>
+
+    <label style="display:inline-flex;align-items:center;gap:0.4rem;margin-top:0.5rem">
+
+      <input type="checkbox" name="messaging_use_n8n_json" {% if s.messaging_use_n8n_json != '0' %}checked{% endif %} style="width:auto" />
+
+      JSON موحّد (n8n)
+
+    </label>
+
+  </div>
+
+
+
+  <div class="card">
+
+    <h2 style="margin-top:0">Telegram + رقم الإدارة</h2>
+
+    <label>Telegram Bot Token</label>
+
+    <input name="messaging_telegram_bot_token" value="{{ s.messaging_telegram_bot_token }}" dir="ltr" style="width:100%;max-width:28rem" />
+
+    <label style="margin-top:0.5rem">رقم واتساب الإدارة (تنبيه مخزون / صلاحية)</label>
+
+    <input name="messaging_admin_phone" value="{{ s.messaging_admin_phone }}" dir="ltr" placeholder="0919774743" />
+
+  </div>
+
+  <button type="submit" class="btn btn-primary">حفظ الإعدادات</button>
+
+</form>
+
+<div class="card" style="border-color:#fcd34d;background:#fffbeb;margin-top:0.75rem">
+  <h2 style="margin-top:0">🧪 اختبار الإرسال</h2>
+  {% if not enabled %}
+  <p style="margin:0 0 0.75rem;padding:0.55rem 0.75rem;background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;font-size:0.88rem">
+    البوت معطّل للرسائل التلقائية — لكن <strong>الاختبار يرسل مباشرة</strong> إلى TextMeBot للتحقق من المفتاح والرقم.
+  </p>
+  {% endif %}
+  <form method="post" action="/admin/messaging/test">
+    <label for="messaging_test_phone">رقم واتساب للاختبار</label>
+    <div class="row" style="gap:0.5rem;flex-wrap:wrap;align-items:flex-end;margin-bottom:0.35rem">
+      <input
+        id="messaging_test_phone"
+        name="test_phone"
+        type="tel"
+        dir="ltr"
+        value="{{ test_phone_raw or '' }}"
+        placeholder="0912345678 أو +218912345678"
+        style="width:100%;max-width:20rem"
+      />
+      <button type="submit" class="btn" formaction="/admin/messaging/save-test-phone" formmethod="post">
+        💾 حفظ الرقم
+      </button>
+    </div>
+    <p class="muted" style="font-size:0.82rem;margin:0 0 0.75rem">
+      «حفظ الرقم» يخزّنه للاختبارات القادمة. رقم <strong>الإدارة</strong> (تنبيهات المخزون) يُحفظ من «حفظ الإعدادات» أعلاه.
+    </p>
+    {% if test_phone_wa %}
+    <p class="muted" style="font-size:0.85rem;margin:0 0 0.75rem">
+      سيُرسل إلى <strong dir="ltr">{{ test_phone_wa }}</strong>
+      {% if admin_phone_wa and test_phone_wa != admin_phone_wa %}
+      — <span class="muted">رقم الإدارة المحفوظ: {{ admin_phone_wa }}</span>
+      {% endif %}
+    </p>
+    {% else %}
+    <p class="muted" style="font-size:0.85rem;margin:0 0 0.75rem;color:#b45309">
+      أدخل رقم واتساب يصلك عليه (يفضّل أن يكون في جهات اتصال رقم البوت).
+    </p>
+    {% endif %}
+    <p class="muted" style="font-size:0.82rem;margin:0 0 0.75rem;padding:0.5rem 0.65rem;background:#fff;border:1px solid #fde68a;border-radius:8px">
+      كل اختبار يُسجّل في <a href="/admin/messaging/log">سجل الإرسال</a> (حدث: «اختبار إرسال» أو «اختبار أزرار»).
+      إذا لم تصل الرسالة رغم «تم الإرسال»، راجع عمود «خطأ» في السجل.
+    </p>
+    <div class="row" style="gap:0.5rem;flex-wrap:wrap">
+      <button type="submit" class="btn btn-primary">إرسال رسالة نصية تجريبية</button>
+      <button type="submit" class="btn" formaction="/admin/messaging/test-buttons" formmethod="post">
+        اختبار أزرار WhatsApp (Pro)
+      </button>
+    </div>
+  </form>
+</div>
+
+<div class="card" style="border-color:#fde68a;background:#fffbeb;margin-top:0.75rem">
+  <h2 style="margin-top:0">📥 ملفات الشرح للبوت (PDF أو صورة)</h2>
+  <p class="muted" style="font-size:0.82rem;margin:0 0 0.65rem">يرسل البوت روابط التحميل عند سؤال الزبون عن الولاء أو الإحالة — زر «رفع» هنا منفصل عن «حفظ الإعدادات» أعلاه.</p>
+  <div style="display:grid;gap:0.65rem;max-width:36rem">
+    <div>
+      <label>دليل برنامج الولاء</label>
+      {% if s.web_chat_guide_loyalty_file %}
+      <p class="muted" style="font-size:0.8rem;margin:0.2rem 0"><a href="/static/{{ s.web_chat_guide_loyalty_file }}" target="_blank" rel="noopener">الملف الحالي</a></p>
+      {% endif %}
+      <form method="post" action="/admin/messaging/upload-chat-guide" enctype="multipart/form-data" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center">
+        <input type="hidden" name="guide_type" value="loyalty" />
+        <input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png,.webp" required />
+        <button type="submit" class="btn">رفع</button>
+      </form>
+    </div>
+    <div>
+      <label>دليل كود الإحالة</label>
+      {% if s.web_chat_guide_referral_file %}
+      <p class="muted" style="font-size:0.8rem;margin:0.2rem 0"><a href="/static/{{ s.web_chat_guide_referral_file }}" target="_blank" rel="noopener">الملف الحالي</a></p>
+      {% endif %}
+      <form method="post" action="/admin/messaging/upload-chat-guide" enctype="multipart/form-data" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center">
+        <input type="hidden" name="guide_type" value="referral" />
+        <input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png,.webp" required />
+        <button type="submit" class="btn">رفع</button>
+      </form>
+    </div>
+    <div>
+      <label>دليل عام (اختياري)</label>
+      {% if s.web_chat_guide_general_file %}
+      <p class="muted" style="font-size:0.8rem;margin:0.2rem 0"><a href="/static/{{ s.web_chat_guide_general_file }}" target="_blank" rel="noopener">الملف الحالي</a></p>
+      {% endif %}
+      <form method="post" action="/admin/messaging/upload-chat-guide" enctype="multipart/form-data" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center">
+        <input type="hidden" name="guide_type" value="general" />
+        <input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png,.webp" required />
+        <button type="submit" class="btn">رفع</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+

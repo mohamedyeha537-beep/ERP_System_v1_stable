@@ -1,0 +1,74 @@
+{# حقول هاتف/اسم الزبون في عمود التوصيل أو الاستلام — مع زر «تغيير» عند الربط #}
+{% set linked = show_linked if show_linked is defined else (customer is not none) %}
+<div class="pos-ext-hub-phone" data-customer-linked="{{ '1' if linked and customer else '0' }}">
+  {% if linked and customer %}
+  <div class="pos-customer-selected pos-customer-selected--hub" id="{{ chip_id }}">
+    <span class="pos-customer-selected__text" title="{{ customer.phone }}">
+      📞 {{ customer.phone }}{% if customer.name %} · {{ customer.name }}{% endif %}
+    </span>
+    <button
+      type="button"
+      class="btn pos-customer-change-btn"
+      id="{{ change_btn_id }}"
+      title="تغيير الزبون أو الهاتف"
+      hx-post="/pos/lookup-phone"
+      hx-vals='{"unlink_customer": "1"}'
+      hx-target="#pos-sidebar-live"
+      hx-swap="innerHTML"
+      hx-include="#{{ form_id }}"
+    >تغيير</button>
+  </div>
+  {% endif %}
+  <div class="pos-customer-fields" id="{{ fields_id }}"{% if linked and customer %} hidden{% endif %}>
+    <input
+      class="input pos-ext-hub-input pos-customer-draft-input"
+      type="tel"
+      name="customer_phone"
+      id="{{ phone_id }}"
+      placeholder="0917122552"
+      maxlength="10"
+      pattern="09[0-9]{8}"
+      title="10 أرقام محلية بدون +218"
+      value="{% if customer %}{{ customer.phone }}{% elif draft_customer_phone is defined %}{{ draft_customer_phone }}{% endif %}"
+      autocomplete="tel"
+      inputmode="tel"
+      dir="ltr"
+      data-pos-auto-lookup="1"
+      hx-post="/pos/lookup-phone"
+      hx-trigger="keyup[key=='Enter'], pos-auto-save"
+      hx-target="#pos-sidebar-live"
+      hx-swap="innerHTML"
+      hx-include="#{{ form_id }}"
+    />
+    <input
+      class="input pos-ext-hub-input pos-customer-draft-input"
+      type="text"
+      name="customer_name"
+      id="{{ name_id }}"
+      placeholder="الاسم (اختياري للعملاء المسجّلين)"
+      value="{% if customer and customer.name %}{{ customer.name }}{% elif draft_customer_name is defined %}{{ draft_customer_name }}{% endif %}"
+      autocomplete="name"
+      hx-post="/pos/lookup-phone"
+      hx-trigger="blur, keyup[key=='Enter']"
+      hx-target="#pos-sidebar-live"
+      hx-swap="innerHTML"
+      hx-include="#{{ form_id }}"
+    />
+    <button
+      type="button"
+      class="btn btn-primary pos-customer-save-btn"
+      style="width:100%;font-size:0.82rem;padding:0.38rem 0.5rem;margin-top:0.1rem"
+      hx-post="/pos/lookup-phone"
+      hx-vals='{"save_customer": "1"}'
+      hx-target="#pos-sidebar-live"
+      hx-swap="innerHTML"
+      hx-include="#{{ form_id }}"
+    >
+      ✓ حفظ بيانات العميل
+    </button>
+    <p class="pos-customer-save-hint muted">
+      عند إدخال <strong>10 أرقام</strong> لرقم مخزّن يُتعرّف عليه تلقائياً.
+      للعميل الجديد أدخل الاسم ثم اضغط حفظ.
+    </p>
+  </div>
+</div>

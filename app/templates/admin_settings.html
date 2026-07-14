@@ -13,6 +13,14 @@
     <a class="btn" href="/admin/branding" style="background:linear-gradient(135deg,#ec4899,#8b5cf6);color:#fff;border:0">
       🎨 الهويّة البصرية (الشعار والألوان)
     </a>
+    <a class="btn" href="/admin/web-marketing" style="background:linear-gradient(135deg,#14b8a6,#0ea5e9);color:#fff;border:0">
+      📈 SEO والتحليلات (متجر / فندق)
+    </a>
+    {% endif %}
+    {% if pos_perm(request)('admin:settings') %}
+    <a class="btn" href="/admin/schema-fix" style="background:linear-gradient(135deg,#0ea5e9,#6366f1);color:#fff;border:0">
+      🔧 إصلاح قاعدة البيانات
+    </a>
     {% endif %}
   </div>
 </div>
@@ -20,8 +28,92 @@
 {% if saved %}
 <div class="card" style="border-color: #86efac; background: #f0fdf4">
   <p style="margin: 0">تم حفظ الإعدادات.</p>
+  {% if saved_receipt_printer_id %}
+  <p style="margin: 0.35rem 0 0; font-weight: 600; color: #15803d">
+    طابعة الكاشير للطباعة المباشرة: محفوظة (معرّف {{ saved_receipt_printer_id }}).
+  </p>
+  {% elif receipt_printer_id %}
+  <p style="margin: 0.35rem 0 0; color: #15803d">طابعة الكاشير: مفعّلة.</p>
+  {% else %}
+  <p style="margin: 0.35rem 0 0; color: #b45309">
+    طابعة الكاشير: معاينة المتصفح فقط — اختر طابعة من القائمة ثم احفظ مرة أخرى.
+  </p>
+  {% endif %}
 </div>
 {% endif %}
+
+<div class="card" style="background:#f8fafc;border:1px solid #e2e8f0">
+  <h2 style="margin-top:0">ضبط الطباعة — خطوات بالترتيب</h2>
+  <p class="muted" style="margin-top:0;font-size:0.9rem">
+    <strong>فواتير منفصلة للمطبخ:</strong> عند «إرسال وطباعة» يخرج برجر على طابعة المشويات وقهوة على طابعة المقهى.
+    <strong>فاتورة الزبون:</strong> ورقة واحدة كاملة من طابعة الكاشير (الإعداد أدناه).
+  </p>
+
+  <p style="margin:0.75rem 0 0.35rem;font-size:0.88rem;font-weight:600;color:#334155">أ — تجهيز المطبخ (نفّذ بالترتيب)</p>
+  <div style="display:flex;flex-direction:column;gap:0.5rem;margin-top:0.35rem">
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.5rem;padding:0.55rem 0.65rem;background:#fff;border:1px solid #e2e8f0;border-radius:8px">
+      <span style="min-width:1.5rem;font-weight:700;color:#059669">1</span>
+      <span style="flex:1;min-width:14rem;font-size:0.88rem">
+        <strong>الفئات:</strong> المطعم → قسم <em>مشويات</em> · المقهى → قسم <em>مشروبات</em> → حفظ
+      </span>
+      {% if pos_perm(request)('catalog:write') %}
+      <a class="btn btn-primary" href="/catalog/categories" style="white-space:nowrap">فتح الفئات</a>
+      {% else %}
+      <span class="muted" style="font-size:0.82rem">يتطلب صلاحية إدارة الأصناف</span>
+      {% endif %}
+    </div>
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.5rem;padding:0.55rem 0.65rem;background:#fff;border:1px solid #e2e8f0;border-radius:8px">
+      <span style="min-width:1.5rem;font-weight:700;color:#059669">2</span>
+      <span style="flex:1;min-width:14rem;font-size:0.88rem">
+        <strong>أقسام المطبخ:</strong> اربط كل قسم (مشويات، مشروبات، …) بطابعته
+      </span>
+      <a class="btn btn-primary" href="/admin/printing/sections" style="white-space:nowrap">أقسام المطبخ</a>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.5rem;padding:0.55rem 0.65rem;background:#fff;border:1px solid #e2e8f0;border-radius:8px">
+      <span style="min-width:1.5rem;font-weight:700;color:#059669">3</span>
+      <span style="flex:1;min-width:14rem;font-size:0.88rem">
+        <strong>الطابعات:</strong> اختر الوكيل <em>مطبخ</em> + مفاتيح <code>grill</code> / <code>drinks</code> + IP
+      </span>
+      <a class="btn btn-primary" href="/admin/printing/printers" style="white-space:nowrap">الطابعات</a>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.5rem;padding:0.55rem 0.65rem;background:#fff;border:1px solid #e2e8f0;border-radius:8px">
+      <span style="min-width:1.5rem;font-weight:700;color:#059669">4</span>
+      <span style="flex:1;min-width:14rem;font-size:0.88rem">
+        <strong>وكيل الطباعة:</strong> رمز واحد في <code>config.json</code> — ثم شغّل على الكمبيوتر:
+        <code style="font-size:0.8rem">python tools/print_agent/print_agent.py</code>
+      </span>
+      <a class="btn" href="/admin/printing/agents" style="white-space:nowrap">وكلاء الطباعة</a>
+      <a class="btn" href="/admin/printing" style="white-space:nowrap">مركز الطباعة</a>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.5rem;padding:0.55rem 0.65rem;background:#fff;border:1px solid #e2e8f0;border-radius:8px">
+      <span style="min-width:1.5rem;font-weight:700;color:#059669">5</span>
+      <span style="flex:1;min-width:14rem;font-size:0.88rem">
+        <strong>تجربة:</strong> طلب جديد (برجر + قهوة) → زر <strong>إرسال وطباعة</strong>
+      </span>
+      <a class="btn btn-primary" href="/pos" style="white-space:nowrap;background:#059669;border-color:#047857">نقطة البيع</a>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.5rem;padding:0.55rem 0.65rem;background:#fff;border:1px solid #e2e8f0;border-radius:8px">
+      <span style="min-width:1.5rem;font-weight:700;color:#059669">6</span>
+      <span style="flex:1;min-width:14rem;font-size:0.88rem">
+        <strong>تحقق:</strong> يجب ظهور مهمتين <code>kitchen_ticket</code> (مشويات + مشروبات) وربما مهمة كاشير
+      </span>
+      <a class="btn btn-primary" href="/admin/printing/jobs" style="white-space:nowrap">مهام الطباعة</a>
+      <a class="btn" href="/admin/kds" style="white-space:nowrap">شاشة المطبخ</a>
+    </div>
+  </div>
+
+  <p style="margin:1rem 0 0.35rem;font-size:0.88rem;font-weight:600;color:#334155">ب — فاتورة الزبون النهائية (كاشير)</p>
+  <div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.5rem;padding:0.55rem 0.65rem;background:#fff;border:1px solid #bae6fd;border-radius:8px">
+    <span style="min-width:1.5rem;font-weight:700;color:#0284c7">★</span>
+    <span style="flex:1;min-width:14rem;font-size:0.88rem">
+      اختر <strong>طابعة الكاشير</strong> في النموذج أدناه واحفظ — تُطبع الفاتورة الكاملة للزبون بعد البيع أو من أمر التجهيز.
+    </span>
+    <a class="btn" href="#receipt_printer_id" style="white-space:nowrap">انتقل للحقل</a>
+  </div>
+  <p class="muted" style="margin:0.65rem 0 0;font-size:0.8rem">
+    دليل مفصّل: <code>tools/print_agent/دليل-ثلاث-طابعات-وتوزيع-الطلب.md</code>
+  </p>
+</div>
 
 <div class="card">
   <h2 style="margin-top: 0">إعدادات الطباعة</h2>
@@ -34,12 +126,71 @@
     <label for="store_name">اسم المتجر (يظهر في رأس الفاتورة)</label>
     <input id="store_name" name="store_name" value="{{ store_name }}" maxlength="120" />
 
-    <label for="print_paper_size" style="margin-top: 0.75rem">مقاس الورق الافتراضي</label>
+    <label for="public_base_url" style="margin-top: 0.75rem">الرابط العام للتطبيق (لروابط واتساب والفواتير)</label>
+    <input id="public_base_url" name="public_base_url" value="{{ public_base_url }}" placeholder="https://example.com" maxlength="255" dir="ltr" />
+    <p class="muted" style="font-size: 0.85rem; margin-top: 0.35rem">
+      عند ضبطه، تُرسل رسائل حجز الفندق رابط كشف الحساب/الفاتورة للنزيل. اتركه فارغاً إذا كان النظام محلياً فقط.
+    </p>
+
+    <div style="margin-top:1rem;padding:0.85rem;border:1px solid #bbf7d0;border-radius:10px;background:#f0fdf4">
+      <h3 style="margin:0 0 0.5rem;color:#166534">إرسال الفاتورة على واتساب</h3>
+      <p class="muted" style="font-size:0.85rem;margin:0 0 0.65rem">
+        يظهر زر «إرسال واتساب» في: شريط الفاتورة بعد التحصيل، رسالة نجاح البيع، صفحة طباعة الفاتورة، وصفحة الحجز.
+        يتطلب تفعيل <a href="/admin/messaging">المراسلة</a> وإعداد TextMeBot أو Webhook.
+        لإرفاق صورة الفاتورة، اضبط «الرابط العام» أعلاه.
+      </p>
+      <label style="display:flex;align-items:center;gap:0.45rem;margin:0.4rem 0">
+        <input type="checkbox" name="pos_send_receipt_whatsapp" value="1" {% if pos_send_receipt_whatsapp %}checked{% endif %}>
+        المطعم — زر إرسال فاتورة POS على واتساب
+      </label>
+      <label style="display:flex;align-items:center;gap:0.45rem;margin:0.4rem 0">
+        <input type="checkbox" name="hotel_send_receipt_whatsapp" value="1" {% if hotel_send_receipt_whatsapp %}checked{% endif %}>
+        الفندق — زر إرسال فاتورة الحجز على واتساب
+      </label>
+    </div>
+
+    <div style="margin-top:1rem;padding:0.85rem;border:1px solid #ddd6fe;border-radius:10px;background:#faf5ff">
+      <h3 style="margin:0 0 0.5rem;color:#5b21b6">رسالة تأكيد طلب المتجر</h3>
+      <label style="display:flex;align-items:center;gap:0.45rem;margin:0.4rem 0">
+        <input type="checkbox" name="shop_send_order_confirmation_whatsapp" value="1" {% if shop_send_order_confirmation_whatsapp %}checked{% endif %}>
+        إرسال رسالة واتساب للزبون بعد استقبال الطلب
+      </label>
+      <label for="shop_order_confirmation_text" style="margin-top:0.75rem">نص الرسالة</label>
+      <textarea id="shop_order_confirmation_text" name="shop_order_confirmation_text" rows="4" style="width:100%">{{ shop_order_confirmation_text }}</textarea>
+      <p class="muted" style="font-size:0.8rem;margin:0.45rem 0 0">
+        متغيرات متاحة: <code>{order_id}</code> رقم الطلب، <code>{customer_name}</code> اسم الزبون،
+        <code>{total}</code> قيمة الأصناف، <code>{customer_total}</code> الإجمالي مع التوصيل،
+        <code>{payment_method}</code> وسيلة الدفع، <code>{fulfillment}</code> طريقة الاستلام.
+      </p>
+    </div>
+
+    <label for="print_paper_size" style="margin-top: 0.75rem">مقاس الورق — المطعم / الكاشير</label>
     <select id="print_paper_size" name="print_paper_size">
       {% for code, label in paper_sizes %}
       <option value="{{ code }}" {% if current_paper == code %}selected{% endif %}>{{ label }}</option>
       {% endfor %}
     </select>
+    <p class="muted" style="font-size:0.82rem;margin:0.35rem 0 0">
+      فواتير نقطة البيع والكاشير. مقاس فواتير الفندق من
+      <a href="/admin/hotel/settings">إعدادات الحجز — الطباعة</a>.
+    </p>
+
+    <label for="receipt_printer_id" style="margin-top: 0.85rem">طابعة الكاشير — المطعم (طباعة مباشرة)</label>
+    <select id="receipt_printer_id" name="receipt_printer_id">
+      <option value="">— معاينة المتصفح (نافذة اختيار الطابعة) —</option>
+      {% for p in receipt_printers %}
+      <option value="{{ p.id }}" {% if receipt_printer_id == p.id %}selected{% endif %}>
+        {{ p.name }} ({{ p.code }})
+      </option>
+      {% endfor %}
+    </select>
+    <p class="muted" style="font-size: 0.85rem; margin-top: 0.35rem">
+      للطباعة الفورية: أنشئ وكيلاً من
+      <a href="/admin/printing">إدارة الطباعة</a>، وشغّل
+      <code>tools/print_agent/print_agent.py</code> على كمبيوتر الكاشير.
+      اربط الطابعة بـ <code>local_printer_key</code> = اسم الطابعة في ويندوز (مثل <code>POS-80 (2)</code>)
+      أو بعنوان IP للطابعة على الشبكة.
+    </p>
 
     <p class="muted" style="margin-top: 0.5rem; font-size: 0.85rem">
       ملاحظات حول الهوامش (تُطبَّق تلقائياً):
@@ -61,6 +212,32 @@
       عند إتمام البيع أو الإرسال للمطبخ يُخصم المخزون من هذا المخزن.
     </p>
 
+    <div style="margin-top:1rem;padding:0.85rem;border:1px solid #bae6fd;border-radius:10px;background:#f0f9ff">
+      <h3 style="margin:0 0 0.5rem;color:#075985">إشعارات الخزينة للأدمن</h3>
+      <p class="muted" style="margin:0 0 0.65rem;font-size:0.85rem">
+        ترسل ملخصات واتساب للأدمن عند إغلاق جلسة البيع وحركات القبض/الصرف، مع رصيد الكاش والمصرف للمطعم والفندق.
+      </p>
+      <label style="display:flex;align-items:center;gap:0.45rem;margin:0.4rem 0">
+        <input type="checkbox" name="treasury_notifications_enabled" value="1" {% if treasury_notifications_enabled %}checked{% endif %}>
+        تفعيل إشعارات الخزينة
+      </label>
+      <label style="display:flex;align-items:center;gap:0.45rem;margin:0.4rem 0">
+        <input type="checkbox" name="treasury_notify_shift_close_enabled" value="1" {% if treasury_notify_shift_close_enabled %}checked{% endif %}>
+        إشعار عند إغلاق جلسة البيع
+      </label>
+      <label style="display:flex;align-items:center;gap:0.45rem;margin:0.4rem 0">
+        <input type="checkbox" name="treasury_notify_movements_enabled" value="1" {% if treasury_notify_movements_enabled %}checked{% endif %}>
+        إشعار عند كل حركة قبض أو صرف أو تحويل
+      </label>
+      <label style="display:flex;align-items:center;gap:0.45rem;margin:0.4rem 0">
+        <input type="checkbox" name="treasury_notify_balance_updates_enabled" value="1" {% if treasury_notify_balance_updates_enabled %}checked{% endif %}>
+        إرسال تحديث مستقل بأرصدة الخزائن بعد الحركة
+      </label>
+      <p class="muted" style="margin:0.55rem 0 0;font-size:0.8rem">
+        يتم استخدام رقم الأدمن من إعدادات الرسائل أو من مسار توجيه <code>treasury.*</code> في إدارة الإشعارات.
+      </p>
+    </div>
+
     <div class="row" style="margin-top: 1rem">
       <button class="btn btn-primary" type="submit">حفظ</button>
       <a class="btn" href="/">رجوع</a>
@@ -68,7 +245,383 @@
   </form>
 </div>
 
-<div class="card">
+<div class="card" id="order-policy-section" style="border-color:#bfdbfe;background:linear-gradient(180deg,#f8fafc,#eff6ff)">
+  <h2 style="margin-top:0">مسار الطلب — نقطة البيع والمطبخ</h2>
+  <p class="muted" style="margin-top:0;font-size:0.9rem">
+    تحكّم ديناميكي ببوابات الدفع والإرسال والتنبيهات. كل خيار ON/OFF يُطبَّق فور الحفظ على الكاشير وشاشة KDS.
+  </p>
+  {% if order_policy_saved %}
+  <p style="margin:0 0 0.75rem;color:#15803d;font-weight:600">تم حفظ سياسات مسار الطلب.</p>
+  {% endif %}
+  {% set op = order_policy if order_policy is defined else {
+    'kitchen_workflow_enabled': true,
+    'require_kitchen_send_before_pay': true,
+    'require_kitchen_send_before_room_charge': true,
+    'require_kds_ready_table': false,
+    'require_kds_ready_pickup': false,
+    'require_kds_ready_delivery': false,
+    'require_kds_ready_room': false,
+    'pay_redirect_after_send_pickup': false,
+    'send_confirm_enabled': true,
+    'send_confirm_min_total': '0',
+    'show_pipeline_bar': true,
+    'kds_sound_enabled': true,
+    'kds_sound_repeat_sec': 30,
+    'kds_sound_profile': 'beep',
+    'kds_sound_volume': 80,
+    'kds_poll_sec': 15,
+    'unsent_reminder_sec': 0,
+    'table_complimentary_enabled': true,
+    'table_complimentary_product_id': none,
+    'table_complimentary_name': 'ضيافة ترحيبية مجانية'
+  } %}
+  {% set _kds_profiles = kds_sound_profiles if kds_sound_profiles is defined else {
+    'beep': 'نغمة قصيرة (افتراضي)',
+    'chime': 'جرس لطيف',
+    'bell': 'جرس مطبخ',
+    'kitchen': 'ثلاث نغمات',
+    'alert': 'تنبيه قوي'
+  } %}
+  <form method="post" action="/admin/settings/order-policy" style="display:flex;flex-direction:column;gap:0.85rem;margin-top:0.5rem">
+    <fieldset style="border:1px solid #bbf7d0;border-radius:10px;padding:0.75rem 0.9rem;background:#f0fdf4;margin:0">
+      <legend style="font-weight:700;padding:0 0.35rem;color:#166534">تشغيل مسار التجهيز</legend>
+      <label style="display:flex;align-items:flex-start;gap:0.5rem;margin:0.35rem 0">
+        <input type="checkbox" name="kitchen_workflow_enabled" {% if op.kitchen_workflow_enabled %}checked{% endif %} />
+        <span>
+          <strong>تفعيل إرسال الطلب إلى المطبخ / KDS</strong>
+          — عند التفعيل يعمل النظام بالآلية الحالية: إرسال للتجهيز، تذاكر KDS، وانتظار الجاهزية إذا كانت الخيارات أدناه مفعّلة.
+        </span>
+      </label>
+      <p class="muted" style="margin:0.35rem 0 0;font-size:0.85rem;line-height:1.55">
+        عند إيقافه يستطيع الكاشير طباعة أمر التجهيز مباشرة والتحصيل دون انتظار شاشة المطبخ. استخدمه مؤقتاً عند عدم توفر شاشة مطبخ أو موظف يتابعها.
+      </p>
+    </fieldset>
+
+    <fieldset style="border:1px solid #e2e8f0;border-radius:10px;padding:0.75rem 0.9rem;background:#fff;margin:0">
+      <legend style="font-weight:700;padding:0 0.35rem">بوابات الدفع والقيد</legend>
+      <label style="display:flex;align-items:flex-start;gap:0.5rem;margin:0.35rem 0">
+        <input type="checkbox" name="require_kitchen_send_before_pay" {% if op.require_kitchen_send_before_pay %}checked{% endif %} />
+        <span><strong>منع التحصيل قبل الإرسال للتجهيز</strong> — لا يظهر زر الدفع حتى «إرسال للتجهيز وطباعة».</span>
+      </label>
+      <label style="display:flex;align-items:flex-start;gap:0.5rem;margin:0.35rem 0">
+        <input type="checkbox" name="require_kitchen_send_before_room_charge" {% if op.require_kitchen_send_before_room_charge %}checked{% endif %} />
+        <span><strong>منع قيد الشقة قبل الإرسال</strong> — حساب الغرفة بعد إرسال المطبخ.</span>
+      </label>
+      <p style="margin:0.5rem 0 0.25rem;font-size:0.85rem;font-weight:600;color:#334155">اشتراط جاهزية KDS قبل التحصيل (حسب نوع الطلب):</p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(11rem,1fr));gap:0.35rem 0.75rem">
+        <label style="display:flex;gap:0.4rem;align-items:center"><input type="checkbox" name="require_kds_ready_table" {% if op.require_kds_ready_table %}checked{% endif %} /> طاولات</label>
+        <label style="display:flex;gap:0.4rem;align-items:center"><input type="checkbox" name="require_kds_ready_pickup" {% if op.require_kds_ready_pickup %}checked{% endif %} /> استلام</label>
+        <label style="display:flex;gap:0.4rem;align-items:center"><input type="checkbox" name="require_kds_ready_delivery" {% if op.require_kds_ready_delivery %}checked{% endif %} /> توصيل</label>
+        <label style="display:flex;gap:0.4rem;align-items:center"><input type="checkbox" name="require_kds_ready_room" {% if op.require_kds_ready_room %}checked{% endif %} /> شقق</label>
+      </div>
+      <label style="display:flex;align-items:flex-start;gap:0.5rem;margin:0.5rem 0 0">
+        <input type="checkbox" name="pay_redirect_after_send_pickup" {% if op.pay_redirect_after_send_pickup %}checked{% endif %} />
+        <span><strong>التحصيل فور الإرسال (استلام فقط)</strong> — بعد الإرسال يُفتح شاشة الدفع مباشرة.</span>
+      </label>
+    </fieldset>
+
+    <fieldset style="border:1px solid #e2e8f0;border-radius:10px;padding:0.75rem 0.9rem;background:#fff;margin:0">
+      <legend style="font-weight:700;padding:0 0.35rem">الإرسال للتجهيز</legend>
+      <label style="display:flex;align-items:flex-start;gap:0.5rem;margin:0.35rem 0">
+        <input type="checkbox" name="send_confirm_enabled" {% if op.send_confirm_enabled %}checked{% endif %} />
+        <span><strong>نافذة تأكيد قبل الإرسال</strong> — يطلب من الكاشير التأكيد قبل الطباعة.</span>
+      </label>
+      <label style="display:block;margin-top:0.35rem;font-size:0.88rem">
+        حدّ أدنى للإجمالي لإظهار التأكيد (د.ل، 0 = دائماً إن كان مفعّلاً):
+        <input type="number" name="send_confirm_min_total" min="0" step="0.001" value="{{ op.send_confirm_min_total }}" style="width:6rem;margin-inline-start:0.35rem;padding:0.25rem 0.4rem" />
+      </label>
+      <label style="display:flex;align-items:flex-start;gap:0.5rem;margin:0.5rem 0 0">
+        <input type="checkbox" name="show_pipeline_bar" {% if op.show_pipeline_bar %}checked{% endif %} />
+        <span><strong>شريط حالة المسار</strong> في الفاتورة (قيد الإدخال → مُرسَل → جاهز…).</span>
+      </label>
+      <div style="margin-top:0.75rem;padding:0.65rem;border:1px dashed #cbd5e1;border-radius:10px;background:#f8fafc">
+        <label style="display:flex;align-items:flex-start;gap:0.5rem;margin:0">
+          <input type="checkbox" name="table_complimentary_enabled" {% if op.table_complimentary_enabled %}checked{% endif %} />
+          <span>
+            <strong>إضافة منتج ضيافة للطاولات في تذكرة المطبخ فقط</strong>
+            — يظهر للعاملين عند تجهيز طلبات الطاولات ولا يُضاف للفاتورة أو إيصال الزبون، لكن تُخصم مكوّناته من المخزون حسب التركيبة.
+          </span>
+        </label>
+        <label style="display:block;margin-top:0.55rem;font-size:0.88rem">
+          منتج الضيافة:
+          <select name="table_complimentary_product_id" style="min-width:16rem;max-width:26rem;margin-inline-start:0.35rem;padding:0.3rem 0.45rem">
+            <option value="0">— اختر منتجاً نهائياً —</option>
+            {% for p in complimentary_products %}
+            <option value="{{ p.id }}" {% if op.table_complimentary_product_id and p.id == op.table_complimentary_product_id %}selected{% endif %}>
+              {{ p.name_ar }}
+            </option>
+            {% endfor %}
+          </select>
+        </label>
+        <p class="muted" style="margin:0.45rem 0 0;font-size:0.82rem">
+          عرّف المنتج كمنتج نهائي وله تركيبة BOM من كارت الصنف حتى تُحسب تكلفته وتُخصم مكوناته عند إرسال/إتمام طلب الطاولة.
+        </p>
+      </div>
+    </fieldset>
+
+    <fieldset style="border:1px solid #e2e8f0;border-radius:10px;padding:0.75rem 0.9rem;background:#fff;margin:0">
+      <legend style="font-weight:700;padding:0 0.35rem">شاشة المطبخ KDS</legend>
+      <label style="display:flex;align-items:flex-start;gap:0.5rem;margin:0.35rem 0">
+        <input type="checkbox" name="kds_sound_enabled" {% if op.kds_sound_enabled %}checked{% endif %} />
+        <span><strong>تنبيه صوتي</strong> عند وصول تذكرة PENDING جديدة — يعمل على <a href="/admin/kds" target="_blank">شاشة المطبخ KDS</a> فقط (ليس نقطة البيع).</span>
+      </label>
+      <div style="display:flex;flex-wrap:wrap;gap:0.75rem 1.25rem;margin-top:0.35rem;font-size:0.88rem;align-items:flex-end">
+        <label>نوع النغمة:
+          <select name="kds_sound_profile" id="kds-sound-profile" style="margin-inline-start:0.25rem;padding:0.25rem 0.4rem">
+            {% for key, lbl in _kds_profiles.items() %}
+            <option value="{{ key }}" {% if op.kds_sound_profile == key %}selected{% endif %}>{{ lbl }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>مستوى الصوت (%):
+          <input type="number" name="kds_sound_volume" id="kds-sound-volume" min="5" max="100" value="{{ op.kds_sound_volume }}" style="width:4rem;margin-inline-start:0.25rem;padding:0.25rem 0.4rem" />
+        </label>
+        <button type="button" class="btn" id="kds-sound-test-btn" style="padding:0.35rem 0.75rem">🔊 تجربة النغمة</button>
+      </div>
+      <p class="muted" style="margin:0.35rem 0 0;font-size:0.82rem">
+        المتصفح يمنع الصوت تلقائياً — اضغط «تجربة النغمة» مرة واحدة لتفعيل الصوت، ثم احفظ. على جهاز المطبخ افتح <strong>/admin/kds</strong> واضغط «تجربة الصوت» أو أي زر في الصفحة.
+      </p>
+      <div style="display:flex;flex-wrap:wrap;gap:0.75rem 1.25rem;margin-top:0.5rem;font-size:0.88rem">
+        <label>تكرار النغمة (ثانية، 0 = مرة واحدة):
+          <input type="number" name="kds_sound_repeat_sec" min="0" max="600" value="{{ op.kds_sound_repeat_sec }}" style="width:4.5rem;margin-inline-start:0.25rem;padding:0.25rem 0.4rem" />
+        </label>
+        <label>تحديث المطبخ ونقطة البيع (ثانية):
+          <input type="number" name="kds_poll_sec" min="5" max="120" value="{{ op.kds_poll_sec }}" style="width:4.5rem;margin-inline-start:0.25rem;padding:0.25rem 0.4rem" />
+        </label>
+        <label>تذكير POS للطلبات غير المُرسَلة (ث، 0 = إيقاف):
+          <input type="number" name="unsent_reminder_sec" min="0" max="3600" value="{{ op.unsent_reminder_sec }}" style="width:4.5rem;margin-inline-start:0.25rem;padding:0.25rem 0.4rem" />
+        </label>
+      </div>
+    </fieldset>
+
+    <div>
+      <button class="btn btn-primary" type="submit">حفظ سياسات مسار الطلب</button>
+    </div>
+  </form>
+</div>
+
+<div class="card" id="bom-pricing-section">
+  <h2 style="margin-top:0">تسعير التركيبات (الوصفات)</h2>
+  <p class="muted" style="margin-top:0;font-size:0.88rem">
+    النسبة العامة تُضاف أو تُطرح من نسبة ربح كل منتج مرتبط بتركيبته.
+    مثال: ربح المنتج 30% + تعديل عام +5% = 35% على التكلفة.
+    عند الحفظ تُحدَّث أسعار كل الأصناف ذات «ربط السعر بالتركيبة».
+  </p>
+  {% if bom_pricing_saved %}
+  <p style="margin:0 0 0.75rem;color:#15803d;font-weight:600">
+    تم حفظ النسبة العامة.
+    {% if bom_recalc_count %}
+    — تم تحديث {{ bom_recalc_count }} صنف.
+    {% endif %}
+  </p>
+  {% endif %}
+  {% if bom_pricing_error %}
+  <div class="alert">{{ bom_pricing_error }}</div>
+  {% endif %}
+  <form method="post" action="/admin/settings/bom-pricing" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:flex-end;margin-top:0.5rem">
+    <div>
+      <label for="catalog_bom_global_adjust_pct">تعديل عام على أسعار التركيبة %</label>
+      <input
+        id="catalog_bom_global_adjust_pct"
+        name="catalog_bom_global_adjust_pct"
+        type="number"
+        step="0.01"
+        style="width:8rem"
+        value="{{ catalog_bom_global_adjust_pct }}"
+        placeholder="0"
+      />
+      <p class="muted" style="margin:0.35rem 0 0;font-size:0.82rem">قيمة سالبة للتخفيض (مثل −10)</p>
+    </div>
+    <button class="btn btn-primary" type="submit">حفظ وإعادة حساب الأسعار</button>
+  </form>
+</div>
+
+<div class="card" id="modifier-presets-section">
+  <h2 style="margin-top: 0">ملاحظات الكاشير — القائمة العامة</h2>
+  <p class="muted" style="margin-top: 0">
+    أضف هنا العبارات الأكثر استخداماً (مثل: بدون هريسة، زيادة ملح، نادر الاستحمام).
+    ثم من <a href="/catalog/products">إدارة الأصناف</a> اختر لكل منتج ما يناسبه من هذه القائمة.
+    الصنف بدون ملاحظات مفعّلة يُضاف مباشرة للسلة في نقطة البيع.
+  </p>
+  {% if modifier_saved %}
+  <p style="margin:0 0 0.75rem;color:#15803d;font-weight:600">تم تحديث القائمة.</p>
+  {% endif %}
+  {% if modifier_presets and modifier_presets|length > 0 %}
+  <ul id="modifier-presets-list" style="list-style:none;padding:0;margin:0 0 0.75rem;display:flex;flex-direction:column;gap:0.35rem">
+    {% for p in modifier_presets %}
+    <li class="modifier-row" data-modifier-index="{{ loop.index0 }}" style="padding:0.4rem 0.55rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px">
+      <div class="modifier-row-view" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">
+        <span class="modifier-row-label" style="flex:1">{{ p }}</span>
+        <div style="display:flex;gap:0.35rem;flex-shrink:0">
+          <button type="button" class="btn modifier-edit-btn" style="padding:0.2rem 0.5rem;font-size:0.8rem">تحرير</button>
+          <form method="post" action="/admin/settings/line-modifier/remove/{{ loop.index0 }}" style="margin:0">
+            <button type="submit" class="btn" style="padding:0.2rem 0.5rem;font-size:0.8rem;color:#b91c1c;border-color:#fecaca">حذف</button>
+          </form>
+        </div>
+      </div>
+      <form method="post" action="/admin/settings/line-modifier/edit/{{ loop.index0 }}" class="modifier-row-edit" hidden style="display:none;align-items:center;gap:0.45rem;margin:0">
+        <input name="label" type="text" value="{{ p }}" maxlength="80" required style="flex:1;padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:6px" />
+        <button type="submit" class="btn btn-primary" style="padding:0.25rem 0.55rem;font-size:0.82rem;flex-shrink:0">حفظ</button>
+        <button type="button" class="btn modifier-cancel-btn" style="padding:0.25rem 0.55rem;font-size:0.82rem;flex-shrink:0">إلغاء</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  <script>
+  (function () {
+    var list = document.getElementById("modifier-presets-list");
+    if (!list) return;
+    list.addEventListener("click", function (e) {
+      var editBtn = e.target.closest(".modifier-edit-btn");
+      var cancelBtn = e.target.closest(".modifier-cancel-btn");
+      if (!editBtn && !cancelBtn) return;
+      var row = (editBtn || cancelBtn).closest(".modifier-row");
+      if (!row) return;
+      var view = row.querySelector(".modifier-row-view");
+      var form = row.querySelector(".modifier-row-edit");
+      var input = form ? form.querySelector('input[name="label"]') : null;
+      if (editBtn) {
+        e.preventDefault();
+        if (view) view.style.display = "none";
+        if (form) {
+          form.hidden = false;
+          form.style.display = "flex";
+        }
+        if (input) {
+          input.value = (row.querySelector(".modifier-row-label") || {}).textContent || input.value;
+          input.focus();
+          input.select();
+        }
+        row.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+      if (cancelBtn) {
+        e.preventDefault();
+        if (view) view.style.display = "flex";
+        if (form) {
+          form.hidden = true;
+          form.style.display = "none";
+        }
+      }
+    });
+  })();
+  </script>
+  {% else %}
+  <p class="muted" style="margin:0 0 0.75rem">لا توجد أزرار حالياً — يمكن للكاشير استخدام «ملاحظة إضافية» فقط.</p>
+  {% endif %}
+  <form method="post" action="/admin/settings/line-modifier/add" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:flex-end">
+    <div style="flex:1;min-width:12rem">
+      <label for="modifier_label" style="font-size:0.85rem">عبارة جديدة</label>
+      <input id="modifier_label" name="label" type="text" maxlength="80" placeholder="مثلاً: بدون بصل" style="width:100%" required />
+    </div>
+    <button type="submit" class="btn btn-primary">إضافة</button>
+  </form>
+</div>
+
+<div class="card" id="loss-reasons-section">
+  <h2 style="margin-top: 0">أسباب الهدر / الهالك — القائمة العامة</h2>
+  <p class="muted" style="margin-top: 0">
+    تُستخدم عند تسجيل هدر من <a href="/inventory">صفحة تتبع الصنف</a> (مثل: انتهت الصلاحية، سرقة، تلف).
+  </p>
+  {% if loss_saved %}
+  <p style="margin:0 0 0.75rem;color:#15803d;font-weight:600">تم تحديث قائمة أسباب الهدر.</p>
+  {% endif %}
+  {% if loss_reasons and loss_reasons|length > 0 %}
+  <ul id="loss-reasons-list" style="list-style:none;padding:0;margin:0 0 0.75rem;display:flex;flex-direction:column;gap:0.35rem">
+    {% for p in loss_reasons %}
+    <li class="loss-row" data-loss-index="{{ loop.index0 }}" style="padding:0.4rem 0.55rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px">
+      <div class="loss-row-view" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">
+        <span class="loss-row-label" style="flex:1">{{ p }}</span>
+        <div style="display:flex;gap:0.35rem;flex-shrink:0">
+          <button type="button" class="btn loss-edit-btn" style="padding:0.2rem 0.5rem;font-size:0.8rem">تحرير</button>
+          <form method="post" action="/admin/settings/loss-reason/remove/{{ loop.index0 }}" style="margin:0">
+            <button type="submit" class="btn" style="padding:0.2rem 0.5rem;font-size:0.8rem;color:#b91c1c;border-color:#fecaca">حذف</button>
+          </form>
+        </div>
+      </div>
+      <form method="post" action="/admin/settings/loss-reason/edit/{{ loop.index0 }}" class="loss-row-edit" hidden style="display:none;align-items:center;gap:0.45rem;margin:0">
+        <input name="label" type="text" value="{{ p }}" maxlength="80" required style="flex:1;padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:6px" />
+        <button type="submit" class="btn btn-primary" style="padding:0.25rem 0.55rem;font-size:0.82rem;flex-shrink:0">حفظ</button>
+        <button type="button" class="btn loss-cancel-btn" style="padding:0.25rem 0.55rem;font-size:0.82rem;flex-shrink:0">إلغاء</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  <script>
+  (function () {
+    var list = document.getElementById("loss-reasons-list");
+    if (!list) return;
+    list.addEventListener("click", function (e) {
+      var editBtn = e.target.closest(".loss-edit-btn");
+      var cancelBtn = e.target.closest(".loss-cancel-btn");
+      if (!editBtn && !cancelBtn) return;
+      var row = (editBtn || cancelBtn).closest(".loss-row");
+      if (!row) return;
+      var view = row.querySelector(".loss-row-view");
+      var form = row.querySelector(".loss-row-edit");
+      if (editBtn) {
+        e.preventDefault();
+        if (view) view.style.display = "none";
+        if (form) {
+          form.hidden = false;
+          form.style.display = "flex";
+          var input = form.querySelector("input[name=label]");
+          if (input) input.focus();
+        }
+      }
+      if (cancelBtn) {
+        e.preventDefault();
+        if (view) view.style.display = "flex";
+        if (form) {
+          form.hidden = true;
+          form.style.display = "none";
+        }
+      }
+    });
+  })();
+  </script>
+  {% else %}
+  <p class="muted" style="margin:0 0 0.75rem">لا توجد أسباب بعد.</p>
+  {% endif %}
+  <form method="post" action="/admin/settings/loss-reason/add" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:flex-end">
+    <div style="flex:1;min-width:12rem">
+      <label for="loss_label" style="font-size:0.85rem">سبب جديد</label>
+      <input id="loss_label" name="label" type="text" maxlength="80" placeholder="مثلاً: انتهت الصلاحية" style="width:100%" required />
+    </div>
+    <button type="submit" class="btn btn-primary">إضافة</button>
+  </form>
+</div>
+
+<div class="card" style="border-color:#fde68a;background:#fffbeb">
+  <h2 style="margin-top:0">كود تفويض الاسترداد (نقطة البيع)</h2>
+  <p class="muted" style="margin-top:0;font-size:0.9rem">
+    يُطلب من الكاشير عند الاسترداد من تبويب «جميع الطلبات». من يملك الكود فقط يمكنه متابعة الاسترداد.
+    {% if refund_auth_configured %}
+    <strong style="color:#15803d"> — مُضبط حالياً.</strong>
+    {% else %}
+    <strong style="color:#b91c1c"> — غير مُضبط.</strong>
+    {% endif %}
+  </p>
+  {% if refund_auth_saved %}
+  <p style="margin:0.5rem 0;color:#15803d;font-weight:600">تم حفظ إعداد كود الاسترداد.</p>
+  {% endif %}
+  {% if refund_auth_error %}
+  <div class="alert" style="margin:0.5rem 0">{{ refund_auth_error }}</div>
+  {% endif %}
+  <form method="post" action="/admin/settings" style="margin-top:0.75rem;display:flex;flex-wrap:wrap;gap:0.75rem;align-items:flex-end">
+    <input type="hidden" name="refund_code_save" value="1" />
+    <div>
+      <label for="refund_code" style="font-size:0.85rem">كود جديد (4–12 حرفاً)</label>
+      <input id="refund_code" name="refund_code" type="password" autocomplete="new-password" placeholder="••••••" style="max-width:14rem" />
+    </div>
+    <button type="submit" class="btn btn-primary">حفظ الكود</button>
+    <label style="display:flex;align-items:center;gap:0.35rem;font-size:0.88rem">
+      <input type="checkbox" name="clear_refund_code" value="on" />
+      حذف الكود الحالي
+    </label>
+  </form>
+</div>
+
+<div class="card pos-guide-panel" data-guide-title="ℹ️ صلاحية مقاس الطباعة">
   <h2 style="margin-top: 0">صلاحية اختيار المقاس للكاشير</h2>
   <p class="muted" style="margin-top: 0">
     إذا أردت السماح للكاشير بتغيير المقاس عند الطباعة، افتح
@@ -76,4 +629,20 @@
     <strong>«اختيار مقاس الطباعة وقت إصدار الفاتورة»</strong> للدور المطلوب.
   </p>
 </div>
+<script src="/static/kds_alert_sound.js"></script>
+<script>
+(function () {
+  var btn = document.getElementById("kds-sound-test-btn");
+  if (!btn || !window.KdsAlertSound) return;
+  btn.addEventListener("click", function () {
+    var profile = (document.getElementById("kds-sound-profile") || {}).value || "beep";
+    var vol = (document.getElementById("kds-sound-volume") || {}).value || 80;
+    KdsAlertSound.unlock().then(function () {
+      return KdsAlertSound.play(profile, vol);
+    }).catch(function () {
+      alert("تعذّر تشغيل الصوت — تأكد من مستوى الصوت في الجهاز.");
+    });
+  });
+})();
+</script>
 {% endblock %}

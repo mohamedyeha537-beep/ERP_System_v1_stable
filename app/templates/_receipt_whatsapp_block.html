@@ -1,0 +1,23 @@
+{# زر واتساب + حقل الهاتف عند الحاجة — يظهر دائماً بجوار الطباعة #}
+{% set _wa_phone = wa_phone|default(whatsapp_receipt_phone|default('')) %}
+{% set _wa_url = wa_send_url|default(whatsapp_send_url|default('')) %}
+{% set _wa_sid = wa_sale_id|default('') %}
+{% set _wa_bid = wa_booking_id|default('') %}
+{% set _wa_layout = wa_layout|default('stack') %}
+{% if _wa_url %}
+<div class="receipt-wa-block no-print receipt-wa-block--{{ _wa_layout }}">
+  <button type="button" class="btn pos-receipt-whatsapp-btn{% if wa_btn_class %} {{ wa_btn_class }}{% endif %}"
+    {% if _wa_sid %}data-sale-id="{{ _wa_sid }}"{% endif %}
+    {% if _wa_bid %}data-booking-id="{{ _wa_bid }}"{% endif %}
+    data-send-url="{{ _wa_url }}"
+    data-phone="{{ _wa_phone }}">
+    📱 إرسال واتساب{% if _wa_phone %} <span dir="ltr">({{ _wa_phone }})</span>{% endif %}
+  </button>
+  <label class="receipt-wa-phone-wrap" style="display:{% if _wa_phone %}none{% else %}inline-flex{% endif %}">
+    <span class="muted">رقم واتساب:</span>
+    <input type="tel" class="receipt-wa-phone-input input" dir="ltr" placeholder="09xxxxxxxx"
+      value="{{ _wa_phone }}" autocomplete="tel" />
+  </label>
+  <span class="receipt-wa-status muted"></span>
+</div>
+{% endif %}

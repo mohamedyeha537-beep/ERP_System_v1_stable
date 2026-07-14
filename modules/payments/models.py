@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import enum
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
+    Date,
     DateTime,
     Enum,
     ForeignKey,
@@ -23,6 +24,13 @@ class PaymentMethodKind(str, enum.Enum):
     CASH = "CASH"
     BANK = "BANK"
     OTHER = "OTHER"
+
+
+class PaymentMethodDomain(str, enum.Enum):
+    """مجال الحساب المالي — يحدد من يراه في المطعم أو الفندق."""
+    SHARED = "shared"
+    RESTAURANT = "restaurant"
+    HOTEL = "hotel"
 
 
 class PaymentMethod(Base):
@@ -45,6 +53,19 @@ class PaymentMethod(Base):
     is_system: Mapped[bool] = mapped_column(Boolean, default=False)
     #: إظهار بطاقة الرصيد في لوحة «الخزينة والذمم».
     show_on_dashboard: Mapped[bool] = mapped_column(Boolean, default=True)
+    #: مطعم · فندق · مشترك — يحدد ظهور الحساب لكل قسم.
+    business_domain: Mapped[PaymentMethodDomain] = mapped_column(
+        Enum(
+            PaymentMethodDomain,
+            values_callable=lambda obj: [e.value for e in obj],
+            native_enum=False,
+            length=20,
+        ),
+        default=PaymentMethodDomain.SHARED,
+        index=True,
+    )
+    #: أيقونة مخصّصة في نقطة البيع (مسار نسبي تحت static/)
+    icon_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
 
 SUPPLIER_CREDIT_PM_NAME = "ذمم دائن — مورد (آجل)"
@@ -52,6 +73,28 @@ OWNER_EQUITY_PM_NAME = "حساب المالك — حقوق الملكية"
 # أسماء قديمة — تُدمَّج تلقائياً في حساب المالك الموحّد
 LEGACY_OWNER_DRAW_PM_NAME = "سحوبات المالك — حقوق الملكية"
 LEGACY_OWNER_CAPITAL_PM_NAME = "إيداعات المالك — حقوق الملكية"
+MAIN_TREASURY_CASH_PM_NAME = "الخزينة الرئيسية — كاش"
+MAIN_TREASURY_BANK_PM_NAME = "الخزينة الرئيسية — مصرف"
+HOTEL_TREASURY_CASH_PM_NAME = "خزينة الفندق — كاش"
+HOTEL_TREASURY_BANK_PM_NAME = "خزينة الفندق — مصرف"
+RESTAURANT_PURCHASE_CUSTODY_CASH_PM_NAME = "عهدة مشتريات — مطعم — كاش"
+RESTAURANT_PURCHASE_CUSTODY_BANK_PM_NAME = "عهدة مشتريات — مطعم — مصرف"
+HOTEL_PURCHASE_CUSTODY_CASH_PM_NAME = "عهدة مشتريات — فندق — كاش"
+HOTEL_PURCHASE_CUSTODY_BANK_PM_NAME = "عهدة مشتريات — فندق — مصرف"
+# أسماء قديمة — تُرقَّى تلقائياً إلى كاش
+LEGACY_RESTAURANT_PURCHASE_CUSTODY_PM_NAME = "عهدة مشتريات — مطعم"
+LEGACY_HOTEL_PURCHASE_CUSTODY_PM_NAME = "عهدة مشتريات — فندق"
+
+PURCHASE_CUSTODY_PM_NAMES: frozenset[str] = frozenset(
+    {
+        RESTAURANT_PURCHASE_CUSTODY_CASH_PM_NAME,
+        RESTAURANT_PURCHASE_CUSTODY_BANK_PM_NAME,
+        HOTEL_PURCHASE_CUSTODY_CASH_PM_NAME,
+        HOTEL_PURCHASE_CUSTODY_BANK_PM_NAME,
+        LEGACY_RESTAURANT_PURCHASE_CUSTODY_PM_NAME,
+        LEGACY_HOTEL_PURCHASE_CUSTODY_PM_NAME,
+    }
+)
 
 
 class PaymentTransferType(str, enum.Enum):
@@ -59,6 +102,8 @@ class PaymentTransferType(str, enum.Enum):
     MANUAL = "MANUAL"
     OWNER_DRAW = "OWNER_DRAW"
     OWNER_CAPITAL = "OWNER_CAPITAL"
+    SALE_PAYMENT_CORRECTION = "SALE_PAYMENT_CORRECTION"
+    SHIFT_HANDOFF = "SHIFT_HANDOFF"
 
 
 class SalePayment(Base):
@@ -183,6 +228,14 @@ class PurchaseKind(str, enum.Enum):
     ASSET = "ASSET"  # أصول/أدوات تستهلك في الشركة (بنود حرّة، لا تباع)
 
 
+class PurchaseLineKind(str, enum.Enum):
+    """تصنيف بند داخل فاتورة الشراء الموحّدة (مخزون / أصل / استهلاك)."""
+
+    PRODUCT = "PRODUCT"
+    FIXED_ASSET = "FIXED_ASSET"
+    CONSUMABLE = "CONSUMABLE"
+
+
 class Purchase(Base):
     """عملية صرف من المحفظة: قد تكون فاتورة شراء بضاعة (لها بنود) أو مصروفاً عاماً (مبلغ فقط)."""
 
@@ -196,6 +249,7 @@ class Purchase(Base):
         Enum(PurchaseKind), default=PurchaseKind.EXPENSE, index=True
     )
     supplier: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    supplier_phone: Mapped[str | None] = mapped_column(String(40), nullable=True)
     #: رقم أو مرجع فاتورة المورّد الخارجية (للتوثيق والمطابقة).
     supplier_invoice_ref: Mapped[str | None] = mapped_column(String(120), nullable=True)
     #: مسار نسبي تحت static — صورة فاتورة المورّد (مثل uploads/purchases/supplier_invoices/…).
@@ -218,6 +272,22 @@ class Purchase(Base):
     warehouse_id: Mapped[int | None] = mapped_column(
         ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=True, index=True
     )
+    pos_shift_id: Mapped[int | None] = mapped_column(
+        ForeignKey("pos_shifts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    hotel_shift_id: Mapped[int | None] = mapped_column(
+        ForeignKey("hotel_shifts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    #: رقم استلام المخزون — يُولَّد تلقائياً عند حفظ فاتورة الشراء (مثل GR-000042).
+    receipt_batch_no: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    business_domain: Mapped[PaymentMethodDomain] = mapped_column(
+        Enum(
+            PaymentMethodDomain,
+            values_callable=lambda obj: [e.value for e in obj],
+        ),
+        default=PaymentMethodDomain.RESTAURANT,
+        index=True,
+    )
 
     method: Mapped[PaymentMethod] = relationship()
     warehouse = relationship("Warehouse", foreign_keys=[warehouse_id])
@@ -235,10 +305,10 @@ class Purchase(Base):
 
 class PurchaseLine(Base):
     """بند فاتورة شراء.
-    - INVENTORY: product_id مطلوب (ينعكس على المخزون).
-    - ASSET: item_name مطلوب (نص حر) ولا تأثير على المخزون.
-        * useful_life_months = 0 / NULL → بند استهلاكي (يخصم بالكامل في شهر الشراء).
-        * useful_life_months > 0 → أصل ثابت (يُهلَك على فترة العمر الإنتاجي بطريقة القسط الثابت).
+    - PRODUCT: product_id مطلوب (ينعكس على المخزون) — داخل فاتورة INVENTORY.
+    - FIXED_ASSET: item_name + useful_life_months > 0 (إهلاك).
+    - CONSUMABLE: item_name + useful_life_months = 0 (مصروف فوري).
+    - فواتير ASSET القديمة: بدون line_kind؛ يُستنتج من useful_life_months.
     - EXPENSE: لا يستخدم بنوداً (يُحفظ كمبلغ فقط).
     """
 
@@ -251,6 +321,8 @@ class PurchaseLine(Base):
     product_id: Mapped[int | None] = mapped_column(
         ForeignKey("products.id", ondelete="RESTRICT"), nullable=True
     )
+    #: PRODUCT | FIXED_ASSET | CONSUMABLE — اختياري للتوافق مع الفواتير القديمة.
+    line_kind: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
     item_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     unit: Mapped[str | None] = mapped_column(String(32), nullable=True)
     quantity: Mapped[Decimal] = mapped_column(Numeric(14, 4))
@@ -262,9 +334,30 @@ class PurchaseLine(Base):
     disposal_date: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    #: رقم الدفعة داخل فاتورة الشراء (مثل GR-000042-L01) — للأصناف ذات الصلاحية.
+    lot_code: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    production_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    expiry_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     purchase: Mapped[Purchase] = relationship(back_populates="lines")
     product = relationship("Product", foreign_keys=[product_id])
+
+    @property
+    def resolved_line_kind(self) -> str:
+        raw = (self.line_kind or "").strip().upper()
+        if raw in (
+            PurchaseLineKind.PRODUCT.value,
+            PurchaseLineKind.FIXED_ASSET.value,
+            PurchaseLineKind.CONSUMABLE.value,
+        ):
+            return raw
+        if self.product_id is not None:
+            return PurchaseLineKind.PRODUCT.value
+        if self.useful_life_months and int(self.useful_life_months) > 0:
+            return PurchaseLineKind.FIXED_ASSET.value
+        if (self.item_name or "").strip():
+            return PurchaseLineKind.CONSUMABLE.value
+        return PurchaseLineKind.PRODUCT.value
 
     @property
     def display_name(self) -> str:
@@ -276,7 +369,17 @@ class PurchaseLine(Base):
 
     @property
     def is_fixed_asset(self) -> bool:
+        if self.resolved_line_kind == PurchaseLineKind.FIXED_ASSET.value:
+            return True
         return bool(self.useful_life_months and int(self.useful_life_months) > 0)
+
+    @property
+    def is_product_line(self) -> bool:
+        return self.resolved_line_kind == PurchaseLineKind.PRODUCT.value
+
+    @property
+    def is_consumable_line(self) -> bool:
+        return self.resolved_line_kind == PurchaseLineKind.CONSUMABLE.value
 
     @property
     def depreciable_base(self) -> Decimal:
@@ -328,6 +431,16 @@ class RecurringCost(Base):
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    business_domain: Mapped[PaymentMethodDomain] = mapped_column(
+        Enum(
+            PaymentMethodDomain,
+            values_callable=lambda obj: [e.value for e in obj],
+            native_enum=False,
+            length=20,
+        ),
+        default=PaymentMethodDomain.RESTAURANT,
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

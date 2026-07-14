@@ -1,0 +1,342 @@
+{% set in_modal = checkout_modal|default(false) %}
+
+{% if error %}
+<div class="alert">{{ error }}</div>
+{% endif %}
+{% if ok %}
+<div class="alert" style="border-color:#86efac;background:#f0fdf4;color:#166534">{{ ok }}</div>
+{% endif %}
+
+{% if ctx == 'ROOM' and pre_room %}
+<div class="card" style="background:linear-gradient(135deg,#fef3c7,#fde68a); border-color:#f59e0b">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem">
+    <div>
+      <div style="color:#92400e;font-size:0.9rem">السياق</div>
+      <div style="font-size:1.4rem;font-weight:700;color:#78350f">🏨 على حساب الشقة #{{ pre_room.number }}</div>
+    </div>
+    <div style="color:#92400e;font-size:0.9rem;text-align:end">
+      ⚠️ لن يتم التحصيل الآن.<br>
+      ستُسوّى لاحقاً عند خروج النزيل.
+    </div>
+  </div>
+</div>
+{% elif ctx == 'EXTERNAL' and customer %}
+<div class="card" style="background:linear-gradient(135deg,#dcfce7,#bbf7d0); border-color:#16a34a">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem">
+    <div>
+      <div style="color:#15803d;font-size:0.9rem">
+        {% if sale.external_order_type.value == 'DELIVERY' %}طلب توصيل خارجي{% else %}طلب استلام خارجي{% endif %}
+      </div>
+      <div style="font-size:1.3rem;font-weight:700;color:#14532d">📞 {{ customer.phone }}{% if customer.name %} — {{ customer.name }}{% endif %}</div>
+      {% if sale.external_order_type.value == 'DELIVERY' %}
+      <div style="margin-top:0.3rem;font-size:0.88rem;color:#166534">
+        🚚 {{ sale.delivery_zone_name or 'منطقة توصيل' }} · أجرة التوصيل {{ pos_money(sale.delivery_fee) }} <span class="money-currency">د.ل</span>
+      </div>
+      {% endif %}
+    </div>
+    <div style="color:#15803d;font-size:0.9rem;text-align:end">
+      {% if customer.points_balance and customer.points_balance > 0 %}
+      ⭐ {{ '%.0f' % customer.points_balance }} نقطة =
+      {{ pos_money(customer_points_value if customer_points_value is defined else (customer.points_balance * loyalty.redeem_value_per_point)) }}
+      <span class="money-currency">د.ل</span><br>
+      {% endif %}
+      يمكن استخدام النقاط كخصم عند الدفع إن بلغ الحد الأدنى، وتُمنح نقاط جديدة على المبلغ المدفوع.
+    </div>
+  </div>
+</div>
+{% elif ctx == 'EXTERNAL' %}
+<div class="card" style="background:#f1f5f9;border-color:#cbd5e1">
+  <p style="margin:0">
+    📞 {% if sale.external_order_type.value == 'DELIVERY' %}طلب توصيل خارجي{% else %}طلب خارجي بدون عميل مسجَّل{% endif %}
+    {% if sale.external_order_type.value == 'DELIVERY' %}
+      — {{ sale.delivery_zone_name or 'منطقة غير محددة' }} — أجرة التوصيل {{ pos_money(sale.delivery_fee) }} <span class="money-currency">د.ل</span>
+    {% else %}
+      (أدخل الهاتف أدناه لربط العميل والنقاط).
+    {% endif %}
+  </p>
+</div>
+{% elif ctx == 'TABLE' %}
+<div class="card" style="background:linear-gradient(135deg,#eff6ff,#dbeafe); border-color:#93c5fd">
+  <div style="font-size:0.9rem;color:#1e40af;margin-bottom:0.35rem">🪑 طلب طاولة{% if sale.table %} — {{ sale.table.name_ar }}{% endif %}</div>
+  {% if customer and customer.name %}
+  <p style="margin:0 0 0.35rem;font-size:0.92rem;color:#047857;font-weight:700">
+    ✓ {{ customer.name }} — <span dir="ltr">{{ customer.phone }}</span>
+    {% if customer.points_balance and customer.points_balance > 0 %}
+    · {{ '%.0f' % customer.points_balance }} نقطة
+    {% endif %}
+  </p>
+  {% elif customer %}
+  <p style="margin:0 0 0.35rem;font-size:0.92rem;color:#047857;font-weight:700">
+    ✓ عميل مسجّل — <span dir="ltr">{{ customer.phone }}</span>
+    {% if customer.points_balance and customer.points_balance > 0 %}
+    · {{ '%.0f' % customer.points_balance }} نقطة
+    {% endif %}
+  </p>
+  {% else %}
+  <p style="margin:0;font-size:0.88rem;color:#1e3a8a">
+    أدخل هاتف الزبون هنا لربط نقاط الولاء (كسب وصرف) — يُعرَف العميل تلقائياً عند إكمال 10 أرقام.
+  </p>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top: 0">ملخص الفاتورة #{{ sale.id }}</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>الصنف</th>
+        <th>الكمية</th>
+        <th>السعر</th>
+        <th>الإجمالي</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for line in cart_lines %}
+      <tr>
+        <td>{{ line.product.name_ar }}</td>
+        <td>{{ pos_qty(line.quantity) }}</td>
+        <td>{{ pos_money(line.unit_price) }}</td>
+        <td>{{ pos_money(line.line_total) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="checkout-summary" style="margin-top: 0.75rem">
+    <span>{% if ctx == 'EXTERNAL' and sale.external_order_type.value == 'DELIVERY' %}قيمة الطلب للمطعم{% else %}المبلغ المستحق{% endif %}</span>
+    <span>{{ pos_money(sale.total) }} <span class="money-currency">د.ل</span></span>
+  </div>
+  {% if ctx == 'EXTERNAL' and sale.external_order_type.value == 'DELIVERY' %}
+  <div style="margin-top:0.7rem;border:1px dashed #f59e0b;border-radius:10px;padding:0.8rem 1rem;background:#fff7ed">
+    <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+      <div>
+        <div style="font-weight:700;color:#9a3412">أجرة التوصيل نقداً للسائق</div>
+        <div style="font-size:0.88rem;color:#7c2d12">
+          ستُخصم تلقائياً من محفظة الكاش{% if delivery_cash_method %} ({{ delivery_cash_method.name_ar }}){% endif %} ولن تُحتسب مبيعاً للمطعم.
+        </div>
+      </div>
+      <div style="font-weight:800;color:#9a3412">{{ pos_money(sale.delivery_fee) }} <span class="money-currency">د.ل</span></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-top:0.65rem;padding-top:0.65rem;border-top:1px solid #fdba74">
+      <div style="font-weight:700">إجمالي ما سيدفعه الزبون</div>
+      <div style="font-weight:800">{{ pos_money(sale.total + sale.delivery_fee) }} <span class="money-currency">د.ل</span></div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">طريقة التحصيل</h2>
+
+  <form method="post" action="/pos/checkout" id="pay-form" enctype="multipart/form-data" class="pos-checkout-form">
+    <input type="hidden" name="pay_mode" value="now" />
+    {% if in_modal %}<input type="hidden" name="return_to" value="modal" />{% endif %}
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:0.85rem;align-items:start">
+      <div class="card" style="background:#f8fafc;border-color:#dbeafe;margin-bottom:0">
+        <h3 style="margin:0 0 0.55rem;color:#1e40af">قسم العملاء</h3>
+        <label style="display:flex;align-items:flex-start;gap:0.45rem;font-weight:700;margin-bottom:0.55rem">
+          <input type="radio" name="checkout_party" value="customer" id="checkout-party-customer" checked style="width:auto;margin-top:0.2rem" />
+          تحصيل كعميل عادي
+        </label>
+        <div id="checkout-customer-fields">
+          {% include "_checkout_customer_loyalty.html" %}
+        </div>
+      </div>
+
+      <div class="card" style="background:#fff7ed;border-color:#fdba74;margin-bottom:0">
+        <h3 style="margin:0 0 0.55rem;color:#9a3412">قسم الموظفين</h3>
+        <label style="display:flex;align-items:flex-start;gap:0.45rem;font-weight:700;margin-bottom:0.55rem">
+          <input type="radio" name="checkout_party" value="employee" id="checkout-party-employee" style="width:auto;margin-top:0.2rem" />
+          تحصيل كوجبة موظف
+        </label>
+        <div id="employee-checkout-fields" style="display:none" data-employee-fields>
+          <label style="display:block;font-size:0.84rem;color:var(--muted)">الموظف</label>
+          <select class="input" name="employee_meal_employee_id" id="employee-meal-employee" style="width:100%">
+            <option value="">— اختر موظفاً —</option>
+            {% for opt in employee_meal_options %}
+            <option value="{{ opt.employee.id }}"
+                    data-balance="{{ opt.balance }}"
+                    data-phone="{{ opt.employee.phone or '' }}"
+                    data-name="{{ opt.employee.full_name_ar }}">
+              {{ opt.employee.full_name_ar }} — المتبقي {{ pos_money(opt.balance) }} د.ل
+            </option>
+            {% endfor %}
+          </select>
+          <div style="display:grid;gap:0.45rem;margin-top:0.65rem">
+            <label style="display:flex;gap:0.45rem;align-items:flex-start">
+              <input type="radio" name="employee_meal_payment" value="personal" checked style="width:auto;margin-top:0.2rem" />
+              <span>
+                الموظف يدفع قيمة الوجبة
+                <small class="muted" style="display:block">تُحتسب نقاط الولاء على المبلغ الذي يدفعه الموظف.</small>
+              </span>
+            </label>
+            <label style="display:flex;gap:0.45rem;align-items:flex-start">
+              <input type="radio" name="employee_meal_payment" value="wallet" style="width:auto;margin-top:0.2rem" />
+              <span>
+                المطعم يدفع من رصيد وجبات الموظف
+                <small class="muted" style="display:block">يُخصم المتاح من رصيد الشهر، وأي فرق يدفعه الموظف وتُحتسب عليه النقاط فقط.</small>
+              </span>
+            </label>
+          </div>
+          <p id="employee-meal-summary" class="muted" style="margin:0.65rem 0 0;font-size:0.84rem;color:#9a3412">
+            اختر موظفاً لعرض رصيد الوجبات.
+          </p>
+          <p class="muted" style="margin:0.35rem 0 0;font-size:0.78rem">
+            فترة الرصيد الحالية: {{ employee_meal_period }}
+          </p>
+        </div>
+      </div>
+    </div>
+    <script>
+      (function () {
+        var form = document.currentScript && document.currentScript.closest("form");
+        if (!form) return;
+        var fields = form.querySelector("[data-employee-fields]");
+        function syncEmployeeFieldsFallback() {
+          var selected = form.querySelector('input[name="checkout_party"]:checked');
+          if (fields) fields.style.display = selected && selected.value === "employee" ? "block" : "none";
+        }
+        form.querySelectorAll('input[name="checkout_party"]').forEach(function (input) {
+          input.addEventListener("change", syncEmployeeFieldsFallback);
+        });
+        syncEmployeeFieldsFallback();
+      })();
+    </script>
+    <div id="checkout-loyalty-redeem">
+      {% include "_checkout_loyalty_redeem.html" %}
+    </div>
+    {% include "_checkout_financial_preview.html" %}
+
+    <div class="mode-panel active" data-mode-panel="now">
+      {% if ctx == 'EXTERNAL' and sale.external_order_type.value == 'DELIVERY' %}
+      <div style="background:#eff6ff;border:1px solid #93c5fd;border-radius:10px;padding:0.75rem 1rem;margin-bottom:0.75rem;color:#1d4ed8;font-size:0.92rem">
+        اختر هنا <strong>طريقة دفع قيمة الطلب فقط</strong>. أمّا <strong>أجرة التوصيل</strong> فستُسجّل كخصم كاش مستقل للسائق.
+      </div>
+      {% endif %}
+      {% if methods %}
+      <p class="muted" style="margin:0 0 0.65rem;font-size:0.9rem">
+        اختر وسيلة الدفع — لا يوجد اختيار افتراضي.
+      </p>
+      <div class="pay-grid" id="pay-method-grid">
+        {% for m in methods %}
+        {% set method = m %}
+        <label class="pay-tile" data-pay-tile>
+          <input type="radio" name="payment_method_id" value="{{ m.id }}" />
+          {% include "_payment_method_icon.html" %}
+          <span class="pay-tile-name">{{ m.name_ar }}</span>
+          <span class="pay-tile-kind">{{ {'CASH': 'كاش', 'BANK': 'مصرف', 'OTHER': 'أخرى'}.get(m.kind.value, '') }}</span>
+        </label>
+        {% endfor %}
+      </div>
+      <div class="card" id="split-payment-block" style="margin-top:0.85rem;background:#f8fafc;border-color:#cbd5e1">
+        <label style="display:flex;align-items:flex-start;gap:0.5rem;font-weight:700;cursor:pointer">
+          <input type="checkbox" name="split_payment" id="split-payment-toggle" value="1" style="width:auto;margin-top:0.2rem" />
+          <span>
+            دفع مقسّم
+            <span class="muted" style="display:block;font-weight:400;font-size:0.84rem;margin-top:0.2rem">
+              استخدمه إذا دفع الزبون جزء كاش وجزء مصرف. يجب أن يساوي مجموع المبالغ المطلوب دفعه.
+            </span>
+          </span>
+        </label>
+        <div id="split-payment-fields" style="display:none;margin-top:0.75rem">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.65rem">
+            {% for m in methods %}
+            <div>
+              <label style="font-size:0.82rem;color:var(--muted)">{{ m.name_ar }}</label>
+              <input class="input split-payment-amount" type="number" step="0.001" min="0" inputmode="decimal"
+                     name="split_amount_{{ m.id }}" data-method-kind="{{ m.kind.value }}" placeholder="0.000"
+                     style="width:100%;max-width:none" />
+            </div>
+            {% endfor %}
+          </div>
+          <p class="muted" id="split-payment-summary" style="margin:0.65rem 0 0;font-size:0.84rem">
+            مجموع الدفع المقسّم: 0 د.ل
+          </p>
+        </div>
+      </div>
+      {% else %}
+      <div class="alert">
+        لا توجد أساليب دفع مفعّلة. على الأدمن إضافة أسلوب واحد على الأقل من
+        <a href="/admin/payment-methods">إدارة أساليب الدفع</a>.
+      </div>
+      {% endif %}
+      {% if ctx == 'EXTERNAL' and sale.external_order_type.value == 'DELIVERY' and not delivery_cash_method %}
+      <div class="alert" style="margin-top:0.75rem">
+        لا توجد محفظة <strong>كاش</strong> مفعّلة لخصم أجرة التوصيل منها. فعّل وسيلة دفع كاش واحدة على الأقل قبل إتمام هذا الطلب.
+      </div>
+      {% endif %}
+      <div
+        id="pay-method-error"
+        class="alert"
+        role="alert"
+        style="margin-top: 0.75rem; border-color: #f87171; background: #fef2f2; color: #b91c1c;{% if not error %} display: none;{% endif %}"
+      >
+        اختر وسيلة الدفع المناسبة
+      </div>
+    </div>
+
+    {% if show_delivery_driver_button %}
+    <div style="margin-top:1rem">
+      <button
+        type="button"
+        class="btn"
+        id="open-driver-dialog-btn"
+        style="width:100%;border-color:#fdba74;background:#fff7ed;color:#9a3412;font-weight:700"
+      >
+        {% if delivery_handoff %}
+          🚗 {{ delivery_handoff.driver_name }} — <span dir="ltr">{{ delivery_handoff.driver_phone }}</span>
+        {% else %}
+          تسليم السائق
+        {% endif %}
+      </button>
+    </div>
+    {% endif %}
+
+    <div class="row" style="margin-top: 1rem; gap: 0.5rem">
+      <button class="btn btn-primary pos-pay" type="submit" id="pay-submit-btn">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align: -3px; margin-inline-end: 0.3rem">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+        تأكيد البيع وطباعة الفاتورة
+      </button>
+      {% if in_modal %}
+      <button type="button" class="btn" id="pos-checkout-cancel">إلغاء</button>
+      {% else %}
+      <a class="btn" href="/pos">إلغاء والعودة للسلة</a>
+      {% endif %}
+    </div>
+  </form>
+
+  {% if show_delivery_driver_button %}
+  <dialog id="checkout-driver-dialog" class="pos-refund-code-dialog">
+    <form method="post" action="/pos/order/{{ sale.id }}/assign-driver" class="pos-refund-code-dialog-inner">
+      <input type="hidden" name="return_to" value="{{ 'modal' if in_modal else 'checkout' }}" />
+      <h3 style="margin:0 0 0.5rem">تسليم السائق</h3>
+      <p class="muted" style="margin:0 0 0.75rem;font-size:0.88rem">اختر سائقاً سابقاً أو أدخل بيانات سائق جديد.</p>
+      {% if saved_drivers %}
+      <label style="font-size:0.82rem" for="checkout-driver-pick">سائق سابق</label>
+      <select id="checkout-driver-pick" class="input" style="width:100%;margin-bottom:0.65rem">
+        <option value="">— اختر —</option>
+        {% for d in saved_drivers %}
+        <option value="{{ d.id }}" data-name="{{ d.name }}" data-phone="{{ d.phone }}">{{ d.name }} — {{ d.phone }}</option>
+        {% endfor %}
+      </select>
+      {% endif %}
+      <label for="checkout-driver-name">اسم السائق</label>
+      <input id="checkout-driver-name" name="driver_name" required class="input" style="width:100%"
+             value="{{ delivery_handoff.driver_name if delivery_handoff else '' }}" />
+      <label for="checkout-driver-phone" style="margin-top:0.5rem">رقم الهاتف</label>
+      <input id="checkout-driver-phone" name="driver_phone" required class="input" dir="ltr" style="width:100%"
+             value="{{ delivery_handoff.driver_phone if delivery_handoff else '' }}" />
+      <label for="checkout-driver-note" style="margin-top:0.5rem">ملاحظة (اختياري)</label>
+      <input id="checkout-driver-note" name="driver_note" class="input" style="width:100%"
+             value="{{ delivery_handoff.note if delivery_handoff and delivery_handoff.note else '' }}" />
+      <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;flex-wrap:wrap">
+        <button type="button" class="btn" id="checkout-driver-cancel">إلغاء</button>
+        <button type="submit" class="btn btn-primary">تسليم السائق</button>
+      </div>
+    </form>
+  </dialog>
+  {% endif %}
+</div>

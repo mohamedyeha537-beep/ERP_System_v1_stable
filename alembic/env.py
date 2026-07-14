@@ -5,11 +5,9 @@ from sqlalchemy import engine_from_config, pool
 
 from infra.config import get_settings
 from infra.db import Base
+from infra.model_registry import import_all_models
 
-import modules.authz.models  # noqa: F401
-import modules.catalog.models  # noqa: F401
-import modules.inventory.models  # noqa: F401
-import modules.sales.models  # noqa: F401
+import_all_models()
 
 config = context.config
 if config.config_file_name is not None:

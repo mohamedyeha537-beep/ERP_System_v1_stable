@@ -1,0 +1,26 @@
+{# أيقونة وسيلة الدفع — صورة مخصّصة أو SVG افتراضي حسب النوع #}
+{% if method.icon_path %}
+<img class="pay-tile-icon-img" src="/static/{{ method.icon_path }}" alt="" width="40" height="40" loading="lazy" />
+{% elif method.kind.value == 'CASH' %}
+<svg class="pay-tile-icon-svg" viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <rect x="2" y="6" width="20" height="12" rx="2"></rect>
+  <circle cx="12" cy="12" r="3"></circle>
+  <path d="M6 10h.01M18 14h.01"></path>
+</svg>
+{% elif method.kind.value == 'BANK' %}
+<svg class="pay-tile-icon-svg" viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <path d="M3 21h18"></path>
+  <path d="M3 10h18"></path>
+  <path d="M5 6l7-3 7 3"></path>
+  <path d="M4 10v11"></path>
+  <path d="M20 10v11"></path>
+  <path d="M8 14v4"></path>
+  <path d="M12 14v4"></path>
+  <path d="M16 14v4"></path>
+</svg>
+{% else %}
+<svg class="pay-tile-icon-svg" viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <rect x="2" y="4" width="20" height="16" rx="3"></rect>
+  <path d="M2 10h20"></path>
+</svg>
+{% endif %}

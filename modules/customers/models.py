@@ -26,6 +26,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from infra.db import Base
 
 
+class CustomerType(str, enum.Enum):
+    INDIVIDUAL = "INDIVIDUAL"
+    COMPANY = "COMPANY"
+
+
 class Customer(Base):
     __tablename__ = "customers"
     __table_args__ = (UniqueConstraint("phone", name="uq_customers_phone"),)
@@ -35,9 +40,16 @@ class Customer(Base):
     name: Mapped[str | None] = mapped_column(String(160), nullable=True)
     email: Mapped[str | None] = mapped_column(String(160), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    customer_type: Mapped[CustomerType] = mapped_column(
+        Enum(CustomerType), default=CustomerType.INDIVIDUAL, index=True
+    )
+    company_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     points_balance: Mapped[Decimal] = mapped_column(
         Numeric(14, 3), default=Decimal("0")
+    )
+    wallet_balance: Mapped[Decimal] = mapped_column(
+        Numeric(14, 3), default=Decimal("0"), server_default="0"
     )
     total_spent: Mapped[Decimal] = mapped_column(
         Numeric(14, 3), default=Decimal("0")
@@ -48,6 +60,9 @@ class Customer(Base):
     )
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    referral_code: Mapped[str | None] = mapped_column(
+        String(32), unique=True, nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -55,6 +70,29 @@ class Customer(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
+class ReferralEvent(Base):
+    """إحالة ناجحة — نقاط للمحيل والمشتري."""
+
+    __tablename__ = "referral_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    referrer_customer_id: Mapped[int] = mapped_column(
+        ForeignKey("customers.id", ondelete="CASCADE"), index=True
+    )
+    buyer_customer_id: Mapped[int] = mapped_column(
+        ForeignKey("customers.id", ondelete="CASCADE"), index=True
+    )
+    sale_id: Mapped[int] = mapped_column(
+        ForeignKey("sales.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    referral_code: Mapped[str] = mapped_column(String(32))
+    referrer_points: Mapped[Decimal] = mapped_column(Numeric(14, 3), default=Decimal("0"))
+    buyer_points: Mapped[Decimal] = mapped_column(Numeric(14, 3), default=Decimal("0"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True
     )
 
 
@@ -82,6 +120,38 @@ class LoyaltyTransaction(Base):
     points: Mapped[Decimal] = mapped_column(
         Numeric(14, 3), default=Decimal("0")
     )  # موجبة للكسب، سالبة للاستخدام
+    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        index=True,
+    )
+    created_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+    customer: Mapped[Customer] = relationship(lazy="selectin")
+
+
+class WalletTxnKind(str, enum.Enum):
+    TOPUP = "TOPUP"
+    SPEND = "SPEND"
+    ADJUST = "ADJUST"
+
+
+class CustomerWalletTransaction(Base):
+    """سجل حركات محفظة العميل (رصيد نقدي)."""
+
+    __tablename__ = "customer_wallet_transactions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("customers.id", ondelete="CASCADE"), index=True
+    )
+    kind: Mapped[WalletTxnKind] = mapped_column(
+        Enum(WalletTxnKind), default=WalletTxnKind.ADJUST, index=True
+    )
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 3), default=Decimal("0"))
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

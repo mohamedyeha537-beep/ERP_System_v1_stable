@@ -31,6 +31,7 @@
 {% endblock %}
 {% block body %}
 {% if page_error %}<div class="alert">{{ page_error }}</div>{% endif %}
+{% set pm_qs = '&pm=' ~ selected_pm_id if selected_pm_id else '' %}
 <div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem">
   <h1 style="margin:0">{{ kind_label }}</h1>
   <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
@@ -43,6 +44,7 @@
 
 {% if treasury_accounts|length > 1 %}
 <form method="get" action="/pos/treasury" class="row" style="gap:0.5rem;align-items:flex-end;flex-wrap:wrap;margin:0.5rem 0">
+  <input type="hidden" name="kind" value="{{ kind }}" />
   <input type="hidden" name="dir" value="{{ filter_dir }}" />
   {% if filter_day %}<input type="hidden" name="day" value="{{ filter_day }}" />{% endif %}
   <label style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.85rem">
@@ -71,7 +73,7 @@
     <div class="label">رصيد آخر إقفال جلسة</div>
     {% if summary.last_close_shift_id %}
     <div class="muted" style="font-size:0.78rem;margin-top:0.15rem">جلسة #{{ summary.last_close_shift_id }}
-      {% if summary.last_close_at %} · {{ summary.last_close_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}
+      {% if summary.last_close_at %} · {{ pos_format_dt(summary.last_close_at, '%Y-%m-%d %H:%M') }}{% endif %}
     </div>
     {% endif %}
     <div class="value">{{ pos_money(summary.last_close_balance) }} <span class="money-currency">د.ل</span></div>
@@ -85,26 +87,27 @@
 </div>
 
 <div class="filter-tabs">
-  <a href="/pos/treasury?kind={{ kind }}&dir=all{% if filter_day %}&day={{ filter_day }}{% endif %}"
+  <a href="/pos/treasury?kind={{ kind }}&dir=all{{ pm_qs }}{% if filter_day %}&day={{ filter_day }}{% endif %}"
     class="{% if filter_dir == 'all' %}active{% endif %}">الكل</a>
-  <a href="/pos/treasury?kind={{ kind }}&dir=in{% if filter_day %}&day={{ filter_day }}{% endif %}"
+  <a href="/pos/treasury?kind={{ kind }}&dir=in{{ pm_qs }}{% if filter_day %}&day={{ filter_day }}{% endif %}"
     class="{% if filter_dir == 'in' %}active{% endif %}">وارد فقط</a>
-  <a href="/pos/treasury?kind={{ kind }}&dir=out{% if filter_day %}&day={{ filter_day }}{% endif %}"
+  <a href="/pos/treasury?kind={{ kind }}&dir=out{{ pm_qs }}{% if filter_day %}&day={{ filter_day }}{% endif %}"
     class="{% if filter_dir == 'out' %}active{% endif %}">منصرف فقط</a>
-  <a href="/pos/treasury?kind={{ kind }}&dir={{ filter_dir }}"
+  <a href="/pos/treasury?kind={{ kind }}&dir={{ filter_dir }}{{ pm_qs }}"
     class="{% if not filter_day %}active{% endif %}" style="margin-inline-start:auto">كل الأيام</a>
 </div>
 
 <form method="get" action="/pos/treasury" class="row" style="gap:0.5rem;align-items:flex-end;flex-wrap:wrap;margin-bottom:0.5rem">
   <input type="hidden" name="kind" value="{{ kind }}" />
   <input type="hidden" name="dir" value="{{ filter_dir }}" />
+  {% if selected_pm_id %}<input type="hidden" name="pm" value="{{ selected_pm_id }}" />{% endif %}
   <label style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.85rem">
     <span>يوم محدد</span>
     <input type="date" name="day" value="{{ filter_day }}" style="padding:0.4rem;border-radius:8px;border:1px solid var(--border)" />
   </label>
   <button type="submit" class="btn btn-primary">عرض اليوم</button>
   {% if filter_day %}
-  <a class="btn" href="/pos/treasury?kind={{ kind }}&dir={{ filter_dir }}">إلغاء الفلتر</a>
+  <a class="btn" href="/pos/treasury?kind={{ kind }}&dir={{ filter_dir }}{{ pm_qs }}">إلغاء الفلتر</a>
   {% endif %}
 </form>
 
@@ -129,14 +132,14 @@
     <tbody>
       {% for row in daily_rows %}
       <tr>
-        <td>{{ row.day.strftime('%Y-%m-%d') }}</td>
+        <td>{{ pos_format_dt(row.day, '%Y-%m-%d') }}</td>
         <td>{{ pos_money(row.opening) }}</td>
         <td class="dir-in">+{{ pos_money(row.total_in) }}</td>
         <td class="dir-out">−{{ pos_money(row.total_out) }}</td>
         <td><strong>{{ pos_money(row.closing) }}</strong></td>
         <td>
           <a class="btn" style="padding:0.2rem 0.5rem;font-size:0.82rem"
-            href="/pos/treasury?kind={{ kind }}&dir={{ filter_dir }}&day={{ row.day.isoformat() }}">تفاصيل</a>
+            href="/pos/treasury?kind={{ kind }}&dir={{ filter_dir }}&day={{ row.day.isoformat() }}{{ pm_qs }}">تفاصيل</a>
         </td>
       </tr>
       {% endfor %}
@@ -169,7 +172,7 @@
     <tbody>
       {% for e in entries %}
       <tr>
-        <td>{% if e.at %}{{ e.at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+        <td>{% if e.at %}{{ pos_format_dt(e.at, '%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
         <td>
           {% if e.direction == 'IN' %}
           <span class="dir-in">وارد</span>

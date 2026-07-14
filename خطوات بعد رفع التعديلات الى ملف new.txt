@@ -1,0 +1,73 @@
+خطوات بعد رفع التعديلات الى ملف new_updates
+
+1. خذ نسخة احتياطية قبل النقل
+
+نفّذ من root:
+BACKUP_DIR="/home/posbaytak/backups/deploy_$(date +%F_%H%M)"
+mkdir -p "$BACKUP_DIR"
+
+cp -a /home/posbaytak/pos_app "$BACKUP_DIR/pos_app_backup"
+cp -a /home/posbaytak/pos_app/.env "$BACKUP_DIR/env.backup"
+
+echo "Backup saved in: $BACKUP_DIR"
+
+
+2. جرّب النقل بدون تنفيذ
+rsync -av --dry-run --delete \
+  --exclude='.env' \
+  --exclude='pos.db' \
+  --exclude='.venv' \
+  --exclude='.git' \
+  --exclude='__pycache__' \
+  --exclude='*.pyc' \
+  --exclude='*.zip' \
+  --exclude='_diag_*' \
+  --exclude='backups' \
+  --exclude='tools/print_agent/config.json' \
+  /home/posbaytak/new_updates/ \
+  /home/posbaytak/pos_app/
+
+3. النقل الحقيقي
+
+systemctl stop posbaytak
+
+rsync -av --delete \
+  --exclude='.env' \
+  --exclude='pos.db' \
+  --exclude='pos.db-shm' \
+  --exclude='pos.db-wal' \
+  --exclude='.venv' \
+  --exclude='.git' \
+  --exclude='.cursor' \
+  --exclude='__pycache__' \
+  --exclude='*.pyc' \
+  --exclude='*.zip' \
+  --exclude='*.log' \
+  --exclude='_diag_*' \
+  --exclude='backups' \
+  --exclude='uploads/' \
+  --exclude='app/static/uploads/' \
+  --exclude='tools/print_agent/config.json' \
+  /home/posbaytak/new_updates/ \
+  /home/posbaytak/pos_app/
+
+chown -R posbaytak:posbaytak /home/posbaytak/pos_app
+
+4. ثبّت المتطلبات
+su -s /bin/bash -c 'cd /home/posbaytak/pos_app && source .venv/bin/activate && pip install -r requirements.txt' posbaytak
+
+5. شغّل تحديث قاعدة البيانات
+su -s /bin/bash -c 'cd /home/posbaytak/pos_app && source .venv/bin/activate && alembic upgrade head' posbaytak
+
+6. احذف كاش Python
+find /home/posbaytak/pos_app -type d -name "__pycache__" -exec rm -rf {} +
+find /home/posbaytak/pos_app -type f -name "*.pyc" -delete
+
+
+7. شغّل التطبيق
+systemctl start posbaytak
+systemctl status posbaytak
+
+
+n8n
+https://n8n-efqo.srv1667573.hstgr.cloud/webhook/7eb77634-721f-4cc8-a418-0fe61b3ed593

@@ -1,0 +1,63 @@
+<div class="pos-shift-invoice-panel">
+  <div class="pos-shift-invoice-panel__meta">
+    <p style="margin:0.15rem 0"><strong>فاتورة #{{ sale.id }}</strong></p>
+    <p class="muted" style="margin:0.15rem 0;font-size:0.88rem">
+      نوع الفاتورة: <strong>{{ context_label }}</strong>
+      {% if sale.created_at %} — {{ pos_format_dt(sale.created_at, '%Y-%m-%d %H:%M') }}{% endif %}
+    </p>
+    <p class="muted" style="margin:0.15rem 0;font-size:0.88rem">
+      الإجمالي: <strong>{{ pos_money(sale.total) }}</strong> <span class="money-currency">د.ل</span>
+    </p>
+  </div>
+
+  {% if sale.lines %}
+  <div class="pos-shift-invoice-panel__lines">
+    <table class="pos-shift-invoice-lines">
+      <thead>
+        <tr>
+          <th>الصنف</th>
+          <th class="num">الكمية</th>
+          <th class="num">السعر</th>
+          <th class="num">الإجمالي</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for line in sale.lines %}
+        <tr>
+          <td>
+            {{ line.product.name_ar if line.product else '—' }}
+            {% if line.line_note %}
+            <div class="muted" style="font-size:0.78rem">↳ {{ line.line_note }}</div>
+            {% endif %}
+          </td>
+          <td class="num">{{ pos_qty(line.quantity) }}</td>
+          <td class="num">{{ pos_money(line.unit_price) }}</td>
+          <td class="num">{{ pos_money(line.line_total) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <div class="pos-shift-invoice-panel__actions">
+    {% if can_print %}
+    <a class="btn btn-primary" href="/pos/receipt/{{ sale.id }}?autoprint=1&popup=1" target="_blank" rel="noopener">🖨 طباعة</a>
+    <a class="btn" href="/pos/receipt/{{ sale.id }}?popup=1" target="_blank" rel="noopener">معاينة</a>
+    {% endif %}
+    {% if can_change_payment and treasury_pay_methods|length > 0 %}
+    <button type="button" class="btn shift-payfix-btn"
+      data-sale-id="{{ sale.id }}"
+      data-shift-id="{{ shift_id }}"
+      data-sale-label="#{{ sale.id }}"
+      data-current-payment="{{ payment_method_name or '—' }}"
+      data-current-payment-id="{{ payment_method_id or '' }}">تصحيح وسيلة الدفع</button>
+    {% endif %}
+    {% if can_refund %}
+    <a class="btn" href="/refunds/sale/{{ sale.id }}" target="_blank" rel="noopener" style="border-color:#f59e0b;background:#fff7ed;color:#9a3412">استرداد</a>
+    {% endif %}
+    {% if not can_print and not can_change_payment and not can_refund %}
+    <p class="muted" style="margin:0;font-size:0.85rem">لا تتوفر إجراءات — راجع صلاحياتك مع المسؤول.</p>
+    {% endif %}
+  </div>
+</div>

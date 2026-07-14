@@ -1,0 +1,24 @@
+{# نافذة ملاحظات الصنف — تُضمَّن في pos.html #}
+<div class="pos-line-modal__backdrop" data-pos-line-close></div>
+<div class="pos-line-modal__dialog" role="dialog" aria-labelledby="pos-line-modal-title">
+  <h3 id="pos-line-modal-title" style="margin:0 0 0.5rem;font-size:1.05rem">ملاحظات الصنف</h3>
+  <p id="pos-line-modal-product" style="margin:0 0 0.65rem;font-weight:700;color:#1d4ed8"></p>
+  <form id="pos-line-add-form" method="post" action="/pos/add-line"
+        hx-post="/pos/add-line" hx-target="#pos-sidebar-live" hx-swap="innerHTML">
+    <input type="hidden" name="product_id" id="pos-line-product-id" value="" />
+    <input type="hidden" name="quantity" value="1" />
+    <input type="hidden" name="line_id" id="pos-line-edit-id" value="" />
+    <div id="pos-line-preset-wrap" class="pos-line-preset-wrap" hidden>
+      <p class="muted" style="font-size:0.78rem;margin:0 0 0.35rem">اختر ما ينطبق (يمكن أكثر من واحد):</p>
+      <div class="pos-line-preset-chips" id="pos-line-preset-chips"></div>
+    </div>
+    <label class="muted" style="font-size:0.78rem;display:block;margin:0.5rem 0 0.2rem">ملاحظة إضافية (اختياري)</label>
+    <input class="input" type="text" name="extra_note" id="pos-line-extra-note" maxlength="200"
+      placeholder="مثلاً: صوص على الجانب" style="width:100%;padding:0.45rem 0.5rem" />
+    <div class="pos-line-modal__actions">
+      <button type="submit" class="btn btn-primary" id="pos-line-submit-btn">إضافة للسلة</button>
+      <button type="submit" class="btn" id="pos-line-direct-btn" name="direct_add" value="1">إضافة مباشرة (بدون ملاحظة)</button>
+      <button type="button" class="btn" data-pos-line-close>إلغاء</button>
+    </div>
+  </form>
+</div>

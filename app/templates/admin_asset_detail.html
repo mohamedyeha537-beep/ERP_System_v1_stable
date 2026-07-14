@@ -3,12 +3,17 @@
 {% block body %}
 <div class="row" style="justify-content: space-between; align-items: center">
   <h1 style="margin: 0">فاتورة أصول #{{ purchase.id }}</h1>
-  <a class="btn" href="/admin/assets">رجوع للقائمة</a>
+  <div class="row" style="gap: 0.5rem">
+    {% if pos_perm(request)('assets:edit_invoice') %}
+    <a class="btn btn-primary" href="/admin/assets/{{ purchase.id }}/edit">تعديل الفاتورة</a>
+    {% endif %}
+    <a class="btn" href="{% if is_consumable|default(false) %}/admin/consumables{% else %}/admin/assets{% endif %}">رجوع للقائمة</a>
+  </div>
 </div>
 
 <div class="card">
   <h2 style="margin-top: 0">بيانات الفاتورة</h2>
-  <p><strong>التاريخ:</strong> {{ purchase.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+  <p><strong>التاريخ:</strong> {{ pos_format_dt(purchase.created_at, '%Y-%m-%d %H:%M') }}</p>
   <p><strong>المورّد:</strong> {{ purchase.supplier or '—' }}</p>
   <p><strong>رقم فاتورة المورّد / المرجع:</strong> {{ purchase.supplier_invoice_ref or '—' }}</p>
   <p><strong>المحفظة:</strong> {% if purchase.method %}{{ purchase.method.name_ar }}{% else %}—{% endif %}</p>
@@ -43,7 +48,7 @@
         <td>{{ loop.index }}</td>
         <td>{{ ln.item_name or ln.display_name }}</td>
         <td>{{ ln.unit or '—' }}</td>
-        <td>{{ ln.quantity }}</td>
+        <td>{{ pos_qty(ln.quantity) }}</td>
         <td>{{ ln.unit_cost }}</td>
         <td>{{ ln.line_total }} د.ل</td>
       </tr>

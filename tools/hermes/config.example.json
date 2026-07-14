@@ -1,0 +1,6 @@
+{
+  "pos_url": "http://127.0.0.1:8011",
+  "messaging_secret": "ضع_مفتاح_X-Messaging-Secret_من_لوحة_المراسلات",
+  "host": "127.0.0.1",
+  "port": 8765
+}

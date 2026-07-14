@@ -1,0 +1,541 @@
+from __future__ import annotations
+
+import json
+import logging
+from datetime import datetime, timezone
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session, joinedload
+
+from modules.messaging.consent import customer_can_receive
+from modules.messaging.models import MessageChannel
+from modules.messaging.outbox import enqueue_message, send_outbox_ids_now
+from modules.messaging.service import messaging_enabled
+from modules.notifications.events import PHASE1_EVENT_KEYS, REFERRAL_LINK_CREATED
+from modules.notifications.idempotency import (
+    build_idempotency_key,
+    default_throttle_minutes,
+    is_throttled,
+    log_exists,
+)
+from modules.notifications.models import (
+    NotificationEvent,
+    NotificationEventStatus,
+    NotificationLog,
+    NotificationLogStatus,
+    NotificationMessageType,
+    NotificationRule,
+    NotificationTemplate,
+)
+from modules.notifications.providers.whatsapp import get_provider
+from modules.notifications.providers.base import OutboundMessage
+from modules.notifications.rules import evaluate_conditions
+from modules.notifications.recipients import resolve_recipient, resolve_recipients
+from modules.notifications.templates import parse_buttons_json, render_template
+from modules.settings.service import get_bool, get_setting
+
+LOG = logging.getLogger("notifications")
+
+
+class NotificationService:
+    @staticmethod
+    def enabled(db: Session) -> bool:
+        return get_bool(db, "notifications_enabled", True) and messaging_enabled(db)
+
+    @staticmethod
+    def emit_event(
+        db: Session,
+        *,
+        event_key: str,
+        source_type: str,
+        source_id: int | None,
+        payload: dict[str, Any],
+        process_now: bool = True,
+    ) -> int | None:
+        """Record event ledger row; optionally process immediately."""
+        if not NotificationService.enabled(db):
+            return None
+        from modules.notifications.event_settings import is_notification_event_enabled
+        from modules.notifications.module_settings import is_event_module_enabled
+
+        if not is_notification_event_enabled(db, event_key):
+            return None
+        if not is_event_module_enabled(db, event_key):
+            return None
+        try:
+            with db.begin_nested():
+                row = NotificationEvent(
+                    event_key=event_key.strip()[:64],
+                    source_type=source_type.strip()[:32],
+                    source_id=source_id,
+                    payload_json=json.dumps(payload or {}, ensure_ascii=False),
+                    status=NotificationEventStatus.PENDING.value,
+                )
+                db.add(row)
+                db.flush()
+                if process_now:
+                    NotificationService.process_event(db, row.id)
+                return row.id
+        except SQLAlchemyError as exc:
+            LOG.warning("emit_event database failure %s: %s", event_key, exc)
+            return None
+        except Exception as exc:  # noqa: BLE001
+            LOG.warning("emit_event failed %s: %s", event_key, exc)
+            return None
+
+    @staticmethod
+    def emit_event_background(
+        event_key: str,
+        source_type: str,
+        source_id: int | None,
+        payload: dict[str, Any],
+    ) -> None:
+        from infra.background import run_in_background, with_db
+
+        def _run() -> None:
+            with with_db() as db:
+                NotificationService.emit_event(
+                    db,
+                    event_key=event_key,
+                    source_type=source_type,
+                    source_id=source_id,
+                    payload=payload,
+                    process_now=True,
+                )
+                db.commit()
+
+        run_in_background(_run, name=f"notify-{event_key}")
+
+    @staticmethod
+    def process_event(db: Session, event_id: int) -> int:
+        """Process rules for one ledger event. Returns count of logs created."""
+        event = db.get(NotificationEvent, event_id)
+        if event is None:
+            return 0
+        if event.status == NotificationEventStatus.PROCESSED.value:
+            return 0
+        try:
+            payload = json.loads(event.payload_json or "{}")
+        except json.JSONDecodeError:
+            payload = {}
+        count = 0
+        rules = list(
+            db.scalars(
+                select(NotificationRule)
+                .options(joinedload(NotificationRule.template))
+                .where(
+                    NotificationRule.event_key == event.event_key,
+                    NotificationRule.is_active.is_(True),
+                )
+                .order_by(NotificationRule.id.asc())
+            )
+            .unique()
+            .all()
+        )
+        for rule in rules:
+            if rule.template is None or not rule.template.is_active:
+                continue
+            if not evaluate_conditions(rule.condition_json, payload):
+                continue
+            try:
+                if NotificationService._dispatch_rule(db, event, rule, payload):
+                    count += 1
+            except SQLAlchemyError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                LOG.warning("rule %s dispatch failed: %s", rule.id, exc)
+        event.status = NotificationEventStatus.PROCESSED.value
+        event.processed_at = datetime.now(timezone.utc)
+        db.flush()
+        return count
+
+    @staticmethod
+    def _dispatch_rule(
+        db: Session,
+        event: NotificationEvent,
+        rule: NotificationRule,
+        payload: dict[str, Any],
+    ) -> bool:
+        tpl = rule.template
+        if tpl is None:
+            return False
+        require_consent = (
+            rule.recipient_type == "customer"
+            and event.event_key != REFERRAL_LINK_CREATED
+        )
+        recipients = resolve_recipients(
+            db,
+            rule.recipient_type,
+            payload,
+            event_key=event.event_key,
+            require_consent=require_consent,
+        )
+        if not recipients:
+            NotificationService._log_skipped(
+                db,
+                event=event,
+                rule=rule,
+                tpl=tpl,
+                reason="no_recipient",
+                payload=payload,
+            )
+            return False
+        sent_any = False
+        for recipient in recipients:
+            if not recipient.phone:
+                continue
+            idem = build_idempotency_key(
+                event.event_key,
+                event.source_type,
+                event.source_id,
+                rule.recipient_type,
+                payload,
+                extra=recipient.phone,
+            )
+            throttle = default_throttle_minutes(event.event_key, rule.throttle_minutes)
+            if log_exists(db, idem) or is_throttled(
+                db, idempotency_key=idem, throttle_minutes=throttle
+            ):
+                NotificationService._log_skipped(
+                    db,
+                    event=event,
+                    rule=rule,
+                    tpl=tpl,
+                    reason="throttled",
+                    payload=payload,
+                    idempotency_key=idem,
+                    recipient=recipient,
+                )
+                continue
+            vars_out = NotificationService._template_vars(
+                db, payload, event_key=event.event_key
+            )
+            body = render_template(tpl.body_template, vars_out)
+            buttons = parse_buttons_json(tpl.buttons_json, vars_out)
+            msg_type = tpl.message_type or NotificationMessageType.TEXT.value
+            log = NotificationLog(
+                event_key=event.event_key,
+                notification_event_id=event.id,
+                source_type=event.source_type,
+                source_id=event.source_id,
+                recipient_type=rule.recipient_type,
+                recipient_name=recipient.name,
+                recipient_phone=recipient.phone,
+                channel=rule.channel,
+                message_type=msg_type,
+                template_id=tpl.id,
+                body_rendered=body,
+                provider="textmebot",
+                status=NotificationLogStatus.QUEUED.value,
+                idempotency_key=idem,
+                attempts=0,
+            )
+            db.add(log)
+            db.flush()
+            if NotificationService._send_log(db, log, tpl, body, buttons, recipient, payload):
+                sent_any = True
+        return sent_any
+
+    @staticmethod
+    def _log_skipped(
+        db: Session,
+        *,
+        event: NotificationEvent,
+        rule: NotificationRule,
+        tpl: NotificationTemplate,
+        reason: str,
+        payload: dict[str, Any],
+        idempotency_key: str | None = None,
+        recipient: Any = None,
+    ) -> None:
+        idem = idempotency_key or build_idempotency_key(
+            event.event_key,
+            event.source_type,
+            event.source_id,
+            rule.recipient_type,
+            payload,
+            extra=reason,
+        )
+        if log_exists(db, idem, include_skipped=True):
+            return
+        db.add(
+            NotificationLog(
+                event_key=event.event_key,
+                notification_event_id=event.id,
+                source_type=event.source_type,
+                source_id=event.source_id,
+                recipient_type=rule.recipient_type,
+                recipient_name=getattr(recipient, "name", None),
+                recipient_phone=getattr(recipient, "phone", None),
+                channel=rule.channel,
+                message_type=tpl.message_type,
+                template_id=tpl.id,
+                body_rendered=reason,
+                status=NotificationLogStatus.SKIPPED.value,
+                idempotency_key=idem[:200],
+            )
+        )
+
+    @staticmethod
+    def _template_vars(
+        db: Session,
+        payload: dict[str, Any],
+        *,
+        event_key: str | None = None,
+    ) -> dict[str, Any]:
+        from modules.branding.service import hotel_display_name
+
+        payload_store = (payload.get("store_name") or "").strip()
+        if payload_store:
+            store = payload_store
+        elif event_key and str(event_key).startswith("hotel."):
+            store = hotel_display_name(db)
+        else:
+            store = get_setting(db, "store_name", "نقطة البيع") or "نقطة البيع"
+        vars_out = {str(k): ("" if v is None else v) for k, v in (payload or {}).items()}
+        vars_out.update({
+            "store_name": store,
+            "customer_name": payload.get("customer_name") or payload.get("name") or "عميلنا",
+            "phone": payload.get("phone") or "",
+            "order_id": payload.get("order_id") or payload.get("sale_id") or "",
+            "sale_id": payload.get("sale_id") or payload.get("order_id") or "",
+            "total": payload.get("total") or "",
+            "points": payload.get("points") or "0",
+            "points_value": payload.get("points_value") or "0",
+            "earned_points": payload.get("earned_points") or "0",
+            "earned_points_value": payload.get("earned_points_value") or "0",
+            "earn_line": payload.get("earn_line") or "",
+            "balance": payload.get("balance") or "0",
+            "balance_value": payload.get("balance_value") or "0",
+            "product_name": payload.get("product_name") or "",
+            "unit": payload.get("unit") or "",
+            "balance_qty": payload.get("balance") or payload.get("balance_qty") or "",
+            "reorder_level": payload.get("reorder_level") or "",
+            "driver_name": payload.get("driver_name") or "",
+            "cashier_name": payload.get("cashier_name") or "",
+            "shift_id": payload.get("shift_id") or "",
+            "shortage": payload.get("shortage") or "",
+            "reason": payload.get("reason") or "",
+            "action_id": payload.get("action_id") or "",
+            "line_id": payload.get("line_id") or "",
+            "message": payload.get("message") or "",
+            "purchase_id": payload.get("purchase_id") or "",
+            "supplier": payload.get("supplier") or "",
+            "amount": payload.get("amount") or "",
+            "movement_qty": payload.get("movement_qty") or "",
+            "note": payload.get("note") or "",
+            "lot_code": payload.get("lot_code") or "",
+            "days_left": payload.get("days_left") or "",
+            "qty": payload.get("qty") or "",
+            "expiry_date": payload.get("expiry_date") or "",
+            "old_cost": payload.get("old_cost") or "",
+            "new_cost": payload.get("new_cost") or "",
+            "item_count": payload.get("item_count") or "",
+            "referral_code": payload.get("referral_code") or "",
+            "buyer_referral_code": payload.get("buyer_referral_code") or "",
+            "referral_code_line": payload.get("referral_code_line") or "",
+            "referral_share_block": payload.get("referral_share_block")
+            or payload.get("referral_code_line")
+            or "",
+            "share_url": payload.get("share_url") or "",
+            "referrer_points": payload.get("referrer_points") or "",
+            "buyer_points": payload.get("buyer_points") or "",
+            "buyer_points_value": payload.get("buyer_points_value") or "",
+            "referrer_name": payload.get("referrer_name") or "",
+            "referrer_phone": payload.get("referrer_phone") or "",
+            "referrer_customer_id": payload.get("referrer_customer_id") or "",
+            "buyer_name": payload.get("buyer_name") or "",
+            "employee_count": payload.get("employee_count") or "",
+            "total_net": payload.get("total_net") or "",
+            "run_id": payload.get("run_id") or "",
+            "digest_date": payload.get("digest_date") or "",
+            "product_id": payload.get("product_id") or "",
+            "ticket_id": payload.get("ticket_id") or "",
+            "section_name": payload.get("section_name") or "",
+            "employee_id": payload.get("employee_id") or "",
+            "employee_name": payload.get("employee_name") or "",
+            "employee_phone": payload.get("employee_phone") or "",
+            "check_in_time": payload.get("check_in_time") or "",
+            "check_out_time": payload.get("check_out_time") or "",
+            "hours_worked": payload.get("hours_worked") or "",
+            "late_minutes": payload.get("late_minutes") or "",
+            "overtime_hours": payload.get("overtime_hours") or "",
+            "early_leave_minutes": payload.get("early_leave_minutes") or "",
+            "attendance_status": payload.get("attendance_status") or "",
+            "period_label": payload.get("period_label") or "",
+            "net_pay": payload.get("net_pay") or "",
+            "gross_pay": payload.get("gross_pay") or "",
+            "deductions": payload.get("deductions") or "",
+            "advances": payload.get("advances") or "",
+            "bonuses": payload.get("bonuses") or "",
+            "overtime_pay": payload.get("overtime_pay") or "",
+            "advance_amount": payload.get("advance_amount") or "",
+            "deduction_amount": payload.get("deduction_amount") or "",
+            "deduction_note": payload.get("deduction_note") or "",
+            "payroll_entry_id": payload.get("payroll_entry_id") or "",
+            "booking_id": payload.get("booking_id") or "",
+            "booking_reference": payload.get("booking_reference") or "",
+            "guest_name": payload.get("guest_name") or "",
+            "guest_phone": payload.get("guest_phone") or payload.get("phone") or "",
+            "room_name": payload.get("room_name") or "",
+            "room_type": payload.get("room_type") or "",
+            "check_in_date": payload.get("check_in_date") or "",
+            "check_out_date": payload.get("check_out_date") or "",
+            "nights": payload.get("nights") or "",
+            "nightly_rate": payload.get("nightly_rate") or "",
+            "booking_total": payload.get("booking_total") or "",
+            "paid_amount": payload.get("paid_amount") or "",
+            "balance_due": payload.get("balance_due") or "",
+            "service_name": payload.get("service_name") or "",
+            "service_amount": payload.get("service_amount") or "",
+            "payment_amount": payload.get("payment_amount") or payload.get("amount") or "",
+            "payment_method": payload.get("payment_method") or "",
+            "booking_url": payload.get("booking_url") or "",
+            "invoice_url": payload.get("invoice_url") or "",
+        })
+        return vars_out
+
+    @staticmethod
+    def _send_log(
+        db: Session,
+        log: NotificationLog,
+        tpl: NotificationTemplate,
+        body: str,
+        buttons: list[dict[str, str]],
+        recipient: Any,
+        payload: dict[str, Any],
+    ) -> bool:
+        meta: dict[str, Any] = {"kind": "automatic", "notification_log_id": log.id}
+        if buttons:
+            meta["buttons"] = buttons
+        img = (payload.get("image_url") or tpl.image_url or "").strip()
+        if img:
+            meta["image_url"] = render_template(
+                img,
+                NotificationService._template_vars(
+                    db, payload, event_key=log.event_key
+                ),
+            )
+        doc = (payload.get("document_url") or tpl.document_url or "").strip()
+        if doc:
+            meta["document_url"] = render_template(
+                doc,
+                NotificationService._template_vars(
+                    db, payload, event_key=log.event_key
+                ),
+            )
+        if recipient.telegram_chat_id:
+            meta["telegram_chat_id"] = recipient.telegram_chat_id
+        outbox = enqueue_message(
+            db,
+            body=body,
+            channel=MessageChannel.WHATSAPP.value,
+            phone=recipient.phone,
+            customer_id=recipient.customer_id,
+            event_type=log.event_key,
+            meta=meta,
+        )
+        log.outbox_id = outbox.id
+        log.attempts = 1
+        log.last_attempt_at = datetime.now(timezone.utc)
+        try:
+            send_outbox_ids_now(db, [outbox.id])
+            db.refresh(outbox)
+            if outbox.status == "sent":
+                log.status = NotificationLogStatus.SENT.value
+                log.sent_at = datetime.now(timezone.utc)
+                log.provider_message_id = str(outbox.id)
+                return True
+            log.status = NotificationLogStatus.FAILED.value
+            log.error_message = (outbox.error_message or "send failed")[:500]
+            return False
+        except Exception as exc:  # noqa: BLE001
+            log.status = NotificationLogStatus.FAILED.value
+            log.error_message = str(exc)[:500]
+            return False
+
+    @staticmethod
+    def retry_failed(db: Session, *, limit: int = 50) -> int:
+        rows = list(
+            db.scalars(
+                select(NotificationLog)
+                .where(
+                    NotificationLog.status == NotificationLogStatus.FAILED.value,
+                    NotificationLog.attempts < 3,
+                )
+                .order_by(NotificationLog.created_at.asc())
+                .limit(limit)
+            ).all()
+        )
+        n = 0
+        for log in rows:
+            if not log.outbox_id or not log.recipient_phone:
+                continue
+            try:
+                send_outbox_ids_now(db, [log.outbox_id])
+                log.attempts += 1
+                log.last_attempt_at = datetime.now(timezone.utc)
+                from modules.messaging.models import MessageOutbox
+
+                ob = db.get(MessageOutbox, log.outbox_id)
+                if ob and ob.status == "sent":
+                    log.status = NotificationLogStatus.SENT.value
+                    log.sent_at = datetime.now(timezone.utc)
+                    n += 1
+                else:
+                    log.error_message = (ob.error_message if ob else "retry failed")[:500]
+            except Exception as exc:  # noqa: BLE001
+                log.attempts += 1
+                log.error_message = str(exc)[:500]
+        return n
+
+    @staticmethod
+    def process_pending_events(db: Session, *, limit: int = 20) -> int:
+        rows = list(
+            db.scalars(
+                select(NotificationEvent)
+                .where(NotificationEvent.status == NotificationEventStatus.PENDING.value)
+                .order_by(NotificationEvent.created_at.asc())
+                .limit(limit)
+            ).all()
+        )
+        total = 0
+        for row in rows:
+            total += NotificationService.process_event(db, row.id)
+        return total
+
+
+def emit_event_safe(
+    db: Session,
+    *,
+    event_key: str,
+    source_type: str,
+    source_id: int | None,
+    payload: dict[str, Any],
+) -> None:
+    try:
+        NotificationService.emit_event(
+            db,
+            event_key=event_key,
+            source_type=source_type,
+            source_id=source_id,
+            payload=payload,
+        )
+    except Exception as exc:  # noqa: BLE001
+        LOG.warning("emit_event_safe: %s", exc)
+
+
+def emit_event_background_safe(
+    event_key: str,
+    source_type: str,
+    source_id: int | None,
+    payload: dict[str, Any],
+) -> None:
+    try:
+        NotificationService.emit_event_background(
+            event_key, source_type, source_id, payload
+        )
+    except Exception as exc:  # noqa: BLE001
+        LOG.warning("emit_event_background_safe: %s", exc)

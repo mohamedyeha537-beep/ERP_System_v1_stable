@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button with context %}
 {% block title %}تقرير المخزون{% endblock %}
 {% block body %}
 <h1>تقرير المخزون</h1>
@@ -7,9 +7,16 @@
 {{ period_filter('/reports/inventory', period, period_labels, start, end, start_str, end_str) }}
 {{ report_export_format_help() }}
 <div class="export-bar">
-  <span class="label">Excel (.csv):</span>
-  {{ export_button('/reports/export/inventory.csv?w=' ~ warehouse_id, 'المخزون الحالي') }}
-  {{ export_button('/reports/export/inventory.csv?only_low=1&w=' ~ warehouse_id, 'المخزون المنخفض فقط') }}
+  <span class="label">Excel (.xlsx):</span>
+  <a class="btn export-btn" href="/reports/export/inventory.xlsx?w={{ warehouse_id }}{% if q %}&q={{ q | urlencode }}{% endif %}{% if only_low %}&only_low=1{% endif %}" title="ملف Excel حقيقي — أرصدة المخزون">
+    ⬇ المخزون الحالي
+  </a>
+  <a class="btn export-btn" href="/reports/export/inventory.xlsx?w={{ warehouse_id }}&only_low=1{% if q %}&q={{ q | urlencode }}{% endif %}" title="أصناف منخفضة / نفاد فقط">
+    ⬇ المنخفض فقط
+  </a>
+  <span class="label" style="margin-inline-start:0.75rem">CSV:</span>
+  {{ export_button('/reports/export/inventory.csv?w=' ~ warehouse_id, 'المخزون (.csv)') }}
+  {{ export_button('/reports/export/inventory.csv?only_low=1&w=' ~ warehouse_id, 'المنخفض (.csv)') }}
   <span class="label no-print" style="margin-inline-start:0.75rem">PDF:</span>
   {{ pdf_export_button() }}
 </div>
@@ -80,8 +87,8 @@
       <tr {% if r.is_low %}style="background: #fef2f2"{% endif %}>
         <td><strong>{{ r.name_ar }}</strong></td>
         <td>{{ r.unit }}</td>
-        <td style="font-weight: 700">{{ r.quantity }}</td>
-        <td>{{ r.reorder_level }}</td>
+        <td style="font-weight: 700">{{ pos_qty(r.quantity) }}</td>
+        <td>{{ r.reorder_level | qty }}</td>
         <td>{{ r.avg_cost }}</td>
         <td>{% if r.sell_price is not none %}{{ r.sell_price }} د.ل{% else %}—{% endif %}</td>
         <td>

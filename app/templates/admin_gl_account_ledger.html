@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% block title %}{{ ledger.account.code }} — {{ ledger.account.name_ar }}{% endblock %}
+{% block body %}
+<div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem">
+  <div>
+    <p class="muted" style="margin:0 0 0.25rem;font-size:0.85rem">
+      <a href="/admin/gl/accounts">← شجرة الحسابات</a>
+    </p>
+    <h1 style="margin:0">
+      <span style="direction:ltr;font-variant-numeric:tabular-nums">{{ ledger.account.code }}</span>
+      — {{ ledger.account.name_ar }}
+    </h1>
+  </div>
+  <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+    <a class="btn" href="/admin/gl/journal">قيود اليومية</a>
+    <a class="btn" href="/admin/gl">إعدادات GL</a>
+  </div>
+</div>
+
+{% if not gl_status.enabled %}
+<div class="card" style="border-color:#fde68a;background:#fffbeb">
+  <p style="margin:0;line-height:1.65">
+    GL غير مفعّل — لن تظهر حركات جديدة حتى تفعّله من
+    <a href="/admin/gl">إعدادات GL</a> وتنفّذ «ترحيل الحركات السابقة» من
+    <a href="/admin/gl/journal">قيود اليومية</a>.
+  </p>
+</div>
+{% elif gl_status.entry_count == 0 %}
+<div class="card" style="border-color:#bae6fd;background:#f0f9ff">
+  <p style="margin:0;line-height:1.65">
+    لا توجد قيود بعد. فعّل الترحيل التلقائي أو نفّذ
+    <a href="/admin/gl/journal">ترحيل الحركات السابقة</a>.
+  </p>
+</div>
+{% endif %}
+
+<div class="card" style="border-color:#0ea5e9;background:linear-gradient(180deg,#e0f2fe 0%,#fff 60%)">
+  <div style="display:flex;flex-wrap:wrap;gap:1.5rem;align-items:flex-end">
+    <div>
+      <div class="muted" style="font-size:0.8rem">{% if ledger.is_header %}الرصيد التجميعي (GL){% else %}الرصيد الحالي (GL){% endif %}</div>
+      <div style="font-size:1.75rem;font-weight:700;direction:ltr;font-variant-numeric:tabular-nums;{% if ledger.balance < 0 %}color:#b45309{% else %}color:#15803d{% endif %}">
+        {{ "%.3f"|format(ledger.balance) }} د.ل{% if ledger.is_header %} <span style="font-size:0.9rem;color:#0369a1">Σ</span>{% endif %}
+      </div>
+    </div>
+    {% if from_date or to_date %}
+    <div>
+      <div class="muted" style="font-size:0.8rem">صافي الفترة المصفّاة</div>
+      <div style="font-size:1.25rem;font-weight:600;direction:ltr;font-variant-numeric:tabular-nums">{{ "%.3f"|format(ledger.period_balance) }} د.ل</div>
+    </div>
+    {% endif %}
+    <div>
+      <div class="muted" style="font-size:0.8rem">النوع</div>
+      <div>{{ account_type_label(ledger.account.account_type) }}{% if ledger.is_header %} — <span style="color:#0369a1">حساب تجميعي</span>{% endif %}</div>
+    </div>
+    <div>
+      <div class="muted" style="font-size:0.8rem">وضع الترحيل (النظام)</div>
+      <div><code>{{ gl_status.post_mode }}</code></div>
+    </div>
+  </div>
+  {% if ledger.is_header %}
+  <p class="muted" style="margin:0.75rem 0 0;font-size:0.85rem;line-height:1.65">
+    لا تُسجَّل قيود على هذا الحساب مباشرة — الرصيد = مجموع الحسابات الفرعية. التقارير المالية تحسب الفرعية فقط لتجنب التكرار.
+  </p>
+  {% elif ledger.linked_wallets %}
+  <div style="margin-top:1rem;padding-top:0.75rem;border-top:1px dashed #7dd3fc">
+    <div class="muted" style="font-size:0.82rem;margin-bottom:0.35rem">محافظ تشغيلية مربوطة بهذا الحساب:</div>
+    <div style="display:flex;flex-wrap:wrap;gap:0.5rem">
+      {% for name, op_bal in ledger.linked_wallets %}
+      <span style="background:#fff;border:1px solid #bae6fd;border-radius:6px;padding:0.25rem 0.5rem;font-size:0.85rem">
+        {{ name }} — <span style="direction:ltr;font-variant-numeric:tabular-nums">{{ "%.3f"|format(op_bal) }}</span> د.ل (تشغيلي)
+      </span>
+      {% endfor %}
+    </div>
+    <p class="muted" style="margin:0.5rem 0 0;font-size:0.78rem">
+      المبيعات والصرف تمر عبر المحافظ → تُرحَّل تلقائياً إلى هذا الحساب. ربط محافظ إضافية من <a href="/admin/gl">إعدادات GL</a>.
+    </p>
+  </div>
+  {% elif not ledger.is_header %}
+  <p class="muted" style="margin:0.75rem 0 0;font-size:0.82rem">
+    لا توجد محفظة مربوطة — <a href="/admin/gl">اربط محفظة</a> ليظهر أثر المبيعات والصرف هنا.
+  </p>
+  {% endif %}
+</div>
+
+{% if ledger.is_header and ledger.child_summaries %}
+<div class="card">
+  <h2 style="margin-top:0">الحسابات الفرعية</h2>
+  <table style="width:100%;border-collapse:collapse;font-size:0.92rem">
+    <thead>
+      <tr style="border-bottom:2px solid var(--border)">
+        <th style="text-align:right;padding:0.4rem">الرمز</th>
+        <th style="text-align:right;padding:0.4rem">الاسم</th>
+        <th style="text-align:left;padding:0.4rem;direction:ltr">رصيد GL</th>
+        <th style="text-align:right;padding:0.4rem"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for child, cb in ledger.child_summaries %}
+      <tr style="border-bottom:1px dashed var(--border)">
+        <td style="padding:0.4rem;direction:ltr;font-weight:600">{{ child.code }}</td>
+        <td style="padding:0.4rem">{{ child.name_ar }}</td>
+        <td style="padding:0.4rem;text-align:left;direction:ltr;font-variant-numeric:tabular-nums;font-weight:600">{{ "%.3f"|format(cb) }} د.ل</td>
+        <td style="padding:0.4rem;text-align:left"><a class="btn" href="/admin/gl/accounts/{{ child.id }}" style="padding:0.25rem 0.55rem;font-size:0.85rem">عرض الحركة</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if not ledger.is_header %}
+<div class="card">
+  <form method="get" action="/admin/gl/accounts/{{ ledger.account.id }}" class="row" style="flex-wrap:wrap;gap:0.75rem;align-items:flex-end">
+    <div>
+      <label class="muted" style="font-size:0.8rem;display:block">من تاريخ</label>
+      <input type="date" name="from" value="{{ from_date or '' }}" />
+    </div>
+    <div>
+      <label class="muted" style="font-size:0.8rem;display:block">إلى تاريخ</label>
+      <input type="date" name="to" value="{{ to_date or '' }}" />
+    </div>
+    <button class="btn" type="submit">تصفية</button>
+    {% if from_date or to_date %}
+    <a class="btn" href="/admin/gl/accounts/{{ ledger.account.id }}">إلغاء</a>
+    {% endif %}
+  </form>
+</div>
+
+<p class="muted" style="margin:0.5rem 0">عدد الحركات{% if from_date or to_date %} في الفترة{% endif %}: {{ ledger.total_lines }}</p>
+
+{% if ledger.rows %}
+<div class="card" style="padding:0;overflow:auto">
+  <table style="width:100%;border-collapse:collapse;font-size:0.88rem;min-width:720px">
+    <thead>
+      <tr style="border-bottom:2px solid var(--border);background:#f8fafc">
+        <th style="text-align:right;padding:0.45rem">التاريخ</th>
+        <th style="text-align:right;padding:0.45rem">القيد</th>
+        <th style="text-align:right;padding:0.45rem">الوصف / المصدر</th>
+        <th style="text-align:left;padding:0.45rem;direction:ltr">مدين</th>
+        <th style="text-align:left;padding:0.45rem;direction:ltr">دائن</th>
+        <th style="text-align:left;padding:0.45rem;direction:ltr">الرصيد</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in ledger.rows %}
+      <tr style="border-bottom:1px dashed var(--border)">
+        <td style="padding:0.4rem;white-space:nowrap">{{ row.entry_date }}</td>
+        <td style="padding:0.4rem">
+          <a href="/admin/gl/journal?page=0">#{{ row.entry_id }}</a>
+          <span class="muted" style="font-size:0.78rem"> · {{ row.post_mode }}</span>
+        </td>
+        <td style="padding:0.4rem">
+          {{ row.description_ar }}
+          {% if row.memo %}<br><span class="muted" style="font-size:0.78rem">{{ row.memo }}</span>{% endif %}
+          {% if row.source_type %}
+          <br><span class="muted" style="font-size:0.75rem">{{ row.source_type }} #{{ row.source_id }}</span>
+          {% endif %}
+        </td>
+        <td style="padding:0.4rem;text-align:left;direction:ltr;font-variant-numeric:tabular-nums">{% if row.debit > 0 %}{{ "%.3f"|format(row.debit) }}{% else %}—{% endif %}</td>
+        <td style="padding:0.4rem;text-align:left;direction:ltr;font-variant-numeric:tabular-nums">{% if row.credit > 0 %}{{ "%.3f"|format(row.credit) }}{% else %}—{% endif %}</td>
+        <td style="padding:0.4rem;text-align:left;direction:ltr;font-variant-numeric:tabular-nums;font-weight:600">{{ "%.3f"|format(row.running_balance) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div style="display:flex;gap:0.5rem;margin-top:0.75rem">
+  {% if page > 0 %}
+  <a class="btn" href="/admin/gl/accounts/{{ ledger.account.id }}?page={{ page - 1 }}{% if from_date %}&from={{ from_date }}{% endif %}{% if to_date %}&to={{ to_date }}{% endif %}">← السابق</a>
+  {% endif %}
+  {% if has_next %}
+  <a class="btn" href="/admin/gl/accounts/{{ ledger.account.id }}?page={{ page + 1 }}{% if from_date %}&from={{ from_date }}{% endif %}{% if to_date %}&to={{ to_date }}{% endif %}">التالي →</a>
+  {% endif %}
+</div>
+{% else %}
+<div class="card">
+  <p style="margin:0">لا توجد حركات على هذا الحساب{% if from_date or to_date %} في الفترة المحددة{% endif %}.</p>
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}

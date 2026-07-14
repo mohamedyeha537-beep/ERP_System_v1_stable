@@ -1,0 +1,28 @@
+server {
+    listen 80;
+    server_name pos.baytak.ly;
+
+    client_max_body_size 32M;
+
+    location / {
+        proxy_pass http://127.0.0.1:8011;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+    }
+
+    location /static/ {
+        alias /var/www/pos/app/static/;
+        expires 7d;
+        add_header Cache-Control "public";
+    }
+
+    # صور المنتجات والمرفقات — عبر التطبيق (/uploads/) وليس alias ثابت
+    # (تتجنّب كسر الصور إذا كان مسار المشروع ≠ /var/www/pos)
+}
+
+# بعد certbot:
+# sudo certbot --nginx -d pos.baytak.ly

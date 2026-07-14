@@ -129,26 +129,32 @@ def main():
             f"sale#{sale.id} total={sale.total}",
         )
 
-        # قيد بدون اسم نزيل يجب أن يفشل
-        try:
-            hotel.open_room_charge(
-                db,
-                sale_id=sale.id,
-                room_id=room.id,
-                guest_name="",
-                note=None,
-                user_id=None,
-            )
-            db.commit()
-            _print("منع القيد بدون اسم نزيل", False, "تم القبول بالخطأ")
-        except hotel.HotelError as e:
-            db.rollback()
-            _print("منع القيد بدون اسم نزيل", True, str(e))
+        # قيد بدون اسم نزيل — مسموح (يُكتب على الفاتورة المطبوعة)
+        rc_empty = hotel.open_room_charge(
+            db,
+            sale_id=sale.id,
+            room_id=room.id,
+            guest_name="",
+            note=None,
+            user_id=None,
+        )
+        db.commit()
+        _print(
+            "قيد بدون اسم نزيل (يُملأ على الفاتورة)",
+            rc_empty is not None and rc_empty.guest_name_snapshot is None,
+            f"charge#{rc_empty.id}",
+        )
+
+        sale2 = create_draft_sale(db, user_id=None)
+        add_line_to_sale(db, sale2.id, product.id, Decimal("1"), user_id=None)
+        db.commit()
+        sale2 = complete_sale(db, sale2.id, user_id=None)
+        db.commit()
 
         # قيد على الغرفة باسم نزيل
         rc = hotel.open_room_charge(
             db,
-            sale_id=sale.id,
+            sale_id=sale2.id,
             room_id=room.id,
             guest_name="السيد محمد",
             note="عشاء",

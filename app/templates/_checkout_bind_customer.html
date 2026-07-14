@@ -1,0 +1,6 @@
+{% include "_checkout_customer_fields.html" %}
+<div id="checkout-loyalty-redeem" hx-swap-oob="innerHTML">
+  {% include "_checkout_loyalty_redeem.html" %}
+</div>
+{% set financial_preview_oob = true %}
+{% include "_checkout_financial_preview.html" %}

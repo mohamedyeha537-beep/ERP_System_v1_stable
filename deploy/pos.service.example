@@ -1,0 +1,18 @@
+[Unit]
+Description=Roof POS (FastAPI)
+After=network.target mysql.service
+Wants=mysql.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/pos
+EnvironmentFile=/var/www/pos/.env
+Environment=POS_RELOAD=0
+ExecStart=/var/www/pos/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8011
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

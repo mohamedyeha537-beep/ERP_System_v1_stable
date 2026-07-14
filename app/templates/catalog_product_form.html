@@ -13,6 +13,73 @@
   >
     <label for="name_ar">الاسم بالعربية</label>
     <input id="name_ar" name="name_ar" required value="{{ product.name_ar if product else '' }}" />
+    <label for="kind">نوع الصنف</label>
+    <select id="kind" name="kind" required>
+      <option value="STOCK_ONLY"
+        {% if product and (product.kind == 'STOCK_ONLY' or product.kind.value == 'STOCK_ONLY') %}selected
+        {% elif not product %}selected{% endif %}>مخزني فقط (مكوّن — لا يُباع مباشرة)</option>
+      <option value="FINAL_SELLABLE"
+        {% if product and (product.kind == 'FINAL_SELLABLE' or product.kind.value == 'FINAL_SELLABLE') %}selected{% endif %}>منتج نهائي (يُباع في نقطة البيع)</option>
+    </select>
+    <p class="muted" style="margin-top:-0.35rem;font-size:0.85rem">
+      <strong>مكوّن خام</strong> (توابل، خضار): مخزني فقط — يُشترى ويُخزَّن.<br>
+      <strong>منتج وسيط</strong> (صوص، عجينة): مخزني فقط + <strong>لا يظهر في POS</strong> + أضف له
+      <a href="{% if product %}/catalog/products/{{ product.id }}/bom{% else %}#{% endif %}">وصفة تركيب</a> ثم استخدمه في أكثر من منتج نهائي.<br>
+      <strong>منتج نهائي بسيط</strong> (بيبسي، مياه): يُباع من الكاشير ويمكن توريده في فاتورة شراء عند تفعيل خيار الشراء المباشر أدناه.<br>
+      <strong>منتج نهائي مركّب</strong> (برجر، بيتزا): يُباع من الكاشير — أضف له تركيبة، وسيُخصم مخزون المكوّنات عند البيع.
+    </p>
+    <div id="sell-price-block">
+      <label for="sell_price">سعر البيع (د.ل)</label>
+      <input id="sell_price" name="sell_price" value="{{ product.sell_price if product and product.sell_price is not none else '' }}" />
+    </div>
+    <label for="reference_unit_cost">سعر التكلفة المرجعي (د.ل / وحدة)</label>
+    <input
+      id="reference_unit_cost"
+      name="reference_unit_cost"
+      type="number"
+      step="0.001"
+      min="0"
+      value="{{ pos_qty_plain(product.reference_unit_cost) if product and product.reference_unit_cost is not none else '' }}"
+      placeholder="اختياري — يُستخدم في التقارير والتركيبة"
+    />
+    <p class="muted" style="margin-top:-0.35rem;font-size:0.85rem">
+      <strong>طريقتان لتسجيل التكلفة (يمكن استخدامهما معاً):</strong><br>
+      ① <strong>هنا في كرت الصنف</strong> — تكلفة مرجعية ثابتة أو تقديرية (مفيدة قبل أول شراء أو للمكوّنات).<br>
+      ② <strong>أثناء الشراء</strong> — في <a href="/admin/purchases/new">فاتورة شراء</a> حقل «سعر الوحدة» لكل بند؛ يُحدّث متوسط التكلفة الفعلي من المشتريات.<br>
+      الأولوية في الحساب: المرجع اليدوي إن وُجد، وإلا متوسط الشراء، وإن وُجدت تركيبة تُجمع تكلفة المكوّنات.
+    </p>
+    <div id="pos-visibility-block" style="margin: 0.75rem 0">
+      <label style="display:flex;align-items:center;gap:0.5rem;font-weight:600">
+        <input
+          type="checkbox"
+          id="show_in_pos"
+          name="show_in_pos"
+          value="on"
+          {% if not product or product.show_in_pos %}checked{% endif %}
+        />
+        يعرض في جلسة البيع (الكاشير)
+      </label>
+      <p class="muted" style="margin:0.35rem 0 0;font-size:0.85rem">
+        ألغِ التحديد لإخفاء الصنف من شاشة نقطة البيع مع بقائه في الأصناف والمخزون والتركيبة.
+        للمكوّنات المخزنية فقط: غيّر النوع إلى «مخزني».
+      </p>
+    </div>
+    <div id="direct-purchase-block" style="margin: 0.75rem 0">
+      <label style="display:flex;align-items:center;gap:0.5rem;font-weight:600">
+        <input
+          type="checkbox"
+          id="direct_purchase_enabled"
+          name="direct_purchase_enabled"
+          value="on"
+          {% if (product and product.direct_purchase_enabled) or not product %}checked{% endif %}
+        />
+        قابل للشراء والتوريد في فاتورة الشراء
+      </label>
+      <p class="muted" style="margin:0.35rem 0 0;font-size:0.85rem">
+        فعّل هذا الخيار للمنتجات النهائية التي تُشترى جاهزة مثل الكولا والمياه، حتى تظهر في فاتورة الشراء وتُضاف للمخزون.
+        اتركه غير مفعّل للمنتجات التي تُحضّر من تركيبة مثل البرجر.
+      </p>
+    </div>
     <label for="category_id">الفئة في نقطة البيع (للعرض على الكاشير)</label>
     <select id="category_id" name="category_id">
       <option value="">— بدون فئة —</option>
@@ -20,33 +87,16 @@
       <option value="{{ cid }}" {% if product and product.category_id == cid %}selected{% endif %}>{{ label }}</option>
       {% endfor %}
     </select>
-    <label for="kitchen_department_id">قسم التجهيز في المطبخ (لا يظهر في الكاشير)</label>
-    <select id="kitchen_department_id" name="kitchen_department_id">
-      <option value="">— بدون قسم / يُوجّه حسب الفئة القديمة —</option>
-      {% for d in department_rows %}
-      <option value="{{ d.id }}" {% if product and product.kitchen_department_id == d.id %}selected{% endif %}>
-        {% if d.venue.value == 'KITCHEN' %}مطبخ{% else %}مقهى{% endif %} — {{ d.name_ar }}
-      </option>
-      {% endfor %}
-    </select>
-    {% if not department_rows %}
-    <p class="muted" style="margin-top:0.35rem;font-size:0.85rem;color:#b45309">
-      لا توجد أقسام نشطة بعد —
-      <a href="/admin/kitchen-departments">أضف أقسام المطبخ هنا</a>
-      ثم حدّث هذه الصفحة.
-    </p>
-    {% else %}
     <p class="muted" style="margin-top:-0.35rem;font-size:0.85rem">
-      <a href="/admin/kitchen-departments">إدارة أقسام المطبخ</a> — {{ department_rows|length }} قسم متاح
+      قسم المطبخ للطباعة يُحدَّد تلقائياً من <a href="/catalog/categories">فئة الصنف</a>.
     </p>
-    {% endif %}
     <label for="barcode">الباركود (للمسح في نقطة البيع)</label>
     <input id="barcode" name="barcode" value="{{ product.barcode if product and product.barcode else '' }}" placeholder="EAN / داخلي" />
     <label for="image">صورة المنتج (jpg / png / webp)</label>
     <input id="image" name="image" type="file" accept=".jpg,.jpeg,.png,.webp" />
     {% if product and product.image_filename %}
     <p class="muted">الصورة الحالية:</p>
-    <img src="/static/{{ product.image_filename }}" alt="" style="max-width: 200px; border-radius: 8px; border: 1px solid var(--border)" />
+    <img src="{{ product_image_url(product.image_filename) }}" alt="" style="max-width: 200px; border-radius: 8px; border: 1px solid var(--border)" />
     {% endif %}
     <label for="sku">رمز SKU (اختياري)</label>
     <input id="sku" name="sku" value="{{ product.sku if product and product.sku else '' }}" />
@@ -61,19 +111,55 @@
       {% endif %}
     </select>
     <p class="muted" style="margin-top: -0.4rem">إدارة الوحدات من صفحة <a href="/catalog/units">وحدات القياس</a>.</p>
-    <label for="kind">نوع الصنف</label>
-    <select id="kind" name="kind">
-      <option value="FINAL_SELLABLE" {% if product and product.kind.value == 'FINAL_SELLABLE' %}selected{% endif %}>منتج نهائي (يُباع)</option>
-      <option value="STOCK_ONLY" {% if product and product.kind.value == 'STOCK_ONLY' %}selected{% endif %}>مخزني فقط (مكوّن)</option>
-    </select>
-    <label for="sell_price">سعر البيع (د.ل) — للمنتج النهائي</label>
-    <input id="sell_price" name="sell_price" value="{{ product.sell_price if product and product.sell_price is not none else '' }}" />
     <label for="reorder_level">حد التنبيه للمخزون</label>
-    <input id="reorder_level" name="reorder_level" value="{{ product.reorder_level if product else '0' }}" />
-    <label for="notes">ملاحظات</label>
-    <textarea id="notes" name="notes" rows="3">{{ product.notes if product and product.notes else '' }}</textarea>
+    <input id="reorder_level" name="reorder_level" value="{{ pos_qty_plain(product.reorder_level) if product else '0' }}" />
+    <p class="muted" style="margin-top:-0.35rem;font-size:0.85rem">
+      يُرسل تنبيه عندما يصبح الرصيد ≤ هذا الحد (مثال: 500 جرام). ضع 0 لتعطيل التنبيه. ليس «كمية التخزين المطلوبة».
+    </p>
+
+    <div class="card" style="margin-top:1rem;padding:1rem;background:var(--bg-muted,#f8f9fb)">
+      <label style="display:flex;align-items:center;gap:0.5rem;font-weight:600;margin-bottom:0.75rem">
+        <input
+          type="checkbox"
+          id="expiry_tracked"
+          name="expiry_tracked"
+          value="on"
+          {% if product and product.expiry_tracked %}checked{% endif %}
+        />
+        تتبع الصلاحية عند الشراء
+      </label>
+      <p class="muted" style="margin-top:-0.35rem;font-size:0.85rem;margin-bottom:0.75rem">
+        ☑ <strong>فعّل هذا الخيار</strong> للأصناف التي لها تاريخ انتهاء (حليب، لحوم…).
+        بعد التفعيل، عند كل <a href="/admin/purchases/new">فاتورة شراء</a> يظهر خيار «صلاحية» وحقول التاريخ لذلك الصنف.
+        <strong>لا تُدخل التاريخ هنا</strong> — يُدخل مع كل عملية شراء.
+      </p>
+      <div id="expiry-fields" {% if not product or not product.expiry_tracked %}hidden{% endif %}>
+        <label for="expiry_warn_days">بدء التنبيه قبل الانتهاء (بالأيام)</label>
+        <input
+          type="number"
+          id="expiry_warn_days"
+          name="expiry_warn_days"
+          min="1"
+          step="1"
+          value="{{ product.expiry_warn_days if product and product.expiry_warn_days else 7 }}"
+        />
+        <p class="muted" style="margin-top:0.35rem;font-size:0.85rem">
+          عند دخول أي دفعة ضمن هذه المدة تُرسل رسالة للإدارة.
+        </p>
+      </div>
+    </div>
+
+    <label for="notes">ملاحظات إدارية داخلية (اختياري)</label>
+    <p class="muted" style="margin-top:-0.35rem;font-size:0.85rem">
+      للإدارة والمخزون فقط — <strong>لا تظهر</strong> في نقطة البيع ولا علاقة لها بأزرار «ملاحظات الكاشير» أدناه.
+      مثال: مكوّنات خاصة، تعليمات للموظفين.
+    </p>
+    <textarea id="notes" name="notes" rows="2" placeholder="اختياري — لن يظهر للكاشير">{{ product.notes if product and product.notes else '' }}</textarea>
+    {% if not product %}
+    {% include "_catalog_product_modifiers.html" %}
+    {% endif %}
     {% if product %}
-    <label><input type="checkbox" name="is_active" value="on" {% if product.is_active %}checked{% endif %} /> نشط</label>
+    <label><input type="checkbox" name="is_active" value="on" {% if product.is_active %}checked{% endif %} /> نشط (في النظام والمخزون)</label>
     {% endif %}
     <div class="row" style="margin-top: 1rem">
       <button class="btn btn-primary" type="submit">حفظ</button>
@@ -81,4 +167,48 @@
     </div>
   </form>
 </div>
+{% if product %}
+<div class="card" style="margin-top:1rem">
+  {% include "_catalog_product_modifiers.html" %}
+</div>
+{% endif %}
+<script>
+(function () {
+  var toggle = document.getElementById('expiry_tracked');
+  var panel = document.getElementById('expiry-fields');
+  if (toggle && panel) {
+    toggle.addEventListener('change', function () {
+      panel.hidden = !toggle.checked;
+    });
+  }
+
+  var kindSel = document.getElementById('kind');
+  var posBlock = document.getElementById('pos-visibility-block');
+  var directPurchaseBlock = document.getElementById('direct-purchase-block');
+  var sellBlock = document.getElementById('sell-price-block');
+  var sellInput = document.getElementById('sell_price');
+  function syncKindFields() {
+    if (!kindSel) return;
+    var stock = kindSel.value === 'STOCK_ONLY';
+    if (posBlock) {
+      posBlock.hidden = stock;
+      posBlock.querySelectorAll('input').forEach(function (el) { el.disabled = stock; });
+    }
+    if (directPurchaseBlock) {
+      directPurchaseBlock.hidden = stock;
+      directPurchaseBlock.querySelectorAll('input').forEach(function (el) { el.disabled = stock; });
+    }
+    if (sellBlock) sellBlock.hidden = stock;
+    if (sellInput) {
+      sellInput.disabled = stock;
+      sellInput.required = !stock;
+      if (stock) sellInput.value = '';
+    }
+  }
+  if (kindSel) {
+    kindSel.addEventListener('change', syncKindFields);
+    syncKindFields();
+  }
+})();
+</script>
 {% endblock %}

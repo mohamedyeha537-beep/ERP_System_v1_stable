@@ -8,10 +8,11 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from modules.catalog.bom_explosion import expand_bom_requirements
 from modules.catalog.models import Product
 from modules.customers.models import Customer, LoyaltyTransaction, LoyaltyTxnKind
 from modules.inventory.models import StockMovementType
-from modules.inventory.service import apply_movement, get_sales_warehouse_id
+from modules.inventory.service import apply_movement, get_product_sales_warehouse_id
 from modules.payments.models import RefundPayment, SalePayment
 from modules.payments.service import (
     PaymentsError,
@@ -35,6 +36,7 @@ class RefundsError(Exception):
 
 
 RETURN_LOYALTY_NOTE_PREFIX = "عكس نقاط مرتجع"
+RETURN_REDEEM_RESTORE_PREFIX = "إرجاع نقاط مستخدمة — مرتجع"
 
 
 @dataclass
@@ -78,7 +80,7 @@ def _get_sale_returns_query(sale_id: int):
     return (
         select(SaleReturn)
         .where(SaleReturn.original_sale_id == sale_id)
-        .order_by(SaleReturn.created_at.desc(), SaleReturn.id.desc())
+        .order_by(SaleReturn.id.desc())
     )
 
 
@@ -87,7 +89,7 @@ def list_recent_sale_returns(db: Session, *, limit: int = 40) -> list[SaleReturn
     stmt = (
         select(SaleReturn)
         .where(SaleReturn.status == SaleReturnStatus.POSTED)
-        .order_by(SaleReturn.created_at.desc(), SaleReturn.id.desc())
+        .order_by(SaleReturn.id.desc())
         .limit(limit)
         .options(
             selectinload(SaleReturn.lines).selectinload(SaleReturnLine.product),
@@ -167,10 +169,21 @@ def sale_remaining_total(db: Session, sale_id: int) -> Decimal:
     return remaining.quantize(Decimal("0.001"))
 
 
+def sale_loyalty_discount_total(db: Session, sale_id: int) -> Decimal:
+    """خصم نقاط الولاء على الفاتورة (يُعتبر تسديداً — ليس ديناً)."""
+    sale = db.get(Sale, sale_id)
+    if sale is None or not sale.customer_id:
+        return Decimal("0")
+    from modules.customers.service import loyalty_discount_for_sale
+
+    return loyalty_discount_for_sale(db, sale_id, sale.customer_id)
+
+
 def sale_outstanding_total(db: Session, sale_id: int) -> Decimal:
     remaining = sale_remaining_total(db, sale_id)
     paid = sum_sale_payments(db, sale_id)
-    outstanding = remaining - paid
+    loyalty = sale_loyalty_discount_total(db, sale_id)
+    outstanding = remaining - paid - loyalty
     if outstanding < 0:
         return Decimal("0")
     return outstanding.quantize(Decimal("0.001"))
@@ -243,7 +256,7 @@ def search_completed_sales(
             stmt = stmt.where(Sale.id == int(term))
         else:
             stmt = stmt.where(Sale.external_order_id.like(f"%{term}%"))
-    stmt = stmt.order_by(Sale.created_at.desc(), Sale.id.desc()).limit(limit)
+    stmt = stmt.order_by(Sale.id.desc()).limit(limit)
     return list(db.scalars(stmt).all())
 
 
@@ -274,8 +287,13 @@ def _normalize_return_lines(
             Decimal("0.0001")
         )
         if qty > remaining:
+            product_name = (
+                line.product.name_ar
+                if line.product is not None
+                else f"صنف محذوف #{line.product_id}"
+            )
             raise RefundsError(
-                f"الكمية المرتجعة للصنف «{line.product.name_ar}» تتجاوز المتاح للترجيع."
+                f"الكمية المرتجعة للصنف «{product_name}» تتجاوز المتاح للترجيع."
             )
         line_total = (qty * Decimal(str(line.unit_price or 0))).quantize(
             Decimal("0.001")
@@ -301,14 +319,23 @@ def _return_components(
 ) -> None:
     component_qty: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
     for sale_line, qty, _line_total, restock in lines:
-        if not restock:
+        if not restock or sale_line.product_id is None:
             continue
-        for bom in sale_line.product.bom_lines_as_parent:
-            component_qty[bom.component_product_id] += bom.qty_per_parent * qty
-    sales_wh = get_sales_warehouse_id(db)
+        for product_id, need in expand_bom_requirements(
+            db, int(sale_line.product_id), qty
+        ).items():
+            component_qty[product_id] += need
+    from modules.sales.models import Sale
+
+    sr = db.get(SaleReturn, sale_return_id)
+    psid = None
+    if sr and sr.original_sale_id:
+        sale = db.get(Sale, sr.original_sale_id)
+        psid = sale.pos_shift_id if sale else None
     for product_id, qty in component_qty.items():
         if qty <= 0:
             continue
+        sales_wh = get_product_sales_warehouse_id(db, product_id, pos_shift_id=psid)
         apply_movement(
             db,
             product_id=product_id,
@@ -345,6 +372,55 @@ def _reversed_points_for_sale(db: Session, customer_id: int, sale_id: int) -> De
     return Decimal(str(total or 0)).quantize(Decimal("0.001"))
 
 
+def _redeemed_points_for_sale(db: Session, customer_id: int, sale_id: int) -> Decimal:
+    """إجمالي النقاط التي استُخدمت كخصم (معاملات REDEEM سالبة)."""
+    total = db.execute(
+        select(func.coalesce(func.sum(-LoyaltyTransaction.points), 0)).where(
+            LoyaltyTransaction.customer_id == customer_id,
+            LoyaltyTransaction.sale_id == sale_id,
+            LoyaltyTransaction.kind == LoyaltyTxnKind.REDEEM,
+            LoyaltyTransaction.points < 0,
+        )
+    ).scalar_one()
+    return Decimal(str(total or 0)).quantize(Decimal("0.001"))
+
+
+def _redeem_restored_for_sale(db: Session, customer_id: int, sale_id: int) -> Decimal:
+    total = db.execute(
+        select(func.coalesce(func.sum(LoyaltyTransaction.points), 0)).where(
+            LoyaltyTransaction.customer_id == customer_id,
+            LoyaltyTransaction.sale_id == sale_id,
+            LoyaltyTransaction.kind == LoyaltyTxnKind.ADJUST,
+            LoyaltyTransaction.points > 0,
+            LoyaltyTransaction.note.like(f"{RETURN_REDEEM_RESTORE_PREFIX}%"),
+        )
+    ).scalar_one()
+    return Decimal(str(total or 0)).quantize(Decimal("0.001"))
+
+
+def _return_loyalty_fraction(
+    *,
+    sale: Sale,
+    sale_return: SaleReturn,
+    previous_returned_total: Decimal,
+) -> Decimal:
+    """حصة هذا المرتجع من إجمالي الفاتورة (0–1) مع دعم اكتمال الترجيع."""
+    sale_total = Decimal(str(sale.total or 0)).quantize(Decimal("0.001"))
+    if sale_total <= 0:
+        return Decimal("0")
+    after_returned_total = (previous_returned_total + sale_return.total).quantize(
+        Decimal("0.001")
+    )
+    if after_returned_total >= sale_total:
+        remaining_return = (sale_total - previous_returned_total).quantize(
+            Decimal("0.001")
+        )
+        if remaining_return <= 0:
+            return Decimal("0")
+        return (remaining_return / sale_total).quantize(Decimal("0.000001"))
+    return (sale_return.total / sale_total).quantize(Decimal("0.000001"))
+
+
 def _reverse_loyalty_for_return(
     db: Session,
     *,
@@ -358,61 +434,91 @@ def _reverse_loyalty_for_return(
     customer = db.get(Customer, sale.customer_id)
     if customer is None:
         return Decimal("0")
-    earned = _earned_points_for_sale(db, customer.id, sale.id)
-    if earned <= 0 or sale.total <= 0:
-        customer.total_spent = max(
-            Decimal("0"),
-            Decimal(str(customer.total_spent or 0)) - sale_return.total,
-        ).quantize(Decimal("0.001"))
-        return Decimal("0")
 
-    reversed_before = _reversed_points_for_sale(db, customer.id, sale.id)
-    remaining_points = (earned - reversed_before).quantize(Decimal("0.001"))
-    if remaining_points < 0:
-        remaining_points = Decimal("0")
-
+    sale_total = Decimal(str(sale.total or 0)).quantize(Decimal("0.001"))
     after_returned_total = (previous_returned_total + sale_return.total).quantize(
         Decimal("0.001")
     )
-    if after_returned_total >= Decimal(str(sale.total or 0)):
-        points = remaining_points
-    else:
-        points = (
-            (earned * sale_return.total) / Decimal(str(sale.total or 0))
-        ).quantize(Decimal("0.001"))
-        if points > remaining_points:
-            points = remaining_points
-    if points < 0:
-        points = Decimal("0")
-
     customer.total_spent = max(
         Decimal("0"),
         Decimal(str(customer.total_spent or 0)) - sale_return.total,
     ).quantize(Decimal("0.001"))
     if (
-        previous_returned_total < Decimal(str(sale.total or 0))
-        and after_returned_total >= Decimal(str(sale.total or 0))
+        sale_total > 0
+        and previous_returned_total < sale_total
+        and after_returned_total >= sale_total
         and int(customer.visits_count or 0) > 0
     ):
         customer.visits_count = int(customer.visits_count or 0) - 1
 
-    if points > 0:
-        customer.points_balance = max(
-            Decimal("0"),
-            Decimal(str(customer.points_balance or 0)) - points,
-        ).quantize(Decimal("0.001"))
-        db.add(
-            LoyaltyTransaction(
-                customer_id=customer.id,
-                sale_id=sale.id,
-                kind=LoyaltyTxnKind.ADJUST,
-                points=-points,
-                note=f"{RETURN_LOYALTY_NOTE_PREFIX} #{sale_return.id} من فاتورة #{sale.id}",
-                created_by_id=user_id,
+    fraction = _return_loyalty_fraction(
+        sale=sale,
+        sale_return=sale_return,
+        previous_returned_total=previous_returned_total,
+    )
+    if fraction <= 0:
+        db.flush()
+        return Decimal("0")
+
+    earn_reversed = Decimal("0")
+    earned = _earned_points_for_sale(db, customer.id, sale.id)
+    if earned > 0 and sale_total > 0:
+        reversed_before = _reversed_points_for_sale(db, customer.id, sale.id)
+        remaining_earn = (earned - reversed_before).quantize(Decimal("0.001"))
+        if remaining_earn < 0:
+            remaining_earn = Decimal("0")
+        points = (remaining_earn * fraction).quantize(Decimal("0.001"))
+        if after_returned_total >= sale_total:
+            points = remaining_earn
+        if points > remaining_earn:
+            points = remaining_earn
+        if points > 0:
+            customer.points_balance = max(
+                Decimal("0"),
+                Decimal(str(customer.points_balance or 0)) - points,
+            ).quantize(Decimal("0.001"))
+            db.add(
+                LoyaltyTransaction(
+                    customer_id=customer.id,
+                    sale_id=sale.id,
+                    kind=LoyaltyTxnKind.ADJUST,
+                    points=-points,
+                    note=f"{RETURN_LOYALTY_NOTE_PREFIX} #{sale_return.id} من فاتورة #{sale.id}",
+                    created_by_id=user_id,
+                )
             )
-        )
+            earn_reversed = points
+
+    redeem_restored = Decimal("0")
+    redeemed = _redeemed_points_for_sale(db, customer.id, sale.id)
+    if redeemed > 0 and sale_total > 0:
+        restored_before = _redeem_restored_for_sale(db, customer.id, sale.id)
+        remaining_redeem = (redeemed - restored_before).quantize(Decimal("0.001"))
+        if remaining_redeem < 0:
+            remaining_redeem = Decimal("0")
+        restore_pts = (remaining_redeem * fraction).quantize(Decimal("0.001"))
+        if after_returned_total >= sale_total:
+            restore_pts = remaining_redeem
+        if restore_pts > remaining_redeem:
+            restore_pts = remaining_redeem
+        if restore_pts > 0:
+            customer.points_balance = (
+                Decimal(str(customer.points_balance or 0)) + restore_pts
+            ).quantize(Decimal("0.001"))
+            db.add(
+                LoyaltyTransaction(
+                    customer_id=customer.id,
+                    sale_id=sale.id,
+                    kind=LoyaltyTxnKind.ADJUST,
+                    points=restore_pts,
+                    note=f"{RETURN_REDEEM_RESTORE_PREFIX} #{sale_return.id} من فاتورة #{sale.id}",
+                    created_by_id=user_id,
+                )
+            )
+            redeem_restored = restore_pts
+
     db.flush()
-    return points
+    return earn_reversed + redeem_restored
 
 
 def create_sale_return(
@@ -564,4 +670,17 @@ def create_sale_return(
         room_charge.settlement_payment_method_id = None
 
     db.flush()
+    from modules.dashboard_notify.constants import REFUNDS
+    from modules.dashboard_notify.service import record_activity
+
+    record_activity(
+        db,
+        REFUNDS,
+        event_type="sale_return",
+        ref_id=sale_return.id,
+        note=f"مرتجع فاتورة #{sale.id}",
+    )
+    from modules.gl.posting import post_sale_return_shadow_safe
+
+    post_sale_return_shadow_safe(db, sale_return)
     return sale_return

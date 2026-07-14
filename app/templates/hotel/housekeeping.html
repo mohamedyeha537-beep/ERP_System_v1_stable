@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}التنظيف والصيانة{% endblock %}
+{% block body %}
+<h1 style="margin-top:0">🧹 التنظيف والصيانة</h1>
+<p style="display:flex;gap:0.5rem;flex-wrap:wrap">
+  <a class="btn" href="/admin/hotel/dashboard">← لوحة الشقق</a>
+  <a class="btn" href="/admin/hotel/bookings">الحجوزات</a>
+</p>
+
+{% if saved == 'clean' %}
+<div class="alert" style="background:#ecfdf5;margin:0.75rem 0">تم التنظيف — الشقة متاحة للحجز ✓</div>
+{% elif saved == 'maintenance' %}
+<div class="alert" style="background:#fff7ed;margin:0.75rem 0">تم إرسال الشقة للصيانة وإشعار موظف الصيانة عبر واتساب ✓</div>
+{% elif saved == 'ready' %}
+<div class="alert" style="background:#ecfdf5;margin:0.75rem 0">اكتملت الصيانة — الشقة متاحة للحجز ✓</div>
+{% elif saved == 'settings' %}
+<div class="alert" style="background:#ecfdf5;margin:0.75rem 0">تم حفظ بيانات موظف الصيانة الافتراضي ✓</div>
+{% endif %}
+{% if error %}
+<div class="alert" style="background:#fef2f2;color:#b91c1c;margin:0.75rem 0">{{ error }}</div>
+{% endif %}
+
+<div class="card" style="margin-bottom:1rem;max-width:720px">
+  <h2 style="margin-top:0;font-size:1.05rem">👷 موظف الصيانة الافتراضي</h2>
+  <p class="muted" style="font-size:0.9rem;margin:0 0 0.75rem">يُستخدم الرقم عند إرسال طلب صيانة — يمكن تغييره لكل شقة.</p>
+  <form method="post" action="/admin/hotel/housekeeping/settings" style="display:grid;gap:0.5rem;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));align-items:end">
+    <div>
+      <label>اسم موظف الصيانة</label>
+      <input class="input" name="maintenance_name" value="{{ default_maintenance_name }}" placeholder="مثال: أحمد — صيانة" />
+    </div>
+    <div>
+      <label>رقم واتساب *</label>
+      <input class="input" name="maintenance_phone" value="{{ default_maintenance_phone }}" dir="ltr" placeholder="0912345678" required />
+    </div>
+    <div><button class="btn btn-primary" type="submit">حفظ</button></div>
+  </form>
+</div>
+
+<p class="muted" style="margin-bottom:1rem;font-size:0.92rem">
+  بعد مغادرة النزيل تظهر الشقة للتنظيف. عند اكتشاف عطل، اختر النوع (مكيف، ميكروويف، …) ويُرسل إشعار واتساب لموظف الصيانة.
+  <strong>الشقق في التنظيف أو الصيانة لا تُعرَض للإيجار.</strong>
+</p>
+
+<div class="card" style="margin-bottom:1rem">
+  <h2 style="margin-top:0">🧼 تحتاج تنظيف ({{ dirty_rooms|length }})</h2>
+  {% if dirty_rooms %}
+  {% for r in dirty_rooms %}
+  <div class="card" style="margin:0.65rem 0;padding:0.85rem;background:#f8fafc">
+    <strong>{{ r.name_ar or ('شقة ' ~ r.number) }}</strong>
+    <span class="muted">#{{ r.number }}</span>
+    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.65rem;align-items:flex-start">
+      <form method="post" action="/admin/hotel/housekeeping/{{ r.id }}/clean">
+        <button class="btn btn-primary" type="submit">✓ تم التنظيف — جاهزة</button>
+      </form>
+      <form method="post" action="/admin/hotel/housekeeping/{{ r.id }}/maintenance" style="flex:1;min-width:280px;display:grid;gap:0.45rem">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.45rem">
+          <select class="input" name="issue_type" required>
+            <option value="">— نوع العطل —</option>
+            {% for key, label in issue_types.items() %}
+            <option value="{{ key }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+          {% if maintenance_staff %}
+          <select class="input hk-staff-pick" name="employee_id" data-phone-target="phone-{{ r.id }}" data-name-target="name-{{ r.id }}">
+            <option value="">— موظف صيانة (اختياري) —</option>
+            {% for s in maintenance_staff %}
+            <option value="{{ s.id }}" data-phone="{{ s.phone }}" data-name="{{ s.name }}">{{ s.name }} · {{ s.phone }}</option>
+            {% endfor %}
+          </select>
+          {% endif %}
+          <input class="input" id="phone-{{ r.id }}" name="maintenance_phone" value="{{ default_maintenance_phone }}" dir="ltr" placeholder="رقم واتساب الصيانة" required />
+          <input class="input" id="name-{{ r.id }}" name="maintenance_name" value="{{ default_maintenance_name }}" placeholder="اسم المستلم" />
+        </div>
+        <input class="input" name="note" maxlength="240" placeholder="تفاصيل إضافية: لا يبرد، زر مكسور، تسريب…" />
+        <button class="btn" type="submit" style="background:#f97316;color:#fff;border:0;width:fit-content">🔧 إرسال للصيانة + إشعار</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+  {% else %}
+  <p class="muted">لا توجد شقق بانتظار التنظيف.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">🔧 في الصيانة ({{ maintenance_rooms|length }})</h2>
+  {% if maintenance_rooms %}
+  <table class="table">
+    <thead><tr><th>الشقة</th><th>إجراء</th></tr></thead>
+    <tbody>
+    {% for r in maintenance_rooms %}
+    <tr>
+      <td><strong>{{ r.name_ar or ('شقة ' ~ r.number) }}</strong> <span class="muted">#{{ r.number }}</span></td>
+      <td>
+        <form method="post" action="/admin/hotel/housekeeping/{{ r.id }}/maintenance-done">
+          <button class="btn btn-primary" type="submit">✓ اكتملت الصيانة — جاهزة للحجز</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">لا توجد شقق في الصيانة حالياً.</p>
+  {% endif %}
+</div>
+
+<script>
+(function () {
+  document.querySelectorAll(".hk-staff-pick").forEach(function (sel) {
+    sel.addEventListener("change", function () {
+      var opt = sel.options[sel.selectedIndex];
+      var phoneEl = document.getElementById(sel.getAttribute("data-phone-target"));
+      var nameEl = document.getElementById(sel.getAttribute("data-name-target"));
+      if (!opt || !opt.value) return;
+      if (phoneEl && opt.getAttribute("data-phone")) phoneEl.value = opt.getAttribute("data-phone");
+      if (nameEl && opt.getAttribute("data-name")) nameEl.value = opt.getAttribute("data-name");
+    });
+  });
+})();
+</script>
+{% endblock %}

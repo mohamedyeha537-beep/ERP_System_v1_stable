@@ -2,7 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="utf-8" />
-  <title>تذكرة مطبخ — {{ section.name_ar }} — #{{ sale.id }}</title>
+  <title>{% if ticket.is_supplement %}تكميل{% else %}تذكرة مطبخ{% endif %} — {{ section.name_ar if section else section_name }} — #{{ sale.id }}</title>
   <link rel="stylesheet" href="/static/app.css" />
   <style>
     @page { size: 80mm auto; margin: 4mm; }
@@ -25,7 +25,9 @@
     .table-line { font-size: 1rem; font-weight: 800; color: #b91c1c; text-align: center; padding: 0.35rem 0; border: 1px solid #fecaca; background: #fef2f2; border-radius: 6px; margin-bottom: 0.5rem; }
     table { width: 100%; border-collapse: collapse; }
     table td { padding: 0.3rem 0.2rem; border-bottom: 1px dashed #cbd5e1; font-size: 0.95rem; }
-    table td.qty { text-align: center; font-weight: 800; width: 3rem; }
+    table td.qty { text-align: center; font-weight: 800; width: 3rem; vertical-align: top; }
+    .num-frac { font-size: 0.62em; opacity: 0.85; vertical-align: baseline; }
+    .line-note { font-size: 0.82rem; color: #b45309; font-weight: 700; margin-top: 0.15rem; }
     .actions { text-align: center; margin-top: 0.6rem; }
     @media print { .actions { display: none; } }
   </style>
@@ -40,20 +42,53 @@
 <body>
   <div class="ticket-page">
     <div class="head">
-      <h1>{{ section_name or (section.name_ar if section else 'قسم') }}</h1>
-      <div class="meta">طلب #{{ sale.id }} — {{ ticket.created_at.strftime('%H:%M') }}</div>
+      <h1>{% if ticket.is_supplement %}تكميل — {% endif %}{{ section_name or (section.name_ar if section else 'قسم') }}</h1>
+      {% if ticket.is_supplement %}
+      <div class="meta" style="color:#b45309;font-weight:800">تابع للطلب #{{ sale.id }}</div>
+      {% endif %}
+      <div class="meta">طلب #{{ sale.id }} — {{ pos_format_dt(ticket.created_at, '%H:%M') }}</div>
     </div>
     {% if sale.table %}
     <div class="table-line">الطاولة: {{ sale.table.name_ar }}</div>
     {% endif %}
     <table>
       <tbody>
-        {% for ln in lines %}
+        {% if supplement_rows %}
+        {% for row in supplement_rows %}
         <tr>
-          <td>{{ ln.product.name_ar }}</td>
-          <td class="qty">× {{ ln.quantity }}</td>
+          <td>
+            {{ row.name_ar }}
+            {% if row.note %}
+            <div class="line-note">↳ {{ row.note }}</div>
+            {% endif %}
+          </td>
+          <td class="qty">× {{ pos_qty(row.qty) }}</td>
         </tr>
         {% endfor %}
+        {% else %}
+        {% for ln in lines %}
+        <tr>
+          <td>
+            {{ ln.product.name_ar }}
+            {% if ln.line_note %}
+            <div class="line-note">↳ {{ ln.line_note }}</div>
+            {% endif %}
+          </td>
+          <td class="qty">× {{ pos_qty(ln.quantity) }}</td>
+        </tr>
+        {% endfor %}
+        {% for ln in complimentary_rows %}
+        <tr>
+          <td>
+            {{ ln.name_ar }}
+            {% if ln.notes %}
+            <div class="line-note">↳ {{ ln.notes }}</div>
+            {% endif %}
+          </td>
+          <td class="qty">× {{ pos_qty(ln.qty) }}</td>
+        </tr>
+        {% endfor %}
+        {% endif %}
       </tbody>
     </table>
     <div class="actions">

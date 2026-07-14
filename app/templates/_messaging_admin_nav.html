@@ -1,0 +1,32 @@
+{% macro messaging_admin_nav(active, inbox_unread=0, pending_chat_orders=0, failed=0) %}
+
+<nav class="row" style="gap:0.4rem;margin:1rem 0;flex-wrap:wrap">
+
+  <a class="btn" href="/admin/notifications">← محرك الإشعارات</a>
+
+  <a class="btn {% if active == 'settings' %}btn-primary{% endif %}" href="/admin/notifications/delivery">إرسال WhatsApp</a>
+
+  <a class="btn {% if active == 'web-chat' %}btn-primary{% endif %}" href="/admin/messaging/web-chat">الشات الذكي</a>
+
+  <a class="btn {% if active == 'broadcast' %}btn-primary{% endif %}" href="/admin/messaging/broadcast">دعائية (جماعي)</a>
+
+  <a class="btn {% if active == 'campaigns' %}btn-primary{% endif %}" href="/admin/messaging/campaigns">حملات</a>
+
+  <a class="btn {% if active == 'inbox' %}btn-primary{% endif %}" href="/admin/messaging/inbox">
+
+    صندوق الوارد{% if inbox_unread %} ({{ inbox_unread }}){% endif %}
+
+  </a>
+
+  <a class="btn {% if active == 'chat-orders' or pending_chat_orders %}btn-primary{% endif %}" href="/admin/messaging/chat-orders">
+
+    طلبات الشات{% if pending_chat_orders %} ({{ pending_chat_orders }}){% endif %}
+
+  </a>
+
+  <a class="btn {% if active == 'log' %}btn-primary{% endif %}" href="/admin/messaging/log">سجل الإرسال{% if failed %} ({{ failed }} فاشلة){% endif %}</a>
+
+</nav>
+
+{% endmacro %}
+

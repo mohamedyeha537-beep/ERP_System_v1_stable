@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button, financial_statement_styles with context %}
 {% block title %}مركز التقارير{% endblock %}
 {% block head_extra %}
 <style>
@@ -23,23 +23,6 @@
   }
   .s1 .stnum { background: #10b981; }
   .s2 .stnum { background: #f59e0b; }
-  .stmt-rows { margin: 0.4rem 0 0.8rem; }
-  .stmt-row {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 0.35rem 0; border-bottom: 1px dashed #e5e7eb;
-    font-size: 0.95rem;
-  }
-  .stmt-row.indent { padding-inline-start: 1rem; color: #6b7280; font-size: 0.88rem; }
-  .stmt-row .v { font-weight: 600; font-variant-numeric: tabular-nums; direction: ltr; }
-  .stmt-row .v.minus { color: #b91c1c; }
-  .stmt-row .v.plus { color: #047857; }
-  .stmt-total {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 0.7rem 0.9rem; border-radius: 8px; margin-top: 0.5rem;
-    font-weight: 800; font-size: 1.15rem;
-  }
-  .stmt-total.good { background: #d1fae5; color: #065f46; }
-  .stmt-total.bad { background: #fee2e2; color: #991b1b; }
   .stmt-formula {
     margin-top: 0.4rem; padding: 0.5rem 0.7rem;
     background: rgba(255,255,255,0.7); border-radius: 8px;
@@ -48,9 +31,10 @@
   }
   .stmt-formula strong { color: #1e293b; }
 </style>
+{{ financial_statement_styles() }}
 {% endblock %}
 {% block body %}
-<h1>مركز التقارير</h1>
+<h1>مركز التقارير{% if domain_label %} — {{ domain_label }}{% endif %}</h1>
 {{ reports_nav('hub') }}
 {{ period_filter('/reports', period, period_labels, start, end, start_str, end_str) }}
 
@@ -60,17 +44,22 @@
   <span class="label">تنزيل Excel (ملف .csv):</span>
   {{ export_button('/reports/export/comprehensive.csv?period=' ~ period, 'تقرير شامل') }}
   {{ export_button('/reports/export/sales.csv?period=' ~ period, 'المبيعات') }}
+  {% if show_product_profit != false %}
   {{ export_button('/reports/export/sales-detailed.csv?period=' ~ period, 'مبيعات تفصيلية') }}
+  {% endif %}
   {{ export_button('/reports/export/financial-operational.csv?period=' ~ period, 'مالي تشغيلي (CSV)') }}
   {{ export_button('/reports/export/purchases.csv?period=' ~ period, 'فواتير الشراء') }}
   {{ export_button('/reports/export/expenses.csv?period=' ~ period, 'المصروفات') }}
   {{ export_button('/reports/export/assets.csv?period=' ~ period, 'الأصول') }}
-  {{ export_button('/reports/export/inventory.csv', 'المخزون الحالي') }}
+  {% if request is defined and pos_reports_show_pos_sections(request) %}
+  <a class="btn export-btn" href="/reports/export/inventory.xlsx" title="Excel — أرصدة المخزون">⬇ المخزون (.xlsx)</a>
+  {{ export_button('/reports/export/inventory.csv', 'المخزون (.csv)') }}
+  {% endif %}
   <span class="label no-print" style="margin-inline-start:0.75rem">PDF:</span>
   {{ pdf_export_button() }}
 </div>
 
-<div class="card">
+<div class="card pos-guide-panel" data-guide-title="ℹ️ الحسبتان الرئيسيتان للفترة">
   <h2 style="margin-top: 0">الحسبتان الرئيسيتان للفترة</h2>
   <p class="muted" style="margin-top:0; margin-bottom:0.6rem">
     حسبتان منفصلتان لتعرف موقفك المالي بدقّة:
@@ -78,107 +67,7 @@
     و<strong>(٢)</strong> صافي الربح الحقيقي بعد طرح <em>كل</em> التكاليف الأخرى.
   </p>
 
-  <div class="two-statements">
-    <!-- ================ الحسبة (1) ================ -->
-    <div class="statement s1">
-      <h3><span class="stnum">١</span> الفرق بين البيع وتكلفة البضاعة</h3>
-      <div class="muted" style="font-size:0.85rem; margin-bottom:0.4rem">
-        يُسمّى محاسبياً «إجمالي الربح» أو «هامش المساهمة» — يخبرك بكفاءة سعر بيعك مقابل تكلفة الشراء فقط.
-      </div>
-      <div class="stmt-rows">
-        <div class="stmt-row">
-          <span>إجمالي المبيعات</span>
-          <span class="v plus">+ {{ sales_sum.gross_revenue }} د.ل</span>
-        </div>
-        <div class="stmt-row indent">
-          <span>عدد الفواتير</span>
-          <span class="v">{{ sales_sum.invoice_count }}</span>
-        </div>
-        <div class="stmt-row">
-          <span>− المرتجعات</span>
-          <span class="v minus">− {{ sales_sum.returns_total }} د.ل</span>
-        </div>
-        <div class="stmt-row indent">
-          <span>عدد سندات المرتجع</span>
-          <span class="v">{{ sales_sum.return_count }}</span>
-        </div>
-        <div class="stmt-row">
-          <span>صافي المبيعات</span>
-          <span class="v plus">+ {{ sales_sum.net_revenue }} د.ل</span>
-        </div>
-        <div class="stmt-row">
-          <span>− تكلفة البضاعة المباعة (COGS)</span>
-          <span class="v minus">− {{ cogs }} د.ل</span>
-        </div>
-      </div>
-      <div class="stmt-total {% if gross_profit >= 0 %}good{% else %}bad{% endif %}">
-        <span>= الفرق (الربح الإجمالي)</span>
-        <span style="direction:ltr">{{ gross_profit }} د.ل</span>
-      </div>
-      <div class="stmt-formula">
-        <strong>الصيغة:</strong> الفرق = صافي المبيعات − تكلفة البضاعة المباعة.
-        <br>
-        <strong>المعنى:</strong> هذا ما تجنيه قبل أي مصروف أو راتب أو إيجار. إذا كان سالباً فأنت تبيع بأقل من التكلفة.
-      </div>
-    </div>
-
-    <!-- ================ الحسبة (2) ================ -->
-    <div class="statement s2">
-      <h3><span class="stnum">٢</span> صافي الربح بعد كل المصاريف</h3>
-      <div class="muted" style="font-size:0.85rem; margin-bottom:0.4rem">
-        يبدأ من الفرق السابق ويطرح <em>كل</em> ما تنفقه: مصاريف يومية، رواتب، إيجار، اشتراكات، مستلزمات، إهلاك أصول.
-      </div>
-      <div class="stmt-rows">
-        <div class="stmt-row">
-          <span>الفرق من الحسبة (١)</span>
-          <span class="v {% if gross_profit >= 0 %}plus{% else %}minus{% endif %}">
-            {% if gross_profit >= 0 %}+ {% else %}− {% endif %}{{ gross_profit if gross_profit >= 0 else (-gross_profit) }} د.ل
-          </span>
-        </div>
-        <div class="stmt-row">
-          <span>− المصاريف التشغيلية (كهرباء، ماء، غاز، صيانة...)</span>
-          <span class="v minus">− {{ expenses.total }} د.ل</span>
-        </div>
-        <div class="stmt-row indent">
-          <span>عدد العمليات</span>
-          <span class="v">{{ expenses.count }}</span>
-        </div>
-        <div class="stmt-row">
-          <span>− الرواتب والإيجار والاشتراكات (حصة الفترة)</span>
-          <span class="v minus">− {{ rec_period_share }} د.ل</span>
-        </div>
-        {% if rec_breakdown %}
-          {% for code, label, monthly, share in rec_breakdown %}
-          <div class="stmt-row indent">
-            <span>· {{ label }} ({{ monthly }} د.ل/شهر)</span>
-            <span class="v minus">− {{ share }} د.ل</span>
-          </div>
-          {% endfor %}
-        {% endif %}
-        <div class="stmt-row">
-          <span>− المستلزمات الاستهلاكية</span>
-          <span class="v minus">− {{ consumables_period }} د.ل</span>
-        </div>
-        <div class="stmt-row">
-          <span>− إهلاك الأصول الثابتة (IAS 16)</span>
-          <span class="v minus">− {{ depreciation_period }} د.ل</span>
-        </div>
-      </div>
-      <div class="stmt-total {% if net_profit >= 0 %}good{% else %}bad{% endif %}">
-        <span>= صافي الربح/الخسارة</span>
-        <span style="direction:ltr">{{ net_profit }} د.ل</span>
-      </div>
-      <div class="stmt-formula">
-        <strong>الصيغة:</strong> صافي الربح = الفرق(١) − مصاريف − رواتب وإيجار − مستلزمات − إهلاك.
-        <br>
-        <strong>ملاحظة:</strong> الرواتب والإيجار والاشتراكات قيم شهرية ثابتة — يطرح منها <em>حصة الفترة</em>
-        (مثلاً ثلث الشهر يطرح ثلث المبلغ). إجمالي ثابت شهرياً = <strong>{{ rec_monthly_total }} د.ل/شهر</strong>،
-        طول الفترة = <strong>{{ "%.1f"|format(period_days|float) }} يوم</strong>.
-        <br>
-        <strong>المعنى:</strong> هذا هو ربحك الحقيقي بعد تغطية كل التكاليف. إذا كان سالباً فأنت لم تغطّ تكاليفك بعد.
-      </div>
-    </div>
-  </div>
+  {% include "_financial_statements_period.html" %}
 </div>
 
 <div class="card">
@@ -187,7 +76,7 @@
   {% set has_activity = sales_sum.invoice_count > 0 or sales_sum.return_count > 0 or inv_purch.count > 0 or expenses.count > 0 or assets.count > 0 %}
   {% if not has_activity %}
   <div style="background:#fef3c7; border:1px solid #fbbf24; border-radius:10px; padding:0.85rem 1rem; margin-bottom:0.85rem; color:#78350f">
-    <strong>ⓘ لا توجد حركات في هذه الفترة</strong> ({{ start.strftime('%Y-%m-%d') }} إلى {{ end.strftime('%Y-%m-%d') }}).
+    <strong>ⓘ لا توجد حركات في هذه الفترة</strong> ({{ pos_format_dt(start, '%Y-%m-%d') }} إلى {{ pos_format_dt(end, '%Y-%m-%d') }}).
     {% if depreciation_period > 0 %}
     <br>
     <span style="font-size:0.92rem">
@@ -246,6 +135,7 @@
       <div class="value">{{ cashflow }} د.ل</div>
       <div class="muted" style="font-size: 0.8rem">تحصيل − رد مبالغ − أجرة توصيل − شراء بضاعة − مصروف − شراء أصول</div>
     </div>
+    {% if request is defined and pos_reports_show_pos_sections(request) %}
     <div class="stat-card">
       <div class="label">قيمة المخزون الحالية</div>
       <div class="value">{{ inv_value }} د.ل</div>
@@ -256,6 +146,7 @@
       <div class="value">{{ low_count }}</div>
       <div class="muted" style="font-size: 0.8rem"><a href="/reports/inventory?only_low=1">عرض القائمة</a></div>
     </div>
+    {% endif %}
   </div>
 
   <div style="margin-top:0.85rem; font-size:0.88rem; color:#64748b; line-height:1.7">
@@ -274,6 +165,24 @@
       <div class="value" style="font-size: 1.05rem">تقرير المبيعات</div>
       <div class="muted" style="font-size: 0.85rem">حسب الفترة، حسب طرق الدفع، الأكثر مبيعاً</div>
     </a>
+    {% if request is defined and pos_reports_show_hotel_sections(request) %}
+    <a class="stat-card" href="/reports/hotel-collections?period={{ period }}" style="text-decoration: none; color: inherit; border-color:#c4b5fd;background:linear-gradient(180deg,#ede9fe 0%,#fff 55%)">
+      <div class="value" style="font-size: 1.05rem">تحصيلات الفندق</div>
+      <div class="muted" style="font-size: 0.85rem">سجل تحصيلات ومرتجعات الحجز — تفصيلي</div>
+    </a>
+    <a class="stat-card" href="/reports/hotel-bookings?period={{ period }}" style="text-decoration: none; color: inherit; border-color:#c4b5fd;background:linear-gradient(180deg,#ede9fe 0%,#fff 55%)">
+      <div class="value" style="font-size: 1.05rem">حجوزات الفندق</div>
+      <div class="muted" style="font-size: 0.85rem">استحقاق الإقامة مقابل المدفوع والرصيد</div>
+    </a>
+    <a class="stat-card" href="/reports/hotel-balances" style="text-decoration: none; color: inherit; border-color:#fecaca;background:linear-gradient(180deg,#fef2f2 0%,#fff 55%)">
+      <div class="value" style="font-size: 1.05rem">ذمم الحجز</div>
+      <div class="muted" style="font-size: 0.85rem">أرصدة مفتوحة — كل الحجوزات غير المسدّدة</div>
+    </a>
+    <a class="stat-card" href="/reports/hotel-daily-close?period={{ period }}" style="text-decoration: none; color: inherit; border-color:#c4b5fd;background:linear-gradient(180deg,#ede9fe 0%,#fff 55%)">
+      <div class="value" style="font-size: 1.05rem">الإقفال اليومي</div>
+      <div class="muted" style="font-size: 0.85rem">إشغال، حركات، وتحصيل — يوم بيوم</div>
+    </a>
+    {% endif %}
     <a class="stat-card" href="/reports/purchases?period={{ period }}" style="text-decoration: none; color: inherit">
       <div class="value" style="font-size: 1.05rem">تقرير المشتريات</div>
       <div class="muted" style="font-size: 0.85rem">فواتير الشراء وبنودها وأثرها على المخزون</div>
@@ -290,10 +199,36 @@
       <div class="value" style="font-size: 1.05rem">تقرير الأرباح</div>
       <div class="muted" style="font-size: 0.85rem">إجمالي وصافي الربح، ربح كل صنف</div>
     </a>
+    <a class="stat-card" href="/reports/financial-operational?period={{ period }}" style="text-decoration: none; color: inherit; border-color: #6ee7b7; background: linear-gradient(180deg, #ecfdf5 0%, #fff 55%)">
+      <div class="value" style="font-size: 1.05rem">التقرير المالي التشغيلي</div>
+      <div class="muted" style="font-size: 0.85rem">استحقاق، تحصيل، مرتجعات، قيد توضيحي — للتدقيق وGL</div>
+    </a>
+    <a class="stat-card" href="/reports/gl-reconciliation?period={{ period }}" style="text-decoration: none; color: inherit; border-color: #6ee7b7; background: linear-gradient(180deg, #ecfdf5 0%, #fff 55%)">
+      <div class="value" style="font-size: 1.05rem">مطابقة GL</div>
+      <div class="muted" style="font-size: 0.85rem">إيراد تشغيلي vs حسابات 4100 / 4150 — يومي وفترة</div>
+    </a>
+    {% if request is defined and pos_perm(request)('gl:manage') %}
+    <a class="stat-card" href="/admin/gl/accounts" style="text-decoration: none; color: inherit; border-color: #93c5fd; background: linear-gradient(180deg, #eff6ff 0%, #fff 55%)">
+      <div class="value" style="font-size: 1.05rem">شجرة الحسابات (GL)</div>
+      <div class="muted" style="font-size: 0.85rem">دليل الحسابات — إضافة، تعديل الأسماء والرموز</div>
+    </a>
+    {% endif %}
+    {% if request is defined and pos_reports_show_pos_sections(request) %}
     <a class="stat-card" href="/reports/inventory" style="text-decoration: none; color: inherit">
       <div class="value" style="font-size: 1.05rem">تقرير المخزون</div>
       <div class="muted" style="font-size: 0.85rem">الأرصدة الحالية + بحث + تنبيهات</div>
     </a>
+    {% endif %}
+    {% if request is defined and pos_reports_show_pos_sections(request) %}
+    <a class="stat-card" href="/reports/shifts" style="text-decoration: none; color: inherit">
+      <div class="value" style="font-size: 1.05rem">جلسات الكاشير</div>
+      <div class="muted" style="font-size: 0.85rem">مراجعة كل جلسة — إيراد، طلبات، عجز، اعتماد</div>
+    </a>
+    <a class="stat-card" href="/reports/pos-daily-close?period={{ period }}" style="text-decoration: none; color: inherit; border-color:#93c5fd;background:linear-gradient(180deg,#dbeafe 0%,#fff 55%)">
+      <div class="value" style="font-size: 1.05rem">إقفال يومي — المطعم</div>
+      <div class="muted" style="font-size: 0.85rem">جلسات، فواتير، تحصيل — يوم بيوم + GL 4100</div>
+    </a>
+    {% endif %}
     <a class="stat-card" href="/reports/comprehensive?period={{ period }}" style="text-decoration: none; color: inherit">
       <div class="value" style="font-size: 1.05rem">التقرير الشامل</div>
       <div class="muted" style="font-size: 0.85rem">كل ما سبق في صفحة واحدة</div>
