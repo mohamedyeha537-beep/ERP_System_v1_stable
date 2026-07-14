@@ -58,3 +58,14 @@ def test_gl_pages_after_login(client: TestClient) -> None:
     ):
         response = client.get(path)
         assert response.status_code == 200, f"{path} returned {response.status_code}"
+
+
+def test_gl_fiscal_and_opening_balances(client: TestClient) -> None:
+    client.post("/auth/login", data={"username": "admin", "password": "admin123"})
+    assert client.get("/admin/gl/fiscal").status_code == 200
+    assert client.post(
+        "/admin/gl/fiscal",
+        data={"name": "2026", "start_date": "2026-01-01", "end_date": "2026-12-31"},
+        follow_redirects=False,
+    ).status_code == 303
+    assert client.get("/admin/gl/opening-balances").status_code == 200

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, Path, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 
@@ -11,7 +11,7 @@ from app.deps import DBSession, require_permission
 from app.jinja_env import templates
 from modules.authz.models import User
 from modules.authz.permissions import GL_MANAGE
-from modules.gl.models import GlAccountType, GlPaymentMethodMap
+from modules.gl.models import AccountOpeningBalance, GlAccountType, GlPaymentMethodMap
 from modules.gl.seed import account_type_label
 from modules.gl.reconciliation import build_reconciliation
 from modules.gl.role_maps import (
@@ -32,16 +32,21 @@ from modules.gl.service import (
     account_balances_map,
     activate_production_gl,
     create_account,
+    create_fiscal_year,
     create_manual_journal_entry,
     delete_wallet_map,
+    get_current_fiscal_year,
     get_gl_cutover_date,
     gl_status_summary,
     is_gl_enabled,
     journal_entry_count,
     list_account_ledger,
     list_accounts,
+    list_fiscal_years,
     list_journal_entries,
     list_wallet_maps,
+    set_current_fiscal_year,
+    set_opening_balance,
     set_wallet_map,
     update_account,
 )
@@ -834,3 +839,123 @@ def gl_save_settings(
         hide_wallets_from_dashboard_when_gl(db)
     db.commit()
     return RedirectResponse("/admin/gl?saved=1", status_code=303)
+
+
+@router.get("/fiscal", response_class=HTMLResponse)
+def fiscal_years_page(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_perm),
+    err: str = "",
+    saved: str = "",
+):
+    return templates.TemplateResponse(
+        "admin_gl_fiscal.html",
+        {
+            "request": request,
+            "fiscal_years": list_fiscal_years(db),
+            "err": err or None,
+            "saved": saved,
+        },
+    )
+
+
+@router.post("/fiscal")
+def fiscal_years_create(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_perm),
+    name: str = Form(...),
+    start_date: str = Form(...),
+    end_date: str = Form(...),
+):
+    try:
+        s = date.fromisoformat(start_date)
+        e = date.fromisoformat(end_date)
+        create_fiscal_year(db, name, s, e, set_as_current=True)
+        db.commit()
+    except GLError as exc:
+        return RedirectResponse(f"/admin/gl/fiscal?err={exc}", status_code=303)
+    except ValueError:
+        return RedirectResponse("/admin/gl/fiscal?err=تاريخ غير صالح", status_code=303)
+    return RedirectResponse("/admin/gl/fiscal?saved=1", status_code=303)
+
+
+@router.post("/fiscal/{fiscal_year_id}/set-current")
+def fiscal_years_set_current(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_perm),
+    fiscal_year_id: int = Path(...),
+):
+    try:
+        set_current_fiscal_year(db, fiscal_year_id)
+        db.commit()
+    except GLError as exc:
+        return RedirectResponse(f"/admin/gl/fiscal?err={exc}", status_code=303)
+    return RedirectResponse("/admin/gl/fiscal?saved=1", status_code=303)
+
+
+@router.get("/opening-balances", response_class=HTMLResponse)
+def opening_balances_page(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_perm),
+    err: str = "",
+    saved: str = "",
+):
+    from modules.gl.models import AccountOpeningBalance
+
+    fy = get_current_fiscal_year(db)
+    rows = []
+    if fy is not None:
+        existing = {
+            ob.account_id: ob
+            for ob in db.scalars(
+                select(AccountOpeningBalance).where(AccountOpeningBalance.fiscal_year_id == fy.id)
+            ).all()
+        }
+        for acc in list_accounts(db, active_only=False):
+            ob = existing.get(int(acc.id))
+            rows.append(
+                {
+                    "account": acc,
+                    "debit": ob.debit if ob else Decimal("0"),
+                    "credit": ob.credit if ob else Decimal("0"),
+                    "note": ob.note if ob else "",
+                }
+            )
+    return templates.TemplateResponse(
+        "admin_gl_opening_balances.html",
+        {
+            "request": request,
+            "fiscal_year": fy,
+            "rows": rows,
+            "err": err or None,
+            "saved": saved,
+        },
+    )
+
+
+@router.post("/opening-balances")
+async def opening_balances_save(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_perm),
+):
+    from decimal import InvalidOperation
+
+    fy = get_current_fiscal_year(db)
+    if fy is None:
+        return RedirectResponse("/admin/gl/opening-balances?err=لا توجد سنة مالية حالية", status_code=303)
+    try:
+        form = await request.form()
+        for acc in list_accounts(db, active_only=False):
+            debit_raw = form.get(f"debit_{acc.id}") or "0"
+            credit_raw = form.get(f"credit_{acc.id}") or "0"
+            note = form.get(f"note_{acc.id}") or ""
+            set_opening_balance(db, int(fy.id), int(acc.id), Decimal(debit_raw), Decimal(credit_raw), note)
+        db.commit()
+    except (ValueError, InvalidOperation) as exc:
+        return RedirectResponse(f"/admin/gl/opening-balances?err=قيمة غير صالحة: {exc}", status_code=303)
+    return RedirectResponse("/admin/gl/opening-balances?saved=1", status_code=303)

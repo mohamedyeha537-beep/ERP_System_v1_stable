@@ -4,7 +4,15 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from modules.gl.domain import account_domain_for_code, ensure_gl_account_domains
-from modules.gl.models import GlAccount, GlAccountType, GlExpenseCategoryMap, GlOperationalRoleMap, GlPaymentMethodMap
+from modules.gl.models import (
+    AccountOpeningBalance,
+    FiscalYear,
+    GlAccount,
+    GlAccountType,
+    GlExpenseCategoryMap,
+    GlOperationalRoleMap,
+    GlPaymentMethodMap,
+)
 from modules.gl.role_maps import OPERATIONAL_ROLES
 from modules.payments.models import (
     HOTEL_TREASURY_BANK_PM_NAME,
@@ -390,3 +398,19 @@ def _run_hotel_gl_revenue_migration(db: Session) -> None:
 
     migrate_hotel_gl_to_revenue_account(db)
     db.flush()
+
+
+def ensure_default_fiscal_year(db: Session) -> FiscalYear | None:
+    """ينشئ سنة مالية افتراضية للسنة الحالية إن لم تكن هناك سنوات."""
+    if db.scalar(select(FiscalYear.id).limit(1)) is not None:
+        return None
+    from datetime import date
+
+    today = date.today()
+    start = today.replace(month=1, day=1)
+    end = today.replace(month=12, day=31)
+    name = f"السنة المالية {start.year}"
+    fy = FiscalYear(name=name, start_date=start, end_date=end, is_current=True)
+    db.add(fy)
+    db.flush()
+    return fy

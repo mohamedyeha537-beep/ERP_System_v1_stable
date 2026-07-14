@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}السنوات المالية{% endblock %}
+{% block body %}
+<div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem">
+  <div>
+    <h1 style="margin:0">السنوات المالية</h1>
+    <p class="muted" style="margin:0.35rem 0 0">تحديد السنة المالية الحالية وإدارة فترات الحسابات.</p>
+  </div>
+  <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+    <a class="btn" href="/admin/gl">إعدادات GL</a>
+    <a class="btn" href="/admin/gl/accounts">شجرة الحسابات</a>
+    <a class="btn btn-primary" href="/admin/gl/opening-balances">أرصدة الافتتاح</a>
+  </div>
+</div>
+
+{% if err %}
+<div class="card" style="border-color:#fca5a5;background:#fef2f2">
+  <p style="margin:0">{{ err }}</p>
+</div>
+{% endif %}
+
+{% if saved %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4">
+  <p style="margin:0">تم الحفظ.</p>
+</div>
+{% endif %}
+
+<div class="card" style="border-color:#6ee7b7;background:linear-gradient(180deg,#ecfdf5 0%,#fff 55%)">
+  <h2 style="margin-top:0">إضافة سنة مالية</h2>
+  <form method="post" action="/admin/gl/fiscal" class="row" style="flex-wrap:wrap;gap:0.75rem;align-items:flex-end">
+    <div style="min-width:12rem;flex:1">
+      <label class="muted" style="font-size:0.8rem;display:block">الاسم</label>
+      <input name="name" required maxlength="80" placeholder="السنة المالية 2026" style="width:100%" />
+    </div>
+    <div>
+      <label class="muted" style="font-size:0.8rem;display:block">تاريخ البداية</label>
+      <input type="date" name="start_date" required />
+    </div>
+    <div>
+      <label class="muted" style="font-size:0.8rem;display:block">تاريخ النهاية</label>
+      <input type="date" name="end_date" required />
+    </div>
+    <button class="btn btn-primary" type="submit">إضافة</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">السنوات المالية</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>الاسم</th>
+        <th>البداية</th>
+        <th>النهاية</th>
+        <th>الحالة</th>
+        <th>الحالية</th>
+        <th>إجراء</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for fy in fiscal_years %}
+      <tr>
+        <td>{{ fy.name }}</td>
+        <td>{{ fy.start_date }}</td>
+        <td>{{ fy.end_date }}</td>
+        <td>{{ fy.status.value }}</td>
+        <td>{% if fy.is_current %}نعم{% else %}لا{% endif %}</td>
+        <td>
+          {% if not fy.is_current %}
+          <form method="post" action="/admin/gl/fiscal/{{ fy.id }}/set-current" style="display:inline">
+            <button class="btn btn-sm" type="submit">تعيين حالية</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if not fiscal_years %}
+  <p class="muted">لا توجد سنوات مالية.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -209,9 +209,10 @@ async def lifespan(app: FastAPI):
         from modules.notifications.seed import ensure_notification_defaults
 
         ensure_notification_defaults(db)
-        from modules.gl.seed import ensure_default_chart_of_accounts
+        from modules.gl.seed import ensure_default_chart_of_accounts, ensure_default_fiscal_year
 
         ensure_default_chart_of_accounts(db)
+        ensure_default_fiscal_year(db)
         from modules.hr.zkbio_config import zkbio_install_detected
         from modules.settings.service import get_setting, set_setting
 

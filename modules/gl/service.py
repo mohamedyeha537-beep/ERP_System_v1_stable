@@ -8,7 +8,15 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from modules.gl.models import GlAccount, GlAccountType, GlJournalEntry, GlJournalLine, GlPaymentMethodMap
+from modules.gl.models import (
+    AccountOpeningBalance,
+    FiscalYear,
+    GlAccount,
+    GlAccountType,
+    GlJournalEntry,
+    GlJournalLine,
+    GlPaymentMethodMap,
+)
 from modules.gl.hierarchy import (
     assert_postable_account,
     build_children_map,
@@ -69,6 +77,115 @@ def entry_date_on_or_after_cutover(
     if cutover is None:
         return True
     return entry_date >= cutover
+
+
+def get_current_fiscal_year(db: Session) -> FiscalYear | None:
+    return db.scalar(
+        select(FiscalYear).where(FiscalYear.is_current.is_(True)).limit(1)
+    )
+
+
+def _current_fiscal_year_id(db: Session) -> int | None:
+    fy = get_current_fiscal_year(db)
+    return int(fy.id) if fy is not None else None
+
+
+def get_opening_balance(db: Session, account_id: int) -> Decimal:
+    fy_id = _current_fiscal_year_id(db)
+    if fy_id is None:
+        return Decimal("0")
+    net = db.scalar(
+        select(func.coalesce(func.sum(AccountOpeningBalance.debit - AccountOpeningBalance.credit), 0))
+        .where(
+            AccountOpeningBalance.account_id == account_id,
+            AccountOpeningBalance.fiscal_year_id == fy_id,
+        )
+    )
+    return Decimal(str(net or 0)).quantize(Decimal("0.001"))
+
+
+def get_opening_balances_map(db: Session) -> dict[int, Decimal]:
+    fy_id = _current_fiscal_year_id(db)
+    if fy_id is None:
+        return {}
+    stmt = (
+        select(
+            AccountOpeningBalance.account_id,
+            func.coalesce(func.sum(AccountOpeningBalance.debit - AccountOpeningBalance.credit), 0),
+        )
+        .where(AccountOpeningBalance.fiscal_year_id == fy_id)
+        .group_by(AccountOpeningBalance.account_id)
+    )
+    out: dict[int, Decimal] = {}
+    for aid, net in db.execute(stmt).all():
+        if aid is None:
+            continue
+        out[int(aid)] = Decimal(str(net or 0)).quantize(Decimal("0.001"))
+    return out
+
+
+def set_opening_balance(
+    db: Session,
+    fiscal_year_id: int,
+    account_id: int,
+    debit: Decimal,
+    credit: Decimal,
+    note: str | None = None,
+) -> AccountOpeningBalance:
+    row = db.scalar(
+        select(AccountOpeningBalance).where(
+            AccountOpeningBalance.fiscal_year_id == fiscal_year_id,
+            AccountOpeningBalance.account_id == account_id,
+        )
+    )
+    if row is None:
+        row = AccountOpeningBalance(fiscal_year_id=fiscal_year_id, account_id=account_id)
+        db.add(row)
+    row.debit = Decimal(str(debit or 0)).quantize(Decimal("0.001"))
+    row.credit = Decimal(str(credit or 0)).quantize(Decimal("0.001"))
+    row.note = (note or "").strip() or None
+    db.flush()
+    return row
+
+
+def list_fiscal_years(db: Session) -> list[FiscalYear]:
+    return list(db.scalars(select(FiscalYear).order_by(FiscalYear.start_date.desc())).all())
+
+
+def set_current_fiscal_year(db: Session, fiscal_year_id: int) -> FiscalYear:
+    for fy in list_fiscal_years(db):
+        fy.is_current = False
+    fy = db.get(FiscalYear, fiscal_year_id)
+    if fy is None:
+        raise GLError("السنة المالية غير موجودة.")
+    fy.is_current = True
+    db.flush()
+    return fy
+
+
+def create_fiscal_year(
+    db: Session,
+    name: str,
+    start_date: date,
+    end_date: date,
+    *,
+    set_as_current: bool = True,
+) -> FiscalYear:
+    if end_date <= start_date:
+        raise GLError("تاريخ نهاية السنة يجب أن يكون بعد تاريخ البداية.")
+    existing = db.scalar(select(FiscalYear).where(FiscalYear.name == name.strip()).limit(1))
+    if existing is not None:
+        raise GLError("يوجد سنة مالية بنفس الاسم.")
+    fy = FiscalYear(
+        name=name.strip(),
+        start_date=start_date,
+        end_date=end_date,
+    )
+    db.add(fy)
+    db.flush()
+    if set_as_current:
+        set_current_fiscal_year(db, int(fy.id))
+    return fy
 
 
 def gl_status_summary(db: Session) -> dict[str, object]:
@@ -207,7 +324,8 @@ def account_balance(db: Session, account_id: int, domain=None) -> Decimal:
             GlJournalEntry, GlJournalEntry.id == GlJournalLine.entry_id
         ).where(GlJournalEntry.business_domain.in_(vals))
     net = db.scalar(stmt)
-    return Decimal(str(net or 0)).quantize(Decimal("0.001"))
+    balance = Decimal(str(net or 0)).quantize(Decimal("0.001"))
+    return (balance + get_opening_balance(db, account_id)).quantize(Decimal("0.001"))
 
 
 def account_balances_map(db: Session, domain=None) -> dict[int, Decimal]:
@@ -232,6 +350,8 @@ def account_balances_map(db: Session, domain=None) -> dict[int, Decimal]:
         if aid is None:
             continue
         out[int(aid)] = Decimal(str(net or 0)).quantize(Decimal("0.001"))
+    for aid, ob in get_opening_balances_map(db).items():
+        out[aid] = (out.get(aid, Decimal("0")) + ob).quantize(Decimal("0.001"))
     return out
 
 
@@ -343,7 +463,7 @@ def list_account_ledger(
         GlJournalEntry.id.asc(),
         GlJournalLine.line_no.asc(),
     )
-    opening = Decimal("0")
+    opening = get_opening_balance(db, account_id)
     if offset > 0:
         for ln, _ent in db.execute(chrono.limit(offset)).all():
             opening += Decimal(str(ln.debit or 0)) - Decimal(str(ln.credit or 0))

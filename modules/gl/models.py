@@ -164,3 +164,59 @@ class GlJournalLine(Base):
 
     entry = relationship("GlJournalEntry", back_populates="lines")
     account = relationship("GlAccount")
+
+
+class FiscalYearStatus(str, enum.Enum):
+    OPEN = "OPEN"
+    CLOSED = "CLOSED"
+
+
+class FiscalYear(Base):
+    """سنة مالية — تحدد فترة الحسابات وتوفر نقطة بداية لأرصدة الافتتاح."""
+
+    __tablename__ = "fiscal_years"
+    __table_args__ = (UniqueConstraint("name", name="uq_fiscal_years_name"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(80))
+    start_date: Mapped[date] = mapped_column(Date, index=True)
+    end_date: Mapped[date] = mapped_column(Date, index=True)
+    status: Mapped[FiscalYearStatus] = mapped_column(
+        Enum(FiscalYearStatus), default=FiscalYearStatus.OPEN, index=True
+    )
+    is_current: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    opening_balances = relationship(
+        "AccountOpeningBalance",
+        back_populates="fiscal_year",
+        cascade="all, delete-orphan",
+    )
+
+
+class AccountOpeningBalance(Base):
+    """رصيد افتتاحي لحساب في سنة مالية محددة."""
+
+    __tablename__ = "account_opening_balances"
+    __table_args__ = (
+        UniqueConstraint("fiscal_year_id", "account_id", name="uq_aob_fy_account"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    fiscal_year_id: Mapped[int] = mapped_column(
+        ForeignKey("fiscal_years.id", ondelete="CASCADE"), index=True
+    )
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("gl_accounts.id", ondelete="RESTRICT"), index=True
+    )
+    debit: Mapped[Decimal] = mapped_column(Numeric(14, 3), default=Decimal("0"))
+    credit: Mapped[Decimal] = mapped_column(Numeric(14, 3), default=Decimal("0"))
+    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    fiscal_year = relationship("FiscalYear", back_populates="opening_balances")
+    account = relationship("GlAccount")
