@@ -1,60 +1,59 @@
 # ERP System
 
-نظام ERP متكامل لإدارة المطاعم، الفنادق، ويمتد لأنشطة تجارية متعددة.
+نظام ERP متكامل لإدارة المطاعم والفنادق.
 
 ## المتطلبات
 
 - Python 3.10+
-- قاعدة بيانات: SQLite (للتطوير) أو MySQL/MariaDB/PostgreSQL (للإنتاج)
+- **MySQL / MariaDB** (قاعدة التشغيل المعتمدة محلياً وفي الإنتاج)
 - pip
+
+> SQLite ليس مسار التشغيل المعتمد. ملفات مثل `infra/sqlite_patch.py` للتوافق القديم فقط ولا تُبنى عليها تعديلات جديدة.
 
 ## التثبيت السريع
 
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env
-# عدّل .env حسب قاعدة البيانات
+# تأكد أن DATABASE_URL يشير إلى MySQL
 python run.py
 ```
 
 افتح المتصفح على `http://127.0.0.1:8011/`
 
-بيانات الدخول الافتراضية:
+بيانات الدخول الافتراضية (إن وُجدت في `.env`):
 - المستخدم: `admin`
-- كلمة المرور: `admin123`
+- كلمة المرور: حسب `DEFAULT_ADMIN_PASSWORD` في `.env`
 
 ## البنية
 
-- `app/`: نقطة دخول FastAPI والقوالب والـ static.
-- `modules/`: كل موديول مستقل (محاسبة، مخزون، مبيعات، فندق، HR...).
-- `infra/`: قاعدة البيانات، الإعدادات، وتصحيح مخطط SQLite.
-- `alembic/`: ترقيات قاعدة البيانات.
-- `tools/`: سكربتات مساعدة خارجية.
+- `app/`: نقطة دخول FastAPI والقوالب والـ static
+- `modules/`: الموديولات (محاسبة، مخزون، مبيعات، فندق، HR...)
+- `infra/`: الإعدادات وقاعدة البيانات وتصحيح مخطط **MySQL** (`server_schema_patch.py`)
+- `alembic/`: ترقيات قاعدة البيانات
+- `tools/`: سكربتات مساعدة
 
 ## الموديولات المحاسبية
 
-- `modules/gl`: دليل الحسابات، قيود اليومية، ميزان المراجعة، قائمة الدخل، الميزانية.
-- `modules/payments`: محافظ وطرق دفع (كاش، بنك، آجل...).
-- `modules/receivables` / `modules/payables`: الذمم المدينة والدائنة.
+- `modules/gl`: دليل الحسابات، قيود اليومية، ميزان المراجعة، قائمة الدخل، الميزانية
+- `modules/payments`: محافظ وطرق دفع
+- `modules/receivables` / `modules/payables`: الذمم
 
 ## ملاحظات الأمان
 
-- غيّر `SECRET_KEY` وكلمات المرور الافتراضية في الإنتاج.
-- لا ترفع `.env` أو `*.db` إلى Git (`gitignore` معد مسبقاً).
-- استخدم HTTPS مع SameSite/Secure cookies في الإنتاج.
+- غيّر `SECRET_KEY` وكلمات المرور الافتراضية في الإنتاج
+- لا ترفع `.env` إلى Git
+- استخدم HTTPS مع Secure cookies في الإنتاج
 
 ## التطوير
 
-للاختبار السريع:
-
 ```bash
 python -m pytest
-# أو
-source .venv/bin/activate && python run.py
+python run.py
 ```
 
-## الأنشطة التجارية
+## أنشطة متعددة (مقترح)
 
-للنسخة المقترحة لأنشطة متعددة (ملابس، نظارات، عيادة، صيدلية...) انظر فرع `dev/v2-erp-core`.
+لفرع معماري مختلف (عيادة، صيدلية...) انظر `dev/v2-erp-core` — منفصل عن مسار MySQL الحالي.
