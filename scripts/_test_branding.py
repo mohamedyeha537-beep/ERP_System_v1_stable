@@ -18,6 +18,8 @@ os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 
 # ====== bootstrap models =====================================================
 import modules.authz.models  # noqa: F401
+import modules.kds.models  # noqa: F401 — KitchenDepartment يُستخدم في Product
+import modules.printing.models  # noqa: F401 — KitchenSection يُستخدم في KitchenTicket
 import modules.catalog.models  # noqa: F401
 import modules.inventory.models  # noqa: F401
 import modules.payments.models  # noqa: F401
@@ -103,12 +105,12 @@ def test_defaults():
     assert_eq(b["print_logo_url"], "", "print_logo_url فارغ")
     assert_true(b["show_logo_in_header"], "show_logo_in_header افتراضياً True")
     assert_true(b["show_name_in_header"], "show_name_in_header افتراضياً True")
-    assert_eq(b["pos_label"], "نقطة البيع", "pos_label الافتراضي")
-    assert_eq(b["header_tagline"], "نظام نقطة البيع", "header_tagline الافتراضي")
+    assert_eq(b["pos_label"], "نقطة البيع — بيتك", "pos_label الافتراضي")
+    assert_eq(b["header_tagline"], "Bayatak — Roof Caffee", "header_tagline الافتراضي")
     assert_eq(b["receipt_title"], "فاتورة بيع", "receipt_title الافتراضي")
     assert_eq(
         b["receipt_footer_text"],
-        "شكراً لتعاملكم معنا",
+        "شكراً لزيارتكم بيتك — نتمنى لكم يوماً سعيداً",
         "receipt_footer_text الافتراضي",
     )
 
