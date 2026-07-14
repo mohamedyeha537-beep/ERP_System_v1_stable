@@ -1,52 +1,79 @@
-# Secrets / local env
+# ============================================================
+# على السيرفر اللايف ارفع فقط هذه الـ 12:
+#   alembic/  app/  deploy/  docs/  domain/  infra/
+#   modules/  scripts/  tools/
+#   alembic.ini  requirements.txt  run.py
+# كل ما دون ذلك = محلي / لا يُرفع
+# ============================================================
+
+# --- أسرار ---
 .env
+.env.bak-mysql
 .env.*
 !.env.example
 *.pem
 *.key
 credentials.json
 
-# Python
+# --- مجلدات محلية (أحمر) ---
+.cursor/
 __pycache__/
+backups/
+New folder/
+
+# --- قواعد بيانات وأرشيف ---
+*.db
+*.db-journal
+*.sqlite3
+*.sql.gz
+*.zip
+*.7z
+*.rar
+pos42.zip
+start-print-agent.zip
+
+# --- سجلات وتشخيص ---
+*.log
+_diag_*
+_server*
+debug-*
+
+# --- سكربتات محلية (أحمر) ---
+docker-compose.yml
+fix-python-path.bat
+import-live-backup.bat
+install-requirements.bat
+restart-server.bat
+setup-mysql-local.bat
+setup-mysql-xampp.bat
+start-print-agent.bat
+start-server.bat
+stop-server.ps1
+
+# --- ملاحظات وخطط محلية (أحمر) ---
+cursor-full-implementation-plan.txt
+hotel_booking_module_ar.docx
+*.docx
+BACKUP_DIR=*
+*clikkbot*
+المطلوب*
+أوامر*
+تشغيل*
+حسابات*
+جملة*
+خطوات*
+رفع*
+
+# --- Python / IDE ---
 *.py[cod]
 *$py.class
 *.egg-info/
 .venv/
 venv/
-.envrc
-
-# Local databases & backups
-*.db
-*.db-journal
-*.sqlite3
-backups/
-*.sql.gz
-
-# OS / IDE
-.DS_Store
-Thumbs.db
 .idea/
 .vscode/
-.cursor/
+.DS_Store
+Thumbs.db
 
-# Logs / diagnostics
-*.log
-_diag_*.py
-_diag_*.txt
-_diag_*.log
-_server*.log
-_server*.err
-debug-*.log
-
-# Large / local archives (not source)
-New folder/
-*.zip
-*.7z
-*.rar
-
-# Uploaded media (runtime)
+# --- رفعات وقت التشغيل ---
 app/static/uploads/
-
-# Misc local notes / drafts
-BACKUP_DIR=*
-*.docx
