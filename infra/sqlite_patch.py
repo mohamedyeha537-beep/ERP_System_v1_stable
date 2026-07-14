@@ -821,6 +821,7 @@ def patch_sqlite_schema(engine: Engine) -> None:
                         name_ar VARCHAR(120) NOT NULL UNIQUE,
                         is_main BOOLEAN NOT NULL DEFAULT 0,
                         is_active BOOLEAN NOT NULL DEFAULT 1,
+                        deduct_sales_enabled BOOLEAN NOT NULL DEFAULT 0,
                         sort_order INTEGER NOT NULL DEFAULT 0,
                         notes TEXT,
                         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -830,8 +831,8 @@ def patch_sqlite_schema(engine: Engine) -> None:
             )
             conn.execute(
                 text(
-                    "INSERT INTO warehouses (id, name_ar, is_main, is_active, sort_order, created_at) "
-                    "VALUES (1, 'المخزن الرئيسي', 1, 1, 0, CURRENT_TIMESTAMP)"
+                    "INSERT INTO warehouses (id, name_ar, is_main, is_active, deduct_sales_enabled, sort_order, created_at) "
+                    "VALUES (1, 'المخزن الرئيسي', 1, 1, 1, 0, CURRENT_TIMESTAMP)"
                 )
             )
 
@@ -842,8 +843,8 @@ def patch_sqlite_schema(engine: Engine) -> None:
             if int(wh_count or 0) == 0:
                 conn.execute(
                     text(
-                        "INSERT INTO warehouses (id, name_ar, is_main, is_active, sort_order, created_at) "
-                        "VALUES (1, 'المخزن الرئيسي', 1, 1, 0, CURRENT_TIMESTAMP)"
+                        "INSERT INTO warehouses (id, name_ar, is_main, is_active, deduct_sales_enabled, sort_order, created_at) "
+                        "VALUES (1, 'المخزن الرئيسي', 1, 1, 1, 0, CURRENT_TIMESTAMP)"
                     )
                 )
 
@@ -1665,8 +1666,8 @@ def patch_sqlite_schema(engine: Engine) -> None:
             conn.execute(
                 text(
                     "INSERT INTO payment_methods "
-                    "(name_ar, kind, is_active, sort_order, can_receive, can_pay, can_fund, is_system) "
-                    "SELECT 'حساب المالك — حقوق الملكية', 'OTHER', 1, 900, 0, 1, 1, 1 "
+                    "(name_ar, kind, is_active, sort_order, can_receive, can_pay, can_fund, is_system, show_on_dashboard, business_domain) "
+                    "SELECT 'حساب المالك — حقوق الملكية', 'OTHER', 1, 900, 0, 1, 1, 1, 0, 'shared' "
                     "WHERE NOT EXISTS ("
                     "SELECT 1 FROM payment_methods "
                     "WHERE name_ar = 'حساب المالك — حقوق الملكية'"

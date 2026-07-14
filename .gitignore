@@ -23,6 +23,7 @@ New folder/
 
 # --- قواعد بيانات وأرشيف ---
 *.db
+*.db-*
 *.db-journal
 *.sqlite3
 *.sql.gz

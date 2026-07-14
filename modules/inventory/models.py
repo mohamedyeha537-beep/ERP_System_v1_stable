@@ -4,7 +4,7 @@ import enum
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, false, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infra.db import Base
@@ -42,9 +42,9 @@ class Warehouse(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     name_ar: Mapped[str] = mapped_column(String(120), unique=True)
-    is_main: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
-    deduct_sales_enabled: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    is_main: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), index=True)
+    deduct_sales_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), index=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

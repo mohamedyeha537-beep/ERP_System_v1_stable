@@ -14,6 +14,8 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    false,
+    true,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -39,20 +41,20 @@ class PaymentMethod(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     name_ar: Mapped[str] = mapped_column(String(120), unique=True)
     kind: Mapped[PaymentMethodKind] = mapped_column(
-        Enum(PaymentMethodKind), default=PaymentMethodKind.BANK
+        Enum(PaymentMethodKind), default=PaymentMethodKind.BANK, server_default=PaymentMethodKind.BANK.value
     )
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     #: قبض من الزبائن في نقطة البيع فقط — لا يعني استلام تحويلات.
-    can_receive: Mapped[bool] = mapped_column(Boolean, default=True)
+    can_receive: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
     #: صرف للموردين والمصروفات والتحويل الصادر (بما فيها إيداع من حساب المالك).
-    can_pay: Mapped[bool] = mapped_column(Boolean, default=True)
+    can_pay: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
     #: استلام تحويلات من حسابات أخرى — منفصل عن نقطة البيع.
-    can_fund: Mapped[bool] = mapped_column(Boolean, default=False)
+    can_fund: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     #: حساب نظامي لا يُحذف (ذمم مورد، سحوبات مالك).
-    is_system: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_system: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     #: إظهار بطاقة الرصيد في لوحة «الخزينة والذمم».
-    show_on_dashboard: Mapped[bool] = mapped_column(Boolean, default=True)
+    show_on_dashboard: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
     #: مطعم · فندق · مشترك — يحدد ظهور الحساب لكل قسم.
     business_domain: Mapped[PaymentMethodDomain] = mapped_column(
         Enum(
@@ -62,6 +64,7 @@ class PaymentMethod(Base):
             length=20,
         ),
         default=PaymentMethodDomain.SHARED,
+        server_default=PaymentMethodDomain.SHARED.value,
         index=True,
     )
     #: أيقونة مخصّصة في نقطة البيع (مسار نسبي تحت static/)
