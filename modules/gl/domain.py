@@ -8,7 +8,7 @@ from modules.platform.business_domain import (
 )
 
 _SHARED_ACCOUNT_CODES = frozenset(
-    {"1000", "1100", "2000", "3000", "4000", "5000", "3100"}
+    {"1000", "1100", "2000", "3000", "4000", "5000", "3100", "3500", "3600"}
 )
 _HOTEL_ACCOUNT_CODES = frozenset(
     {
@@ -26,7 +26,6 @@ _HOTEL_ACCOUNT_CODES = frozenset(
         "2500",
         "2510",
         "2520",
-        "3500",
         "3510",
         "4500",
         "4520",

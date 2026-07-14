@@ -11,9 +11,11 @@ from sqlalchemy.orm import Session, selectinload
 from modules.gl.models import (
     AccountOpeningBalance,
     FiscalYear,
+    FiscalYearStatus,
     GlAccount,
     GlAccountType,
     GlJournalEntry,
+    GlJournalEntryStatus,
     GlJournalLine,
     GlPaymentMethodMap,
 )
@@ -25,6 +27,7 @@ from modules.gl.hierarchy import (
     is_header_account,
 )
 from modules.gl.seed import account_type_label
+from modules.platform.business_domain import BusinessDomain
 from modules.settings.service import get_bool, get_setting, set_setting
 
 GL_SETTING_ENABLED = "gl_enabled"
@@ -137,6 +140,26 @@ def get_opening_balances_map(db: Session, domain=None) -> dict[int, Decimal]:
     return out
 
 
+def get_opening_balance_for_fiscal_year(
+    db: Session, fiscal_year_id: int, account_id: int, domain=None
+) -> Decimal:
+    from modules.gl.domain import gl_entry_db_values
+
+    stmt = (
+        select(func.coalesce(func.sum(AccountOpeningBalance.debit - AccountOpeningBalance.credit), 0))
+        .join(GlAccount, AccountOpeningBalance.account_id == GlAccount.id)
+        .where(
+            AccountOpeningBalance.account_id == account_id,
+            AccountOpeningBalance.fiscal_year_id == fiscal_year_id,
+        )
+    )
+    vals = gl_entry_db_values(domain)
+    if vals is not None:
+        stmt = stmt.where(GlAccount.business_domain.in_(vals))
+    net = db.scalar(stmt)
+    return Decimal(str(net or 0)).quantize(Decimal("0.001"))
+
+
 def set_opening_balance(
     db: Session,
     fiscal_year_id: int,
@@ -173,7 +196,183 @@ def set_current_fiscal_year(db: Session, fiscal_year_id: int) -> FiscalYear:
         raise GLError("السنة المالية غير موجودة.")
     fy.is_current = True
     db.flush()
+    _carry_forward_opening_balances(db, fy)
     return fy
+
+
+def _carry_forward_opening_balances(db: Session, to_fy: FiscalYear) -> None:
+    """ترحيل أرصدة الختام من السنة السابقة المقفلة كأرصدة افتتاح للسنة الجديدة."""
+    from modules.gl.reports import account_period_movement
+
+    existing = db.scalar(
+        select(func.count(AccountOpeningBalance.id)).where(
+            AccountOpeningBalance.fiscal_year_id == to_fy.id
+        )
+    )
+    if existing and int(existing or 0) > 0:
+        return
+    from_fy = db.scalar(
+        select(FiscalYear)
+        .where(
+            FiscalYear.id != to_fy.id,
+            FiscalYear.end_date < to_fy.start_date,
+        )
+        .order_by(FiscalYear.end_date.desc())
+        .limit(1)
+    )
+    if from_fy is None:
+        return
+    _close_fiscal_year_common(db, from_fy)
+    for acc in db.scalars(select(GlAccount).where(GlAccount.is_active.is_(True))).all():
+        if acc.account_type in (GlAccountType.REVENUE, GlAccountType.EXPENSE):
+            continue
+        opening = get_opening_balance_for_fiscal_year(db, int(from_fy.id), int(acc.id))
+        debit, credit = account_period_movement(
+            db, int(acc.id), from_fy.start_date, from_fy.end_date
+        )
+        closing = (opening + debit - credit).quantize(Decimal("0.001"))
+        if closing == Decimal("0"):
+            continue
+        if closing > 0:
+            set_opening_balance(db, int(to_fy.id), int(acc.id), closing, Decimal("0"))
+        else:
+            set_opening_balance(db, int(to_fy.id), int(acc.id), Decimal("0"), abs(closing))
+    db.flush()
+
+
+def _close_fiscal_year_common(db: Session, fy: FiscalYear) -> None:
+    """توليد قيود إقفال السنة المالية (إقفال الإيرادات/المصروفات إلى الأرباح المحتجزة)."""
+    from modules.gl.reports import account_period_movement
+
+    if fy.status == FiscalYearStatus.CLOSED:
+        return
+    existing = db.scalar(
+        select(GlJournalEntry.id).where(
+            GlJournalEntry.source_type == "fiscal_year_close",
+            GlJournalEntry.source_id == int(fy.id),
+        )
+    )
+    if existing is not None:
+        return
+    income_summary = db.scalar(
+        select(GlAccount.id).where(GlAccount.code == "3500", GlAccount.is_active.is_(True))
+    )
+    retained_earnings = db.scalar(
+        select(GlAccount.id).where(GlAccount.code == "3600", GlAccount.is_active.is_(True))
+    )
+    if income_summary is None or retained_earnings is None:
+        raise GLError("حسابات إقفال السنة غير موجودة (3500/3600).")
+    net_income = Decimal("0")
+    lines: list[tuple[int, Decimal, Decimal, str]] = []
+    for acc in db.scalars(
+        select(GlAccount).where(
+            GlAccount.account_type.in_([GlAccountType.REVENUE, GlAccountType.EXPENSE]),
+            GlAccount.is_active.is_(True),
+        )
+    ).all():
+        opening = get_opening_balance_for_fiscal_year(db, int(fy.id), int(acc.id))
+        debit, credit = account_period_movement(
+            db, int(acc.id), fy.start_date, fy.end_date
+        )
+        closing = (opening + debit - credit).quantize(Decimal("0.001"))
+        if closing == Decimal("0"):
+            continue
+        if acc.account_type == GlAccountType.REVENUE:
+            # إيرادات (رصيد دائن) ندينها لإغلاقها ( debit = abs(closing) )
+            lines.append((int(acc.id), abs(closing), Decimal("0"), f"إقفال {acc.name_ar}"))
+        else:
+            # مصروفات (رصيد مدين) ندائنها لإغلاقها
+            lines.append((int(acc.id), Decimal("0"), abs(closing), f"إقفال {acc.name_ar}"))
+        net_income -= closing
+
+    # قيد إقفال الإيرادات/المصروفات إلى ملخص الدخل
+    if net_income != 0:
+        if net_income > 0:
+            lines.append((int(income_summary), Decimal("0"), net_income, "صافي الدخل"))
+        else:
+            lines.append((int(income_summary), abs(net_income), Decimal("0"), "صافي الخسارة"))
+    if lines:
+        _post_closing_entry(db, fy, "إقفال السنة المالية", lines, suffix="close")
+    # قيد نقل ملخص الدخل إلى الأرباح المحتجزة
+    retained_lines: list[tuple[int, Decimal, Decimal, str]] = []
+    if net_income > 0:
+        retained_lines.append((int(income_summary), net_income, Decimal("0"), "نقل صافي الدخل"))
+        retained_lines.append((int(retained_earnings), Decimal("0"), net_income, "الأرباح المحتجزة"))
+    elif net_income < 0:
+        retained_lines.append((int(retained_earnings), abs(net_income), Decimal("0"), "خصم الخسارة"))
+        retained_lines.append((int(income_summary), Decimal("0"), abs(net_income), "تصفير ملخص الدخل"))
+    if retained_lines:
+        _post_closing_entry(db, fy, "ترحيل الأرباح المحتجزة", retained_lines, suffix="retain")
+    fy.status = FiscalYearStatus.CLOSED
+    fy.is_current = False
+    db.flush()
+
+
+def _post_closing_entry(
+    db: Session,
+    fy: FiscalYear,
+    description: str,
+    lines: list[tuple[int, Decimal, Decimal, str]],
+    suffix: str,
+) -> None:
+    """يسجّل قيد إقفال السنة المالية بشكل مباشر (POSTED)."""
+    from datetime import datetime, timezone
+
+    if not lines:
+        return
+    total_debit = sum((d for _, d, _, _ in lines), Decimal("0"))
+    total_credit = sum((c for _, _, c, _ in lines), Decimal("0"))
+    if total_debit != total_credit:
+        raise GLError(f"قيد الإقفال غير متوازن: {total_debit} ≠ {total_credit}")
+    entry = GlJournalEntry(
+        entry_date=fy.end_date,
+        description_ar=description[:255],
+        status=GlJournalEntryStatus.POSTED,
+        source_type="fiscal_year_close",
+        source_id=int(fy.id),
+        idempotency_key=f"fy-close-{fy.id}-{suffix}",
+        post_mode="live",
+        business_domain=BusinessDomain.SHARED.value,
+    )
+    db.add(entry)
+    db.flush()
+    for i, (account_id, debit, credit, memo) in enumerate(lines, start=1):
+        db.add(
+            GlJournalLine(
+                entry_id=entry.id,
+                account_id=account_id,
+                debit=debit,
+                credit=credit,
+                memo=(memo or "")[:255] or None,
+                line_no=i,
+            )
+        )
+    db.flush()
+
+
+def close_fiscal_year(db: Session, fiscal_year_id: int) -> FiscalYear:
+    """إقفال السنة المالية (إنشاء قيود الإقفال وتعيين الحالة إلى CLOSED)."""
+    fy = db.get(FiscalYear, fiscal_year_id)
+    if fy is None:
+        raise GLError("السنة المالية غير موجودة.")
+    if fy.status == FiscalYearStatus.CLOSED:
+        raise GLError("السنة المالية مقفلة بالفعل.")
+    _close_fiscal_year_common(db, fy)
+    db.flush()
+    return fy
+
+
+def is_posting_date_allowed(db: Session, entry_date: date) -> bool:
+    """يتحقق من أن تاريخ القيد يقع داخل سنة مالية مفتوحة."""
+    fy = db.scalar(
+        select(FiscalYear).where(
+            FiscalYear.start_date <= entry_date,
+            FiscalYear.end_date >= entry_date,
+        )
+    )
+    if fy is None:
+        return False
+    return fy.status == FiscalYearStatus.OPEN
 
 
 def create_fiscal_year(
@@ -737,6 +936,8 @@ def create_manual_journal_entry(
     desc = (description_ar or "").strip()
     if len(desc) < 2:
         raise GLError("وصف القيد مطلوب.")
+    if not is_posting_date_allowed(db, entry_date):
+        raise GLError("لا يمكن القيد في سنة مالية مغلقة أو غير موجودة.")
     if not lines:
         raise GLError("أضف سطراً واحداً على الأقل.")
 

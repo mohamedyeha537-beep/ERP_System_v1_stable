@@ -49,6 +49,7 @@ from modules.gl.service import (
     set_opening_balance,
     set_wallet_map,
     update_account,
+    close_fiscal_year,
 )
 from modules.payments.service import list_payment_methods
 from modules.gl.backfill import run_gl_backfill
@@ -894,6 +895,21 @@ def fiscal_years_set_current(
     except GLError as exc:
         return _err_redirect("/admin/gl/fiscal", str(exc))
     return RedirectResponse("/admin/gl/fiscal?saved=1", status_code=303)
+
+
+@router.post("/fiscal/{fiscal_year_id}/close")
+def fiscal_years_close(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_perm),
+    fiscal_year_id: int = Path(...),
+):
+    try:
+        close_fiscal_year(db, fiscal_year_id)
+        db.commit()
+    except GLError as exc:
+        return _err_redirect("/admin/gl/fiscal", str(exc))
+    return RedirectResponse("/admin/gl/fiscal?closed=1", status_code=303)
 
 
 @router.get("/opening-balances", response_class=HTMLResponse)

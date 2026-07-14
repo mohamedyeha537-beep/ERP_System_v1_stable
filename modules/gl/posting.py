@@ -16,7 +16,12 @@ from modules.gl.models import (
     GlPaymentMethodMap,
 )
 from modules.gl.hierarchy import assert_postable_account, build_children_map
-from modules.gl.service import entry_date_on_or_after_cutover, get_gl_post_mode, is_gl_enabled
+from modules.gl.service import (
+    entry_date_on_or_after_cutover,
+    get_gl_post_mode,
+    is_gl_enabled,
+    is_posting_date_allowed,
+)
 from modules.payments.models import (
     PaymentMethod,
     PaymentMethodKind,
@@ -136,6 +141,8 @@ def post_balanced_entry(
     if not entry_date_on_or_after_cutover(
         db, entry_date, ignore_cutover=ignore_cutover or _BACKFILL_IGNORE_CUTOVER
     ):
+        return None
+    if not is_posting_date_allowed(db, entry_date):
         return None
     key = (idempotency_key or "").strip()
     if not key:

@@ -25,6 +25,12 @@
 </div>
 {% endif %}
 
+{% if request.query_params.get("closed") == "1" %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4">
+  <p style="margin:0">تم إقفال السنة المالية وترحيل الأرباح المحتجزة.</p>
+</div>
+{% endif %}
+
 <div class="card" style="border-color:#6ee7b7;background:linear-gradient(180deg,#ecfdf5 0%,#fff 55%)">
   <h2 style="margin-top:0">إضافة سنة مالية</h2>
   <form method="post" action="/admin/gl/fiscal" class="row" style="flex-wrap:wrap;gap:0.75rem;align-items:flex-end">
@@ -69,6 +75,11 @@
           {% if not fy.is_current %}
           <form method="post" action="/admin/gl/fiscal/{{ fy.id }}/set-current" style="display:inline">
             <button class="btn btn-sm" type="submit">تعيين حالية</button>
+          </form>
+          {% endif %}
+          {% if fy.status.value == "OPEN" %}
+          <form method="post" action="/admin/gl/fiscal/{{ fy.id }}/close" style="display:inline" onsubmit="return confirm('هل أنت متأكد من إقفال السنة؟ سيتم إنشاء قيود الإقفال ولا يمكن التراجع.')">
+            <button class="btn btn-sm" type="submit" style="background:#fee2e2;color:#991b1b;border-color:#fecaca">إقفال</button>
           </form>
           {% endif %}
         </td>

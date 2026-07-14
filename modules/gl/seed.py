@@ -43,6 +43,8 @@ DEFAULT_ACCOUNTS: tuple[tuple[str, str, GlAccountType, bool], ...] = (
     ("2200", "رواتب مستحقة", GlAccountType.LIABILITY, True),
     ("3000", "حقوق الملكية", GlAccountType.EQUITY, True),
     ("3100", "حساب المالك", GlAccountType.EQUITY, True),
+    ("3500", "ملخص الدخل", GlAccountType.EQUITY, True),
+    ("3600", "الأرباح المحتجزة", GlAccountType.EQUITY, True),
     ("4000", "الإيرادات", GlAccountType.REVENUE, True),
     ("4100", "إيرادات المبيعات", GlAccountType.REVENUE, True),
     ("4150", "إيرادات الإقامة (فندق)", GlAccountType.REVENUE, True),
@@ -75,6 +77,8 @@ CHART_PARENT_LINKS: tuple[tuple[str, str], ...] = (
     ("2100", "2000"),
     ("2200", "2000"),
     ("3100", "3000"),
+    ("3500", "3000"),
+    ("3600", "3000"),
     ("4100", "4000"),
     ("4150", "4000"),
     ("4200", "4000"),
@@ -146,6 +150,7 @@ def ensure_default_chart_of_accounts(db: Session) -> None:
         ensure_chart_hierarchy(db)
         ensure_gl_account_domains(db)
         ensure_gl_dashboard_defaults(db)
+        ensure_closing_accounts(db)
         return
     for sort_idx, (code, name_ar, acc_type, is_system) in enumerate(DEFAULT_ACCOUNTS):
         db.add(
@@ -174,6 +179,7 @@ def ensure_default_chart_of_accounts(db: Session) -> None:
     ensure_chart_hierarchy(db)
     ensure_gl_account_domains(db)
     ensure_gl_dashboard_defaults(db)
+    ensure_closing_accounts(db)
 
 
 def ensure_chart_hierarchy(db: Session) -> None:
@@ -398,6 +404,33 @@ def _run_hotel_gl_revenue_migration(db: Session) -> None:
 
     migrate_hotel_gl_to_revenue_account(db)
     db.flush()
+
+
+_CLOSING_ACCOUNTS: tuple[tuple[str, str, GlAccountType, str], ...] = (
+    ("3500", "ملخص الدخل", GlAccountType.EQUITY, "shared"),
+    ("3600", "الأرباح المحتجزة", GlAccountType.EQUITY, "shared"),
+)
+
+
+def ensure_closing_accounts(db: Session) -> None:
+    """يضمن وجود حسابات إقفال السنة المالية (ملخص الدخل والأرباح المحتجزة)."""
+    code_to_id = {row.code: row.id for row in db.scalars(select(GlAccount)).all()}
+    parent_id = code_to_id.get("3000")
+    for code, name_ar, acc_type, domain in _CLOSING_ACCOUNTS:
+        if code in code_to_id:
+            continue
+        acc = GlAccount(
+            code=code,
+            name_ar=name_ar,
+            account_type=acc_type,
+            is_system=True,
+            is_active=True,
+            sort_order=2950 if code == "3500" else 2960,
+            business_domain=domain,
+            parent_id=parent_id,
+        )
+        db.add(acc)
+        db.flush()
 
 
 def ensure_default_fiscal_year(db: Session) -> FiscalYear | None:
