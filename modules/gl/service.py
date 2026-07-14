@@ -90,21 +90,30 @@ def _current_fiscal_year_id(db: Session) -> int | None:
     return int(fy.id) if fy is not None else None
 
 
-def get_opening_balance(db: Session, account_id: int) -> Decimal:
+def get_opening_balance(db: Session, account_id: int, domain=None) -> Decimal:
+    from modules.gl.domain import gl_entry_db_values
+
     fy_id = _current_fiscal_year_id(db)
     if fy_id is None:
         return Decimal("0")
-    net = db.scalar(
+    stmt = (
         select(func.coalesce(func.sum(AccountOpeningBalance.debit - AccountOpeningBalance.credit), 0))
+        .join(GlAccount, AccountOpeningBalance.account_id == GlAccount.id)
         .where(
             AccountOpeningBalance.account_id == account_id,
             AccountOpeningBalance.fiscal_year_id == fy_id,
         )
     )
+    vals = gl_entry_db_values(domain)
+    if vals is not None:
+        stmt = stmt.where(GlAccount.business_domain.in_(vals))
+    net = db.scalar(stmt)
     return Decimal(str(net or 0)).quantize(Decimal("0.001"))
 
 
-def get_opening_balances_map(db: Session) -> dict[int, Decimal]:
+def get_opening_balances_map(db: Session, domain=None) -> dict[int, Decimal]:
+    from modules.gl.domain import gl_entry_db_values
+
     fy_id = _current_fiscal_year_id(db)
     if fy_id is None:
         return {}
@@ -113,9 +122,13 @@ def get_opening_balances_map(db: Session) -> dict[int, Decimal]:
             AccountOpeningBalance.account_id,
             func.coalesce(func.sum(AccountOpeningBalance.debit - AccountOpeningBalance.credit), 0),
         )
+        .join(GlAccount, AccountOpeningBalance.account_id == GlAccount.id)
         .where(AccountOpeningBalance.fiscal_year_id == fy_id)
         .group_by(AccountOpeningBalance.account_id)
     )
+    vals = gl_entry_db_values(domain)
+    if vals is not None:
+        stmt = stmt.where(GlAccount.business_domain.in_(vals))
     out: dict[int, Decimal] = {}
     for aid, net in db.execute(stmt).all():
         if aid is None:
@@ -325,7 +338,7 @@ def account_balance(db: Session, account_id: int, domain=None) -> Decimal:
         ).where(GlJournalEntry.business_domain.in_(vals))
     net = db.scalar(stmt)
     balance = Decimal(str(net or 0)).quantize(Decimal("0.001"))
-    return (balance + get_opening_balance(db, account_id)).quantize(Decimal("0.001"))
+    return (balance + get_opening_balance(db, account_id, domain=domain)).quantize(Decimal("0.001"))
 
 
 def account_balances_map(db: Session, domain=None) -> dict[int, Decimal]:
@@ -350,7 +363,7 @@ def account_balances_map(db: Session, domain=None) -> dict[int, Decimal]:
         if aid is None:
             continue
         out[int(aid)] = Decimal(str(net or 0)).quantize(Decimal("0.001"))
-    for aid, ob in get_opening_balances_map(db).items():
+    for aid, ob in get_opening_balances_map(db, domain=domain).items():
         out[aid] = (out.get(aid, Decimal("0")) + ob).quantize(Decimal("0.001"))
     return out
 
@@ -463,7 +476,7 @@ def list_account_ledger(
         GlJournalEntry.id.asc(),
         GlJournalLine.line_no.asc(),
     )
-    opening = get_opening_balance(db, account_id)
+    opening = get_opening_balance(db, account_id, domain=domain)
     if offset > 0:
         for ln, _ent in db.execute(chrono.limit(offset)).all():
             opening += Decimal(str(ln.debit or 0)) - Decimal(str(ln.credit or 0))

@@ -46,7 +46,7 @@ def account_balance_as_of(
             _entry_domain_filter(domain),
         )
     )
-    return (_q(Decimal(str(net or 0))) + get_opening_balance(db, account_id)).quantize(Decimal("0.001"))
+    return (_q(Decimal(str(net or 0))) + get_opening_balance(db, account_id, domain=domain)).quantize(Decimal("0.001"))
 
 
 def account_period_movement(

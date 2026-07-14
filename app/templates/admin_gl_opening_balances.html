@@ -4,7 +4,7 @@
 <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem">
   <div>
     <h1 style="margin:0">أرصدة الافتتاح</h1>
-    <p class="muted" style="margin:0.35rem 0 0">السنة المالية: <strong>{{ fiscal_year.name or "—" }}</strong></p>
+    <p class="muted" style="margin:0.35rem 0 0">السنة المالية: <strong>{{ fiscal_year.name if fiscal_year else "—" }}</strong></p>
   </div>
   <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
     <a class="btn" href="/admin/gl">إعدادات GL</a>
