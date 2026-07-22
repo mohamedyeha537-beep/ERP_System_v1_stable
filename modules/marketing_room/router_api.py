@@ -1,0 +1,73 @@
+"""API اختياري لـ n8n: استلام نتائج خط التسويق لاحقاً (مرحلة 1 تدعم الاستجابة المتزامنة أيضاً)."""
+from __future__ import annotations
+
+import json
+import os
+
+from fastapi import APIRouter, Header, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+
+from app.deps import DBSession
+from modules.marketing_room.models import MarketingArtifact, MarketingRun
+from modules.marketing_room.pipeline import _normalize_bundle, _persist_artifacts
+
+router = APIRouter(prefix="/api/marketing-room", tags=["marketing-room-api"])
+
+
+def _require_key(x_api_key: str | None) -> None:
+    expected = (os.environ.get("MARKETING_AGENT_API_KEY") or "").strip()
+    if not expected:
+        raise HTTPException(503, "MARKETING_AGENT_API_KEY غير مضبوط")
+    if not x_api_key or x_api_key.strip() != expected:
+        raise HTTPException(401, "مفتاح غير صالح")
+
+
+class PipelineResultIn(BaseModel):
+    run_id: int
+    site_brief: str = ""
+    sale_ideas: list[str] = Field(default_factory=list)
+    posts: list[dict] = Field(default_factory=list)
+    hashtags: list[str] = Field(default_factory=list)
+    design_brief: str = ""
+    chief_summary: str = ""
+
+
+@router.get("/health")
+def health():
+    return {"ok": True, "service": "marketing-room"}
+
+
+@router.post("/runs/{run_id}/result")
+def ingest_pipeline_result(
+    run_id: int,
+    body: PipelineResultIn,
+    db: DBSession,
+    x_marketing_api_key: str | None = Header(default=None, alias="X-Marketing-API-Key"),
+):
+    _require_key(x_marketing_api_key)
+    run = db.get(MarketingRun, int(run_id))
+    if run is None:
+        raise HTTPException(404, "التشغيل غير موجود")
+    if body.run_id and int(body.run_id) != int(run_id):
+        raise HTTPException(400, "run_id غير متطابق")
+
+    # امسح آثار سابقة إن أُعيد الإرسال
+    old = list(
+        db.scalars(select(MarketingArtifact).where(MarketingArtifact.run_id == run.id)).all()
+    )
+    for a in old:
+        db.delete(a)
+    db.flush()
+
+    ctx = {}
+    if run.context_json:
+        try:
+            ctx = json.loads(run.context_json)
+        except json.JSONDecodeError:
+            ctx = {}
+    bundle = _normalize_bundle(body.model_dump(), ctx)
+    _persist_artifacts(db, run, bundle)
+    run.status = "awaiting_approval"
+    db.commit()
+    return {"ok": True, "run_id": run.id, "status": run.status}

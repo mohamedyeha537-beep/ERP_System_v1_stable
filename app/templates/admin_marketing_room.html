@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}غرفة وكلاء التسويق{% endblock %}
+{% block head_extra %}
+<style>
+  .mkt-hero {
+    background: linear-gradient(135deg, #0f766e 0%, #115e59 45%, #134e4a 100%);
+    color: #ecfdf5; border-radius: 16px; padding: 1.25rem 1.4rem; margin: 0.75rem 0 1rem;
+  }
+  .mkt-hero h1 { margin: 0 0 0.35rem; font-size: 1.35rem; color: #fff; }
+  .mkt-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 0.85rem; margin: 1rem 0;
+  }
+  .mkt-card {
+    background: #fff; border: 1px solid #d1fae5; border-radius: 14px;
+    padding: 0.95rem 1rem; min-height: 11rem;
+    display: flex; flex-direction: column; gap: 0.45rem;
+    box-shadow: 0 1px 0 rgba(15, 118, 110, 0.06);
+  }
+  .mkt-card__num {
+    width: 1.7rem; height: 1.7rem; border-radius: 999px; background: #0f766e;
+    color: #fff; font-weight: 800; font-size: 0.85rem;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .mkt-card h3 { margin: 0; font-size: 1rem; color: #134e4a; }
+  .mkt-card p { margin: 0; font-size: 0.86rem; color: #475569; line-height: 1.55; flex: 1; }
+  .mkt-badge {
+    display: inline-block; font-size: 0.75rem; font-weight: 700;
+    padding: 0.2rem 0.55rem; border-radius: 999px;
+  }
+  .mkt-badge.ready { background: #d1fae5; color: #065f46; }
+  .mkt-badge.running { background: #fef3c7; color: #92400e; }
+  .mkt-badge.awaiting { background: #ffedd5; color: #9a3412; }
+  .mkt-badge.approved { background: #dcfce7; color: #166534; }
+  .mkt-badge.rejected { background: #fee2e2; color: #991b1b; }
+  .mkt-badge.manual, .mkt-badge.linked, .mkt-badge.done { background: #e0f2fe; color: #075985; }
+  .mkt-badge.failed { background: #fecaca; color: #7f1d1d; }
+  .mkt-stats { display: flex; flex-wrap: wrap; gap: 0.65rem; margin: 0.75rem 0; }
+  .mkt-stat {
+    background: #f8fafc; border: 1px solid var(--border); border-radius: 10px;
+    padding: 0.65rem 0.9rem; min-width: 8rem;
+  }
+  .mkt-stat strong { display: block; font-size: 1.2rem; }
+</style>
+{% endblock %}
+{% block body %}
+<div class="mkt-hero">
+  <h1>غرفة اجتماع وكلاء التسويق</h1>
+  <p style="margin:0;opacity:0.92;line-height:1.55;max-width:46rem">
+    نظام عمل متكامل لإدارة المحتوى والمتابعة للمطعم والفندق.
+    شغّل الخط اليومي، راجع المسودات، واعتمدها قبل النسخ للنشر يدوياً.
+  </p>
+</div>
+
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+{% if notice %}<div class="alert" style="background:#ecfdf5;border-color:#10b981;color:#065f46">{{ notice }}</div>{% endif %}
+
+<div class="mkt-stats">
+  <div class="mkt-stat"><span class="muted">بانتظار موافقة</span><strong>{{ stats.pending_artifacts }}</strong></div>
+  <div class="mkt-stat"><span class="muted">معتمدة</span><strong>{{ stats.approved_artifacts }}</strong></div>
+  <div class="mkt-stat"><span class="muted">تشغيلات</span><strong>{{ stats.total_runs }}</strong></div>
+  <div class="mkt-stat"><span class="muted">تشغيلات معلّقة</span><strong>{{ stats.awaiting_runs }}</strong></div>
+</div>
+
+<div class="card">
+  <div class="row" style="justify-content:space-between;align-items:flex-start;gap:0.75rem;flex-wrap:wrap">
+    <div>
+      <h2 style="margin:0 0 0.35rem">تشغيل يومي</h2>
+      <p class="muted" style="margin:0;font-size:0.9rem;line-height:1.55">
+        يجمع أصناف المطعم والشقق، ثم يمرّ على: مدير الموقع → البياع → المحتوى → الهاشتاج → الديزاين.
+        {% if ai_configured %}الذكاء الاصطناعي مضبوط.{% else %}بدون مفتاح AI تُستخدم قوالب محلية.{% endif %}
+        {% if n8n_configured %} · n8n مفعّل.{% endif %}
+      </p>
+    </div>
+    <form method="post" action="/admin/marketing-room/run" class="row" style="gap:0.45rem;align-items:end">
+      <div>
+        <label for="business_domain">النطاق</label>
+        <select id="business_domain" name="business_domain">
+          <option value="shared">مشترك (مطعم + فندق)</option>
+          <option value="restaurant">مطعم</option>
+          <option value="hotel">فندق</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" type="submit">▶ تشغيل خط الوكلاء</button>
+    </form>
+  </div>
+  {% if latest_run %}
+  <p style="margin:0.85rem 0 0;font-size:0.92rem">
+    آخر تشغيل:
+    <a href="/admin/marketing-room/runs/{{ latest_run.id }}"><strong>#{{ latest_run.id }}</strong> — {{ latest_run.title }}</a>
+    · الحالة: <strong>{{ latest_run.status }}</strong>
+  </p>
+  {% endif %}
+</div>
+
+<div class="mkt-grid">
+  {% for a in agents %}
+  {% set st = agent_status.get(a.role, 'ready') %}
+  <article class="mkt-card">
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <span class="mkt-card__num">{{ a.number }}</span>
+      <span class="mkt-badge {{ st }}">
+        {% if st == 'ready' %}جاهز للتوجيه
+        {% elif st == 'running' %}قيد التنفيذ
+        {% elif st == 'awaiting' %}بانتظار موافقة
+        {% elif st == 'approved' %}معتمد
+        {% elif st == 'rejected' %}مرفوض
+        {% elif st == 'manual' %}نشر يدوي
+        {% elif st == 'linked' %}مرتبط بالوارد
+        {% elif st == 'failed' %}فشل
+        {% else %}تم{% endif %}
+      </span>
+    </div>
+    <h3>{{ a.title_ar }}</h3>
+    <p>{{ a.blurb_ar }}</p>
+    {% if a.role == 'customer_service' %}
+    <div class="row" style="gap:0.35rem;flex-wrap:wrap">
+      <a class="btn" href="/admin/messaging/inbox">صندوق الوارد ←</a>
+      <a class="btn" href="/admin/messaging/web-chat">إعدادات الشات / Hermes</a>
+    </div>
+    {% elif a.external_href %}
+    <a class="btn" href="{{ a.external_href }}" style="align-self:flex-start">فتح ←</a>
+    {% elif a.role == 'delivery' %}
+    <span class="muted" style="font-size:0.8rem">بعد الاعتماد: استخدم «نسخ/تصدير» من صفحة التشغيل</span>
+    {% elif latest_run and a.pipeline %}
+    <a class="btn" href="/admin/marketing-room/runs/{{ latest_run.id }}" style="align-self:flex-start">عرض المخرجات</a>
+    {% endif %}
+  </article>
+  {% endfor %}
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">التشغيلات الأخيرة</h2>
+  {% if runs %}
+  <table style="width:100%;font-size:0.9rem">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>العنوان</th>
+        <th>النطاق</th>
+        <th>الحالة</th>
+        <th>التاريخ</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in runs %}
+      <tr>
+        <td>{{ r.id }}</td>
+        <td>{{ r.title }}</td>
+        <td>{{ r.business_domain }}</td>
+        <td>{{ r.status }}</td>
+        <td style="white-space:nowrap">{{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '—' }}</td>
+        <td><a href="/admin/marketing-room/runs/{{ r.id }}">تفاصيل</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted" style="margin:0">لا توجد تشغيلات بعد — اضغط «تشغيل خط الوكلاء».</p>
+  {% endif %}
+</div>
+{% endblock %}

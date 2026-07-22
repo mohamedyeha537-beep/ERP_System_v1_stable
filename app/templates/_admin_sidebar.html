@@ -176,7 +176,7 @@
 
     {% if (p('customers:view') or (p('customers:manage') and nav_sales)) and pos_ui_show(request, 'ui_nav_customers_group') %}
 
-    <details class="admin-sidebar-group">
+    <details class="admin-sidebar-group"{% if '/admin/customers' in request.url.path or '/admin/loyalty' in request.url.path or '/admin/hotel/settings' in request.url.path or '/admin/notifications/templates' in request.url.path %} open{% endif %}>
 
       <summary>{% if nav_sales %}العملاء والولاء{% else %}العملاء{% endif %}</summary>
 
@@ -184,7 +184,11 @@
 
         {% if p('customers:view') %}{{ sidebar_link('/admin/customers', 'العملاء', '/admin/customers', ui='ui_customers') }}{% endif %}
 
-        {% if p('customers:manage') and nav_sales %}{{ sidebar_link('/admin/loyalty', 'إعدادات الولاء', '/admin/loyalty', ui='ui_loyalty') }}{% endif %}
+        {% if p('customers:manage') and nav_sales %}{{ sidebar_link('/admin/loyalty', 'ولاء المطعم', '/admin/loyalty', ui='ui_loyalty') }}{% endif %}
+
+        {% if p('customers:manage') and nav_sales %}{{ sidebar_link('/admin/hotel/settings#hotel-loyalty', 'ولاء الفندق', '/admin/hotel/settings', ui='ui_loyalty') }}{% endif %}
+
+        {% if p('messaging:manage') and nav_sales %}{{ sidebar_link('/admin/notifications/templates', 'قوالب واتساب', '/admin/notifications/templates', ui='ui_messaging') }}{% endif %}
 
       </div>
 
@@ -254,6 +258,8 @@
 
         {% if p('admin:settings') %}{{ sidebar_link('/admin/settings', 'الإعدادات', '/admin/settings', ui='ui_settings') }}{% endif %}
 
+        {% if p('admin:settings') %}{{ sidebar_link('/admin/sync', 'أوفلاين / مزامنة', '/admin/sync', ui='ui_settings') }}{% endif %}
+
         {% if p('admin:settings') and nav_sales %}{{ sidebar_link('/admin/alerts', 'تنبيهات النفاد', '/admin/alerts', ui='ui_settings') }}{% endif %}
 
         {% if p('admin:users') %}{{ sidebar_link('/admin/users', 'المستخدمون', '/admin/users', ui='ui_users') }}{% endif %}
@@ -265,6 +271,8 @@
         {% if p('branding:manage') %}{{ sidebar_link('/admin/branding', 'الهوية البصرية', '/admin/branding', ui='ui_branding') }}{% endif %}
 
         {% if p('branding:manage') %}{{ sidebar_link('/admin/web-marketing', 'SEO والتحليلات', '/admin/web-marketing', ui='ui_branding') }}{% endif %}
+        {% if p('seo:view') %}{{ sidebar_link('/admin/seo', 'SEO Center', '/admin/seo') }}{% endif %}
+        {% if p('marketing_room:view') %}{{ sidebar_link('/admin/marketing-room', 'غرفة التسويق', '/admin/marketing-room') }}{% endif %}
 
         {% if p('backup:manage') %}{{ sidebar_link('/admin/backup', 'نسخ احتياطي', '/admin/backup', ui='ui_backup') }}{% endif %}
 

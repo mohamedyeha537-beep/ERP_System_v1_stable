@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}تشغيل تسويق #{{ run.id }}{% endblock %}
+{% block body %}
+<div class="row" style="justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap">
+  <div>
+    <h1 style="margin:0">تشغيل #{{ run.id }}</h1>
+    <p class="muted" style="margin:0.35rem 0 0">{{ run.title }} · {{ run.business_domain }} · {{ run.status }}</p>
+  </div>
+  <div class="row" style="gap:0.4rem">
+    <a class="btn" href="/admin/marketing-room">غرفة الوكلاء</a>
+    {% if run.status == 'awaiting_approval' %}
+    <form method="post" action="/admin/marketing-room/runs/{{ run.id }}/approve-all">
+      <button class="btn btn-primary" type="submit">اعتماد الكل</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+{% if notice %}<div class="alert" style="background:#ecfdf5;border-color:#10b981;color:#065f46">{{ notice }}</div>{% endif %}
+
+{% if run.chief_summary %}
+<div class="card" style="margin-top:0.85rem;border-color:#99f6e4;background:#f0fdfa">
+  <h2 style="margin-top:0;font-size:1.05rem">ملخص الوكيل الرئيسي</h2>
+  <p style="margin:0;white-space:pre-wrap;line-height:1.6">{{ run.chief_summary }}</p>
+</div>
+{% endif %}
+
+{% if run.error_message %}
+<div class="alert" style="margin-top:0.85rem">{{ run.error_message }}</div>
+{% endif %}
+
+{% for art in artifacts %}
+<div class="card" style="margin-top:0.75rem{% if art.status == 'pending_approval' %};border-color:#fdba74;background:#fffbeb{% elif art.status == 'approved' %};border-color:#86efac;background:#f0fdf4{% endif %}">
+  <div class="row" style="justify-content:space-between;gap:0.5rem;flex-wrap:wrap;align-items:flex-start">
+    <div>
+      <h3 style="margin:0 0 0.25rem">{{ art.title or art.kind }}</h3>
+      <p class="muted" style="margin:0;font-size:0.85rem">
+        {{ art.agent_role }} · {{ art.kind }} ·
+        {% if art.status == 'pending_approval' %}<strong style="color:#c2410c">بانتظار موافقة</strong>
+        {% elif art.status == 'approved' %}<strong style="color:#15803d">معتمد</strong>
+        {% elif art.status == 'rejected' %}<strong style="color:#b91c1c">مرفوض</strong>
+        {% else %}{{ art.status }}{% endif %}
+      </p>
+    </div>
+    <div class="row" style="gap:0.35rem;flex-wrap:wrap">
+      <a class="btn" href="/admin/marketing-room/artifacts/{{ art.id }}/copy">نسخ / عرض</a>
+      <a class="btn" href="/admin/marketing-room/artifacts/{{ art.id }}/export.txt">تصدير .txt</a>
+      {% if art.status == 'pending_approval' %}
+      <form method="post" action="/admin/marketing-room/artifacts/{{ art.id }}/approve">
+        <button class="btn btn-primary" type="submit">اعتماد</button>
+      </form>
+      <form method="post" action="/admin/marketing-room/artifacts/{{ art.id }}/reject">
+        <button class="btn" type="submit" style="background:#fee2e2;border-color:#fecaca">رفض</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  <pre style="margin:0.75rem 0 0;white-space:pre-wrap;font-family:inherit;font-size:0.92rem;line-height:1.6;background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:0.75rem">{{ art.body_text }}</pre>
+</div>
+{% else %}
+<div class="card" style="margin-top:0.85rem"><p class="muted" style="margin:0">لا مخرجات في هذا التشغيل.</p></div>
+{% endfor %}
+{% endblock %}

@@ -56,6 +56,16 @@ MESSAGING_MANAGE = "messaging:manage"
 MESSAGING_SEND = "messaging:send"
 MESSAGING_VIEW = "messaging:view"
 GL_MANAGE = "gl:manage"
+SEO_VIEW = "seo:view"
+SEO_REVIEW = "seo:review"
+SEO_APPROVE = "seo:approve"
+SEO_APPLY = "seo:apply"
+SEO_ROLLBACK = "seo:rollback"
+SEO_PRODUCTION_APPROVE = "seo:production_approve"
+SEO_SETTINGS = "seo:settings"
+MARKETING_ROOM_VIEW = "marketing_room:view"
+MARKETING_ROOM_RUN = "marketing_room:run"
+MARKETING_ROOM_APPROVE = "marketing_room:approve"
 
 ALL_PERMISSIONS: list[tuple[str, str]] = [
     (SALES_CREATE, "إنشاء مبيعات (كاشير)"),
@@ -107,4 +117,14 @@ ALL_PERMISSIONS: list[tuple[str, str]] = [
     (MESSAGING_SEND, "ردّ على العملاء وإرسال رسائل من صندوق الوارد"),
     (MESSAGING_VIEW, "عرض صندوق الوارد والمحادثات (بدون إرسال)"),
     (GL_MANAGE, "إدارة دفتر الأستاذ العام والتقارير المالية"),
+    (SEO_VIEW, "عرض مركز السيو (SEO Center)"),
+    (SEO_REVIEW, "مراجعة اقتراحات السيو ورفضها"),
+    (SEO_APPROVE, "اعتماد إصلاحات السيو"),
+    (SEO_APPLY, "تطبيق إصلاحات السيو"),
+    (SEO_ROLLBACK, "التراجع عن إصلاحات السيو"),
+    (SEO_PRODUCTION_APPROVE, "اعتماد تطبيق السيو على الإنتاج"),
+    (SEO_SETTINGS, "إعدادات وكلاء السيو"),
+    (MARKETING_ROOM_VIEW, "عرض غرفة وكلاء التسويق"),
+    (MARKETING_ROOM_RUN, "تشغيل خط وكلاء التسويق"),
+    (MARKETING_ROOM_APPROVE, "اعتماد مسودات التسويق"),
 ]
