@@ -3,27 +3,71 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>فاتورة حجز {{ booking.reference }}</title>
+    <title>{{ doc_title|default('فاتورة حجز') }} {{ doc_number|default(booking.reference) }}</title>
     <style>
       html, body { font-family: "Segoe UI", "Tahoma", "Arial", system-ui, sans-serif; }
     </style>
     <link rel="stylesheet" href="/static/app.css" />
-    <link rel="stylesheet" href="/static/receipt_print.css?v=2" />
+    <link rel="stylesheet" href="/static/receipt_print.css?v=4" />
     <style>
       @page {
         size: {{ paper_css.size }};
         margin: {{ paper_css.margin }};
       }
       .receipt-page { max-width: {{ paper_css.max_width }}; }
+      .receipt-debt-box {
+        margin-top: 0.55rem;
+        padding: 0.45rem 0.55rem;
+        border: 2px solid #b45309;
+        border-radius: 8px;
+        background: #fff7ed;
+      }
+      .receipt-debt-box .debt-title {
+        font-weight: 900; font-size: 1.05rem; color: #9a3412; margin: 0 0 0.25rem;
+      }
+      .receipt-debt-box .debt-row {
+        display: flex; justify-content: space-between; gap: 0.5rem;
+        font-size: 0.88rem; margin: 0.12rem 0;
+      }
+      .receipt-unpaid-stamp {
+        display: block; margin: 0.85rem auto 0.35rem; max-width: 12rem;
+        text-align: center; font-size: 1.05rem; font-weight: 900;
+        color: #9a3412; border: 3px double #ea580c;
+        padding: 0.35rem 0.5rem; border-radius: 8px;
+        transform: rotate(-6deg);
+      }
     </style>
   </head>
   <body class="paper-{{ paper }}">
     <div class="receipt-page paper-{{ paper }}">
       {% include "_receipt_print_actions.html" %}
-      <div class="receipt-actions no-print" style="margin-top:0.35rem;flex-wrap:wrap">
+      <div class="receipt-actions no-print" style="margin-top:0.35rem;flex-wrap:wrap;align-items:center;gap:0.5rem">
         <a class="btn" href="/admin/hotel/bookings/{{ booking.id }}">← الحجز</a>
+        <a class="btn" href="/admin/hotel/bookings/{{ booking.id }}/receipt?doc=receipt{% if focus_payment %}&payment_id={{ focus_payment.id }}{% endif %}">إيصال قبض</a>
+        {% set _bst = booking.booking_status.value if booking.booking_status is defined and booking.booking_status and booking.booking_status.value is defined else booking.booking_status %}
+        {% if _bst == 'CHECKED_OUT' %}
+        <a class="btn" href="/admin/hotel/bookings/{{ booking.id }}/receipt?doc=invoice">فاتورة نهائية</a>
+        {% else %}
+        <span class="muted" style="font-size:0.82rem">الفاتورة النهائية متاحة بعد تسجيل المغادرة</span>
+        {% endif %}
+        <span class="muted no-print" style="font-size:0.8rem">انقر رقم فاتورة المطعم/المغسلة لإعادة طباعتها</span>
+        {% if can_choose_paper|default(true) %}
+        {% set form_action = print_form_action %}
+        {% set preserve_params = print_preserve_params|default({}) %}
+        {% include "_print_paper_options.html" %}
+        {% else %}
         <span class="muted no-print" style="margin-inline-start:auto">المقاس: {{ paper }}</span>
+        {% endif %}
       </div>
+      <style>
+        .folio-reprint-link {
+          color: #1d4ed8; font-weight: 700; text-decoration: underline;
+        }
+        .folio-reprint-link:hover { color: #1e40af; }
+        @media print {
+          .folio-reprint-link { color: inherit !important; text-decoration: none !important; }
+        }
+      </style>
 
       <div id="receipt-capture-root" class="receipt-capture-root">
         <header class="receipt-header">
@@ -33,8 +77,15 @@
           </div>
           {% endif %}
           <h1 style="margin:0;font-size:1.15rem">{{ hotel_brand.hotel_name or store_name }}</h1>
-          <p style="margin:0.25rem 0 0;font-size:0.95rem;font-weight:600">فاتورة حجز</p>
-          <p style="margin:0.15rem 0 0;font-size:0.85rem">مرجع: {{ booking.reference }} — {{ pos_format_dt(booking.created_at, '%Y-%m-%d %H:%M') if booking.created_at else '' }}</p>
+          <p style="margin:0.25rem 0 0;font-size:1.05rem;font-weight:700">{{ doc_title|default('فاتورة حجز') }}</p>
+          <p style="margin:0.15rem 0 0;font-size:0.9rem;font-weight:700;color:#1d4ed8">رقم المستند: {{ doc_number|default(booking.reference) }}</p>
+          <p style="margin:0.15rem 0 0;font-size:0.85rem">مرجع الحجز: {{ booking.reference }} — {{ pos_format_dt(booking.created_at, '%Y-%m-%d %H:%M') if booking.created_at else '' }}</p>
+          {% if focus_payment %}
+          <p style="margin:0.35rem 0 0;font-size:0.92rem;font-weight:700;color:#047857">
+            مبلغ مستلم: {{ '%.3f'|format(focus_payment.amount) }} د.ل
+            {% if focus_payment.is_deposit %} (عربون){% endif %}
+          </p>
+          {% endif %}
           {% if booking.room %}
           <p style="margin:0.15rem 0 0;font-size:0.95rem;font-weight:700;color:#b45309">الشقة: #{{ booking.room.number }}</p>
           {% elif booking.room_type %}
@@ -65,10 +116,18 @@
             </thead>
             <tbody>
               {% for line in folio.lines %}
+              {% if line.kind != 'hotel_cost' and (line.amount != 0 or line.kind == 'accommodation') %}
               <tr>
-                <td>{{ line.description }}</td>
+                <td>
+                  {% if line.sale_id %}
+                  <a class="folio-reprint-link" href="/pos/receipt/{{ line.sale_id }}?doc=invoice" target="_blank" rel="noopener" title="إعادة طباعة هذه الفاتورة">{{ line.description }}</a>
+                  {% else %}
+                  {{ line.description }}
+                  {% endif %}
+                </td>
                 <td class="num">{{ pos_money(line.amount) }}</td>
               </tr>
+              {% endif %}
               {% endfor %}
             </tbody>
           </table>
@@ -79,29 +138,43 @@
           <span>الإجمالي</span>
           <span>{{ pos_money(folio.total) }} <span class="money-currency">د.ل</span></span>
         </div>
-        <div class="receipt-payment">
-          <span>المدفوع:</span>
+        <div class="receipt-grand receipt-grand-paid" style="background:#ecfdf5;border-radius:8px;padding:0.35rem 0.5rem">
+          <span>المدفوع</span>
           <span><strong>{{ pos_money(folio.paid) }} <span class="money-currency">د.ل</span></strong></span>
         </div>
-        <div class="receipt-grand receipt-grand-paid">
-          <span>المتبقي</span>
-          <span><strong>{{ pos_money(folio.balance) }} <span class="money-currency">د.ل</span></strong></span>
+        {% if payments_refunded and payments_refunded > 0 %}
+        <div class="receipt-payment" style="font-size:0.85rem;color:#b91c1c">
+          <span>إرجاع نقدي للنزيل:</span>
+          <span><strong>− {{ pos_money(payments_refunded) }} د.ل</strong></span>
         </div>
-
-        {% if booking.payments %}
-        <section class="receipt-section" style="margin-top:0.75rem">
-          <h2 class="receipt-section-title" style="font-size:0.92rem">سجل المدفوعات</h2>
-          {% for p in booking.payments %}
-          <p style="margin:0.15rem 0;font-size:0.82rem">
-            {{ pos_format_dt(p.created_at, '%Y-%m-%d %H:%M') if p.created_at else '—' }} —
-            {{ pos_money(p.amount) }} د.ل
-            {% if p.is_deposit %}(عربون){% endif %}
-          </p>
-          {% endfor %}
-        </section>
+        {% endif %}
+        {% if folio.balance > 0 %}
+        <div class="receipt-debt-box">
+          <p class="debt-title">⚠ متبقٍ على النزيل — {{ pos_money(folio.balance) }} د.ل</p>
+          {% if debt_breakdown and (debt_breakdown.stay > 0 or debt_breakdown.laundry > 0 or debt_breakdown.restaurant > 0 or debt_breakdown.other_services > 0) %}
+          <div class="debt-row" style="flex-wrap:wrap;gap:0.35rem;font-size:0.82rem">
+            {% if debt_breakdown.stay > 0 %}<span>إقامة {{ pos_money(debt_breakdown.stay) }}</span>{% endif %}
+            {% if debt_breakdown.laundry > 0 %}<span>· مغسلة {{ pos_money(debt_breakdown.laundry) }}</span>{% endif %}
+            {% if debt_breakdown.restaurant > 0 %}<span>· مطعم {{ pos_money(debt_breakdown.restaurant) }}</span>{% endif %}
+            {% if debt_breakdown.other_services > 0 %}<span>· خدمات {{ pos_money(debt_breakdown.other_services) }}</span>{% endif %}
+          </div>
+          {% endif %}
+        </div>
+        {% elif folio.balance < 0 %}
+        <div class="receipt-grand receipt-grand-paid" style="background:#ecfdf5;border-radius:8px;padding:0.35rem 0.5rem">
+          <span>رصيد للعميل</span>
+          <span><strong style="color:#047857">{{ pos_money(-folio.balance) }} <span class="money-currency">د.ل</span></strong></span>
+        </div>
+        {% else %}
+        <div class="receipt-grand receipt-grand-paid">
+          <span>الحساب</span>
+          <span><strong>خالص</strong></span>
+        </div>
         {% endif %}
 
-        {% if folio.balance <= 0 %}
+        {% if folio.balance > 0 %}
+        <div class="receipt-unpaid-stamp" aria-label="غير خالص">غير خالص — دين {{ pos_money(folio.balance) }}</div>
+        {% elif folio.balance <= 0 %}
         <div class="receipt-paid-stamp" aria-label="خالص">خالص</div>
         {% endif %}
         <p class="receipt-thanks">شكراً لاختياركم {{ hotel_brand.hotel_name or store_name }}</p>

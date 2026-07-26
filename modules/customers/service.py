@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from modules.customers.models import (
     Customer,
+    CustomerBusinessDomain,
     LoyaltyTransaction,
     LoyaltyTxnKind,
 )
@@ -19,6 +20,116 @@ from modules.settings.service import get_setting
 
 class CustomersError(Exception):
     """خطأ في إدارة العملاء/الولاء."""
+
+
+def parse_customer_domain(raw: str | None) -> CustomerBusinessDomain | None:
+    if raw is None or not str(raw).strip():
+        return None
+    try:
+        return CustomerBusinessDomain(str(raw).strip().lower())
+    except ValueError:
+        return None
+
+
+def merge_customer_domain(
+    current: CustomerBusinessDomain | str | None,
+    incoming: CustomerBusinessDomain | str | None,
+) -> CustomerBusinessDomain:
+    """إن تعامل العميل مع المجالين يصبح مشتركاً."""
+    cur = parse_customer_domain(
+        current.value if hasattr(current, "value") else current  # type: ignore[arg-type]
+    ) or CustomerBusinessDomain.RESTAURANT
+    inc = parse_customer_domain(
+        incoming.value if hasattr(incoming, "value") else incoming  # type: ignore[arg-type]
+    )
+    if inc is None:
+        return cur
+    if cur == inc or cur == CustomerBusinessDomain.SHARED:
+        return cur if cur == CustomerBusinessDomain.SHARED else inc
+    if inc == CustomerBusinessDomain.SHARED:
+        return CustomerBusinessDomain.SHARED
+    return CustomerBusinessDomain.SHARED
+
+
+def apply_customer_domain(
+    customer: Customer, domain: CustomerBusinessDomain | str | None
+) -> None:
+    if domain is None:
+        return
+    customer.business_domain = merge_customer_domain(
+        getattr(customer, "business_domain", None), domain
+    )
+
+
+def customer_visible_for_domain(
+    customer_domain: CustomerBusinessDomain | str | None,
+    *,
+    filter_domain: CustomerBusinessDomain | str | None,
+) -> bool:
+    """هل يظهر العميل في قائمة مجال معيّن؟ shared يظهر في الفندق والمطعم."""
+    if filter_domain is None:
+        return True
+    filt = parse_customer_domain(
+        filter_domain.value if hasattr(filter_domain, "value") else filter_domain  # type: ignore[arg-type]
+    )
+    if filt is None:
+        return True
+    cur = parse_customer_domain(
+        customer_domain.value if hasattr(customer_domain, "value") else customer_domain  # type: ignore[arg-type]
+    ) or CustomerBusinessDomain.RESTAURANT
+    if cur == CustomerBusinessDomain.SHARED:
+        return True
+    return cur == filt
+
+
+def resolve_customer_list_domain(user, session: dict | None, *, explicit: str | None = None):
+    """مجال قائمة العملاء: من نطاق المستخدم أولاً، ثم فلتر الأدمن/وضع العرض."""
+    from modules.platform.business_domain import (
+        ViewMode,
+        get_admin_view_mode,
+        get_user_view_scope,
+        is_hotel_scope_user,
+        is_restaurant_scope_user,
+        is_system_admin,
+        UserViewScope,
+    )
+
+    # موظف محدود المجال لا يتجاوز الفلتر عبر ?domain=
+    if is_hotel_scope_user(user):
+        return CustomerBusinessDomain.HOTEL
+    if is_restaurant_scope_user(user):
+        return CustomerBusinessDomain.RESTAURANT
+    if is_system_admin(user):
+        exp = parse_customer_domain(explicit)
+        if exp is not None:
+            return exp
+        mode = get_admin_view_mode(session)
+        if mode == ViewMode.HOTEL:
+            return CustomerBusinessDomain.HOTEL
+        if mode == ViewMode.RESTAURANT:
+            return CustomerBusinessDomain.RESTAURANT
+        return None
+    scope = get_user_view_scope(user)
+    if scope == UserViewScope.HOTEL:
+        return CustomerBusinessDomain.HOTEL
+    if scope == UserViewScope.RESTAURANT:
+        return CustomerBusinessDomain.RESTAURANT
+    exp = parse_customer_domain(explicit)
+    if exp is not None:
+        return exp
+    return None
+
+
+def domain_from_sale(sale) -> CustomerBusinessDomain:
+    """استنتاج مجال العميل من فاتورة البيع."""
+    if sale is None:
+        return CustomerBusinessDomain.RESTAURANT
+    if getattr(sale, "booking_id", None):
+        return CustomerBusinessDomain.HOTEL
+    ctx = str(getattr(getattr(sale, "context_type", None), "value", getattr(sale, "context_type", "")) or "")
+    if ctx.upper() == "ROOM":
+        return CustomerBusinessDomain.HOTEL
+    return CustomerBusinessDomain.RESTAURANT
 
 
 # ============================================================
@@ -93,6 +204,7 @@ def list_customers(
     only_active: bool = False,
     search: str | None = None,
     customer_type: str | None = None,
+    business_domain: CustomerBusinessDomain | str | None = None,
     limit: int = 500,
 ) -> list[Customer]:
     from modules.customers.models import CustomerType
@@ -113,6 +225,16 @@ def list_customers(
             stmt = stmt.where(Customer.customer_type == ct)
         except ValueError:
             pass
+    dom = parse_customer_domain(
+        business_domain.value if hasattr(business_domain, "value") else business_domain  # type: ignore[arg-type]
+    )
+    if dom is not None:
+        # المجال المطلوب + المشتركون
+        stmt = stmt.where(
+            Customer.business_domain.in_(
+                (dom, CustomerBusinessDomain.SHARED)
+            )
+        )
     stmt = stmt.order_by(Customer.last_visit_at.is_(None), Customer.last_visit_at.desc(), Customer.id.desc()).limit(limit)
     return list(db.scalars(stmt))
 
@@ -164,6 +286,7 @@ def create_customer(
     notes: str | None = None,
     customer_type: str | None = None,
     company_name: str | None = None,
+    business_domain: CustomerBusinessDomain | str | None = None,
 ) -> Customer:
     from modules.customers.models import CustomerType
 
@@ -182,6 +305,14 @@ def create_customer(
             ct = CustomerType(customer_type.strip().upper())
         except ValueError:
             ct = CustomerType.INDIVIDUAL
+    dom = (
+        parse_customer_domain(
+            business_domain.value
+            if hasattr(business_domain, "value")
+            else business_domain  # type: ignore[arg-type]
+        )
+        or CustomerBusinessDomain.RESTAURANT
+    )
     c = Customer(
         phone=p,
         name=(name or "").strip() or None,
@@ -189,6 +320,7 @@ def create_customer(
         notes=(notes or "").strip() or None,
         customer_type=ct,
         company_name=(company_name or "").strip() or None,
+        business_domain=dom,
         is_active=True,
     )
     db.add(c)
@@ -204,6 +336,7 @@ def get_or_create_by_phone(
     *,
     phone: str,
     name: str | None = None,
+    business_domain: CustomerBusinessDomain | str | None = None,
 ) -> Customer:
     """يبحث عن عميل برقم الهاتف، فإن لم يوجد ينشئه."""
     p = require_valid_phone(phone)
@@ -213,9 +346,10 @@ def get_or_create_by_phone(
             existing.is_active = True
         if not existing.name and (name or "").strip():
             existing.name = name.strip()
+        apply_customer_domain(existing, business_domain)
         db.flush()
         return existing
-    return create_customer(db, phone=p, name=name)
+    return create_customer(db, phone=p, name=name, business_domain=business_domain)
 
 
 def update_customer(
@@ -229,6 +363,7 @@ def update_customer(
     is_active: bool | None = None,
     customer_type: str | None = None,
     company_name: str | None = None,
+    business_domain: str | None = None,
 ) -> Customer:
     from modules.customers.models import CustomerType
 
@@ -256,6 +391,11 @@ def update_customer(
             pass
     if company_name is not None:
         c.company_name = company_name.strip() or None
+    if business_domain is not None and str(business_domain).strip():
+        parsed = parse_customer_domain(business_domain)
+        if parsed is None:
+            raise CustomersError("مجال العميل غير صالح (مطعم / فندق / مشترك).")
+        c.business_domain = parsed
     db.flush()
     return c
 
@@ -480,19 +620,27 @@ def attach_customer_to_sale(
     *,
     phone: str | None = None,
     name: str | None = None,
+    business_domain: CustomerBusinessDomain | str | None = None,
 ) -> Customer | None:
     """يربط عميلاً بالفاتورة (إنشاء أو بحث بالهاتف). يعيد None إن لم يُدخل هاتف."""
     p = normalize_phone(phone or "")
     nm = (name or "").strip()
+    dom = business_domain if business_domain is not None else domain_from_sale(sale)
     if p:
-        cust = get_or_create_by_phone(db, phone=p, name=nm or None)
+        cust = get_or_create_by_phone(
+            db, phone=p, name=nm or None, business_domain=dom
+        )
         sale.customer_id = cust.id
         if nm and not (cust.name or "").strip():
             cust.name = nm
             db.flush()
         return cust
     if sale.customer_id:
-        return get_customer(db, int(sale.customer_id))
+        cust = get_customer(db, int(sale.customer_id))
+        if cust is not None:
+            apply_customer_domain(cust, dom)
+            db.flush()
+        return cust
     return None
 
 
@@ -812,8 +960,22 @@ def list_transactions(
     return list(db.scalars(stmt))
 
 
-def total_points_grand(db: Session) -> Decimal:
-    val = db.scalar(
-        select(func.coalesce(func.sum(Customer.points_balance), 0))
+def total_points_grand(
+    db: Session,
+    *,
+    business_domain: CustomerBusinessDomain | str | None = None,
+    only_active: bool = True,
+) -> Decimal:
+    """إجمالي نقاط العملاء — بنفس فلتر المجال (فندق/مطعم + مشترك)."""
+    stmt = select(func.coalesce(func.sum(Customer.points_balance), 0))
+    if only_active:
+        stmt = stmt.where(Customer.is_active.is_(True))
+    dom = parse_customer_domain(
+        business_domain.value if hasattr(business_domain, "value") else business_domain  # type: ignore[arg-type]
     )
+    if dom is not None:
+        stmt = stmt.where(
+            Customer.business_domain.in_((dom, CustomerBusinessDomain.SHARED))
+        )
+    val = db.scalar(stmt)
     return Decimal(val or 0)

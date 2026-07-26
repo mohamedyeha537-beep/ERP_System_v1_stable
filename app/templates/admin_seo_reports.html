@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}SEO Reports{% endblock %}
+{% block body %}
+<h1 style="margin-top:0">تقارير Strategy SEO</h1>
+<p class="muted">البيئة: {% if is_production %}Production{% else %}Staging{% endif %}</p>
+<nav style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem">
+  <a class="btn" href="/admin/seo">لوحة</a>
+  <a class="btn" href="/admin/seo/pages">الصفحات</a>
+  <a class="btn" href="/admin/seo/issues">المشاكل</a>
+  <a class="btn" href="/admin/seo/suggestions">الاقتراحات</a>
+  <a class="btn btn-primary" href="/admin/seo/reports">التقارير</a>
+</nav>
+
+<div class="card">
+  <table class="table">
+    <thead><tr><th>#</th><th>نوع</th><th>عنوان</th><th>ملخص</th><th>تاريخ</th></tr></thead>
+    <tbody>
+    {% for r in reports %}
+      <tr>
+        <td>{{ r.id }}</td>
+        <td>{{ r.report_type }}</td>
+        <td>{{ r.title }}</td>
+        <td style="max-width:320px">{{ (r.summary or '')[:200] }}</td>
+        <td>{{ r.created_at }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="muted">لا تقارير</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

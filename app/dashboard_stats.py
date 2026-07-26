@@ -152,6 +152,10 @@ class DashboardStats:
     ar_unpaid_count: int = 0
     ar_partial_count: int = 0
 
+    #: ذمم حجوزات الفندق (بعد المغادرة) — للتحصيل الكامل/الجزئي
+    hotel_ar_outstanding_total: Decimal = Decimal("0")
+    hotel_ar_debt_count: int = 0
+
     ap_outstanding_total: Decimal = Decimal("0")
     ap_invoice_count: int = 0
 
@@ -583,6 +587,16 @@ def collect(db: Session, domain=None) -> DashboardStats:
             stats.ar_invoice_count = ar.invoice_count_with_balance
             stats.ar_unpaid_count = ar.unpaid_count
             stats.ar_partial_count = ar.partial_count
+    except Exception:  # noqa: BLE001
+        pass
+
+    try:
+        if domain in (None, BusinessDomain.HOTEL):
+            from modules.hotel.booking_debts import open_debts_summary
+
+            _debt_rows, hotel_total = open_debts_summary(db)
+            stats.hotel_ar_outstanding_total = hotel_total
+            stats.hotel_ar_debt_count = len(_debt_rows)
     except Exception:  # noqa: BLE001
         pass
 

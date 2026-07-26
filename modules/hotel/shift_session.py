@@ -19,6 +19,14 @@ class HotelShiftSessionError(Exception):
     pass
 
 
+class HotelShiftRedirectNeeded(Exception):
+    """يُرفع لإعادة التوجيه إلى PIN أو افتتاح الجلسة (مثل كاشير المطعم)."""
+
+    def __init__(self, location: str):
+        self.location = location
+        super().__init__(location)
+
+
 def session_hotel_employee_id(request) -> int | None:
     raw = request.session.get("hotel_employee_id")
     if raw is None:
@@ -132,6 +140,28 @@ def require_hotel_shift_session(
     return open_s
 
 
+def enforce_hotel_shift_session(
+    request, db: Session, user: User
+) -> HotelShift | None:
+    """مثل require_hotel_shift_session لكن يرفع HotelShiftRedirectNeeded بدل RedirectResponse."""
+    result = require_hotel_shift_session(request, db, user)
+    if isinstance(result, RedirectResponse):
+        location = result.headers.get("location") or "/admin/hotel/pin"
+        raise HotelShiftRedirectNeeded(location)
+    return result
+
+
+def guard_hotel_shift_start_page(
+    request, db: Session, user: User
+) -> RedirectResponse | None:
+    """حراسة صفحة افتتاح الجلسة — بدون حلقة إعادة توجيه (مثل نقطة البيع)."""
+    if requires_hotel_shift_pin(user) and session_hotel_employee_id(request) is None:
+        return RedirectResponse("/admin/hotel/pin", status_code=302)
+    if get_open_shift(db) is not None:
+        return RedirectResponse("/admin/hotel/dashboard", status_code=302)
+    return None
+
+
 def open_hotel_shift_after_pin(
     db: Session,
     request,
@@ -144,7 +174,7 @@ def open_hotel_shift_after_pin(
     from decimal import Decimal
 
     if get_open_shift(db) is not None:
-        raise HotelShiftError("يوجد وردية مفتوحة بالفعل.")
+        raise HotelShiftError("يوجد جلسة مفتوحة بالفعل.")
     emp_id = session_hotel_employee_id(request)
     if emp_id is None:
         raise HotelShiftError("أدخل الرقم السري أولاً.")

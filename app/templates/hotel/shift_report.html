@@ -4,30 +4,269 @@
 <link rel="stylesheet" href="/static/shift_summary.css" />
 <style>
   @media print { .no-print { display: none !important; } }
+  .hs-break-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.65rem;
+    margin: 0.85rem 0 1rem;
+  }
+  @media (max-width: 900px) {
+    .hs-break-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  .hs-break-card {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 0.85rem 0.95rem;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+    border-inline-start: 4px solid var(--accent, #64748b);
+    transition: box-shadow 0.15s ease, border-color 0.15s ease;
+  }
+  .hs-break-card:hover {
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+    border-color: color-mix(in srgb, var(--accent, #64748b) 45%, #e2e8f0);
+  }
+  .hs-break-card.is-active {
+    outline: 2px solid var(--accent, #2563eb);
+    outline-offset: 1px;
+    background: color-mix(in srgb, var(--accent, #2563eb) 8%, #fff);
+  }
+  .hs-break-card .label { font-size: 0.82rem; color: #64748b; font-weight: 600; }
+  .hs-break-card .value {
+    font-size: 1.25rem;
+    font-weight: 800;
+    margin-top: 0.25rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .hs-break-card .hint { font-size: 0.78rem; color: #94a3b8; margin-top: 0.3rem; }
+  .hs-detail-banner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.65rem;
+    margin: 0 0 0.75rem;
+    padding: 0.65rem 0.85rem;
+    border-radius: 10px;
+    border: 1px solid #bfdbfe;
+    background: #eff6ff;
+  }
+  .hs-detail-banner strong { color: #1d4ed8; }
 </style>
 {% endblock %}
 {% block body %}
+{% set report_base = "/admin/hotel/shift/" ~ shift.id ~ "/report" %}
+{% set view_labels = {
+  'cash': 'تفاصيل الكاش',
+  'bank': 'تفاصيل المصرف',
+  'restaurant': 'تفاصيل طلبات المطعم',
+  'laundry': 'تفاصيل طلبات المغسلة'
+} %}
 <div class="no-print" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.75rem">
   <a class="btn" href="/admin/shifts?kind=hotel">← كل الورديات</a>
   <a class="btn" href="/admin/hotel/shift">فتح / إقفال وردية</a>
   <button type="button" class="btn btn-primary" onclick="window.print()" style="margin-inline-start:auto">طباعة / PDF</button>
 </div>
 
-<h1 style="margin-top:0">تقرير {{ shift.shift_name_ar }} #{{ shift.id }}</h1>
+<h1 style="margin-top:0">تقرير جلسة الاستقبال — {{ shift.shift_name_ar }} #{{ shift.id }}</h1>
 
 <div class="card">
   <p><strong>الفترة:</strong> {{ pos_format_dt(shift.opened_at, '%Y-%m-%d %H:%M') }}
     {% if shift.closed_at %}→ {{ pos_format_dt(shift.closed_at, '%Y-%m-%d %H:%M') }}{% else %}— <span class="badge" style="background:#dbeafe;color:#1d4ed8">مفتوحة</span>{% endif %}</p>
   <p><strong>موعد الوردية:</strong> {{ shift_window }}</p>
-  <table style="width:100%;max-width:520px;margin-top:0.75rem">
-    <tr><td>إيراد (تحصيلات)</td><td><strong>{{ '%.3f'|format(summary.total_revenue) }} د.ل</strong></td></tr>
-    <tr><td>مصروفات</td><td><strong>{{ '%.3f'|format(summary.total_expenses) }} د.ل</strong></td></tr>
-    <tr><td>صافي</td><td><strong style="color:#047857">{{ '%.3f'|format(summary.net_total) }} د.ل</strong></td></tr>
-    <tr><td>كاش محصّل</td><td>{{ '%.3f'|format(summary.cash_collected) }} د.ل</td></tr>
-    <tr><td>مصرف محصّل</td><td>{{ '%.3f'|format(summary.bank_collected) }} د.ل</td></tr>
-    <tr><td>عدد القبض</td><td>{{ summary.payment_count }}</td></tr>
-    <tr><td>عدد المصروفات</td><td>{{ summary.expense_count }}</td></tr>
+  {% if shift.employee %}
+  <p><strong>موظف الاستقبال:</strong> {{ shift.employee.full_name_ar }}</p>
+  {% endif %}
+
+  <h3 style="margin:1rem 0 0.35rem" class="no-print">تفصيل الجلسة</h3>
+  <p class="muted no-print" style="margin:0 0 0.35rem;font-size:0.85rem">اضغط على أي بطاقة لعرض التفاصيل</p>
+  <div class="hs-break-grid no-print" aria-label="تفصيل كاش ومصرف وطلبات">
+    <a class="hs-break-card{% if detail_view == 'cash' %} is-active{% endif %}" href="{{ report_base }}?view=cash" style="--accent:#16a34a">
+      <div class="label">كاش</div>
+      <div class="value" style="color:#15803d">{{ '%.3f'|format(card_cash_total) }} د.ل</div>
+      <div class="hint">صافي قبض − صرف · اضغط للتفاصيل</div>
+    </a>
+    <a class="hs-break-card{% if detail_view == 'bank' %} is-active{% endif %}" href="{{ report_base }}?view=bank" style="--accent:#0284c7">
+      <div class="label">مصرف</div>
+      <div class="value" style="color:#0369a1">{{ '%.3f'|format(card_bank_total) }} د.ل</div>
+      <div class="hint">صافي قبض − صرف · اضغط للتفاصيل</div>
+    </a>
+    <a class="hs-break-card{% if detail_view == 'restaurant' %} is-active{% endif %}" href="{{ report_base }}?view=restaurant" style="--accent:#ea580c">
+      <div class="label">طلبات مطعم</div>
+      <div class="value" style="color:#c2410c">{{ card_restaurant_count }}</div>
+      <div class="hint">{{ '%.3f'|format(card_restaurant_total) }} د.ل · وجبات مُسوّاة</div>
+    </a>
+    <a class="hs-break-card{% if detail_view == 'laundry' %} is-active{% endif %}" href="{{ report_base }}?view=laundry" style="--accent:#7c3aed">
+      <div class="label">طلبات مغسلة</div>
+      <div class="value" style="color:#6d28d9">{{ card_laundry_count }}</div>
+      <div class="hint">{{ '%.3f'|format(card_laundry_total) }} د.ل · اضغط للتفاصيل</div>
+    </a>
+  </div>
+
+  {% if detail_view %}
+  <div class="hs-detail-banner no-print" role="status">
+    <div>عرض: <strong>{{ view_labels.get(detail_view, detail_view) }}</strong></div>
+    <a class="btn" href="{{ report_base }}">عرض الملخص</a>
+  </div>
+
+  {% if detail_view in ('cash', 'bank') %}
+  <div class="sticky-table-wrap">
+    <table style="width:100%;font-size:0.88rem">
+      <thead>
+        <tr>
+          <th>الوقت</th>
+          <th>النوع</th>
+          <th>الحجز</th>
+          <th>النزيل</th>
+          <th>المبلغ</th>
+          <th>الوسيلة</th>
+          <th>الموظف</th>
+          <th class="no-print"></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for c in detail_collections %}
+      <tr>
+        <td>{{ pos_format_dt(c.created_at, '%Y-%m-%d %H:%M') }}</td>
+        <td>
+          {% if c.movement_type == 'مرتجع' %}
+          <span style="color:#b91c1c;font-weight:600">صرف</span>
+          {% else %}
+          <span style="color:#047857;font-weight:600">قبض{% if c.is_deposit %} · عربون{% endif %}</span>
+          {% endif %}
+        </td>
+        <td>{{ c.booking_ref }}</td>
+        <td>{{ c.guest_name or '—' }}</td>
+        <td>
+          {% if c.movement_type == 'مرتجع' %}
+          <span style="color:#b91c1c">−{{ '%.3f'|format(c.amount) }}</span>
+          {% else %}
+          {{ '%.3f'|format(c.amount) }}
+          {% endif %}
+          د.ل
+        </td>
+        <td>{{ c.payment_method or '—' }}</td>
+        <td>{{ c.received_by or '—' }}</td>
+        <td class="no-print">
+          <a class="btn" style="padding:0.2rem 0.45rem;font-size:0.78rem" href="/admin/hotel/bookings/{{ c.booking_id }}">تفاصيل</a>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="muted">لا توجد حركات {{ 'كاش' if detail_view == 'cash' else 'مصرف' }} في هذه الجلسة.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% elif detail_view == 'restaurant' %}
+  <div class="sticky-table-wrap">
+    <table style="width:100%;font-size:0.88rem">
+      <thead>
+        <tr>
+          <th>وقت التسوية</th>
+          <th>الغرفة</th>
+          <th>النزيل</th>
+          <th>المبلغ</th>
+          <th>الوسيلة</th>
+          <th class="no-print"></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in restaurant_orders %}
+      <tr>
+        <td>{% if r.settled_at %}{{ pos_format_dt(r.settled_at, '%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+        <td>{{ r.room_number }}</td>
+        <td>{{ r.guest_name }}</td>
+        <td>{{ '%.3f'|format(r.amount) }} د.ل</td>
+        <td>{{ r.payment_method }}</td>
+        <td class="no-print">
+          {% if r.booking_id %}
+          <a class="btn" style="padding:0.2rem 0.45rem;font-size:0.78rem" href="/admin/hotel/bookings/{{ r.booking_id }}">الحجز</a>
+          {% else %}
+          <span class="muted">فاتورة #{{ r.sale_id }}</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="muted">لا توجد وجبات مُسوّاة في هذه الجلسة.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% elif detail_view == 'laundry' %}
+  <div class="sticky-table-wrap">
+    <table style="width:100%;font-size:0.88rem">
+      <thead>
+        <tr>
+          <th>الوقت</th>
+          <th>الحجز</th>
+          <th>النزيل</th>
+          <th>البند</th>
+          <th>الكمية</th>
+          <th>المبلغ</th>
+          <th class="no-print"></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in laundry_orders %}
+      <tr>
+        <td>{% if r.created_at %}{{ pos_format_dt(r.created_at, '%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+        <td>{{ r.booking_ref }}</td>
+        <td>{{ r.guest_name }}</td>
+        <td>{{ r.name_ar }}</td>
+        <td>{{ pos_qty(r.quantity) }}</td>
+        <td>{{ '%.3f'|format(r.amount) }} د.ل</td>
+        <td class="no-print">
+          <a class="btn" style="padding:0.2rem 0.45rem;font-size:0.78rem" href="/admin/hotel/bookings/{{ r.booking_id }}">الحجز</a>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="muted">لا توجد طلبات مغسلة في هذه الجلسة.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+  {% endif %}
+
+  <h3 style="margin:1rem 0 0.5rem">الحركة المالية (قبض / صرف)</h3>
+  <table style="width:100%;max-width:560px;margin-top:0.35rem;font-size:0.92rem">
+    <thead>
+      <tr><th>البند</th><th>كاش</th><th>مصرف</th><th>الإجمالي</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="color:#047857;font-weight:600">قبض (داخل)</td>
+        <td>{{ '%.3f'|format(collections_summary.cash_in|default(0)) }}</td>
+        <td>{{ '%.3f'|format(collections_summary.bank_in|default(0)) }}</td>
+        <td><strong>{{ '%.3f'|format(collections_summary.collected_total) }}</strong></td>
+      </tr>
+      <tr>
+        <td style="color:#b91c1c;font-weight:600">صرف / مرتجع للنزيل</td>
+        <td>{{ '%.3f'|format(collections_summary.cash_out|default(0)) }}</td>
+        <td>{{ '%.3f'|format(collections_summary.bank_out|default(0)) }}</td>
+        <td><strong style="color:#b91c1c">− {{ '%.3f'|format(collections_summary.refunded_total) }}</strong></td>
+      </tr>
+      <tr>
+        <td>مصروفات الجلسة</td>
+        <td colspan="2">—</td>
+        <td><strong style="color:#b91c1c">− {{ '%.3f'|format(summary.total_expenses) }}</strong></td>
+      </tr>
+      <tr style="background:#f0fdf4">
+        <td><strong>صافي الجلسة</strong></td>
+        <td>{{ '%.3f'|format((collections_summary.cash_in|default(0)) - (collections_summary.cash_out|default(0))) }}</td>
+        <td>{{ '%.3f'|format((collections_summary.bank_in|default(0)) - (collections_summary.bank_out|default(0))) }}</td>
+        <td><strong style="color:#047857">{{ '%.3f'|format(summary.net_total) }} د.ل</strong></td>
+      </tr>
+    </tbody>
   </table>
+  <p class="muted" style="margin:0.55rem 0 0;font-size:0.82rem">
+    عدد القبض: {{ collections_summary.payment_count }}
+    · عدد الصرف: {{ collections_summary.refund_count }}
+    · عدد المصروفات: {{ summary.expense_count }}
+  </p>
 
   {% if shift.counted_cash is not none %}
   <h3 style="margin:1.25rem 0 0.5rem">مطابقة الإقفال</h3>
@@ -45,30 +284,6 @@
         <td>{{ '%.3f'|format(shift.expected_bank or 0) }}</td>
         <td>{{ '%.3f'|format(shift.counted_bank or 0) }}</td>
         <td style="color:{% if (shift.bank_difference or 0) < 0 %}#b91c1c{% else %}#15803d{% endif %}">{{ '%.3f'|format(shift.bank_difference or 0) }}</td>
-      </tr>
-      <tr>
-        <td>عمليات حجز</td>
-        <td>{{ shift.expected_bookings_count or 0 }}</td>
-        <td>{{ shift.counted_bookings_count or 0 }}</td>
-        <td>{{ (shift.counted_bookings_count or 0) - (shift.expected_bookings_count or 0) }}</td>
-      </tr>
-      <tr>
-        <td>وجبات غرف</td>
-        <td>{{ shift.expected_meals_count or 0 }}</td>
-        <td>{{ shift.counted_meals_count or 0 }}</td>
-        <td>{{ (shift.counted_meals_count or 0) - (shift.expected_meals_count or 0) }}</td>
-      </tr>
-      <tr>
-        <td>مغسلة</td>
-        <td>{{ shift.expected_laundry_count or 0 }}</td>
-        <td>{{ shift.counted_laundry_count or 0 }}</td>
-        <td>{{ (shift.counted_laundry_count or 0) - (shift.expected_laundry_count or 0) }}</td>
-      </tr>
-      <tr>
-        <td>خدمات</td>
-        <td>{{ shift.expected_services_count or 0 }}</td>
-        <td>{{ shift.counted_services_count or 0 }}</td>
-        <td>{{ (shift.counted_services_count or 0) - (shift.expected_services_count or 0) }}</td>
       </tr>
     </tbody>
   </table>
@@ -89,19 +304,21 @@
   {% if shift.closing_note %}<p class="muted" style="margin-top:0.75rem">ملاحظة الإقفال: {{ shift.closing_note }}</p>{% endif %}
 </div>
 
-{% if collections %}
+{% if not detail_view and collections %}
 <div class="card">
-  <h2 style="margin-top:0">تحصيلات الحجز ({{ collections_summary.payment_count }} قبض)</h2>
-  <div style="overflow-x:auto">
+  <h2 style="margin-top:0">سجل الحركات المالية ({{ collections|length }})</h2>
+  <p class="muted" style="font-size:0.85rem;margin:0 0 0.65rem">كل قبض أو صرف نُفّذ خلال هذه الجلسة — أو اختر كاش/مصرف أعلاه للتصفية.</p>
+  <div class="sticky-table-wrap">
     <table style="width:100%;font-size:0.88rem">
       <thead>
         <tr>
           <th>الوقت</th>
+          <th>النوع</th>
           <th>الحجز</th>
           <th>النزيل</th>
           <th>المبلغ</th>
-          <th>الدفع</th>
-          <th>نوع</th>
+          <th>الوسيلة</th>
+          <th>الموظف</th>
           <th class="no-print"></th>
         </tr>
       </thead>
@@ -109,6 +326,13 @@
       {% for c in collections %}
       <tr>
         <td>{{ pos_format_dt(c.created_at, '%Y-%m-%d %H:%M') }}</td>
+        <td>
+          {% if c.movement_type == 'مرتجع' %}
+          <span style="color:#b91c1c;font-weight:600">صرف</span>
+          {% else %}
+          <span style="color:#047857;font-weight:600">قبض{% if c.is_deposit %} · عربون{% endif %}</span>
+          {% endif %}
+        </td>
         <td>{{ c.booking_ref }}</td>
         <td>{{ c.guest_name or '—' }}</td>
         <td>
@@ -120,9 +344,9 @@
           د.ل
         </td>
         <td>{{ c.payment_method or '—' }}</td>
-        <td>{% if c.is_deposit %}عربون{% else %}قبض{% endif %}</td>
+        <td>{{ c.received_by or '—' }}</td>
         <td class="no-print">
-          <a class="btn" style="padding:0.2rem 0.45rem;font-size:0.78rem" href="/admin/hotel/bookings/{{ c.booking_id }}">تفاصيل الحجز</a>
+          <a class="btn" style="padding:0.2rem 0.45rem;font-size:0.78rem" href="/admin/hotel/bookings/{{ c.booking_id }}">تفاصيل</a>
         </td>
       </tr>
       {% endfor %}
@@ -134,7 +358,7 @@
 
 {% if expenses %}
 <div class="card">
-  <h2 style="margin-top:0">مصروفات الوردية</h2>
+  <h2 style="margin-top:0">مصروفات الجلسة</h2>
   <table style="width:100%;font-size:0.88rem">
     <thead><tr><th>الوقت</th><th>البند</th><th>المبلغ</th><th>ملاحظة</th></tr></thead>
     <tbody>
@@ -142,8 +366,8 @@
     <tr>
       <td>{{ pos_format_dt(e.created_at, '%Y-%m-%d %H:%M') }}</td>
       <td>{{ e.expense_category or '—' }}</td>
-      <td>{{ '%.3f'|format(e.amount) }} د.ل</td>
-      <td>{{ e.notes or '—' }}</td>
+      <td style="color:#b91c1c">− {{ '%.3f'|format(e.amount) }} د.ل</td>
+      <td>{{ e.notes or e.note or '—' }}</td>
     </tr>
     {% endfor %}
     </tbody>

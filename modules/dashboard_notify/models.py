@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infra.db import Base
@@ -82,4 +82,19 @@ class ActivityHubMute(Base):
     muted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
+    )
+
+
+class ActivityHubWaOverride(Base):
+    """تخصيص واتساب لإشعار معيّن: أرقام متعددة + نص الرسالة."""
+
+    __tablename__ = "activity_hub_wa_overrides"
+
+    event_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    phones: Mapped[str] = mapped_column(String(255), default="")
+    message_body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
     )

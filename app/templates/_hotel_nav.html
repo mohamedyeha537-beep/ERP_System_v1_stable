@@ -1,24 +1,34 @@
+{% from "_dash_qlink_badge.html" import dash_badge %}
+{% set hotel_badge_counts = pos_hotel_nav_badges(request) %}
 <nav class="quick-grid hotel-quick-nav" aria-label="قائمة الفندق">
   {% if pos_ui_show(request, 'ui_hotel_nav_dashboard') %}
   <a class="qlink{% if active == 'dashboard' %} qlink--active{% endif %}" href="/admin/hotel/dashboard" style="--accent:#6366f1">
+    {{ dash_badge(hotel_badge_counts, 'hotel_dashboard') }}
     <div class="qicon" aria-hidden="true">🏨</div>
     <div><div class="qtitle">لوحة الشقق</div><div class="qhint">التوفر · الديون</div></div>
   </a>
   {% endif %}
   {% if pos_ui_show(request, 'ui_hotel_nav_bookings') %}
   <a class="qlink{% if active == 'bookings' %} qlink--active{% endif %}" href="/admin/hotel/bookings" style="--accent:#8b5cf6">
+    {{ dash_badge(hotel_badge_counts, 'hotel_bookings') }}
     <div class="qicon" aria-hidden="true">📋</div>
     <div><div class="qtitle">الحجوزات</div><div class="qhint">قائمة · وصول · مغادرة</div></div>
+  </a>
+  <a class="qlink" href="/suites" target="_blank" style="--accent:#2563eb">
+    <div class="qicon" aria-hidden="true">🔎</div>
+    <div><div class="qtitle">بحث ذكي</div><div class="qhint">متجر · هاتف</div></div>
   </a>
   {% endif %}
   {% if pos_ui_show(request, 'ui_hotel_nav_quotations') %}
   <a class="qlink{% if active == 'quotations' %} qlink--active{% endif %}" href="/admin/hotel/quotations" style="--accent:#0d9488">
+    {{ dash_badge(hotel_badge_counts, 'hotel_quotations') }}
     <div class="qicon" aria-hidden="true">📄</div>
     <div><div class="qtitle">عروض الشركات</div><div class="qhint">عرض سعر · متابعة</div></div>
   </a>
   {% endif %}
   {% if pos_ui_show(request, 'ui_hotel_nav_calendar') %}
   <a class="qlink{% if active == 'calendar' %} qlink--active{% endif %}" href="/admin/hotel/bookings/calendar" style="--accent:#a855f7">
+    {{ dash_badge(hotel_badge_counts, 'hotel_calendar') }}
     <div class="qicon" aria-hidden="true">📅</div>
     <div><div class="qtitle">التقويم</div><div class="qhint">عرض زمني</div></div>
   </a>
@@ -36,27 +46,61 @@
   </a>
   {% endif %}
   {% if pos_ui_show(request, 'ui_hotel_nav_housekeeping') %}
-  <a class="qlink{% if active == 'housekeeping' %} qlink--active{% endif %}" href="/admin/hotel/housekeeping" style="--accent:#14b8a6">
-    <div class="qicon" aria-hidden="true">🧹</div>
-    <div><div class="qtitle">التنظيف والصيانة</div><div class="qhint">{% if summary is defined %}{{ summary.dirty }} تنظيف · {{ summary.maintenance }} صيانة{% else %}شقق للتنظيف{% endif %}</div></div>
+  {% set _badge_clean = hotel_badge_counts.get('hotel_cleaning', 0)|int %}
+  {% set _summary_clean = (summary.dirty|int) if summary is defined and summary.dirty is defined else 0 %}
+  {% set _hk_clean = _badge_clean if _badge_clean >= _summary_clean else _summary_clean %}
+  <a class="qlink{% if active == 'housekeeping' %} qlink--active{% endif %}{% if _hk_clean > 0 %} qlink--alert{% endif %}" href="/admin/hotel/housekeeping" style="--accent:#14b8a6" title="{% if _hk_clean > 0 %}تنبيه: عيّن موظفاً للتنظيف — يبقى حتى اكتمال التنظيف{% endif %}">
+    {% if _hk_clean > 0 %}
+    <span class="ql-badge ql-badge--bell" title="شقق بانتظار التنظيف — يبقى حتى اكتمال التنظيف"><span class="ql-badge__bell" aria-hidden="true">🔔</span>{{ _hk_clean }}</span>
+    {% elif hotel_badge_counts.get('hotel_housekeeping', 0) > 0 %}
+    {{ dash_badge(hotel_badge_counts, 'hotel_housekeeping') }}
+    {% endif %}
+    <div class="qicon qicon--hk{% if _hk_clean > 0 %} qicon--hk-alert{% endif %}" aria-hidden="true">
+      🧹
+      {% if _hk_clean > 0 %}<span class="qicon-bell" title="عيّن موظفاً للتنظيف">🔔</span>{% endif %}
+    </div>
+    <div><div class="qtitle">التنظيف والصيانة</div><div class="qhint">{% if summary is defined %}{{ summary.dirty }} تنظيف · {{ summary.maintenance }} صيانة{% else %}{% if _hk_clean > 0 %}عيّن موظفاً للتنظيف{% else %}شقق للتنظيف{% endif %}{% endif %}</div></div>
   </a>
   {% endif %}
   {% if pos_ui_show(request, 'ui_hotel_nav_shift') %}
   <a class="qlink{% if active == 'shift' %} qlink--active{% endif %}" href="/admin/hotel/shift" style="--accent:#f59e0b">
+    {{ dash_badge(hotel_badge_counts, 'hotel_shift') }}
     <div class="qicon" aria-hidden="true">🕐</div>
-    <div><div class="qtitle">وردية الفندق</div><div class="qhint">فتح · إقفال · إيراد</div></div>
+    <div><div class="qtitle">جلسة الفندق</div><div class="qhint">افتتاح · إقفال</div></div>
   </a>
+  {% endif %}
+  {% if pos_can_lock_hotel_session(request) %}
+  <form method="post" action="/admin/hotel/pin/logout" class="qlink" style="--accent:#64748b;margin:0;cursor:pointer;border:none;text-align:inherit;font:inherit;color:inherit;display:flex;align-items:center;gap:0.65rem;width:100%">
+    <button type="submit" style="all:unset;display:flex;align-items:center;gap:0.65rem;width:100%;cursor:pointer">
+      <div class="qicon" aria-hidden="true">🔒</div>
+      <div><div class="qtitle">قفل الجلسة</div><div class="qhint">شاشة الرقم السري · تبديل موظف</div></div>
+    </button>
+  </form>
   {% endif %}
   {% if pos_ui_show(request, 'ui_hotel_nav_reports') %}
   <a class="qlink{% if active == 'reports' %} qlink--active{% endif %}" href="/admin/hotel/reports" style="--accent:#64748b">
     <div class="qicon" aria-hidden="true">📊</div>
-    <div><div class="qtitle">التقارير</div><div class="qhint">إشغال · إيراد</div></div>
+    <div><div class="qtitle">التقارير</div><div class="qhint">إشغال · جهات أمنية</div></div>
   </a>
   {% endif %}
   {% if pos_ui_show(request, 'ui_hotel_nav_settle') %}
   <a class="qlink{% if active == 'settle' %} qlink--active{% endif %}" href="/hotel/settle" style="--accent:#f59e0b">
+    {{ dash_badge(hotel_badge_counts, 'hotel_settle') }}
     <div class="qicon" aria-hidden="true">💰</div>
     <div><div class="qtitle">تسوية الحسابات</div><div class="qhint">استلام النقد · POS</div></div>
+  </a>
+  {% endif %}
+  {% if pos_perm(request)('hotel:debts:view') %}
+  {% set _badge_debts = hotel_badge_counts.get('hotel_debts', 0)|int %}
+  <a class="qlink{% if active == 'debts' %} qlink--active{% endif %}{% if _badge_debts > 0 %} qlink--alert{% endif %}" href="/admin/hotel/debts" style="--accent:#ea580c" title="{% if _badge_debts > 0 %}تنبيه: {{ _badge_debts }} حجز/غرفة عليها دين أو متبقٍ{% endif %}">
+    {% if _badge_debts > 0 %}
+    <span class="ql-badge ql-badge--bell" title="حجوزات عليها دين — يبقى حتى التحصيل"><span class="ql-badge__bell" aria-hidden="true">🔔</span>{{ _badge_debts }}</span>
+    {% endif %}
+    <div class="qicon{% if _badge_debts > 0 %} qicon--hk-alert{% endif %}" aria-hidden="true">
+      📒
+      {% if _badge_debts > 0 %}<span class="qicon-bell" title="دين بانتظار التحصيل">🔔</span>{% endif %}
+    </div>
+    <div><div class="qtitle">ذمم الحجوزات</div><div class="qhint">تحصيل · تذكير · متابعة</div></div>
   </a>
   {% endif %}
   {% if pos_ui_show(request, 'ui_hotel_nav_settings') %}

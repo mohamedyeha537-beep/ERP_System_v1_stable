@@ -10,7 +10,7 @@ from typing import Any
 from markupsafe import Markup
 from sqlalchemy.orm import Session
 
-from modules.settings.service import get_setting, set_setting
+from modules.settings.service import get_public_base_url, get_setting, set_setting
 
 SURFACE_RESTAURANT_SHOP = "restaurant_shop"
 SURFACE_HOTEL_PORTAL = "hotel_portal"
@@ -23,9 +23,9 @@ SURFACES: dict[str, dict[str, str]] = {
         "default_title_suffix": "المتجر",
     },
     SURFACE_HOTEL_PORTAL: {
-        "label_ar": "بوابة الفندق (حجز + متجر الغرف)",
-        "public_path": "/stay",
-        "preview_url": "/stay",
+        "label_ar": "بوابة الفندق (حجز الشقق /suites)",
+        "public_path": "/suites",
+        "preview_url": "/suites",
         "default_title_suffix": "حجز إقامة",
     },
 }
@@ -81,7 +81,7 @@ def _clean_id(raw: str, pattern: re.Pattern[str]) -> str:
 
 
 def _public_base(db: Session) -> str:
-    base = (get_setting(db, "public_base_url", "") or "").strip().rstrip("/")
+    base = get_public_base_url(db)
     if base:
         return base
     store = (get_setting(db, "store_name", "") or "").strip()
@@ -281,6 +281,15 @@ def get_public_web_config(
     gsv = (cfg.get("google_site_verification") or "").strip()
     tracking_head = _build_tracking_head(cfg)
     tracking_body = _build_tracking_body(cfg)
+    from modules.web_marketing.seo_public import build_json_ld
+
+    json_ld = build_json_ld(
+        db,
+        surface,
+        page_path=path,
+        page_title=title,
+        page_description=desc,
+    )
 
     return {
         "surface": surface,
@@ -296,6 +305,7 @@ def get_public_web_config(
         "og_image_url": og_abs,
         "og_type": "website",
         "google_site_verification": gsv,
+        "json_ld": json_ld,
         "tracking_enabled": (cfg.get("enabled") or "1") == "1",
         "tracking_head": Markup(tracking_head) if tracking_head else Markup(""),
         "tracking_body": Markup(tracking_body) if tracking_body else Markup(""),

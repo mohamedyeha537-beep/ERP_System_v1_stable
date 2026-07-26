@@ -41,14 +41,41 @@
     padding: 0.65rem 0.9rem; min-width: 8rem;
   }
   .mkt-stat strong { display: block; font-size: 1.2rem; }
+  .mkt-toolbar {
+    display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;
+    justify-content: space-between;
+    background: #fff; border: 1px solid #99f6e4; border-radius: 12px;
+    padding: 0.65rem 0.9rem; margin: 0 0 0.85rem;
+    position: sticky; top: 0.5rem; z-index: 20;
+    box-shadow: 0 4px 14px rgba(15, 118, 110, 0.08);
+  }
+  .mkt-toolbar__meta { font-size: 0.86rem; color: #475569; line-height: 1.45; }
+  .mkt-toolbar__meta strong.ok { color: #15803d; }
+  .mkt-toolbar__meta strong.warn { color: #b45309; }
+  .mkt-settings-btn {
+    background: #0f766e !important; color: #fff !important;
+    font-weight: 700; border: none;
+    padding: 0.55rem 1rem;
+  }
 </style>
 {% endblock %}
 {% block body %}
+<div class="mkt-toolbar">
+  <div class="mkt-toolbar__meta">
+    نصوص:
+    {% if ai_configured %}<strong class="ok">مربوط</strong>{% else %}<strong class="warn">غير مربوط</strong>{% endif %}
+    · صور:
+    {% if image_configured %}<strong class="ok">مربوط</strong>{% else %}<strong class="warn">غير مربوط</strong>{% endif %}
+    {% if n8n_configured %} · n8n: <strong class="ok">مفعّل</strong>{% endif %}
+  </div>
+  <a class="btn mkt-settings-btn" href="/admin/marketing-room/settings">⚙ إعدادات الغرفة (fal.ai / AI)</a>
+</div>
+
 <div class="mkt-hero">
   <h1>غرفة اجتماع وكلاء التسويق</h1>
   <p style="margin:0;opacity:0.92;line-height:1.55;max-width:46rem">
-    نظام عمل متكامل لإدارة المحتوى والمتابعة للمطعم والفندق.
-    شغّل الخط اليومي، راجع المسودات، واعتمدها قبل النسخ للنشر يدوياً.
+    اضغط على كل وكيل لفتح مساحة عمله (خطة محتوى، نصوص، صور، هاشتاجات…).
+    يعملون كفريق على خطة واحدة، ويمكنهم طلب تعديل من بعضهم. النشر على المنصات يدوياً حالياً.
   </p>
 </div>
 
@@ -67,7 +94,7 @@
     <div>
       <h2 style="margin:0 0 0.35rem">تشغيل يومي</h2>
       <p class="muted" style="margin:0;font-size:0.9rem;line-height:1.55">
-        يجمع أصناف المطعم والشقق، ثم يمرّ على: مدير الموقع → البياع → المحتوى → الهاشتاج → الديزاين.
+        يعملون لوحة فريق واحدة: خطة المحتوى توزّع مهاماً، والوكلاء يتبعونها ويمكنهم طلب تعديل من بعضهم.
         {% if ai_configured %}الذكاء الاصطناعي مضبوط.{% else %}بدون مفتاح AI تُستخدم قوالب محلية.{% endif %}
         {% if n8n_configured %} · n8n مفعّل.{% endif %}
       </p>
@@ -118,10 +145,12 @@
       <a class="btn" href="/admin/messaging/inbox">صندوق الوارد ←</a>
       <a class="btn" href="/admin/messaging/web-chat">إعدادات الشات / Hermes</a>
     </div>
+    {% elif a.workspace %}
+    <a class="btn btn-primary" href="/admin/marketing-room/agents/{{ a.role }}" style="align-self:flex-start">فتح مساحة العمل ←</a>
     {% elif a.external_href %}
     <a class="btn" href="{{ a.external_href }}" style="align-self:flex-start">فتح ←</a>
     {% elif a.role == 'delivery' %}
-    <span class="muted" style="font-size:0.8rem">بعد الاعتماد: استخدم «نسخ/تصدير» من صفحة التشغيل</span>
+    <span class="muted" style="font-size:0.8rem">بعد الاعتماد: استخدم «نسخ/تصدير» من صفحة التشغيل. ربط Meta لاحقاً.</span>
     {% elif latest_run and a.pipeline %}
     <a class="btn" href="/admin/marketing-room/runs/{{ latest_run.id }}" style="align-self:flex-start">عرض المخرجات</a>
     {% endif %}

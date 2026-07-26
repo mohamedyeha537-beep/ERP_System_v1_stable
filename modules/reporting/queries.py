@@ -224,6 +224,171 @@ def parse_custom_range(start_str: str | None, end_str: str | None) -> tuple[date
     return parse_local_date_range(start_str, end_str)
 
 
+@dataclass
+class ProductInvoiceRow:
+    sale_id: int
+    sale_at: datetime
+    product_id: int
+    product_name: str
+    quantity: Decimal
+    unit_price: Decimal
+    line_total: Decimal
+    sale_total: Decimal
+    source: str
+    context_type: str
+    customer_name: str | None
+
+
+@dataclass
+class ProductInvoiceSummary:
+    invoice_count: int
+    line_count: int
+    qty_total: Decimal
+    amount_total: Decimal
+
+
+def search_catalog_products(db: Session, q: str, *, limit: int = 40) -> list:
+    """بحث أصناف بالاسم / الباركود / SKU."""
+    from modules.catalog.models import Product
+
+    term = (q or "").strip()
+    if not term:
+        return []
+    like = f"%{term}%"
+    exact = list(
+        db.scalars(
+            select(Product)
+            .where(
+                or_(
+                    Product.name_ar == term,
+                    Product.barcode == term,
+                    Product.sku == term,
+                )
+            )
+            .order_by(Product.name_ar)
+            .limit(limit)
+        ).all()
+    )
+    if exact:
+        return exact
+    return list(
+        db.scalars(
+            select(Product)
+            .where(
+                or_(
+                    Product.name_ar.like(like),
+                    Product.barcode.like(like),
+                    Product.sku.like(like),
+                )
+            )
+            .order_by(Product.name_ar)
+            .limit(limit)
+        ).all()
+    )
+
+
+def product_sale_invoices(
+    db: Session,
+    start: datetime,
+    end: datetime,
+    *,
+    product_ids: list[int],
+) -> tuple[list[ProductInvoiceRow], ProductInvoiceSummary]:
+    """فواتير البيع المكتملة التي تحتوي الأصناف المحددة خلال الفترة."""
+    from modules.catalog.models import Product
+    from modules.customers.models import Customer
+
+    ids = sorted({int(x) for x in product_ids if x})
+    empty = ProductInvoiceSummary(
+        invoice_count=0,
+        line_count=0,
+        qty_total=Decimal("0"),
+        amount_total=Decimal("0"),
+    )
+    if not ids:
+        return [], empty
+
+    s0, s1 = _range_utc(start, end)
+    completed = _sale_completed_at()
+    stmt = (
+        select(
+            Sale.id,
+            completed.label("sale_at"),
+            Product.id,
+            Product.name_ar,
+            SaleLine.quantity,
+            SaleLine.unit_price,
+            SaleLine.line_total,
+            Sale.total,
+            Sale.source,
+            Sale.context_type,
+            Customer.name,
+            Customer.company_name,
+            Customer.phone,
+        )
+        .join(SaleLine, SaleLine.sale_id == Sale.id)
+        .join(Product, Product.id == SaleLine.product_id)
+        .outerjoin(Customer, Customer.id == Sale.customer_id)
+        .where(
+            Sale.status == SaleStatus.COMPLETED,
+            SaleLine.product_id.in_(ids),
+            completed >= s0,
+            completed < s1,
+        )
+        .order_by(completed.desc(), Sale.id.desc(), Product.name_ar)
+    )
+    rows_raw = db.execute(stmt).all()
+    rows: list[ProductInvoiceRow] = []
+    sale_ids: set[int] = set()
+    qty_total = Decimal("0")
+    amount_total = Decimal("0")
+    for (
+        sid,
+        sale_at,
+        pid,
+        pname,
+        qty,
+        price,
+        line_total,
+        sale_total,
+        source,
+        ctx,
+        cust_name,
+        company_name,
+        phone,
+    ) in rows_raw:
+        qv = Decimal(str(qty or 0))
+        lv = Decimal(str(line_total or 0)).quantize(Decimal("0.001"))
+        qty_total += qv
+        amount_total += lv
+        sale_ids.add(int(sid))
+        src = source.value if hasattr(source, "value") else str(source or "")
+        ctx_s = ctx.value if hasattr(ctx, "value") else str(ctx or "")
+        display = (str(cust_name or "").strip() or str(company_name or "").strip() or str(phone or "").strip() or None)
+        rows.append(
+            ProductInvoiceRow(
+                sale_id=int(sid),
+                sale_at=sale_at,
+                product_id=int(pid),
+                product_name=str(pname or ""),
+                quantity=qv,
+                unit_price=Decimal(str(price or 0)).quantize(Decimal("0.001")),
+                line_total=lv,
+                sale_total=Decimal(str(sale_total or 0)).quantize(Decimal("0.001")),
+                source=src,
+                context_type=ctx_s,
+                customer_name=display,
+            )
+        )
+    summary = ProductInvoiceSummary(
+        invoice_count=len(sale_ids),
+        line_count=len(rows),
+        qty_total=qty_total,
+        amount_total=amount_total.quantize(Decimal("0.001")),
+    )
+    return rows, summary
+
+
 def sales_by_payment_method(
     db: Session, start: datetime, end: datetime
 ) -> list[tuple[str, int, Decimal, int, Decimal, Decimal]]:

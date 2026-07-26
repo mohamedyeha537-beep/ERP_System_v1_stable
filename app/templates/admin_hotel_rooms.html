@@ -1,7 +1,7 @@
 ﻿{% extends "base.html" %}
 {% block title %}إعداد الشقق{% endblock %}
 {% block head_extra %}
-<link rel="stylesheet" href="/static/hotel_dashboard.css?v=12" />
+<link rel="stylesheet" href="/static/hotel_dashboard.css?v=29" />
 {% endblock %}
 {% block body %}
 <div class="apt-page-header">
@@ -55,6 +55,29 @@
       <div style="flex:0.5;min-width:70px">
         <label>الطابق</label>
         <input name="floor" placeholder="1" />
+      </div>
+      <div style="flex:1 1 100%;display:flex;flex-wrap:wrap;gap:0.65rem;align-items:flex-end;padding:0.55rem 0.65rem;border:1px solid #c7d2fe;border-radius:10px;background:#eef2ff">
+        <div style="width:100%;font-weight:800;color:#3730a3;font-size:0.9rem">محتويات الشقة</div>
+        <div style="flex:0.55;min-width:80px">
+          <label title="يظهر كرمز على كرت الشقة">{{ (amenity_icons.rooms.emoji if amenity_icons.rooms is mapping else amenity_icons.rooms)|default('🚪') }} عدد الغرف</label>
+          <input name="rooms_count" type="number" min="0" max="20" value="1" />
+        </div>
+        <div style="flex:0.65;min-width:95px">
+          <label title="يظهر على كرت الشقة">{{ (amenity_icons.double.emoji if amenity_icons.double is mapping else amenity_icons.double)|default('🛏') }} أسرة زوجية</label>
+          <input name="double_beds_count" type="number" min="0" max="20" value="1" />
+        </div>
+        <div style="flex:0.65;min-width:95px">
+          <label title="يظهر على كرت الشقة">{{ (amenity_icons.single.emoji if amenity_icons.single is mapping else amenity_icons.single)|default('🛌') }} أسرة فردية</label>
+          <input name="single_beds_count" type="number" min="0" max="20" value="0" />
+        </div>
+        <label style="display:flex;align-items:center;gap:0.35rem;white-space:nowrap" title="يظهر رمز رضيع على الكرت">
+          <input type="checkbox" name="allows_infant" />
+          {{ (amenity_icons.infant.emoji if amenity_icons.infant is mapping else amenity_icons.infant)|default('👶') }} مناسب لرضيع
+        </label>
+      </div>
+      <div style="flex:0.7;min-width:110px">
+        <label>رقم القفل</label>
+        <input name="lock_no" dir="ltr" placeholder="01020399" title="رقم القفل في نظام البطاقات (8 خانات)" />
       </div>
       <div style="flex:1;min-width:140px">
         <label>صورة</label>
@@ -115,6 +138,104 @@
         <label>الطابق
           <input name="floor" id="edit-room-floor" placeholder="الطابق" />
         </label>
+        <div style="grid-column:1/-1;margin:0.15rem 0 0;padding:0.65rem 0.75rem;border:1px solid #c7d2fe;border-radius:10px;background:#eef2ff">
+          <div style="font-weight:800;margin-bottom:0.55rem;color:#3730a3">محتويات الشقة</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.65rem;align-items:end">
+            <label><span id="edit-lbl-rooms">{{ (amenity_icons.rooms.emoji if amenity_icons.rooms is mapping else amenity_icons.rooms)|default('🚪') }}</span> عدد الغرف
+              <input name="rooms_count" id="edit-room-rooms" type="number" min="0" max="20" value="1" />
+            </label>
+            <label><span id="edit-lbl-double">{{ (amenity_icons.double.emoji if amenity_icons.double is mapping else amenity_icons.double)|default('🛏') }}</span> أسرة زوجية
+              <input name="double_beds_count" id="edit-room-double-beds" type="number" min="0" max="20" value="1" required />
+            </label>
+            <label><span id="edit-lbl-single">{{ (amenity_icons.single.emoji if amenity_icons.single is mapping else amenity_icons.single)|default('🛌') }}</span> أسرة فردية
+              <input name="single_beds_count" id="edit-room-single-beds" type="number" min="0" max="20" value="0" required />
+            </label>
+            <label style="display:flex;align-items:center;gap:0.4rem;min-height:2.4rem">
+              <input type="checkbox" name="allows_infant" id="edit-room-infant" />
+              <span id="edit-lbl-infant">{{ (amenity_icons.infant.emoji if amenity_icons.infant is mapping else amenity_icons.infant)|default('👶') }}</span> مناسب لرضيع
+            </label>
+          </div>
+          <div style="margin-top:0.75rem;padding-top:0.65rem;border-top:1px dashed #a5b4fc">
+            <div style="font-weight:700;font-size:0.88rem;color:#3730a3;margin-bottom:0.45rem">تغيير أيقونات المحتويات على الكرت</div>
+            <p class="muted" style="margin:0 0 0.55rem;font-size:0.78rem;line-height:1.45">
+              اختر إيموجي أو ارفع صورة من جهازك — يُطبَّق على <strong>كل</strong> كروت الشقق. PNG/JPG/WEBP حتى 512KB.
+            </p>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:0.65rem">
+              {% for key, label in amenity_icon_labels %}
+              {% set ic = amenity_icons.get(key) if amenity_icons else none %}
+              {% set em = (ic.emoji if ic is mapping else (ic or '')) %}
+              {% set img = (ic.image_url if ic is mapping else '') %}
+              {% set fn = (ic.filename if ic is mapping else '') %}
+              <div class="amenity-icon-picker" data-key="{{ key }}" style="border:1px solid #c7d2fe;border-radius:10px;padding:0.65rem;background:#fff">
+                <label style="display:block;font-size:0.82rem;font-weight:700;margin-bottom:0.35rem">{{ label }}</label>
+                <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.45rem">
+                  <div class="apt-tile__icon" style="width:56px;height:56px;font-size:1.7rem;--accent:#6366f1" id="edit-amenity-preview-{{ key }}">
+                    {% if img %}<img class="apt-tile__icon-img" src="{{ img }}" alt="" />{% else %}{{ em }}{% endif %}
+                  </div>
+                  <input
+                    type="text"
+                    name="amenity_icon_{{ key }}"
+                    id="edit-amenity-icon-{{ key }}"
+                    value="{{ em }}"
+                    maxlength="8"
+                    class="amenity-icon-input"
+                    style="flex:1;text-align:center;font-size:1.6rem;min-height:2.6rem"
+                    autocomplete="off"
+                    title="إيموجي"
+                  />
+                </div>
+                <div class="amenity-icon-choices" style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-bottom:0.45rem">
+                  {% for choice in amenity_emoji_choices.get(key, ()) %}
+                  <button type="button" class="amenity-icon-choice btn" data-emoji="{{ choice }}" style="padding:0.25rem 0.45rem;font-size:1.45rem;line-height:1.2;min-width:2.4rem" title="اختيار {{ choice }}">{{ choice }}</button>
+                  {% endfor %}
+                </div>
+                <label style="display:block;font-size:0.78rem;margin-bottom:0.2rem">رفع صورة من الجهاز</label>
+                <input type="file" name="amenity_img_{{ key }}" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" style="width:100%;font-size:0.78rem" />
+                {% if fn %}
+                <label style="display:flex;align-items:center;gap:0.3rem;margin-top:0.35rem;font-size:0.78rem;color:#b91c1c">
+                  <input type="checkbox" name="clear_amenity_img_{{ key }}" value="1" /> حذف الصورة والعودة للإيموجي
+                </label>
+                {% endif %}
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          <div style="margin-top:0.85rem;padding-top:0.65rem;border-top:1px dashed #a5b4fc">
+            <div style="font-weight:700;font-size:0.88rem;color:#3730a3;margin-bottom:0.45rem">أيقونة حالة الشقة الكبيرة على الخريطة</div>
+            <p class="muted" style="margin:0 0 0.55rem;font-size:0.78rem;line-height:1.45">
+              الأيقونة الكبيرة يمين الكرت (متاحة / مشغولة / تنظيف / صيانة). ارفع صورة لتظهر بدلاً من الإيموجي.
+            </p>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:0.65rem">
+              {% for key, label in apt_icon_labels %}
+              {% set sic = apt_icons.get(key) if apt_icons else none %}
+              <div style="border:1px solid #c7d2fe;border-radius:10px;padding:0.65rem;background:#fff">
+                <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.45rem">
+                  <div class="apt-tile__icon apt-tile__icon--xl" style="width:72px;height:72px;font-size:2.2rem;--accent:#0ea5e9">
+                    {% if sic and sic.image_url %}
+                    <img class="apt-tile__icon-img" src="{{ sic.image_url }}" alt="" />
+                    {% else %}
+                    {{ (sic.emoji if sic else '🏠') }}
+                    {% endif %}
+                  </div>
+                  <strong style="font-size:0.86rem">{{ label }}</strong>
+                </div>
+                <label style="display:block;font-size:0.78rem;margin-bottom:0.2rem">إيموجي</label>
+                <input name="emoji_{{ key }}" value="{{ sic.emoji if sic else '' }}" maxlength="8" style="width:100%;text-align:center;font-size:1.55rem;min-height:2.5rem;margin-bottom:0.4rem" />
+                <label style="display:block;font-size:0.78rem;margin-bottom:0.2rem">رفع صورة</label>
+                <input type="file" name="img_{{ key }}" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" style="width:100%;font-size:0.78rem" />
+                {% if sic and sic.filename %}
+                <label style="display:flex;align-items:center;gap:0.3rem;margin-top:0.35rem;font-size:0.78rem;color:#b91c1c">
+                  <input type="checkbox" name="clear_{{ key }}" value="1" /> حذف الصورة
+                </label>
+                {% endif %}
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+        <label>رقم القفل
+          <input name="lock_no" id="edit-room-lock" dir="ltr" placeholder="01020399" />
+        </label>
         <label>ملاحظة
           <input name="notes" id="edit-room-notes" placeholder="ملاحظة" />
         </label>
@@ -157,6 +278,33 @@
     var el = document.getElementById(id);
     if (el) el.value = value || '';
   }
+  function syncAmenityLabels() {
+    ['rooms', 'double', 'single', 'infant'].forEach(function (key) {
+      var inp = document.getElementById('edit-amenity-icon-' + key);
+      var lbl = document.getElementById('edit-lbl-' + key);
+      var preview = document.getElementById('edit-amenity-preview-' + key);
+      var val = (inp && inp.value ? String(inp.value).trim() : '') || '';
+      if (lbl && val) lbl.textContent = val;
+      if (preview && val) {
+        preview.innerHTML = '';
+        preview.textContent = val;
+      }
+    });
+  }
+  document.querySelectorAll('.amenity-icon-choice').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var wrap = btn.closest('.amenity-icon-picker');
+      if (!wrap) return;
+      var key = wrap.getAttribute('data-key');
+      var inp = document.getElementById('edit-amenity-icon-' + key);
+      if (!inp) return;
+      inp.value = btn.getAttribute('data-emoji') || '';
+      syncAmenityLabels();
+    });
+  });
+  document.querySelectorAll('.amenity-icon-input').forEach(function (inp) {
+    inp.addEventListener('input', syncAmenityLabels);
+  });
   document.querySelectorAll('[data-room-edit]').forEach(function (btn) {
     btn.addEventListener('click', function () {
       var d = btn.dataset;
@@ -167,9 +315,15 @@
       setValue('edit-room-price', d.price);
       setValue('edit-room-type', d.roomTypeId);
       setValue('edit-room-floor', d.floor);
+      setValue('edit-room-rooms', d.roomsCount || '1');
+      setValue('edit-room-double-beds', d.doubleBeds != null && d.doubleBeds !== '' ? d.doubleBeds : '1');
+      setValue('edit-room-single-beds', d.singleBeds != null && d.singleBeds !== '' ? d.singleBeds : '0');
+      setValue('edit-room-lock', d.lockNo || '');
       setValue('edit-room-notes', d.notes);
       var active = document.getElementById('edit-room-active');
       if (active) active.checked = d.active === '1';
+      var infantEl = document.getElementById('edit-room-infant');
+      if (infantEl) infantEl.checked = d.allowsInfant === '1';
       var onlineEl = document.getElementById('edit-room-online');
       if (onlineEl) onlineEl.checked = d.showOnline === '1';
       setValue('edit-room-online-desc', d.onlineDesc || '');
@@ -186,6 +340,7 @@
           return confirm('حذف ' + (d.deleteLabel || d.number) + '؟');
         };
       }
+      syncAmenityLabels();
       if (typeof dlg.showModal === 'function') dlg.showModal();
       else dlg.setAttribute('open', 'open');
     });

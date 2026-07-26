@@ -597,6 +597,13 @@
 
 
 
+/* display أعلاه يتجاوز خاصية hidden — أخفِ الشارة صراحة عند الفراغ */
+#shop-cart-badge[hidden] {
+  display: none !important;
+}
+
+
+
 @media (min-width: 720px) {
 
   .shop-header-nav,

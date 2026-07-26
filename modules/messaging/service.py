@@ -45,6 +45,26 @@ def messaging_enabled(db: Session) -> bool:
     return get_bool(db, "messaging_enabled", False)
 
 
+def whatsapp_send_blocker(db: Session) -> str | None:
+    """سبب عربي يمنع الإرسال، أو None إن كان جاهزاً."""
+    if not messaging_enabled(db):
+        return (
+            "إرسال واتساب غير مفعّل. افتح إعدادات المراسلة وفعّل «تفعيل الإرسال»، "
+            "ثم أعد محاولة مهمة التنظيف."
+        )
+    prov = whatsapp_provider(db)
+    if prov == "textmebot":
+        if not (get_setting(db, "messaging_textmebot_apikey") or "").strip():
+            return "مفتاح TextMeBot فارغ — أدخله في إعدادات المراسلة واحفظ."
+        return None
+    if not (get_setting(db, "messaging_webhook_url") or "").strip():
+        return (
+            "مزوّد واتساب مضبوط على Webhook بدون رابط. "
+            "أدخل رابط Webhook أو اختر TextMeBot من إعدادات المراسلة."
+        )
+    return None
+
+
 def _template_vars(db: Session, payload: dict) -> dict:
     store = get_setting(db, "store_name", "نقطة البيع")
     vars_out = {
@@ -433,6 +453,54 @@ def save_checkout_consent(
     )
 
 
+_BROADCAST_SEGMENTS = frozenset(
+    {"opt_in", "all_whatsapp", "phone_list"}
+)
+_AUDIENCE_DOMAINS = frozenset({"all", "restaurant", "hotel"})
+
+
+def normalize_broadcast_segment(raw: str | None) -> str:
+    seg = (raw or "opt_in").strip()
+    return seg if seg in _BROADCAST_SEGMENTS else "opt_in"
+
+
+def normalize_audience_domain(raw: str | None) -> str:
+    dom = (raw or "all").strip().lower()
+    return dom if dom in _AUDIENCE_DOMAINS else "all"
+
+
+def audience_domain_label(raw: str | None) -> str:
+    dom = normalize_audience_domain(raw)
+    if dom == "hotel":
+        return "عملاء الفندق"
+    if dom == "restaurant":
+        return "عملاء المطعم"
+    return "كل المجالات"
+
+
+def iter_broadcast_customers(
+    db: Session,
+    *,
+    segment: str = "opt_in",
+    audience_domain: str = "all",
+):
+    """عملاء الحملة حسب الموافقة ومجال المطعم/الفندق (+ المشترك)."""
+    from modules.customers.models import CustomerBusinessDomain
+    from modules.customers.service import parse_customer_domain
+
+    stmt = select(Customer).where(Customer.is_active.is_(True))
+    dom = parse_customer_domain(normalize_audience_domain(audience_domain))
+    if dom in (CustomerBusinessDomain.HOTEL, CustomerBusinessDomain.RESTAURANT):
+        stmt = stmt.where(
+            Customer.business_domain.in_((dom, CustomerBusinessDomain.SHARED))
+        )
+    require_opt_in = normalize_broadcast_segment(segment) == "opt_in"
+    for c in db.scalars(stmt).all():
+        if require_opt_in and not customer_can_receive(db, c.id):
+            continue
+        yield c
+
+
 def run_campaign_now(db: Session, campaign_id: int) -> int:
     camp = db.get(MessageCampaign, campaign_id)
     if camp is None or camp.template is None:
@@ -445,7 +513,8 @@ def run_campaign_now(db: Session, campaign_id: int) -> int:
         seg = _json.loads(camp.segment_json or "{}")
     except Exception:
         pass
-    segment = (seg.get("segment") or "opt_in").strip()
+    segment = normalize_broadcast_segment(seg.get("segment"))
+    audience_domain = normalize_audience_domain(seg.get("audience_domain"))
     if segment == "phone_list":
         lid = seg.get("phone_list_id")
         if not lid:
@@ -467,11 +536,10 @@ def run_campaign_now(db: Session, campaign_id: int) -> int:
         camp.last_sent_at = datetime.now(timezone.utc)
         return count
 
-    customers = list(db.scalars(select(Customer).where(Customer.is_active.is_(True))).all())
     count = 0
-    for c in customers:
-        if segment == "opt_in" and not customer_can_receive(db, c.id):
-            continue
+    for c in iter_broadcast_customers(
+        db, segment=segment, audience_domain=audience_domain
+    ):
         body = render_template(
             camp.template.body_text,
             _template_vars(
@@ -533,10 +601,13 @@ def enqueue_broadcast(
     message: str,
     image_url: str = "",
     segment: str = "opt_in",
+    audience_domain: str = "all",
     phone_list_id: int | None = None,
     event_type: str = "campaign.manual",
 ) -> int:
     """جدولة رسالة دعائية جماعية — لا تُخلط مع التنبيهات التلقائية."""
+    segment = normalize_broadcast_segment(segment)
+    audience_domain = normalize_audience_domain(audience_domain)
     if segment == "phone_list":
         if not phone_list_id:
             return 0
@@ -550,8 +621,6 @@ def enqueue_broadcast(
             event_type="campaign.external",
         )
 
-    from modules.customers.models import Customer
-    from modules.messaging.consent import customer_can_receive
     from modules.messaging.models import MessageChannel
     from modules.messaging.categories import message_kind
 
@@ -561,9 +630,9 @@ def enqueue_broadcast(
     if img:
         meta_base["image_url"] = img
     count = 0
-    for c in db.scalars(select(Customer).where(Customer.is_active.is_(True))).all():
-        if segment == "opt_in" and not customer_can_receive(db, c.id):
-            continue
+    for c in iter_broadcast_customers(
+        db, segment=segment, audience_domain=audience_domain
+    ):
         body = f"مرحباً {c.name or 'عميلنا'}،\n{message.strip()}\n— {store}"
         ch = MessageChannel.WHATSAPP.value
         if segment == "opt_in":

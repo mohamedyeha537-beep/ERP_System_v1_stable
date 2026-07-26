@@ -77,23 +77,82 @@ def message_for_sale(db: Session, sale: Sale) -> str:
     if sale.customer and (sale.customer.name or "").strip():
         name = sale.customer.name.strip()
     greeting = f"مرحباً {name}،\n" if name else "مرحباً،\n"
+    paid = Decimal(str(getattr(sale, "total", 0) or 0))
+    try:
+        from modules.payments.service import get_sale_payment
+
+        sp = get_sale_payment(db, sale.id)
+        if sp is not None and getattr(sp, "amount", None) is not None:
+            paid = Decimal(str(sp.amount))
+    except Exception:  # noqa: BLE001
+        pass
+    total = Decimal(str(sale.total or 0))
+    balance = (total - paid).quantize(Decimal("0.001"))
+    if balance < 0:
+        balance = Decimal("0")
     return (
         f"{greeting}"
         f"فاتورتكم #{sale.id}\n"
-        f"الإجمالي: {_format_money(sale.total)} د.ل\n"
+        f"الإجمالي: {_format_money(total)} د.ل\n"
+        f"المدفوع: {_format_money(paid)} د.ل\n"
+        f"المتبقي: {_format_money(balance)} د.ل\n"
         f"— {store}"
     )
 
 
-def message_for_booking(db: Session, booking: HotelBooking, *, folio_total: Decimal) -> str:
+def message_for_booking(
+    db: Session,
+    booking: HotelBooking,
+    *,
+    folio_total: Decimal,
+    folio_paid: Decimal | None = None,
+    folio_balance: Decimal | None = None,
+    folio_lines: str | None = None,
+    focus_payment_amount: Decimal | None = None,
+    doc_title: str = "فاتورة حجز",
+) -> str:
     store = hotel_display_name(db)
     name = (booking.guest_name or "").strip() or "ضيفنا"
-    return (
-        f"مرحباً {name}،\n"
-        f"فاتورة الحجز {booking.reference}\n"
-        f"الإجمالي: {_format_money(folio_total)} د.ل\n"
-        f"— {store}"
+    paid = folio_paid
+    balance = folio_balance
+    lines_txt = (folio_lines or "").strip()
+    if paid is None or balance is None or not lines_txt:
+        try:
+            from modules.hotel.folio import build_folio
+
+            folio = build_folio(db, booking.id)
+            if paid is None:
+                paid = Decimal(str(folio.paid or 0))
+            if balance is None:
+                balance = Decimal(str(folio.balance or 0))
+            if not lines_txt:
+                bits: list[str] = []
+                for line in list(getattr(folio, "lines", None) or [])[:12]:
+                    desc = (getattr(line, "description", None) or "").strip() or "بند"
+                    bits.append(f"• {desc}: {_format_money(getattr(line, 'amount', 0))} د.ل")
+                lines_txt = "\n".join(bits)
+            folio_total = Decimal(str(folio.total or folio_total or 0))
+        except Exception:  # noqa: BLE001
+            paid = paid if paid is not None else Decimal("0")
+            balance = balance if balance is not None else Decimal("0")
+    parts = [
+        f"مرحباً {name}،",
+        f"*{doc_title}* — {store}",
+        f"رقم الحجز: {booking.reference}",
+    ]
+    if focus_payment_amount is not None and Decimal(str(focus_payment_amount)) > 0:
+        parts.append(f"مبلغ مستلم الآن: {_format_money(focus_payment_amount)} د.ل")
+    if lines_txt:
+        parts.append("تفاصيل الحساب:")
+        parts.append(lines_txt)
+    parts.extend(
+        [
+            f"الإجمالي: {_format_money(folio_total)} د.ل",
+            f"المدفوع: {_format_money(paid)} د.ل",
+            f"المتبقي: {_format_money(balance)} د.ل",
+        ]
     )
+    return "\n".join(parts)
 
 
 def _image_public_url(db: Session, image_png_b64: str | None) -> str | None:
@@ -200,7 +259,11 @@ def send_hotel_receipt_whatsapp(
     db: Session,
     booking: HotelBooking,
     *,
-    folio_total: Decimal,
+    folio_total: Decimal | None = None,
+    folio_paid: Decimal | None = None,
+    folio_balance: Decimal | None = None,
+    focus_payment_amount: Decimal | None = None,
+    doc_title: str = "فاتورة حجز",
     image_png_b64: str | None = None,
     phone_override: str | None = None,
 ) -> dict:
@@ -209,7 +272,20 @@ def send_hotel_receipt_whatsapp(
             "إرسال الفاتورة عبر واتساب غير مفعّل — فعّله من الإعدادات → إرسال الفاتورة على واتساب."
         )
     phone = resolve_booking_phone(booking, override=phone_override)
-    body = message_for_booking(db, booking, folio_total=folio_total)
+    from modules.hotel.folio import build_folio
+
+    folio = build_folio(db, booking.id)
+    body = message_for_booking(
+        db,
+        booking,
+        folio_total=Decimal(str(folio_total if folio_total is not None else folio.total)),
+        folio_paid=Decimal(str(folio_paid if folio_paid is not None else folio.paid)),
+        folio_balance=Decimal(
+            str(folio_balance if folio_balance is not None else folio.balance)
+        ),
+        focus_payment_amount=focus_payment_amount,
+        doc_title=doc_title,
+    )
     image_url = _image_public_url(db, image_png_b64)
     if image_png_b64 and not image_url:
         body += "\n\n(تعذّر إرفاق صورة — اضبط الرابط العام في الإعدادات لإرسال صورة الفاتورة.)"

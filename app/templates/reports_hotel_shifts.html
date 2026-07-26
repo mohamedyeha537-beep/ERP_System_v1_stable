@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% from "_reports_macros.html" import reports_nav, export_button with context %}
+{% block title %}جلسات الفندق{% endblock %}
+{% block body %}
+<h1>جلسات الفندق</h1>
+{{ reports_nav('hotel_shifts') }}
+
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+{% if saved %}<div class="alert" style="background:#ecfdf5;border-color:#10b981;color:#065f46">تم الحفظ ✓</div>{% endif %}
+
+{% if stale_count and stale_count > 0 %}
+<div class="card" style="margin-bottom:1rem;background:#fff7ed;border:1px solid #fdba74">
+  <strong style="color:#c2410c">⚠ {{ stale_count }} جلسة مفتوحة منذ أكثر من 24 ساعة</strong>
+  <p class="muted" style="margin:0.35rem 0 0;line-height:1.6">
+    الإغلاق العادي من حساب موظف الاستقبال في
+    <a href="/admin/hotel/shift">جلسة الفندق</a>
+    (عدّ الكاش/المصرف ثم إقفال). للجلسات العالقة استخدم
+    <strong>تفاصيل → إغلاق إداري</strong>{% if not can_admin_close %} (يتطلب صلاحية مالية){% endif %}.
+  </p>
+</div>
+{% endif %}
+
+<p class="muted" style="margin:0 0 1rem;line-height:1.55">
+  مثل جلسات الكاشير في المطعم: فتح بالرقم السري → رصيد افتتاح → عمل → عدّ عند الإقفال.
+  راجع كل جلسة: الإيراد، المصروف، الكاش/المصرف المعدود، العجز والفائض.
+</p>
+
+<div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:1rem">
+  <a class="btn {% if status_filter == 'all' %}btn-primary{% endif %}" href="/reports/hotel-shifts?status=all">الكل</a>
+  <a class="btn {% if status_filter == 'closed' %}btn-primary{% endif %}" href="/reports/hotel-shifts?status=closed">مغلقة</a>
+  <a class="btn {% if status_filter == 'open' %}btn-primary{% endif %}" href="/reports/hotel-shifts?status=open">مفتوحة</a>
+  <a class="btn btn-primary" href="/admin/hotel/shift" style="margin-inline-start:0.25rem">فتح / إقفال جلسة</a>
+  <span style="flex:1"></span>
+  {{ export_button('/reports/hotel-shifts/export.csv?status=' ~ status_filter, 'تصدير القائمة') }}
+</div>
+
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.75rem">
+    <h2 style="margin:0">قائمة الجلسات</h2>
+    <span class="muted" style="font-size:0.88rem">{{ total }} جلسة — الأحدث أولاً</span>
+  </div>
+  {# table-x-scroll: تمرير أفقي دون تغطية الصف الأول تحت رأس الجدول اللاصق #}
+  <div class="sticky-table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>موظف الاستقبال</th>
+          <th>الحالة</th>
+          <th>فتح</th>
+          <th>إغلاق</th>
+          <th>تحصيلات</th>
+          <th>إيراد</th>
+          <th>مصروف</th>
+          <th>صافي</th>
+          <th>كاش معدود</th>
+          <th>مصرف معدود</th>
+          <th>عجز</th>
+          <th>فائض</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr{% if r.status == 'OPEN' and r.shift_id in stale_ids %} style="background:#fff7ed"{% endif %}>
+          <td>
+            <strong>{{ r.shift_id }}</strong>
+            <div class="muted" style="font-size:0.75rem">وردية {{ r.shift_number }} — {{ r.shift_name_ar }}</div>
+          </td>
+          <td>
+            {{ r.operator_label }}
+            {% if r.status == 'OPEN' and r.shift_id in stale_ids %}
+            <div style="font-size:0.75rem;color:#c2410c;font-weight:600">تحتاج إغلاق</div>
+            {% endif %}
+            {% if r.user_label and r.user_label != r.operator_label %}
+            <div class="muted" style="font-size:0.78rem">{{ r.user_label }}</div>
+            {% endif %}
+          </td>
+          <td>
+            {% if r.status == 'OPEN' %}
+            <span class="badge" style="background:#dbeafe;color:#1d4ed8">مفتوحة</span>
+            {% else %}
+            <span class="badge" style="background:#f1f5f9;color:#475569">مغلقة</span>
+            {% endif %}
+          </td>
+          <td>{% if r.opened_at %}{{ pos_format_dt(r.opened_at, '%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+          <td>{% if r.closed_at %}{{ pos_format_dt(r.closed_at, '%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+          <td>{{ r.payment_count }}</td>
+          <td>{{ pos_money(r.total_revenue) }} <span class="money-currency">د.ل</span></td>
+          <td>{{ pos_money(r.total_expenses) }} <span class="money-currency">د.ل</span></td>
+          <td style="font-weight:700;color:#047857">{{ pos_money(r.net_total) }}</td>
+          <td>{% if r.counted_cash is not none %}{{ pos_money(r.counted_cash) }}{% else %}—{% endif %}</td>
+          <td>{% if r.counted_bank is not none %}{{ pos_money(r.counted_bank) }}{% else %}—{% endif %}</td>
+          <td>
+            {% if r.shortage_total > 0 %}
+            <span style="color:#b91c1c;font-weight:600">{{ pos_money(r.shortage_total) }}</span>
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if r.surplus_total > 0 %}
+            <span style="color:#15803d;font-weight:600">{{ pos_money(r.surplus_total) }}</span>
+            {% else %}—{% endif %}
+          </td>
+          <td style="white-space:nowrap">
+            <a class="btn btn-primary" style="padding:0.25rem 0.55rem;font-size:0.82rem"
+               href="/admin/hotel/shift/{{ r.shift_id }}/report">تفاصيل</a>
+            {% if r.status == 'OPEN' and can_admin_close and r.shift_id in stale_ids %}
+            <form method="post" action="/reports/hotel-shifts/{{ r.shift_id }}/admin-close" style="display:inline;margin:0"
+                  onsubmit="return confirm('إغلاق إداري لهذه الجلسة العالقة؟');">
+              <button type="submit" class="btn" style="padding:0.25rem 0.45rem;font-size:0.78rem;color:#b91c1c">إغلاق إداري</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="14" class="muted" style="text-align:center;padding:1.5rem">لا توجد جلسات.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if total_pages > 1 %}
+  <div style="display:flex;gap:0.5rem;justify-content:center;margin-top:1rem;flex-wrap:wrap">
+    {% if page > 1 %}
+    <a class="btn" href="/reports/hotel-shifts?status={{ status_filter }}&page={{ page - 1 }}">← السابق</a>
+    {% endif %}
+    <span class="muted" style="align-self:center;font-size:0.88rem">صفحة {{ page }} من {{ total_pages }}</span>
+    {% if page < total_pages %}
+    <a class="btn" href="/reports/hotel-shifts?status={{ status_filter }}&page={{ page + 1 }}">التالي →</a>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

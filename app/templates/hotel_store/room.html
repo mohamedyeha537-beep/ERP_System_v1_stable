@@ -3,11 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  {% include "_public_web_head.html" %}
+  {% if web_mkt is not defined or not web_mkt %}
   <title>{{ room.name_ar or room.number }} — {{ store_name }}</title>
+  {% endif %}
   <link rel="stylesheet" href="/static/shop.css?v=16" />
-  <link rel="stylesheet" href="/static/hotel_store.css?v=1" />
+  <link rel="stylesheet" href="/static/hotel_store.css?v=4" />
 </head>
 <body class="shop-page hotel-store-page">
+  {% include "_public_web_body.html" %}
   <header class="hs-header">
     <div class="hs-header__inner">
       <a href="/suites" class="hs-logo">← {{ store_name }}</a>
@@ -65,6 +69,15 @@
             <div><span class="muted">الليالي:</span> <strong>{{ quote.nights }}</strong></div>
             <div><span class="muted">سعر الليلة:</span> <strong>{{ '%.3f'|format(quote.nightly_rate) }}</strong> د.ل</div>
             <div class="hs-quote__total">الإجمالي: <strong>{{ '%.3f'|format(quote.total) }}</strong> د.ل</div>
+            {% elif stay_info and not stay_info.full_stay_ok %}
+            <p class="hs-card__avail hs-card__avail--booked" style="margin:0">{{ stay_info.status_label }}</p>
+            {% if stay_info.occupied_until %}
+            <p style="margin:0.35rem 0 0">مغادرة النزيل الحالي: <strong>{{ stay_info.occupied_until }}</strong></p>
+            {% endif %}
+            {% if stay_info.available_from %}
+            <p class="hs-card__next" style="margin:0.35rem 0 0">يمكنك الحجز ابتداءً من: <strong>{{ stay_info.available_from }}</strong></p>
+            <p class="muted" style="margin:0.35rem 0 0;font-size:0.85rem">عدّل تاريخ الوصول إلى هذا التاريخ ثم أعد الحساب.</p>
+            {% endif %}
             {% else %}
             <p class="muted">اختر التواريخ لحساب السعر</p>
             {% endif %}

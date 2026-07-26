@@ -28,6 +28,7 @@ class RoomPhysicalStatus(str, enum.Enum):
     RESERVED = "RESERVED"
     OCCUPIED = "OCCUPIED"
     DIRTY = "DIRTY"
+    CLEANING = "CLEANING"  # مهمة تنظيف أُرسلت — بانتظار تأكيد الانتهاء
     MAINTENANCE = "MAINTENANCE"
     OUT_OF_SERVICE = "OUT_OF_SERVICE"
     BLOCKED = "BLOCKED"
@@ -124,6 +125,9 @@ class HotelRoomType(Base):
     code: Mapped[str | None] = mapped_column(String(32), nullable=True)
     capacity_adults: Mapped[int] = mapped_column(Integer, default=2)
     capacity_children: Mapped[int] = mapped_column(Integer, default=0)
+    max_occupancy: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    beds_description: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    allows_extra_bed: Mapped[bool] = mapped_column(Boolean, default=False)
     base_price: Mapped[Decimal] = mapped_column(Numeric(14, 3), default=Decimal("0"))
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
@@ -151,6 +155,18 @@ class HotelServiceCatalog(Base):
     )
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    seo_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    seo_description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    seo_h1: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    seo_slug: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    seo_keywords: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    seo_schema_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    seo_og_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    seo_og_description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    seo_og_image: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    seo_indexable: Mapped[bool] = mapped_column(Boolean, default=True)
+    seo_canonical_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    seo_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -165,6 +181,8 @@ class HotelBooking(Base):
         ForeignKey("hotel_properties.id", ondelete="RESTRICT"), index=True, default=1
     )
     reference: Mapped[str] = mapped_column(String(32), index=True)
+    # رقم الفاتورة النهائية عند إقفال الحجز / المغادرة
+    final_invoice_number: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     room_type_id: Mapped[int | None] = mapped_column(
         ForeignKey("hotel_room_types.id", ondelete="SET NULL"), nullable=True, index=True
     )
@@ -248,6 +266,14 @@ class HotelBooking(Base):
     )
     checked_out_by_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+    #: موعد تذكير داخلي للاستقبال (متابعة مغادرة / مطالبة)
+    follow_up_at: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    follow_up_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: إرسال مطالبة واتساب يومياً حتى سداد رصيد الحجز
+    claim_wa_until_paid: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0"
     )
 
     created_at: Mapped[datetime] = mapped_column(
@@ -370,6 +396,8 @@ class HotelBookingService(Base):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # False = تكلفة فندق مشمولة (إفطار) — لا تُضاف لمستحق النزيل
+    charged_to_guest: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -393,14 +421,24 @@ class HotelBookingPayment(Base):
     received_by_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # رقم إيصال القبض المطبوع عند استلام المبلغ
+    receipt_number: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    # ربط العملية بجلسة الاستقبال وموظف الرقم السري
+    hotel_shift_id: Mapped[int | None] = mapped_column(
+        ForeignKey("hotel_shifts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    received_by_employee_id: Mapped[int | None] = mapped_column(
+        ForeignKey("hr_employees.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True
     )
     is_refunded: Mapped[bool] = mapped_column(Boolean, default=False)
 
     booking: Mapped[HotelBooking] = relationship(back_populates="payments")
+    # select (لا selectin): إن نقص جدول الإرجاعات على السيرفر لا يفشل تحميل كل الدفعات دفعة واحدة
     refunds: Mapped[list["HotelBookingPaymentRefund"]] = relationship(
-        back_populates="payment", cascade="all, delete-orphan", lazy="selectin"
+        back_populates="payment", cascade="all, delete-orphan", lazy="select"
     )
 
 
@@ -412,9 +450,19 @@ class HotelBookingPaymentRefund(Base):
         ForeignKey("hotel_booking_payments.id", ondelete="RESTRICT"), index=True
     )
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 3))
+    # وسيلة صرف الإرجاع للنزيل (كاش/مصرف) — قد تختلف عن وسيلة الدفعة الأصلية
+    payment_method_id: Mapped[int | None] = mapped_column(
+        ForeignKey("payment_methods.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     approved_by_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    hotel_shift_id: Mapped[int | None] = mapped_column(
+        ForeignKey("hotel_shifts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    approved_by_employee_id: Mapped[int | None] = mapped_column(
+        ForeignKey("hr_employees.id", ondelete="SET NULL"), nullable=True, index=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
@@ -439,10 +487,22 @@ class HotelBookingDebt(Base):
         ForeignKey("hotel_bookings.id", ondelete="CASCADE"), index=True
     )
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 3))
+    amount_remaining: Mapped[Decimal | None] = mapped_column(
+        Numeric(14, 3), nullable=True
+    )
     status: Mapped[HotelBookingDebtStatus] = mapped_column(
-        Enum(HotelBookingDebtStatus), default=HotelBookingDebtStatus.OPEN, index=True
+        Enum(
+            HotelBookingDebtStatus,
+            values_callable=lambda obj: [e.value for e in obj],
+            native_enum=False,
+            length=20,
+        ),
+        default=HotelBookingDebtStatus.OPEN,
+        index=True,
     )
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    follow_up_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reminder_at: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
     settlement_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
@@ -478,7 +538,14 @@ class HotelInvoice(Base):
     )
     invoice_number: Mapped[str] = mapped_column(String(32), index=True)
     status: Mapped[HotelInvoiceStatus] = mapped_column(
-        Enum(HotelInvoiceStatus), default=HotelInvoiceStatus.DRAFT, index=True
+        Enum(
+            HotelInvoiceStatus,
+            values_callable=lambda obj: [e.value for e in obj],
+            native_enum=False,
+            length=20,
+        ),
+        default=HotelInvoiceStatus.DRAFT,
+        index=True,
     )
     subtotal: Mapped[Decimal] = mapped_column(Numeric(14, 3), default=Decimal("0"))
     discount: Mapped[Decimal] = mapped_column(Numeric(14, 3), default=Decimal("0"))

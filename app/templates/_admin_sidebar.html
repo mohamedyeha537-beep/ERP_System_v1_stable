@@ -48,6 +48,10 @@
 
         {% if p('hotel:booking:view') %}{{ sidebar_link('/admin/hotel/bookings', 'الحجوزات', '/admin/hotel/bookings', ui='ui_hotel') }}{% endif %}
 
+        {% if pos_ui_show(request, 'ui_hotel_nav_shift') and (p('hotel:booking:view') or p('hotel:booking:manage') or p('hotel:finance:close_day')) %}
+        {{ sidebar_link('/admin/hotel/shift', 'جلسة الفندق', '/admin/hotel/shift', ui='ui_hotel_nav_shift') }}
+        {% endif %}
+
         {% if p('hotel:rooms:manage') %}{{ sidebar_link('/admin/hotel/rooms', 'الغرف والشقق', '/admin/hotel/rooms', ui='ui_hotel') }}{% endif %}
 
         {% if p('hotel:settle') %}{{ sidebar_link('/hotel/settle', 'تسوية الغرف', '/hotel/settle', ui='ui_hotel_settle') }}{% endif %}
@@ -62,7 +66,11 @@
 
     {% if p('reports:view') or p('hotel:booking:manage') or p('hotel:finance:close_day') %}
 
+    {% if nav_hotel and not nav_sales %}
+    {{ sidebar_link('/reports/hotel-shifts', 'جلسات الفندق', '/reports/hotel-shifts') }}
+    {% else %}
     {{ sidebar_link('/admin/shifts', 'الورديات', '/admin/shifts') }}
+    {% endif %}
 
     {% endif %}
 
@@ -240,6 +248,8 @@
 
         {% if nav_sales and p('messaging:manage') %}{{ sidebar_link('/admin/messaging/chat-orders', 'طلبات الشات', '/admin/messaging/chat-orders', ui='ui_messaging') }}{% endif %}
 
+        {% if p('marketing_room:view') or p('admin:settings') or p('branding:manage') %}{{ sidebar_link('/admin/marketing-room', 'غرفة التسويق', '/admin/marketing-room') }}{% endif %}
+
       </div>
 
     </details>
@@ -248,9 +258,9 @@
 
 
 
-    {% if (p('admin:settings') or p('admin:users') or p('admin:roles') or p('backup:manage') or p('branding:manage')) and pos_ui_show(request, 'ui_nav_system_group') %}
+    {% if (p('admin:settings') or p('admin:users') or p('admin:roles') or p('backup:manage') or p('branding:manage') or p('marketing_room:view') or p('seo:view')) and pos_ui_show(request, 'ui_nav_system_group') %}
 
-    <details class="admin-sidebar-group">
+    <details class="admin-sidebar-group"{% if '/admin/marketing-room' in request.url.path or '/admin/seo' in request.url.path or '/admin/settings' in request.url.path or '/admin/users' in request.url.path or '/admin/roles' in request.url.path or '/admin/branding' in request.url.path or '/admin/backup' in request.url.path or '/admin/web-marketing' in request.url.path or '/admin/sync' in request.url.path or '/admin/printing' in request.url.path %} open{% endif %}>
 
       <summary>النظام والإعدادات</summary>
 
@@ -272,7 +282,7 @@
 
         {% if p('branding:manage') %}{{ sidebar_link('/admin/web-marketing', 'SEO والتحليلات', '/admin/web-marketing', ui='ui_branding') }}{% endif %}
         {% if p('seo:view') %}{{ sidebar_link('/admin/seo', 'SEO Center', '/admin/seo') }}{% endif %}
-        {% if p('marketing_room:view') %}{{ sidebar_link('/admin/marketing-room', 'غرفة التسويق', '/admin/marketing-room') }}{% endif %}
+        {% if p('marketing_room:view') or p('admin:settings') or p('branding:manage') %}{{ sidebar_link('/admin/marketing-room', 'غرفة التسويق', '/admin/marketing-room') }}{% endif %}
 
         {% if p('backup:manage') %}{{ sidebar_link('/admin/backup', 'نسخ احتياطي', '/admin/backup', ui='ui_backup') }}{% endif %}
 

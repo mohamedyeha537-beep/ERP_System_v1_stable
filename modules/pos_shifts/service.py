@@ -459,23 +459,41 @@ def _finalize_shift_close(
     try:
         from modules.authz.models import User
         from modules.notifications.hooks import emit_pos_shift_closed
+        from modules.pos_shifts.shortages import difference_shortage_amount
 
         cashier_name = ""
         if sh.user_id:
             u = db.get(User, int(sh.user_id))
             cashier_name = (u.username if u else "") or ""
+        employee_name = ""
+        if sh.employee_id:
+            from modules.hr.models import Employee
+
+            emp = db.get(Employee, int(sh.employee_id))
+            employee_name = ((emp.full_name_ar if emp else "") or "").strip()
+        if not employee_name:
+            employee_name = cashier_name
+        cash_short = difference_shortage_amount(sh.cash_difference)
+        if loyalty_absorbed and loyalty_absorbed > 0:
+            cash_short = max(
+                cash_short - Decimal(str(loyalty_absorbed)), Decimal("0")
+            ).quantize(Decimal("0.001"))
+        bank_short = difference_shortage_amount(sh.bank_difference)
         emit_pos_shift_closed(
             db,
             shift_id=shift_id,
             cashier_name=cashier_name,
+            employee_name=employee_name,
             shortage=cash_diff,
+            cash_shortage=cash_short,
+            bank_shortage=bank_short,
         )
         from modules.notifications.treasury_hooks import emit_treasury_shift_closed
 
         emit_treasury_shift_closed(
             db,
             shift_id=shift_id,
-            cashier_name=cashier_name,
+            cashier_name=employee_name or cashier_name,
             counted_cash=sh.counted_cash or Decimal("0"),
             expected_cash=sh.expected_cash or Decimal("0"),
             cash_difference=sh.cash_difference or Decimal("0"),

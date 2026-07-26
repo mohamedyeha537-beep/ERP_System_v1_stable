@@ -315,7 +315,7 @@ def inbox_pending_response_count(db: Session) -> int:
 
 
 def _open_conversation_ids_pending_response(db: Session) -> list[int]:
-    from sqlalchemy import desc
+    from sqlalchemy import func
 
     open_convs = list(
         db.scalars(
@@ -326,17 +326,23 @@ def _open_conversation_ids_pending_response(db: Session) -> list[int]:
     )
     if not open_convs:
         return []
-    pending: list[int] = []
-    for cid in open_convs:
-        last = db.scalar(
-            select(MessageThreadItem.direction)
-            .where(MessageThreadItem.conversation_id == cid)
-            .order_by(desc(MessageThreadItem.created_at), desc(MessageThreadItem.id))
-            .limit(1)
+    last_ids = (
+        select(
+            MessageThreadItem.conversation_id.label("cid"),
+            func.max(MessageThreadItem.id).label("max_id"),
         )
-        if last == MessageDirection.INBOUND.value:
-            pending.append(int(cid))
-    return pending
+        .where(MessageThreadItem.conversation_id.in_(open_convs))
+        .group_by(MessageThreadItem.conversation_id)
+        .subquery()
+    )
+    return [
+        int(cid)
+        for cid in db.scalars(
+            select(MessageThreadItem.conversation_id)
+            .join(last_ids, MessageThreadItem.id == last_ids.c.max_id)
+            .where(MessageThreadItem.direction == MessageDirection.INBOUND.value)
+        ).all()
+    ]
 
 
 def close_conversations_pending_response(db: Session) -> int:

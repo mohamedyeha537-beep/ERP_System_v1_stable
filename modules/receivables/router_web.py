@@ -28,7 +28,7 @@ from modules.receivables.service import (
 router = APIRouter(prefix="/reports", tags=["receivables"])
 _perm = require_permission(REPORTS_VIEW)
 
-_status_LABELS = {
+_STATUS_LABELS = {
     InvoicePayStatus.PAID: "مسدّد بالكامل",
     InvoicePayStatus.PARTIAL: "مسدّد جزئياً",
     InvoicePayStatus.UNPAID: "غير مدفوعة",

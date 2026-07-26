@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Any
 from app.datetime_local import format_local_dt
@@ -14,11 +15,13 @@ from markupsafe import Markup
 
 APP_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
+# إعادة تحميل القوالب عند تغيير الملف — حتى مع POS_RELOAD=0 (كود بايثون فقط يحتاج إعادة تشغيل)
 templates.env.auto_reload = True
+templates.env.cache_size = 50
 
 
 def _pos_is_main_treasury_wallet(pm: Any) -> bool:
-    """الخزينة الرئيسية — كاش أو مصرف (فواتير الشراء والمصروفات)."""
+    """الخزينة الرئيسية للمطعم — كاش أو مصرف."""
     if pm is None:
         return False
     from modules.payments.models import (
@@ -30,12 +33,39 @@ def _pos_is_main_treasury_wallet(pm: Any) -> bool:
     return name in (MAIN_TREASURY_CASH_PM_NAME, MAIN_TREASURY_BANK_PM_NAME)
 
 
+def _pos_is_hotel_treasury_wallet(pm: Any) -> bool:
+    """خزينة الفندق — كاش أو مصرف."""
+    if pm is None:
+        return False
+    from modules.payments.service import is_hotel_treasury_payment_method
+
+    return is_hotel_treasury_payment_method(pm)
+
+
 def _pos_is_supplier_credit_wallet(pm: Any) -> bool:
     if pm is None:
         return False
     from modules.payments.models import SUPPLIER_CREDIT_PM_NAME
 
     return str(getattr(pm, "name_ar", "") or "") == SUPPLIER_CREDIT_PM_NAME
+
+
+def _pos_is_purchase_custody_wallet(pm: Any) -> bool:
+    """عهدة المشتريات — كاش/مصرف لموظف إدخال الفواتير."""
+    if pm is None:
+        return False
+    from modules.payments.service import is_purchase_custody_payment_method
+
+    return is_purchase_custody_payment_method(pm)
+
+
+def _pos_is_purchase_pay_wallet(pm: Any) -> bool:
+    """محفظة يمكن الدفع منها لفاتورة شراء: خزينة مطعم/فندق أو عهدة."""
+    if pm is None:
+        return False
+    from modules.payments.service import is_purchase_source_wallet
+
+    return is_purchase_source_wallet(pm)
 
 
 # =====================================================================
@@ -119,6 +149,30 @@ def _pos_is_kiosk(request: Request) -> bool:
     from modules.authz.kiosk import is_cashier_kiosk_user
 
     return is_cashier_kiosk_user(user)
+
+
+def _pos_can_lock_pos_session(request: Request) -> bool:
+    """كاشير المطعم بعد إدخال الرقم السري — يظهر زر قفل الجلسة."""
+    user = _pos_user(request)
+    if user is None:
+        return False
+    from modules.authz.kiosk import requires_pos_pin
+
+    if not requires_pos_pin(user):
+        return False
+    return request.session.get("pos_employee_id") is not None
+
+
+def _pos_can_lock_hotel_session(request: Request) -> bool:
+    """موظف استقبال بعد إدخال الرقم السري — يظهر زر قفل الجلسة."""
+    user = _pos_user(request)
+    if user is None:
+        return False
+    from modules.authz.kiosk import requires_hotel_shift_pin
+
+    if not requires_hotel_shift_pin(user):
+        return False
+    return request.session.get("hotel_employee_id") is not None
 
 
 def _pos_display_name(request: Request) -> str:
@@ -232,18 +286,36 @@ def _pos_user_ui_hidden(user) -> set[str]:
 
 
 def _pos_page_trail(request: Request):
-    from app.page_trail import build_page_trail
+    from app.page_trail import PageTrail, TrailItem, build_page_trail
 
     path = request.url.path
     hide = getattr(request.state, "page_trail_hide", False)
     back_url = getattr(request.state, "page_trail_back_url", None)
     back_label = getattr(request.state, "page_trail_back_label", None)
-    return build_page_trail(
+    trail = build_page_trail(
         path,
         hide=hide,
         back_url=back_url,
         back_label=back_label,
     )
+    # في وضع الفندق: لا نرجع من الخزينة إلى نقطة بيع المطعم
+    if (
+        trail.show
+        and _pos_view_mode(request) == "hotel"
+        and path.rstrip("/").startswith("/pos/treasury")
+    ):
+        hotel_home = "/admin/hotel/dashboard"
+        return PageTrail(
+            show=True,
+            back_url=hotel_home,
+            back_label="السابق",
+            breadcrumbs=(
+                TrailItem("/", "الرئيسية"),
+                TrailItem(hotel_home, "لوحة الشقق"),
+                TrailItem("/pos/treasury", "الخزينة"),
+            ),
+        )
+    return trail
 
 
 def _pos_format_dt(value: Any, fmt: str = "%Y-%m-%d %H:%M") -> str:
@@ -258,10 +330,37 @@ def _pos_activity_unread(request: Request) -> int:
     return 0
 
 
+def _pos_hotel_nav_badges(request: Request) -> dict:
+    """شارات كروت تنقل الفندق — من middleware، مع احتساب احتياطي إن لم تُحقن."""
+    cached = getattr(request.state, "hotel_nav_badges", None)
+    if isinstance(cached, dict):
+        return cached
+    path = getattr(request.url, "path", "") or ""
+    if not (
+        path.startswith("/admin/hotel") or path.startswith("/hotel/settle")
+    ):
+        return {}
+    try:
+        from infra.db import get_session_factory
+        from modules.hotel.nav_badges import hotel_nav_badge_counts
+
+        Session = get_session_factory()
+        db = Session()
+        try:
+            counts = hotel_nav_badge_counts(db)
+        finally:
+            db.close()
+        request.state.hotel_nav_badges = counts
+        return counts
+    except Exception:
+        return {}
+
+
 # نُتيح هذه الدوال في every القوالب — البادئة `pos_` لتجنّب التعارض
 templates.env.globals["pos_page_trail"] = _pos_page_trail
 templates.env.globals["pos_is_admin"] = _pos_is_admin
 templates.env.globals["pos_activity_unread"] = _pos_activity_unread
+templates.env.globals["pos_hotel_nav_badges"] = _pos_hotel_nav_badges
 templates.env.globals["pos_view_mode"] = _pos_view_mode
 templates.env.globals["pos_nav_show_hotel"] = _pos_nav_show_hotel
 templates.env.globals["pos_nav_show_restaurant"] = _pos_nav_show_restaurant
@@ -280,10 +379,24 @@ templates.env.globals["ui_block_groups"] = _UI_BLOCK_GROUPS
 templates.env.globals["ui_blocks_by_group"] = _ui_blocks_by_group_fn()
 templates.env.globals["pos_user"] = _pos_user
 templates.env.globals["pos_is_kiosk"] = _pos_is_kiosk
+templates.env.globals["pos_can_lock_pos_session"] = _pos_can_lock_pos_session
+templates.env.globals["pos_can_lock_hotel_session"] = _pos_can_lock_hotel_session
 templates.env.globals["pos_perm"] = _pos_perm
 templates.env.globals["pos_store_name"] = _pos_store_name
 templates.env.globals["pos_display_name"] = _pos_display_name
 templates.env.globals["pos_app_version"] = _pos_app_version
+
+
+def _pos_sync_enabled(_request=None) -> bool:
+    try:
+        from infra.config import get_settings
+
+        return bool(get_settings().sync_enabled)
+    except Exception:
+        return False
+
+
+templates.env.globals["pos_sync_enabled"] = _pos_sync_enabled
 templates.env.globals["pos_brand"] = _pos_brand
 templates.env.globals["pos_qty"] = _pos_qty
 templates.env.globals["pos_qty_plain"] = _pos_qty_plain
@@ -292,7 +405,10 @@ templates.env.globals["pos_money_plain"] = _pos_money_plain
 templates.env.globals["pos_payroll_hours"] = _pos_payroll_hours
 templates.env.globals["pos_format_dt"] = _pos_format_dt
 templates.env.globals["pos_is_main_treasury_wallet"] = _pos_is_main_treasury_wallet
+templates.env.globals["pos_is_hotel_treasury_wallet"] = _pos_is_hotel_treasury_wallet
 templates.env.globals["pos_is_supplier_credit_wallet"] = _pos_is_supplier_credit_wallet
+templates.env.globals["pos_is_purchase_custody_wallet"] = _pos_is_purchase_custody_wallet
+templates.env.globals["pos_is_purchase_pay_wallet"] = _pos_is_purchase_pay_wallet
 templates.env.filters["qty"] = _pos_qty
 templates.env.filters["qty_plain"] = _pos_qty_plain
 templates.env.filters["localtime"] = _pos_format_dt

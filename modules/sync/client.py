@@ -63,14 +63,18 @@ def push_pending(db: ORMSession) -> tuple[int, str | None]:
     """يدفع الأحداث المعلّقة إلى السيرفر المركزي.
 
     يُرجع (عدد المؤكدة، رسالة الخطأ إن وجدت).
+    عند فشل الشبكة تبقى الأحداث معلّقة ويُعاد دفعها تلقائياً عند عودة الإنترنت.
     """
     settings = get_settings()
+    if not settings.sync_enabled:
+        return 0, None
     base = _base_url()
     if not base or not settings.online_sync_api_key:
         return 0, "sync not configured"
 
     events = get_pending_events(db, limit=settings.sync_batch_size)
     if not events:
+        # لا أحداث — اعتبر الاتصال سليماً إن نجح لاحقاً في pull، وإلا أبقِ الحالة
         return 0, None
 
     push = SyncPushIn(

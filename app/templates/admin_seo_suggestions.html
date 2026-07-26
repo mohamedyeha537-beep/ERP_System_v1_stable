@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}SEO Suggestions{% endblock %}
+{% block body %}
+<h1 style="margin-top:0">اقتراحات Content SEO</h1>
+<p class="muted">البيئة: {% if is_production %}Production{% else %}Staging{% endif %}</p>
+{% if flash %}<div class="card" style="background:#f0fdf4;margin-bottom:1rem">تم: {{ flash }}</div>{% endif %}
+{% if error %}<div class="card" style="background:#fef2f2;margin-bottom:1rem;color:#b91c1c">{{ error }}</div>{% endif %}
+<nav style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem">
+  <a class="btn" href="/admin/seo">لوحة</a>
+  <a class="btn" href="/admin/seo/pages">الصفحات</a>
+  <a class="btn" href="/admin/seo/issues">المشاكل</a>
+  <a class="btn btn-primary" href="/admin/seo/suggestions">الاقتراحات</a>
+  <a class="btn" href="/admin/seo/reports">التقارير</a>
+</nav>
+
+<div class="card">
+  <table class="table">
+    <thead><tr><th>#</th><th>نوع</th><th>قبل</th><th>بعد</th><th>حالة</th><th>إجراء</th></tr></thead>
+    <tbody>
+    {% for s in suggestions %}
+      {% set f = fixes_by_sug.get(s.id) %}
+      <tr>
+        <td>{{ s.id }}</td>
+        <td>{{ s.suggestion_type }}</td>
+        <td style="max-width:160px">{{ (s.current_value or '')[:80] }}</td>
+        <td style="max-width:160px">{{ (s.suggested_value or '')[:80] }}</td>
+        <td>{{ s.status }}{% if f %} · fix#{{ f.id }} {{ f.status }}{% endif %}</td>
+        <td style="display:flex;gap:0.25rem;flex-wrap:wrap">
+          {% if p('seo:approve') and s.status == 'pending' %}
+          <form method="post" action="/admin/seo/suggestions/{{ s.id }}/approve"><button class="btn" type="submit">Approve</button></form>
+          {% endif %}
+          {% if p('seo:review') and s.status == 'pending' %}
+          <form method="post" action="/admin/seo/suggestions/{{ s.id }}/reject"><button class="btn" type="submit">Reject</button></form>
+          {% endif %}
+          {% if f and p('seo:apply') and f.status == 'approved' %}
+          <form method="post" action="/admin/seo/fixes/{{ f.id }}/apply"><button class="btn btn-primary" type="submit">Apply</button></form>
+          {% endif %}
+          {% if f and p('seo:rollback') and f.status == 'applied' %}
+          <form method="post" action="/admin/seo/fixes/{{ f.id }}/rollback"><button class="btn" type="submit">Rollback</button></form>
+          {% endif %}
+          {% if f and p('seo:production_approve') and not f.approved_for_production %}
+          <form method="post" action="/admin/seo/fixes/{{ f.id }}/approve-production"><button class="btn" type="submit">Approve Prod</button></form>
+          {% endif %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6" class="muted">لا اقتراحات</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

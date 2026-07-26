@@ -58,20 +58,18 @@
         </select>
         <a href="/admin/departments" style="font-size:0.82rem;margin-top:0.2rem">إدارة الأقسام</a>
       </div>
-      {% if not finance_domain_filter %}
       <div class="field">
         <label for="emp-domain">مجال العمل *</label>
-        <select id="emp-domain" name="business_domain">
+        <select id="emp-domain" name="business_domain" required>
           {% for code, label in domain_choices %}
           <option value="{{ code }}"
             {% if emp and (emp.business_domain or 'restaurant') == code %}selected
-            {% elif not emp and code == 'restaurant' %}selected{% endif %}>{{ label }}</option>
+            {% elif not emp and finance_domain_filter and finance_domain_filter.value == code %}selected
+            {% elif not emp and not finance_domain_filter and code == 'restaurant' %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
         </select>
+        <small class="muted">لاستقبال الفندق: اختر <strong>فندق</strong> هنا، ثم فعّل «موظف استقبال فندق» بالأسفل.</small>
       </div>
-      {% else %}
-      <input type="hidden" name="business_domain" value="{{ finance_domain_filter.value }}" />
-      {% endif %}
       <div class="field">
         <label for="nid">الرقم الوطني</label>
         <input id="nid" name="national_id" value="{{ emp.national_id if emp else '' }}" />
@@ -196,7 +194,7 @@
 
     <h2 style="margin: 0.4rem 0">وردية الفندق (استقبال)</h2>
     <div class="help" style="background:#f0fdf4;border-color:#86efac;color:#166534">
-      فعّل «موظف استقبال فندق» مع مجال <strong>فندق</strong> ورقم سري — يُستخدم لفتح وردية الاستقبال مثل جلسة الكاشير.
+      مطلوب: مجال العمل = <strong>فندق</strong> (من حقل «مجال العمل» أعلاه) + تفعيل هذا الخيار + رقم سري — لفتح وردية الاستقبال مثل جلسة الكاشير.
     </div>
     <div class="field">
       <label>

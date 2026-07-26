@@ -40,6 +40,28 @@ class LedgerEntry:
     reference: str
     method_name: str
     method_id: int
+    room_label: str = ""
+    employee_name: str = ""
+    detail_url: str = ""
+
+
+def _user_label(db: Session, user_id: int | None) -> str:
+    if not user_id:
+        return ""
+    from modules.authz.models import User
+
+    u = db.get(User, int(user_id))
+    if u is None:
+        return ""
+    return (u.username or "").strip()
+
+
+def _room_label(number: str | None, name_ar: str | None = None) -> str:
+    num = (number or "").strip()
+    if num:
+        return f"#{num}"
+    name = (name_ar or "").strip()
+    return name or ""
 
 
 @dataclass
@@ -196,12 +218,25 @@ def list_ledger_entries(
     methods = {m.id: m for m in list_payment_methods(db, only_active=False) if m.id in method_ids}
     entries: list[LedgerEntry] = []
 
+    from modules.hotel.booking_models import HotelBooking
+    from modules.hotel.models import HotelRoom
+    from modules.sales.models import Sale
+
     sp_rows = db.execute(
-        select(SalePayment, PaymentMethod)
+        select(
+            SalePayment,
+            PaymentMethod,
+            Sale.booking_id,
+            HotelRoom.number,
+            HotelRoom.name_ar,
+        )
         .join(PaymentMethod, PaymentMethod.id == SalePayment.payment_method_id)
+        .outerjoin(Sale, Sale.id == SalePayment.sale_id)
+        .outerjoin(HotelBooking, HotelBooking.id == Sale.booking_id)
+        .outerjoin(HotelRoom, HotelRoom.id == HotelBooking.room_id)
         .where(PaymentMethod.id.in_(method_ids))
     ).all()
-    for sp, pm in sp_rows:
+    for sp, pm, booking_id, room_num, room_name in sp_rows:
         amt = Decimal(str(sp.amount or 0)).quantize(Decimal("0.001"))
         if amt <= 0:
             continue
@@ -214,6 +249,8 @@ def list_ledger_entries(
                 reference=f"فاتورة #{sp.sale_id}",
                 method_name=pm.name_ar,
                 method_id=pm.id,
+                room_label=_room_label(room_num, room_name),
+                detail_url=f"/pos/receipt/{sp.sale_id}",
             )
         )
 
@@ -235,6 +272,8 @@ def list_ledger_entries(
                 reference=f"مرتجع #{rp.sale_return_id}",
                 method_name=pm.name_ar,
                 method_id=pm.id,
+                employee_name=_user_label(db, rp.created_by_id),
+                detail_url=f"/refunds/receipt/{rp.sale_return_id}",
             )
         )
 
@@ -258,26 +297,35 @@ def list_ledger_entries(
                 reference=f"عملية #{pp.purchase_id}",
                 method_name=pm.name_ar,
                 method_id=pm.id,
+                employee_name=_user_label(db, pp.created_by_id),
+                detail_url=f"/admin/purchases/{pp.purchase_id}",
             )
         )
 
     from modules.hotel.booking_models import (
-        HotelBooking,
         HotelBookingPayment,
         HotelBookingPaymentRefund,
     )
 
     hp_rows = db.execute(
-        select(HotelBookingPayment, PaymentMethod, HotelBooking.reference)
+        select(
+            HotelBookingPayment,
+            PaymentMethod,
+            HotelBooking.reference,
+            HotelBooking.id,
+            HotelRoom.number,
+            HotelRoom.name_ar,
+        )
         .join(PaymentMethod, PaymentMethod.id == HotelBookingPayment.payment_method_id)
         .join(HotelBooking, HotelBooking.id == HotelBookingPayment.booking_id)
+        .outerjoin(HotelRoom, HotelRoom.id == HotelBooking.room_id)
         .where(HotelBookingPayment.payment_method_id.in_(method_ids))
     ).all()
-    for hp, pm, booking_ref in hp_rows:
+    for hp, pm, booking_ref, booking_id, room_num, room_name in hp_rows:
         amt = Decimal(str(hp.amount or 0)).quantize(Decimal("0.001"))
         if amt <= 0:
             continue
-        ref = (booking_ref or "").strip() or f"#{hp.booking_id}"
+        ref = (booking_ref or "").strip() or f"#{booking_id}"
         cat = "عربون حجز" if hp.is_deposit else "تحصيل حجز"
         entries.append(
             LedgerEntry(
@@ -285,28 +333,40 @@ def list_ledger_entries(
                 direction="IN",
                 amount=amt,
                 category_ar=cat,
-                reference=f"حجز {ref}",
+                reference=ref,
                 method_name=pm.name_ar,
                 method_id=pm.id,
+                room_label=_room_label(room_num, room_name),
+                employee_name=_user_label(db, hp.received_by_id),
+                detail_url=f"/admin/hotel/bookings/{booking_id}",
             )
         )
 
+    from sqlalchemy import func as sa_func
+
+    refund_pm_id = sa_func.coalesce(
+        HotelBookingPaymentRefund.payment_method_id,
+        HotelBookingPayment.payment_method_id,
+    )
     hr_rows = db.execute(
         select(
             HotelBookingPaymentRefund,
             PaymentMethod,
             HotelBooking.reference,
             HotelBooking.id,
+            HotelRoom.number,
+            HotelRoom.name_ar,
         )
         .join(
             HotelBookingPayment,
             HotelBookingPayment.id == HotelBookingPaymentRefund.payment_id,
         )
-        .join(PaymentMethod, PaymentMethod.id == HotelBookingPayment.payment_method_id)
+        .join(PaymentMethod, PaymentMethod.id == refund_pm_id)
         .join(HotelBooking, HotelBooking.id == HotelBookingPayment.booking_id)
-        .where(HotelBookingPayment.payment_method_id.in_(method_ids))
+        .outerjoin(HotelRoom, HotelRoom.id == HotelBooking.room_id)
+        .where(refund_pm_id.in_(method_ids))
     ).all()
-    for hr, pm, booking_ref, booking_id in hr_rows:
+    for hr, pm, booking_ref, booking_id, room_num, room_name in hr_rows:
         amt = Decimal(str(hr.amount or 0)).quantize(Decimal("0.001"))
         if amt <= 0:
             continue
@@ -317,9 +377,12 @@ def list_ledger_entries(
                 direction="OUT",
                 amount=amt,
                 category_ar="مرتجع حجز",
-                reference=f"حجز {ref}",
+                reference=ref,
                 method_name=pm.name_ar,
                 method_id=pm.id,
+                room_label=_room_label(room_num, room_name),
+                employee_name=_user_label(db, hr.approved_by_id),
+                detail_url=f"/admin/hotel/bookings/{booking_id}",
             )
         )
 
@@ -341,6 +404,7 @@ def list_ledger_entries(
                 reference=_transfer_reference(tr),
                 method_name=pm.name_ar,
                 method_id=pm.id,
+                employee_name=_user_label(db, tr.created_by_id),
             )
         )
 
@@ -362,6 +426,7 @@ def list_ledger_entries(
                 reference=_transfer_reference(tr),
                 method_name=pm.name_ar,
                 method_id=pm.id,
+                employee_name=_user_label(db, tr.created_by_id),
             )
         )
 
@@ -391,10 +456,12 @@ def list_ledger_entries(
                 )
             )
 
-    entries.sort(key=lambda e: (e.at, e.reference))
+    _epoch = datetime.min.replace(tzinfo=timezone.utc)
+    # الأحدث أولاً للعرض في واجهة الخزينة
+    entries.sort(key=lambda e: (e.at or _epoch, e.reference), reverse=True)
 
     if day is not None:
-        entries = [e for e in entries if e.at.date() == day]
+        entries = [e for e in entries if e.at and e.at.date() == day]
 
     if direction == "in":
         entries = [e for e in entries if e.direction == "IN"]
@@ -411,7 +478,10 @@ def daily_balance_rows(
     entries: list[LedgerEntry] | None = None,
 ) -> list[DailyBalanceRow]:
     """رصيد افتتاحي/ختامي لكل يوم حسب ترتيب الحركات."""
-    all_entries = entries if entries is not None else list_ledger_entries(db, kind)
+    _epoch = datetime.min.replace(tzinfo=timezone.utc)
+    all_entries = list(entries) if entries is not None else list_ledger_entries(db, kind)
+    # الحساب اليومي يحتاج ترتيباً تصاعدياً زمنياً
+    all_entries.sort(key=lambda e: (e.at or _epoch, e.reference))
     if not all_entries:
         return []
 

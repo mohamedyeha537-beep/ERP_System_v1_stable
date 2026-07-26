@@ -48,9 +48,11 @@ HOTEL_BOOKING_CONFIRMED = "hotel.booking_confirmed"
 HOTEL_ONLINE_BOOKING_REQUEST = "hotel.online_booking_request"
 HOTEL_CHECKOUT_REMINDER = "hotel.checkout_reminder"
 HOTEL_NIGHT_PAYMENT_DUE = "hotel.night_payment_due"
+HOTEL_BALANCE_CLAIM = "hotel.balance_claim"
 HOTEL_UNPAID_SERVICE_ADDED = "hotel.unpaid_service_added"
 HOTEL_PAYMENT_RECEIVED = "hotel.payment_received"
 HOTEL_ROOM_MAINTENANCE = "hotel.room_maintenance"
+HOTEL_ROOM_CLEANING = "hotel.room_cleaning"
 HOTEL_SHIFT_OPENED = "hotel.shift_opened"
 HOTEL_SHIFT_CLOSED = "hotel.shift_closed"
 HOTEL_SHIFT_OVERDUE = "hotel.shift_overdue"
@@ -118,9 +120,11 @@ ALL_EVENT_KEYS: list[tuple[str, str]] = [
     (HOTEL_ONLINE_BOOKING_REQUEST, "طلب حجز أونلاين — تنبيه الموظف"),
     (HOTEL_CHECKOUT_REMINDER, "تذكير مغادرة فندقية"),
     (HOTEL_NIGHT_PAYMENT_DUE, "ليلة فندقية مستحقة"),
+    (HOTEL_BALANCE_CLAIM, "مطالبة رصيد حجز فندقي"),
     (HOTEL_UNPAID_SERVICE_ADDED, "خدمة فندقية غير مدفوعة"),
     (HOTEL_PAYMENT_RECEIVED, "سداد حجز فندقي"),
     (HOTEL_ROOM_MAINTENANCE, "طلب صيانة شقة"),
+    (HOTEL_ROOM_CLEANING, "مهمة تنظيف شقة"),
     (HOTEL_SHIFT_OPENED, "فتح وردية فندق"),
     (HOTEL_SHIFT_CLOSED, "إقفال وردية فندق"),
     (HOTEL_SHIFT_OVERDUE, "تأخر إقفال وردية"),
@@ -231,9 +235,11 @@ PHASE7_EVENT_KEYS: frozenset[str] = frozenset(
         HOTEL_ONLINE_BOOKING_REQUEST,
         HOTEL_CHECKOUT_REMINDER,
         HOTEL_NIGHT_PAYMENT_DUE,
+        HOTEL_BALANCE_CLAIM,
         HOTEL_UNPAID_SERVICE_ADDED,
         HOTEL_PAYMENT_RECEIVED,
         HOTEL_ROOM_MAINTENANCE,
+        HOTEL_ROOM_CLEANING,
     }
 )
 
@@ -261,6 +267,7 @@ DEFAULT_THROTTLE_MINUTES: dict[str, int] = {
     REFERRAL_LINK_CREATED: 1440,
     HOTEL_CHECKOUT_REMINDER: 1440,
     HOTEL_NIGHT_PAYMENT_DUE: 1440,
+    HOTEL_BALANCE_CLAIM: 1440,
     KITCHEN_TICKET_CREATED: 60,
     HR_ATTENDANCE_CHECK_IN: 60,
     HR_ATTENDANCE_CHECK_OUT: 60,

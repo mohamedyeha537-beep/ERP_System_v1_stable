@@ -65,6 +65,10 @@ def login_submit(
     if is_cashier_kiosk_user(user):
         return RedirectResponse("/pos", status_code=status.HTTP_302_FOUND)
     if is_hotel_scope_user(user):
+        from modules.authz.kiosk import requires_hotel_shift_pin
+
+        if requires_hotel_shift_pin(user):
+            return RedirectResponse("/admin/hotel/pin", status_code=status.HTTP_302_FOUND)
         return RedirectResponse("/admin/hotel/dashboard", status_code=status.HTTP_302_FOUND)
     if is_restaurant_scope_user(user):
         return RedirectResponse("/pos", status_code=status.HTTP_302_FOUND)

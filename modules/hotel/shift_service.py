@@ -48,6 +48,7 @@ def get_open_shift(db: Session, *, property_id: int = 1) -> HotelShift | None:
 @dataclass
 class HotelShiftIndexRow:
     shift_id: int
+    shift_number: int
     shift_name_ar: str
     status: str
     opened_at: datetime | None
@@ -59,6 +60,10 @@ class HotelShiftIndexRow:
     net_total: Decimal
     payment_count: int
     expense_count: int
+    counted_cash: Decimal | None = None
+    counted_bank: Decimal | None = None
+    shortage_total: Decimal = Decimal("0")
+    surplus_total: Decimal = Decimal("0")
 
 
 def _hotel_shift_operator_label(shift: HotelShift) -> str:
@@ -123,9 +128,34 @@ def list_hotel_shifts_index(
             exp = live.total_expenses
         net = (rev - exp).quantize(Decimal("0.001"))
         user_label = (sh.user.username if sh.user else "") or "—"
+        cnt_cash = (
+            Decimal(str(sh.counted_cash)).quantize(Decimal("0.001"))
+            if sh.counted_cash is not None
+            else None
+        )
+        cnt_bank = (
+            Decimal(str(sh.counted_bank)).quantize(Decimal("0.001"))
+            if sh.counted_bank is not None
+            else None
+        )
+        cash_diff = Decimal(str(sh.cash_difference or 0))
+        bank_diff = Decimal(str(sh.bank_difference or 0))
+        shortage = Decimal("0")
+        surplus = Decimal("0")
+        for d in (cash_diff, bank_diff):
+            if d < 0:
+                shortage += -d
+            elif d > 0:
+                surplus += d
+        pay_cnt = int(sh.payment_count or 0)
+        exp_cnt = int(sh.expense_count or 0)
+        if sh.status == HotelShiftStatus.OPEN:
+            pay_cnt = live.payment_count
+            exp_cnt = live.expense_count
         rows.append(
             HotelShiftIndexRow(
                 shift_id=sh.id,
+                shift_number=int(sh.shift_number or 0),
                 shift_name_ar=sh.shift_name_ar,
                 status=sh.status.value,
                 opened_at=sh.opened_at,
@@ -135,11 +165,68 @@ def list_hotel_shifts_index(
                 total_revenue=rev,
                 total_expenses=exp,
                 net_total=net,
-                payment_count=int(sh.payment_count or 0),
-                expense_count=int(sh.expense_count or 0),
+                payment_count=pay_cnt,
+                expense_count=exp_cnt,
+                counted_cash=cnt_cash,
+                counted_bank=cnt_bank,
+                shortage_total=shortage.quantize(Decimal("0.001")),
+                surplus_total=surplus.quantize(Decimal("0.001")),
             )
         )
     return rows, total
+
+
+def list_stale_open_hotel_shifts(
+    db: Session, *, stale_hours: float = 24.0, property_id: int = 1
+) -> list[HotelShift]:
+    """جلسات فندق مفتوحة منذ أكثر من N ساعة (مثل جلسات الكاشير)."""
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=stale_hours)
+    return list(
+        db.scalars(
+            select(HotelShift)
+            .where(
+                HotelShift.property_id == property_id,
+                HotelShift.status == HotelShiftStatus.OPEN,
+                HotelShift.opened_at <= cutoff,
+            )
+            .options(selectinload(HotelShift.user), selectinload(HotelShift.employee))
+            .order_by(HotelShift.opened_at.asc())
+        ).all()
+    )
+
+
+def admin_close_hotel_shift(
+    db: Session,
+    shift_id: int,
+    *,
+    user_id: int,
+    note: str | None = None,
+) -> HotelShift:
+    """إغلاق إداري لجلسة عالقة — يُعدّ بالمتوقع دون إدخال يدوي."""
+    from modules.hotel.shift_activity import compute_hotel_shift_activity
+    from modules.hotel.shift_close_rows import hotel_shift_expected_drawers
+
+    shift = db.get(HotelShift, shift_id)
+    if shift is None:
+        raise HotelShiftError("الوردية غير موجودة.")
+    if shift.status != HotelShiftStatus.OPEN:
+        raise HotelShiftError("الوردية مغلقة بالفعل.")
+    now = datetime.now(timezone.utc)
+    activity = compute_hotel_shift_activity(db, ensure_utc(shift.opened_at), now)
+    exp_cash, exp_bank, _, _ = hotel_shift_expected_drawers(db, shift, activity)
+    return close_shift(
+        db,
+        shift_id,
+        user_id=user_id,
+        closing_note=(note or "").strip() or "إغلاق إداري — جلسة عالقة",
+        counted_cash=exp_cash,
+        counted_bank=exp_bank,
+        counted_bookings=activity.expected_booking_ops,
+        counted_meals=activity.meals_settled_count,
+        counted_laundry=activity.laundry_count,
+        counted_services=activity.services_count,
+        require_counts=False,
+    )
 
 
 def list_recent_shifts(db: Session, *, limit: int = 30, property_id: int = 1) -> list[HotelShift]:
@@ -147,7 +234,11 @@ def list_recent_shifts(db: Session, *, limit: int = 30, property_id: int = 1) ->
         db.scalars(
             select(HotelShift)
             .where(HotelShift.property_id == property_id)
-            .options(selectinload(HotelShift.user), selectinload(HotelShift.closed_by))
+            .options(
+                selectinload(HotelShift.user),
+                selectinload(HotelShift.closed_by),
+                selectinload(HotelShift.employee),
+            )
             .order_by(HotelShift.id.desc())
             .limit(limit)
         ).all()
@@ -201,7 +292,7 @@ def open_shift(
     opening_cash: Decimal | str | None = None,
 ) -> HotelShift:
     if get_open_shift(db, property_id=property_id) is not None:
-        raise HotelShiftError("يوجد وردية مفتوحة — أغلقها أولاً قبل فتح وردية جديدة.")
+        raise HotelShiftError("يوجد جلسة مفتوحة — أقفلها أولاً قبل افتتاح جلسة جديدة.")
 
     slot = active_shift_slot(db)
     num = int(shift_number or slot.number)
@@ -253,10 +344,12 @@ def close_shift(
     counted_meals: int | str | None = None,
     counted_laundry: int | str | None = None,
     counted_services: int | str | None = None,
+    require_counts: bool = True,
 ) -> HotelShift:
     import json
 
     from modules.hotel.shift_activity import compute_hotel_shift_activity
+    from modules.hotel.shift_close_rows import hotel_shift_expected_drawers
 
     shift = db.get(HotelShift, shift_id)
     if shift is None:
@@ -264,22 +357,40 @@ def close_shift(
     if shift.status != HotelShiftStatus.OPEN:
         raise HotelShiftError("الوردية مغلقة بالفعل.")
 
+    if require_counts:
+        if counted_cash is None or str(counted_cash).strip() == "":
+            raise HotelShiftError(
+                "أدخل المبلغ المعدود للكاش بعد عدّ الدرج — مثل إقفال جلسة المطعم."
+            )
+        if counted_bank is None or str(counted_bank).strip() == "":
+            raise HotelShiftError(
+                "أدخل المبلغ المعدود للمصرف/التحويل بعد مراجعة الإيصالات."
+            )
+        for label, raw in (
+            ("عمليات الحجز", counted_bookings),
+            ("الوجبات", counted_meals),
+            ("المغسلة", counted_laundry),
+            ("الخدمات", counted_services),
+        ):
+            if raw is None or str(raw).strip() == "":
+                raise HotelShiftError(f"أدخل العدد المعدود لبند: {label}.")
+
     now = datetime.now(timezone.utc)
     summary = compute_shift_summary(db, shift, end_at=now)
     activity = compute_hotel_shift_activity(db, ensure_utc(shift.opened_at), now)
+    exp_cash, exp_bank, _, _ = hotel_shift_expected_drawers(db, shift, activity)
 
-    exp_cash = activity.expected_cash
-    exp_bank = activity.expected_bank
-    cnt_cash = Decimal(str(counted_cash if counted_cash is not None else "0")).quantize(
-        Decimal("0.001")
-    )
-    cnt_bank = Decimal(str(counted_bank if counted_bank is not None else "0")).quantize(
-        Decimal("0.001")
-    )
+    try:
+        cnt_cash = Decimal(str(counted_cash)).quantize(Decimal("0.001"))
+        cnt_bank = Decimal(str(counted_bank)).quantize(Decimal("0.001"))
+    except Exception as exc:
+        raise HotelShiftError("مبالغ المعدود غير صالحة.") from exc
+    if cnt_cash < 0 or cnt_bank < 0:
+        raise HotelShiftError("المعدود لا يمكن أن يكون سالباً.")
 
     def _int_val(raw, default: int = 0) -> int:
         try:
-            return max(0, int(str(raw or default)))
+            return max(0, int(str(raw if raw is not None else default)))
         except (TypeError, ValueError):
             return default
 
@@ -312,7 +423,13 @@ def close_shift(
     shift.counted_laundry_count = cnt_laundry
     shift.expected_services_count = activity.services_count
     shift.counted_services_count = cnt_services
-    shift.close_snapshot_json = json.dumps(activity.to_dict(), ensure_ascii=False)
+    snap = activity.to_dict()
+    snap["expected_cash"] = str(exp_cash)
+    snap["expected_bank"] = str(exp_bank)
+    snap["opening_cash"] = str(
+        Decimal(str(shift.opening_cash or 0)).quantize(Decimal("0.001"))
+    )
+    shift.close_snapshot_json = json.dumps(snap, ensure_ascii=False)
     db.flush()
 
     operator = ""

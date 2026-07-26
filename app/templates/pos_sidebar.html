@@ -67,12 +67,12 @@
 {% if sale.lines %}
 <div class="pos-print-row no-print" style="display:flex;gap:0.35rem;flex-wrap:wrap;margin:0.35rem 0">
   <button type="button" class="btn btn-primary pos-receipt-print-btn" data-sale-id="{{ sale.id }}"
-     data-doc-kind="{% if sale.status.value == 'COMPLETED' %}receipt{% else %}prebill{% endif %}"
+     data-doc-kind="{% if sale.status.value == 'COMPLETED' %}invoice{% else %}prebill{% endif %}"
      style="flex:1;min-width:7rem;font-weight:700;padding:0.4rem 0.55rem">
     🖨 طباعة
   </button>
   <button type="button" class="btn pos-receipt-preview-btn" data-sale-id="{{ sale.id }}"
-     data-doc-kind="{% if sale.status.value == 'COMPLETED' %}receipt{% else %}prebill{% endif %}"
+     data-doc-kind="{% if sale.status.value == 'COMPLETED' %}invoice{% else %}prebill{% endif %}"
      style="flex:1;min-width:7rem;padding:0.4rem 0.55rem">
     معاينة
   </button>

@@ -68,7 +68,7 @@ from modules.messaging.chat_order_service import (
 
     load_order_data,
 
-    order_confirmation_message,
+    order_confirmation_parts,
 
     order_payment_amount,
 
@@ -548,7 +548,12 @@ def handle_chat_order(db: Session, session: WebChatSession, text: str) -> Hermes
 
             r = HermesReply()
 
-            r.add(order_confirmation_message(db, session, sale))
+            data_conf = load_order_data(session)
+            parts = data_conf.get("confirmation_parts")
+            if not (isinstance(parts, list) and parts):
+                parts = order_confirmation_parts(db, session, sale, mark_intro=True)
+            for _part in parts:
+                r.add(str(_part))
 
             return r
 
@@ -624,7 +629,12 @@ def handle_chat_order(db: Session, session: WebChatSession, text: str) -> Hermes
 
         r = HermesReply()
 
-        r.add(order_confirmation_message(db, session, sale))
+        data_conf = load_order_data(session)
+            parts = data_conf.get("confirmation_parts")
+            if not (isinstance(parts, list) and parts):
+                parts = order_confirmation_parts(db, session, sale, mark_intro=True)
+            for _part in parts:
+                r.add(str(_part))
 
         return r
 
@@ -918,7 +928,12 @@ def handle_receipt_upload(
 
     r = HermesReply()
 
-    r.add(order_confirmation_message(db, session, sale))
+    data_conf = load_order_data(session)
+            parts = data_conf.get("confirmation_parts")
+            if not (isinstance(parts, list) and parts):
+                parts = order_confirmation_parts(db, session, sale, mark_intro=True)
+            for _part in parts:
+                r.add(str(_part))
 
     return r
 

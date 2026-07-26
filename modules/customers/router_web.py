@@ -42,23 +42,38 @@ _manage = require_permission(CUSTOMERS_MANAGE)
 def customers_page(
     request: Request,
     db: DBSession,
-    _: User = Depends(_view),
+    user: User = Depends(_view),
 ):
     import logging
+
+    from modules.customers.service import resolve_customer_list_domain
+    from modules.platform.business_domain import is_system_admin
 
     log = logging.getLogger("pos.customers")
     search = (request.query_params.get("q") or "").strip()
     show_inactive = request.query_params.get("show_inactive") == "1"
     customer_type = (request.query_params.get("type") or "").strip() or None
+    domain_raw = (request.query_params.get("domain") or "").strip() or None
+    list_domain = resolve_customer_list_domain(
+        user, request.session, explicit=domain_raw if domain_raw != "all" else None
+    )
+    # أدمن في الوضع العام: domain=all أو بدون فلتر = الكل
+    if domain_raw == "all" and is_system_admin(user):
+        list_domain = None
     try:
         customers = list_customers(
             db,
             search=search or None,
             only_active=not show_inactive,
             customer_type=customer_type,
+            business_domain=list_domain,
         )
         settings = loyalty_settings(db)
-        grand = total_points_grand(db)
+        grand = total_points_grand(
+            db,
+            business_domain=list_domain,
+            only_active=not show_inactive,
+        )
         customer_rows = [(c, customer_stats(db, c)) for c in customers]
     except Exception as exc:
         log.exception("customers page failed: %s", exc)
@@ -70,6 +85,9 @@ def customers_page(
                 "customer_rows": [],
                 "search": search,
                 "customer_type": customer_type or "",
+                "domain_filter": domain_raw or "",
+                "list_domain": list_domain,
+                "can_pick_domain": is_system_admin(user),
                 "loyalty": {
                     "enabled": True,
                     "earn_per_dinar": Decimal("1"),
@@ -92,6 +110,9 @@ def customers_page(
             "customer_rows": customer_rows,
             "search": search,
             "customer_type": customer_type or "",
+            "domain_filter": domain_raw or (list_domain.value if list_domain else "all"),
+            "list_domain": list_domain,
+            "can_pick_domain": is_system_admin(user),
             "loyalty": settings,
             "grand_points": grand,
             "show_inactive": show_inactive,
@@ -103,16 +124,24 @@ def customers_page(
 
 @router.post("/add", response_class=HTMLResponse)
 def customers_add(
+    request: Request,
     db: DBSession,
-    _: User = Depends(_manage),
+    user: User = Depends(_manage),
     phone: str = Form(...),
     name: str = Form(""),
     email: str = Form(""),
     notes: str = Form(""),
     customer_type: str = Form("INDIVIDUAL"),
     company_name: str = Form(""),
+    business_domain: str = Form(""),
 ):
+    from modules.customers.service import resolve_customer_list_domain
+
     try:
+        dom = (business_domain or "").strip() or None
+        if not dom:
+            inferred = resolve_customer_list_domain(user, request.session)
+            dom = inferred.value if inferred else "restaurant"
         create_customer(
             db,
             phone=phone,
@@ -121,6 +150,7 @@ def customers_add(
             notes=notes,
             customer_type=customer_type,
             company_name=company_name or None,
+            business_domain=dom,
         )
         db.commit()
     except CustomersError as e:
@@ -133,9 +163,10 @@ def customers_add(
 
 @router.post("/{cid}/edit", response_class=HTMLResponse)
 def customers_edit(
+    request: Request,
     cid: int,
     db: DBSession,
-    _: User = Depends(_manage),
+    user: User = Depends(_manage),
     phone: str = Form(...),
     name: str = Form(""),
     email: str = Form(""),
@@ -143,7 +174,32 @@ def customers_edit(
     is_active: str = Form(""),
     customer_type: str = Form("INDIVIDUAL"),
     company_name: str = Form(""),
+    business_domain: str = Form(""),
 ):
+    from modules.customers.service import (
+        customer_visible_for_domain,
+        get_customer,
+        resolve_customer_list_domain,
+    )
+    from modules.platform.business_domain import is_system_admin
+
+    c = get_customer(db, cid)
+    if c is None:
+        return RedirectResponse(
+            "/admin/customers?error=العميل غير موجود.", status_code=302
+        )
+    list_domain = resolve_customer_list_domain(user, request.session)
+    if list_domain and not customer_visible_for_domain(
+        c.business_domain, filter_domain=list_domain
+    ):
+        return RedirectResponse(
+            "/admin/customers?error=لا صلاحية لتعديل عميل خارج نطاقك.",
+            status_code=302,
+        )
+    # موظف محدود المجال: لا يغيّر المجال يدوياً
+    dom = (business_domain or "").strip() or None
+    if not is_system_admin(user):
+        dom = None
     try:
         update_customer(
             db,
@@ -155,14 +211,15 @@ def customers_edit(
             is_active=(is_active == "on"),
             customer_type=customer_type,
             company_name=company_name or None,
+            business_domain=dom,
         )
         db.commit()
     except CustomersError as e:
         db.rollback()
         return RedirectResponse(
-            f"/admin/customers?error={e}", status_code=302
+            f"/admin/customers/{cid}?error={e}", status_code=302
         )
-    return RedirectResponse("/admin/customers?saved=1", status_code=302)
+    return RedirectResponse(f"/admin/customers/{cid}?saved=1", status_code=302)
 
 
 @router.post("/{cid}/archive", response_class=HTMLResponse)
@@ -273,15 +330,27 @@ def customer_detail(
     db: DBSession,
     user: User = Depends(_view),
 ):
+    from modules.customers.service import (
+        customer_visible_for_domain,
+        resolve_customer_list_domain,
+    )
+    from modules.platform.business_domain import is_system_admin
+
     c = get_customer(db, cid)
     if c is None:
         return RedirectResponse(
             "/admin/customers?error=العميل غير موجود.", status_code=302
         )
+    list_domain = resolve_customer_list_domain(user, request.session)
+    if list_domain and not customer_visible_for_domain(
+        c.business_domain, filter_domain=list_domain
+    ):
+        return RedirectResponse(
+            "/admin/customers?error=هذا العميل خارج نطاق عرضك (مطعم/فندق).",
+            status_code=302,
+        )
     txns = list_transactions(db, cid, limit=200)
-    wallet_txns = list_wallet_transactions(db, cid, limit=100)
     sales = list_customer_sales(db, cid, limit=30)
-    stats = customer_stats(db, c)
     settings = loyalty_settings(db)
     from modules.customers.referral_service import (
         ensure_six_digit_referral_code,
@@ -290,18 +359,34 @@ def customer_detail(
     )
 
     ensure_six_digit_referral_code(db, c)
+    # ترحيل أرصدة الحجوزات المُغلقة إلى المحفظة حتى يظهر الرصيد في الملف الشخصي
+    try:
+        from modules.hotel.booking_service import (
+            consolidate_checked_out_credits_to_wallet,
+        )
+
+        consolidate_checked_out_credits_to_wallet(
+            db, int(c.id), user_id=getattr(user, "id", None)
+        )
+    except Exception:  # noqa: BLE001
+        pass
     db.commit()
     db.refresh(c)
+    from modules.customers.account_balance import customer_money_balance
     from modules.messaging.consent import get_profile
     from modules.messaging.service import messaging_enabled
 
     msg_profile = get_profile(db, cid)
+    money_balance = customer_money_balance(db, c)
+    stats = customer_stats(db, c)
+    wallet_txns = list_wallet_transactions(db, cid, limit=100)
     return templates.TemplateResponse(
         "admin_customer_detail.html",
         {
             "request": request,
             "customer": c,
             "stats": stats,
+            "money_balance": money_balance,
             "transactions": txns,
             "wallet_transactions": wallet_txns,
             "sales": sales,
@@ -314,6 +399,7 @@ def customer_detail(
             "messaging_enabled": messaging_enabled(db),
             "msg_opt_in": bool(msg_profile and msg_profile.opt_in),
             "msg_channel": msg_profile.preferred_channel if msg_profile else "whatsapp",
+            "can_pick_domain": is_system_admin(user),
         },
     )
 
@@ -428,6 +514,8 @@ def loyalty_settings_page(
     from modules.customers.referral_service import referral_settings
     from modules.platform.business_domain import BusinessDomain
 
+    from modules.messaging.hermes_loyalty import get_loyalty_intro_template
+
     s = referral_settings(db, BusinessDomain.RESTAURANT)
     return templates.TemplateResponse(
         "admin_loyalty_settings.html",
@@ -435,6 +523,8 @@ def loyalty_settings_page(
             "request": request,
             "loyalty": s,
             "domain_label": "المطعم",
+            "show_loyalty_intro_editor": True,
+            "loyalty_intro_text": get_loyalty_intro_template(db),
             "saved": request.query_params.get("saved"),
             "error": request.query_params.get("error"),
         },
@@ -455,7 +545,9 @@ def loyalty_settings_save(
     referral_buyer_points: str = Form("25"),
     referral_min_sale_total: str = Form("0"),
     referral_max_uses_per_code: str = Form("1"),
+    loyalty_intro_text: str = Form(""),
 ):
+    from modules.messaging.hermes_loyalty import save_loyalty_intro_template
     from modules.platform.business_domain import BusinessDomain
     from modules.platform.domain_loyalty import (
         save_loyalty_settings_for_domain,
@@ -481,6 +573,7 @@ def loyalty_settings_save(
         min_sale_total=referral_min_sale_total,
         max_uses_per_code=referral_max_uses_per_code,
     )
+    save_loyalty_intro_template(db, loyalty_intro_text)
     invalidate_settings_cache()
     db.commit()
     return RedirectResponse("/admin/loyalty?saved=1", status_code=302)

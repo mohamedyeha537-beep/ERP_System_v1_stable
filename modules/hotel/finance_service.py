@@ -40,7 +40,15 @@ def issue_checkout_invoice(
     if booking is None:
         raise FinanceError("الحجز غير موجود.")
     folio = build_folio(db, booking_id)
-    inv_num = f"INV-{booking.reference}-{datetime.now(timezone.utc).strftime('%Y%m%d')}"
+    from modules.printing.doc_numbers import PrintDocKind, ensure_doc_number
+
+    inv_num = ensure_doc_number(
+        db,
+        getattr(booking, "final_invoice_number", None),
+        PrintDocKind.FINAL_INVOICE,
+        domain="hotel",
+    )
+    booking.final_invoice_number = inv_num
     inv = HotelInvoice(
         booking_id=booking_id,
         invoice_number=inv_num,

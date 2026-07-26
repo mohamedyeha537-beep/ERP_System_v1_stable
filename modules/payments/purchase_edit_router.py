@@ -26,8 +26,11 @@ from modules.payments.purchase_edit import (
 from modules.payments.service import (
     InventoryPurchaseLineIn,
     PaymentsError,
-    assert_main_treasury_or_supplier_credit,
+    assert_purchase_custody_payment_method,
+    assert_purchase_term_payment_method,
     list_payment_methods_for_purchase_term,
+    list_payment_methods_for_purchase_term_custody,
+    purchase_user_limited_to_custody,
     sum_purchase_payments,
 )
 
@@ -119,7 +122,15 @@ def purchase_edit_page(
             f"/admin/purchases?error={quote(str(exc))}",
             status_code=302,
         )
-    methods = list_payment_methods_for_purchase_term(db, only_active=True)
+    # خزين/عهد المطعم والفندق معاً — موظف المشتريات قد يدفع من أيهما
+    if purchase_user_limited_to_custody(user):
+        methods = list_payment_methods_for_purchase_term_custody(
+            db, only_active=True, domain=None
+        )
+    else:
+        methods = list_payment_methods_for_purchase_term(
+            db, only_active=True, domain=None
+        )
     products = list_stockable_products(db)
     warehouses = list_warehouses(db)
     products_by_id = {p.id: p for p in products}
@@ -168,7 +179,10 @@ async def purchase_edit_save(
         )
 
     try:
-        assert_main_treasury_or_supplier_credit(db, pm_id)
+        if purchase_user_limited_to_custody(user):
+            assert_purchase_custody_payment_method(db, pm_id)
+        else:
+            assert_purchase_term_payment_method(db, pm_id)
     except PaymentsError as exc:
         return RedirectResponse(
             f"/admin/purchases/{pid}/edit?error={quote(str(exc))}",

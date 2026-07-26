@@ -57,9 +57,12 @@ from modules.messaging.providers.textmebot import send_textmebot
 from modules.messaging.providers.webhook import send_webhook
 from modules.messaging.seed import ensure_messaging_defaults
 from modules.messaging.service import (
+    audience_domain_label,
     emit_event_and_send,
     enqueue_broadcast,
     messaging_enabled,
+    normalize_audience_domain,
+    normalize_broadcast_segment,
     run_campaign_now,
 )
 from modules.messaging.admin_nav import messaging_admin_nav_ctx
@@ -98,6 +101,7 @@ SETTING_KEYS = [
     "messaging_inbound_secret",
     "web_chat_enabled",
     "shop_enabled",
+    "shop_online_staff_phone",
     "web_chat_n8n_webhook_url",
     "web_chat_bank_payment_text",
     "web_chat_guide_loyalty_file",
@@ -212,7 +216,7 @@ def messaging_save(
     messaging_textmebot_apikey: str = Form(""),
     messaging_textmebot_base_url: str = Form("http://api.textmebot.com/send.php"),
     messaging_country_code: str = Form("218"),
-    messaging_send_delay_seconds: str = Form("5"),
+    messaging_send_delay_seconds: str = Form("10"),
     messaging_outbox_batch_size: str = Form("1"),
     messaging_worker_interval_seconds: str = Form("30"),
     messaging_outbox_worker_enabled: str = Form(""),
@@ -220,6 +224,7 @@ def messaging_save(
     messaging_inbound_secret: str = Form(""),
     web_chat_enabled: str = Form(""),
     shop_enabled: str = Form(""),
+    shop_online_staff_phone: str = Form(""),
     web_chat_n8n_webhook_url: str = Form(""),
     web_chat_bank_payment_text: str = Form(""),
     web_chat_bot_name: str = Form(""),
@@ -253,7 +258,11 @@ def messaging_save(
         messaging_textmebot_base_url.strip() or "http://api.textmebot.com/send.php",
     )
     set_setting(db, "messaging_country_code", messaging_country_code.strip() or "218")
-    set_setting(db, "messaging_send_delay_seconds", messaging_send_delay_seconds.strip() or "5")
+    try:
+        _delay = max(10, int((messaging_send_delay_seconds or "10").strip() or "10"))
+    except ValueError:
+        _delay = 10
+    set_setting(db, "messaging_send_delay_seconds", str(_delay))
     set_setting(db, "messaging_outbox_batch_size", messaging_outbox_batch_size.strip() or "1")
     set_setting(
         db,
@@ -279,6 +288,11 @@ def messaging_save(
         set_setting(db, "messaging_inbound_secret", secret)
     set_setting(db, "web_chat_enabled", "1" if web_chat_enabled == "on" else "0")
     set_setting(db, "shop_enabled", "1" if shop_enabled == "on" else "0")
+    set_setting(
+        db,
+        "shop_online_staff_phone",
+        (shop_online_staff_phone or "").strip()[:40],
+    )
     set_setting(db, "web_chat_n8n_webhook_url", web_chat_n8n_webhook_url.strip())
     set_setting(db, "web_chat_bank_payment_text", web_chat_bank_payment_text.strip())
     from modules.messaging.web_chat_config import normalize_menu_options_input
@@ -738,14 +752,16 @@ def campaigns_list(request: Request, db: DBSession, _: User = Depends(_perm)):
             seg_obj = json.loads(row.segment_json or "{}")
         except json.JSONDecodeError:
             pass
-        seg = (seg_obj.get("segment") or "opt_in").strip()
+        seg = normalize_broadcast_segment(seg_obj.get("segment"))
+        audience = normalize_audience_domain(seg_obj.get("audience_domain"))
+        audience_lbl = audience_domain_label(audience)
         if seg == "phone_list":
             lid = seg_obj.get("phone_list_id")
             segment_labels[row.id] = f"قائمة خارجية #{lid}" if lid else "قائمة خارجية"
         elif seg == "all_whatsapp":
-            segment_labels[row.id] = "كل العملاء"
+            segment_labels[row.id] = f"كل النشطين — {audience_lbl}"
         else:
-            segment_labels[row.id] = "موافقون"
+            segment_labels[row.id] = f"موافقون — {audience_lbl}"
     return templates.TemplateResponse(
         "admin_messaging_campaigns.html",
         {
@@ -774,6 +790,7 @@ def campaign_save(
     ends_at: str = Form(""),
     is_active: str = Form(""),
     segment: str = Form("opt_in"),
+    audience_domain: str = Form("all"),
     phone_list_id: str = Form(""),
 ):
     def _parse_dt(raw: str):
@@ -807,7 +824,8 @@ def campaign_save(
     seg_data: dict = {
         "message": message.strip(),
         "image_url": final_image_url,
-        "segment": segment if segment in ("opt_in", "all_whatsapp", "phone_list") else "opt_in",
+        "segment": normalize_broadcast_segment(segment),
+        "audience_domain": normalize_audience_domain(audience_domain),
     }
     if seg_data["segment"] == "phone_list" and (phone_list_id or "").strip().isdigit():
         seg_data["phone_list_id"] = int(phone_list_id.strip())
@@ -922,7 +940,7 @@ def broadcast_page(request: Request, db: DBSession, _: User = Depends(_perm)):
             "opt_in_customers": opt_in,
             "pending": pending,
             "eta_minutes": estimate_queue_minutes(db, pending),
-            "delay": get_setting(db, "messaging_send_delay_seconds", "5"),
+            "delay": get_setting(db, "messaging_send_delay_seconds", "10"),
             "batch": get_setting(db, "messaging_outbox_batch_size", "1"),
             "phone_lists": list_phone_lists(db),
             "sent": request.query_params.get("sent"),
@@ -944,6 +962,7 @@ def broadcast_send(
     image_url: str = Form(""),
     image_file: UploadFile | None = File(None),
     segment: str = Form("opt_in"),
+    audience_domain: str = Form("all"),
     phone_list_id: str = Form(""),
 ):
     if not messaging_enabled(db):
@@ -958,7 +977,8 @@ def broadcast_send(
             "/admin/messaging/broadcast?err=" + quote("أدخل مفتاح TextMeBot في الإعدادات."),
             status_code=302,
         )
-    seg = segment if segment in ("opt_in", "all_whatsapp", "phone_list") else "opt_in"
+    seg = normalize_broadcast_segment(segment)
+    audience = normalize_audience_domain(audience_domain)
     lid = int(phone_list_id.strip()) if (phone_list_id or "").strip().isdigit() else None
     if seg == "phone_list" and not lid:
         return RedirectResponse(
@@ -979,6 +999,7 @@ def broadcast_send(
         message=message,
         image_url=final_image_url,
         segment=seg,
+        audience_domain=audience,
         phone_list_id=lid,
     )
     if count == 0:

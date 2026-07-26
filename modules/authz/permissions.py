@@ -36,6 +36,8 @@ HOTEL_BOOKING_MANAGE = "hotel:booking:manage"
 HOTEL_BOOKING_CHECKIN = "hotel:booking:checkin"
 HOTEL_BOOKING_CHECKOUT = "hotel:booking:checkout"
 HOTEL_BOOKING_CHECKOUT_BALANCE = "hotel:booking:checkout_with_balance"
+HOTEL_DEBTS_VIEW = "hotel:debts:view"
+HOTEL_DEBTS_COLLECT = "hotel:debts:collect"
 HOTEL_HOUSEKEEPING = "hotel:housekeeping"
 HOTEL_FINANCE_CLOSE = "hotel:finance:close_day"
 CUSTOMERS_VIEW = "customers:view"
@@ -96,7 +98,9 @@ ALL_PERMISSIONS: list[tuple[str, str]] = [
     (HOTEL_BOOKING_MANAGE, "تعديل سعر/خصم/إلغاء حجز"),
     (HOTEL_BOOKING_CHECKIN, "Check-in للنزلاء"),
     (HOTEL_BOOKING_CHECKOUT, "Check-out للنزلاء"),
-    (HOTEL_BOOKING_CHECKOUT_BALANCE, "Check-out مع مبلغ متبقٍ (مشرف)"),
+    (HOTEL_BOOKING_CHECKOUT_BALANCE, "Check-out مع متبقٍ وترحيل دين للذمم (استقبال)"),
+    (HOTEL_DEBTS_VIEW, "عرض قائمة ذمم الحجوزات ومتابعة التحصيل"),
+    (HOTEL_DEBTS_COLLECT, "تحصيل ديون الحجوزات وتسجيل ملاحظات/تذكير"),
     (HOTEL_HOUSEKEEPING, "تنظيف الغرف (Housekeeping)"),
     (HOTEL_FINANCE_CLOSE, "إقفال يومي فندقي"),
     (CUSTOMERS_VIEW, "عرض قاعدة العملاء وأرصدة نقاط الولاء"),

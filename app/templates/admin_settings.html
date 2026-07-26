@@ -126,10 +126,20 @@
     <label for="store_name">اسم المتجر (يظهر في رأس الفاتورة)</label>
     <input id="store_name" name="store_name" value="{{ store_name }}" maxlength="120" />
 
-    <label for="public_base_url" style="margin-top: 0.75rem">الرابط العام للتطبيق (لروابط واتساب والفواتير)</label>
-    <input id="public_base_url" name="public_base_url" value="{{ public_base_url }}" placeholder="https://example.com" maxlength="255" dir="ltr" />
+    <label for="public_base_url" style="margin-top: 0.75rem">الرابط العام للتطبيق (لروابط واتساب والفواتير وSEO)</label>
+    <input id="public_base_url" name="public_base_url" value="{{ public_base_url }}" placeholder="https://baytak.baytak.ly" maxlength="255" dir="ltr" />
     <p class="muted" style="font-size: 0.85rem; margin-top: 0.35rem">
-      عند ضبطه، تُرسل رسائل حجز الفندق رابط كشف الحساب/الفاتورة للنزيل. اتركه فارغاً إذا كان النظام محلياً فقط.
+      بيئات Baytak:
+      <strong dir="ltr">تجريب</strong> = <code dir="ltr">https://pos.baytak.ly</code>
+      ·
+      <strong dir="ltr">إنتاج</strong> = <code dir="ltr">https://baytak.baytak.ly</code>
+      <br />
+      يُفضَّل ضبطه أيضاً في ملف <code>.env</code> كـ <code>PUBLIC_BASE_URL=...</code> لكل سيرفر على حدة.
+      {% if public_base_url_env %}
+      <br /><span style="color:#0f766e">مفعّل من البيئة الآن: <code dir="ltr">{{ public_base_url_env }}</code> (يتقدّم على الحقل أعلاه)</span>
+      {% elif public_base_url_effective %}
+      <br />الرابط الفعّال حالياً: <code dir="ltr">{{ public_base_url_effective }}</code>
+      {% endif %}
     </p>
 
     <div style="margin-top:1rem;padding:0.85rem;border:1px solid #bbf7d0;border-radius:10px;background:#f0fdf4">
@@ -170,8 +180,14 @@
       <option value="{{ code }}" {% if current_paper == code %}selected{% endif %}>{{ label }}</option>
       {% endfor %}
     </select>
+    <label for="print_paper_orientation" style="margin-top: 0.65rem">اتجاه الورق الافتراضي — المطعم</label>
+    <select id="print_paper_orientation" name="print_paper_orientation">
+      {% for code, label in paper_orientations|default([('portrait','طولية'),('landscape','عرضية')]) %}
+      <option value="{{ code }}" {% if current_orientation|default('portrait') == code %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
     <p class="muted" style="font-size:0.82rem;margin:0.35rem 0 0">
-      فواتير نقطة البيع والكاشير. مقاس فواتير الفندق من
+      فواتير نقطة البيع والكاشير (A4/A5). الورق الحراري طولي دائماً. مقاس الفندق من
       <a href="/admin/hotel/settings">إعدادات الحجز — الطباعة</a>.
     </p>
 

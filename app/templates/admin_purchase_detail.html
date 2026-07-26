@@ -151,7 +151,7 @@
     <div>
       <label>المحفظة</label>
       <select name="payment_method_id" required>
-        {% for m in pay_methods if pos_is_main_treasury_wallet(m) %}
+        {% for m in pay_methods if pos_is_purchase_pay_wallet(m) %}
         <option value="{{ m.id }}">{{ m.name_ar }}</option>
         {% endfor %}
       </select>

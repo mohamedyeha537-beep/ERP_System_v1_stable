@@ -1,11 +1,17 @@
-{# شريط تنقل — رجوع للصفحة السابقة + الرئيسية #}
+{# شريط تنقل — زر السابق (سجل المتصفح) + الرئيسية #}
 {% set trail = page_trail if page_trail is defined else pos_page_trail(request) %}
 {% if trail.show %}
 <nav class="page-trail" aria-label="التنقل">
   <div class="page-trail__actions">
-    <a class="btn page-trail__back" href="{% block page_trail_back_href %}{{ trail.back_url }}{% endblock %}">
-      ← {% block page_trail_back_text %}{{ trail.back_label }}{% endblock %}
-    </a>
+    <button
+      type="button"
+      class="btn page-trail__back"
+      id="page-trail-back-btn"
+      data-fallback="{% block page_trail_back_href %}{{ trail.back_url }}{% endblock %}"
+      title="العودة للصفحة السابقة"
+    >
+      ← السابق
+    </button>
     {% if trail.back_url != "/" %}
     <a class="btn page-trail__home" href="/">🏠 الرئيسية</a>
     {% endif %}
@@ -24,4 +30,19 @@
   </ol>
   {% endif %}
 </nav>
+<script>
+(function () {
+  var btn = document.getElementById("page-trail-back-btn");
+  if (!btn || btn.dataset.bound) return;
+  btn.dataset.bound = "1";
+  btn.addEventListener("click", function () {
+    var fallback = btn.getAttribute("data-fallback") || "/";
+    if (window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    window.location.href = fallback;
+  });
+})();
+</script>
 {% endif %}

@@ -51,8 +51,27 @@ def build_idempotency_key(
             str(source_id or payload.get("employee_id") or payload.get("payroll_entry_id") or 0),
         ]
     elif event_key.startswith("hotel."):
-        if event_key in ("hotel.checkout_reminder", "hotel.night_payment_due"):
+        if event_key in (
+            "hotel.checkout_reminder",
+            "hotel.night_payment_due",
+            "hotel.balance_claim",
+        ):
             parts = [event_key, str(source_id or payload.get("booking_id") or 0), date.today().isoformat()]
+        elif event_key == "hotel.room_cleaning":
+            parts = [
+                event_key,
+                str(source_id or payload.get("room_id") or 0),
+                str(payload.get("task_token") or date.today().isoformat()),
+            ]
+        elif event_key == "hotel.payment_received":
+            # كل دفعة إيصال مستقل — لا نمنع الإرسال بعد أول سداد على نفس الحجز
+            pay_id = source_id or payload.get("payment_id") or 0
+            parts = [
+                event_key,
+                str(payload.get("booking_id") or 0),
+                str(pay_id),
+                str(payload.get("payment_amount") or ""),
+            ]
         else:
             parts = [event_key, str(source_id or payload.get("booking_id") or 0)]
     elif event_key == REFERRAL_PRODUCT_SHARED:

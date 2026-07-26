@@ -146,6 +146,79 @@ def _sqlalchemy_url():
     return make_url(get_settings().database_url)
 
 
+def _mysql_bin_candidates() -> list[Path]:
+    """مسارات شائعة لمجلد mysql/bin (Windows/Linux) عندما لا يكون على PATH."""
+    candidates: list[Path] = []
+    env_bin = (os.environ.get("MYSQL_BIN") or os.environ.get("MYSQL_BIN_DIR") or "").strip()
+    if env_bin:
+        candidates.append(Path(env_bin))
+
+    # Windows — XAMPP / Laragon / MySQL Installer
+    for base in (
+        Path(r"C:\xampp\mysql\bin"),
+        Path(r"C:\XAMPP\mysql\bin"),
+        Path(r"D:\xampp\mysql\bin"),
+        Path(r"C:\laragon\bin\mysql"),
+        Path(r"C:\Program Files\MySQL"),
+        Path(r"C:\Program Files (x86)\MySQL"),
+        Path(r"C:\Program Files\MariaDB"),
+        Path(r"C:\Program Files (x86)\MariaDB"),
+    ):
+        if not base.exists():
+            continue
+        if (base / "mysqldump.exe").exists() or (base / "mysql.exe").exists():
+            candidates.append(base)
+            continue
+        # MySQL Server 8.0\bin أو MariaDB 10.x\bin
+        try:
+            for child in sorted(base.iterdir(), reverse=True):
+                bin_dir = child / "bin"
+                if bin_dir.is_dir():
+                    candidates.append(bin_dir)
+        except OSError:
+            pass
+
+    # Linux / macOS
+    for base in (
+        Path("/usr/bin"),
+        Path("/usr/local/bin"),
+        Path("/usr/local/mysql/bin"),
+        Path("/opt/homebrew/bin"),
+        Path("/opt/mysql/bin"),
+    ):
+        if base.is_dir():
+            candidates.append(base)
+
+    return candidates
+
+
+def _resolve_mysql_tool(tool: str) -> str:
+    """يعيد مسار mysqldump أو mysql — من env أو PATH أو المواقع الشائعة."""
+    tool = (tool or "").strip().lower()
+    if tool not in ("mysqldump", "mysql"):
+        raise ValueError(f"أداة MySQL غير معروفة: {tool}")
+
+    env_key = "MYSQLDUMP_PATH" if tool == "mysqldump" else "MYSQL_PATH"
+    explicit = (os.environ.get(env_key) or "").strip()
+    if explicit:
+        p = Path(explicit)
+        if p.is_file():
+            return str(p)
+
+    found = shutil.which(tool) or shutil.which(f"{tool}.exe")
+    if found:
+        return found
+
+    exe_names = (f"{tool}.exe", tool)
+    for bin_dir in _mysql_bin_candidates():
+        for name in exe_names:
+            candidate = bin_dir / name
+            if candidate.is_file():
+                return str(candidate)
+
+    raise FileNotFoundError(tool)
+
+
 # ===== النسخ الاحتياطي =====
 
 
@@ -231,7 +304,15 @@ def _make_backup_mysql(target_dir: Path) -> Path:
     ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     dst = target_dir / f"pos-backup-{ts}.sql"
 
-    cmd = ["mysqldump"]
+    try:
+        dump_bin = _resolve_mysql_tool("mysqldump")
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "أداة mysqldump غير موجودة. ثبّت MySQL client أو عيّن MYSQL_BIN "
+            r"(مثال Windows: C:\xampp\mysql\bin) أو MYSQLDUMP_PATH."
+        ) from exc
+
+    cmd = [dump_bin]
     if url.password:
         cmd.append(f"--password={url.password}")
     cmd.extend(
@@ -255,7 +336,7 @@ def _make_backup_mysql(target_dir: Path) -> Path:
         subprocess.run(cmd, check=True, capture_output=True, text=True)
     except FileNotFoundError as exc:
         raise RuntimeError(
-            "أداة mysqldump غير موجودة. ثبّت MySQL client على السيرفر."
+            "أداة mysqldump غير موجودة. ثبّت MySQL client أو عيّن MYSQL_BIN / MYSQLDUMP_PATH."
         ) from exc
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or exc.stdout or str(exc)).strip()
@@ -460,6 +541,47 @@ def restore_from_dump(uploaded_path: Path) -> Path:
     return safety_path
 
 
+# MySQL 8 → MariaDB / MySQL 5.7 (مثل XAMPP المحلي)
+_MYSQL8_COLLATION_REWRITES: tuple[tuple[str, str], ...] = (
+    ("utf8mb4_0900_ai_ci", "utf8mb4_unicode_ci"),
+    ("utf8mb4_0900_as_ci", "utf8mb4_unicode_ci"),
+    ("utf8mb4_0900_as_cs", "utf8mb4_bin"),
+    ("utf8mb4_0900_bin", "utf8mb4_bin"),
+    ("utf8mb3_0900_ai_ci", "utf8_unicode_ci"),
+    ("utf8mb3_0900_as_ci", "utf8_unicode_ci"),
+    ("utf8mb3_0900_as_cs", "utf8_bin"),
+)
+
+
+def _rewrite_mysql8_sql_for_legacy(sql_text: str) -> str:
+    """يستبدل collation MySQL 8 غير المدعوم في MariaDB/XAMPP."""
+    out = sql_text
+    for old, new in _MYSQL8_COLLATION_REWRITES:
+        if old in out:
+            out = out.replace(old, new)
+    return out
+
+
+def _iter_rewritten_sql_chunks(sql_path: Path, *, chunk_size: int = 1024 * 1024):
+    """يقرأ ملف SQL ويمرّر نصاً مع إصلاح collation على دفعات."""
+    with sql_path.open("r", encoding="utf-8", errors="replace") as sql_in:
+        carry = ""
+        while True:
+            chunk = sql_in.read(chunk_size)
+            if not chunk:
+                if carry:
+                    yield _rewrite_mysql8_sql_for_legacy(carry)
+                break
+            data = carry + chunk
+            # أبقِ ذيلاً قصيراً حتى لا نقطّع اسم collation عبر حدود الـ chunk
+            keep = 64
+            if len(data) > keep:
+                yield _rewrite_mysql8_sql_for_legacy(data[:-keep])
+                carry = data[-keep:]
+            else:
+                carry = data
+
+
 def restore_from_sql(uploaded_path: Path) -> Path:
     """يستعيد MySQL من ملف mysqldump (.sql)."""
     import subprocess
@@ -480,7 +602,15 @@ def restore_from_sql(uploaded_path: Path) -> Path:
     except Exception:
         pass
 
-    cmd = ["mysql"]
+    try:
+        mysql_bin = _resolve_mysql_tool("mysql")
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "أداة mysql غير موجودة. ثبّت MySQL client أو عيّن MYSQL_BIN "
+            r"(مثال Windows: C:\xampp\mysql\bin) أو MYSQL_PATH."
+        ) from exc
+
+    cmd = [mysql_bin]
     if url.password:
         cmd.append(f"--password={url.password}")
     cmd.extend(
@@ -491,28 +621,73 @@ def restore_from_sql(uploaded_path: Path) -> Path:
             str(url.port or 3306),
             "-u",
             url.username or "root",
+            "--default-character-set=utf8mb4",
             url.database or "pos_db",
         ]
     )
 
+    # binary + UTF-8: تجنّب خطأ Windows charmap مع النصوص العربية في الـ dump
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
     try:
-        with uploaded_path.open("r", encoding="utf-8", errors="replace") as sql_in:
-            result = subprocess.run(
-                cmd, stdin=sql_in, capture_output=True, text=True
-            )
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+        )
+        assert proc.stdin is not None
+        try:
+            for piece in _iter_rewritten_sql_chunks(uploaded_path):
+                proc.stdin.write(piece.encode("utf-8"))
+            proc.stdin.close()
+        except BrokenPipeError:
+            pass
+        except UnicodeEncodeError as exc:
+            raise RuntimeError(
+                "فشل ترميز ملف SQL (يجب أن يكون UTF-8). أعد تصدير النسخة من البرودكشن بـ utf8mb4."
+            ) from exc
+        stdout_b, stderr_b = proc.communicate()
+        result_code = proc.returncode
+        result_err = (stderr_b or b"").decode("utf-8", errors="replace")
+        result_out = (stdout_b or b"").decode("utf-8", errors="replace")
     except FileNotFoundError as exc:
         raise RuntimeError(
-            "أداة mysql غير موجودة. ثبّت MySQL client على السيرفر."
+            "أداة mysql غير موجودة. ثبّت MySQL client أو عيّن MYSQL_BIN / MYSQL_PATH."
         ) from exc
 
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout or f"exit {result.returncode}").strip()
+    if result_code != 0:
+        detail = (result_err or result_out or f"exit {result_code}").strip()
+        if "Unknown collation" in detail or "1273" in detail:
+            detail += (
+                " — تم تحويل collation MySQL 8 تلقائياً؛ إن استمر الخطأ "
+                "حدّث MariaDB/XAMPP أو استورد على MySQL 8."
+            )
         raise RuntimeError(f"فشل mysql restore: {detail}")
 
-    from infra.db import get_session_factory
-
-    get_session_factory()
+    _repatch_schema_after_restore()
     return safety_path
+
+
+def _repatch_schema_after_restore() -> None:
+    """بعد استعادة برودكشن قديمة: إعادة ترقيع الأعمدة الناقصة ثم تجديد الجلسات."""
+    from infra.catalog_schema import repair_catalog_schema
+    from infra.db import get_engine, get_session_factory
+    from infra.schema_bootstrap import ensure_schema_patched, reset_schema_patch_flag
+
+    try:
+        eng = get_engine()
+        eng.dispose()
+    except Exception:
+        pass
+    reset_schema_patch_flag()
+    ensure_schema_patched(force=True)
+    try:
+        repair_catalog_schema(get_engine())
+    except Exception:
+        pass
+    get_session_factory()
 
 
 def restore_backup(uploaded_path: Path) -> Path:
@@ -521,11 +696,15 @@ def restore_backup(uploaded_path: Path) -> Path:
     if is_sqlite():
         if suffix != ".db":
             raise RuntimeError("على SQLite استخدم ملف نسخة ينتهي بـ .db")
-        return restore_from_file(uploaded_path)
+        path = restore_from_file(uploaded_path)
+        _repatch_schema_after_restore()
+        return path
     if is_postgresql():
         if suffix != ".dump":
             raise RuntimeError("على PostgreSQL استخدم ملف نسخة ينتهي بـ .dump")
-        return restore_from_dump(uploaded_path)
+        path = restore_from_dump(uploaded_path)
+        _repatch_schema_after_restore()
+        return path
     if is_mysql():
         if suffix != ".sql":
             raise RuntimeError("على MySQL استخدم ملف نسخة ينتهي بـ .sql")

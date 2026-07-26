@@ -329,6 +329,31 @@ def resolve_recipient(
             name = saved_name
         return ResolvedRecipient(phone=phone, name=name)
 
+    if rt in ("housekeeping_staff", "cleaning_staff"):
+        phone = (payload.get("cleaning_phone") or payload.get("phone") or "").strip()
+        name = (
+            payload.get("cleaning_staff_name") or payload.get("name") or ""
+        ).strip() or "التنظيف"
+        eid = payload.get("employee_id")
+        if eid:
+            from modules.hr.models import Employee
+
+            emp = db.get(Employee, int(eid))
+            if emp is not None:
+                phone = (emp.phone or phone).strip()
+                name = (emp.full_name_ar or name).strip() or name
+        if not phone:
+            phone = (get_setting(db, "hotel_cleaning_phone") or "").strip()
+        if not phone:
+            return None
+        from modules.messaging.phone_utils import normalize_whatsapp_phone
+
+        phone = normalize_whatsapp_phone(phone)
+        saved_name = (get_setting(db, "hotel_cleaning_name") or "").strip()
+        if saved_name and (not name or name == "التنظيف"):
+            name = saved_name
+        return ResolvedRecipient(phone=phone, name=name)
+
     if rt == "hotel_shift_supervisor":
         phone = (
             (payload.get("supervisor_phone") or "").strip()

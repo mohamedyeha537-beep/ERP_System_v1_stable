@@ -65,7 +65,10 @@
 <div class="card" style="margin-bottom:0.75rem">
   <div style="display:flex;justify-content:space-between;gap:0.5rem;flex-wrap:wrap">
     <strong>#{{ e.id }} — {{ e.description_ar }}</strong>
-    <span class="muted" style="font-size:0.85rem">{{ e.entry_date }} · {{ e.source_type }} #{{ e.source_id }} · {{ e.post_mode }}{% if e.status.value == 'REVERSED' %} · <span style="color:#b45309">معكوس</span>{% endif %}</span>
+    <span class="muted" style="font-size:0.85rem" dir="ltr">
+      {% if e.created_at %}{{ pos_format_dt(e.created_at, '%Y-%m-%d %H:%M:%S') }}{% else %}{{ e.entry_date }}{% endif %}
+      · {{ e.source_type }} #{{ e.source_id }} · {{ e.post_mode }}{% if e.status.value == 'REVERSED' %} · <span style="color:#b45309">معكوس</span>{% endif %}
+    </span>
   </div>
   <table style="width:100%;border-collapse:collapse;font-size:0.88rem;margin-top:0.5rem">
     <thead>

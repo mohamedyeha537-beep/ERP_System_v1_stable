@@ -39,6 +39,43 @@ def sum_shift_expenses(db: Session, shift_id: int) -> Decimal:
     return Decimal(str(raw or 0)).quantize(Decimal("0.001"))
 
 
+def _sum_shift_expenses_by_kind(
+    db: Session, shift_id: int, *, cash: bool
+) -> Decimal:
+    """مصروفات الوردية حسب وسيلة الدفع (كاش أو غير كاش)."""
+    rows = list(
+        db.scalars(
+            select(Purchase)
+            .options(joinedload(Purchase.method))
+            .where(
+                _shift_expense_scope(db, shift_id),
+                Purchase.kind == PurchaseKind.EXPENSE,
+            )
+        )
+        .unique()
+        .all()
+    )
+    total = Decimal("0")
+    for p in rows:
+        kind = getattr(getattr(p, "method", None), "kind", None)
+        is_cash = kind == PaymentMethodKind.CASH or (
+            kind is not None and str(getattr(kind, "value", kind)).upper() == "CASH"
+        )
+        if cash and is_cash:
+            total += Decimal(str(p.amount or 0))
+        elif not cash and not is_cash:
+            total += Decimal(str(p.amount or 0))
+    return total.quantize(Decimal("0.001"))
+
+
+def sum_hotel_shift_cash_expenses(db: Session, shift_id: int) -> Decimal:
+    return _sum_shift_expenses_by_kind(db, shift_id, cash=True)
+
+
+def sum_hotel_shift_bank_expenses(db: Session, shift_id: int) -> Decimal:
+    return _sum_shift_expenses_by_kind(db, shift_id, cash=False)
+
+
 def list_shift_expenses(db: Session, shift_id: int, *, limit: int = 50) -> list[Purchase]:
     return list(
         db.scalars(

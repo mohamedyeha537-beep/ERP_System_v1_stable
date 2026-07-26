@@ -767,7 +767,7 @@ def pos_shift_expense_record(
     if raw_pm.isdigit() and int(raw_pm) > 0:
         pm_id = int(raw_pm)
     try:
-        record_shift_expense(
+        expense = record_shift_expense(
             db,
             shift_id=open_s.id,
             user_id=user.id,
@@ -783,7 +783,11 @@ def pos_shift_expense_record(
             _shift_expense_redirect(next_url, err=str(exc)),
             status_code=302,
         )
-    return RedirectResponse(_shift_expense_redirect(next_url, ok="1"), status_code=302)
+    # أي مبلغ يُصرف من الوردية → إيصال صرف (مسار الكاشير)
+    return RedirectResponse(
+        f"/pos/shift/expense/{expense.id}/voucher?autoprint=1",
+        status_code=302,
+    )
 
 
 def _shift_expense_redirect(next_url: str, *, err: str | None = None, ok: str | None = None) -> str:
@@ -796,6 +800,88 @@ def _shift_expense_redirect(next_url: str, *, err: str | None = None, ok: str | 
     if ok:
         return base + sep + "expense_ok=1"
     return base
+
+
+@router.get("/shift/expense/{pid}/voucher", response_class=HTMLResponse)
+def pos_shift_expense_voucher(
+    request: Request,
+    pid: int,
+    db: DBSession,
+    user: User = Depends(_pos_perm),
+    paper: str | None = Query(None),
+    orientation: str | None = Query(None),
+    autoprint: int = Query(0, ge=0, le=1),
+):
+    """إيصال صرف لمصروف الوردية — متاح للكاشير."""
+    from modules.platform.business_domain import BusinessDomain
+    from modules.printing.doc_numbers import PrintDocKind, doc_kind_label, next_doc_number
+    from modules.payments.models import Purchase
+    from modules.settings.service import (
+        PAPER_ORIENTATIONS,
+        PAPER_SIZES,
+        get_paper_css,
+        get_receipt_orientation,
+        get_receipt_paper_size,
+        get_setting,
+        normalize_orientation,
+        normalize_paper,
+        set_setting,
+    )
+
+    purchase = db.get(Purchase, pid)
+    if purchase is None:
+        return RedirectResponse(
+            "/pos/shift?expense_err=" + quote("المصروف غير موجود"),
+            status_code=302,
+        )
+    # يسمح لمن سجّل المصروف أو من يدير المشتريات
+    if purchase.created_by_id != user.id and not user_has_permission(user, PURCHASES_MANAGE):
+        return RedirectResponse(
+            "/pos/shift?expense_err=" + quote("لا صلاحية لعرض هذا الإيصال."),
+            status_code=302,
+        )
+    chosen = normalize_paper(paper, get_receipt_paper_size(db, BusinessDomain.RESTAURANT))
+    orient = normalize_orientation(
+        orientation, get_receipt_orientation(db, BusinessDomain.RESTAURANT)
+    )
+    meta_key = f"disbursement_voucher_{pid}"
+    existing = (get_setting(db, meta_key, "") or "").strip() or (
+        get_setting(db, f"expense_voucher_{pid}", "") or ""
+    ).strip()
+    if existing:
+        doc_number = existing
+    else:
+        doc_number = next_doc_number(db, PrintDocKind.DISBURSEMENT, domain="restaurant")
+        set_setting(db, meta_key, doc_number)
+        db.commit()
+    method = purchase.payment_method
+    preserve = {"autoprint": "1"} if autoprint else {}
+    return templates.TemplateResponse(
+        "disbursement_voucher.html",
+        {
+            "request": request,
+            "doc_title": doc_kind_label(PrintDocKind.DISBURSEMENT),
+            "doc_number": doc_number,
+            "amount": purchase.amount,
+            "method_name": method.name_ar if method else "—",
+            "category": purchase.expense_category or "",
+            "party": purchase.supplier or "",
+            "note": purchase.note or "",
+            "created_at": purchase.created_at,
+            "employee_name": user.username,
+            "store_name": get_setting(db, "store_name", "نقطة البيع"),
+            "back_url": "/pos/shift",
+            "paper": chosen,
+            "orientation": orient,
+            "paper_css": get_paper_css(chosen, orient),
+            "paper_choices": PAPER_SIZES,
+            "orientation_choices": PAPER_ORIENTATIONS,
+            "can_choose_paper": True,
+            "print_form_action": f"/pos/shift/expense/{pid}/voucher",
+            "print_preserve_params": preserve,
+            "autoprint": autoprint,
+        },
+    )
 
 
 @router.post("/shift/close", response_class=HTMLResponse)

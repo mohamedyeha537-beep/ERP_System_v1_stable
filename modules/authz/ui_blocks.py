@@ -79,10 +79,11 @@ UI_BLOCKS: tuple[UiBlock, ...] = (
     UiBlock("ui_hotel_nav_rooms", "إعداد الشقق", "nav", "شريط الفندق"),
     UiBlock("ui_hotel_nav_room_types", "أنواع الغرف", "nav", "شريط الفندق"),
     UiBlock("ui_hotel_nav_housekeeping", "التنظيف والصيانة", "nav", "شريط الفندق"),
-    UiBlock("ui_hotel_nav_shift", "وردية الفندق", "nav", "شريط الفندق"),
+    UiBlock("ui_hotel_nav_shift", "جلسة الفندق", "nav", "شريط الفندق"),
     UiBlock("ui_hotel_nav_reports", "تقارير الفندق", "nav", "شريط الفندق"),
     UiBlock("ui_hotel_nav_settings", "إعدادات الحجز", "nav", "شريط الفندق"),
     UiBlock("ui_hotel_nav_settle", "تسوية حسابات الغرف", "nav", "شريط الفندق"),
+    UiBlock("ui_hotel_nav_debts", "ذمم الحجوزات", "nav", "شريط الفندق"),
 )
 
 _UI_BLOCK_MAP = {b.id: b for b in UI_BLOCKS}

@@ -31,6 +31,14 @@ class CustomerType(str, enum.Enum):
     COMPANY = "COMPANY"
 
 
+class CustomerBusinessDomain(str, enum.Enum):
+    """فصل عملاء المطعم عن نزلاء الفندق (ومشترك إن تعامل مع الاثنين)."""
+
+    RESTAURANT = "restaurant"
+    HOTEL = "hotel"
+    SHARED = "shared"
+
+
 class Customer(Base):
     __tablename__ = "customers"
     __table_args__ = (UniqueConstraint("phone", name="uq_customers_phone"),)
@@ -44,6 +52,17 @@ class Customer(Base):
         Enum(CustomerType), default=CustomerType.INDIVIDUAL, index=True
     )
     company_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    business_domain: Mapped[CustomerBusinessDomain] = mapped_column(
+        Enum(
+            CustomerBusinessDomain,
+            values_callable=lambda obj: [e.value for e in obj],
+            native_enum=False,
+            length=20,
+        ),
+        default=CustomerBusinessDomain.RESTAURANT,
+        server_default=CustomerBusinessDomain.RESTAURANT.value,
+        index=True,
+    )
 
     points_balance: Mapped[Decimal] = mapped_column(
         Numeric(14, 3), default=Decimal("0")
@@ -62,6 +81,9 @@ class Customer(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     referral_code: Mapped[str | None] = mapped_column(
         String(32), unique=True, nullable=True, index=True
+    )
+    loyalty_intro_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

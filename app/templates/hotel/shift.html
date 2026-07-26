@@ -1,5 +1,5 @@
-﻿{% extends "base.html" %}
-{% block title %}وردية الفندق{% endblock %}
+{% extends "base.html" %}
+{% block title %}جلسة الفندق{% endblock %}
 {% block head_extra %}
 <link rel="stylesheet" href="/static/shift_summary.css" />
 <link rel="stylesheet" href="/static/hotel_dashboard.css?v=12" />
@@ -7,7 +7,7 @@
 {% block body %}
 <div class="apt-page-header">
   <div>
-    <h1 style="margin:0">🕐 وردية الفندق</h1>
+    <h1 style="margin:0">🕐 جلسة الفندق</h1>
     <p class="muted" style="margin:0.2rem 0 0;font-size:0.88rem">
       {% if current_slot %}{{ current_slot.name_ar }} · {{ shift_window }}{% endif %}
     </p>
@@ -16,7 +16,7 @@
     <a class="btn" href="/admin/hotel/dashboard">لوحة الشقق</a>
     {% if requires_pin %}
     <form method="post" action="/admin/hotel/pin/logout" style="display:inline">
-      <button class="btn" type="submit">تبديل الموظف</button>
+      <button class="btn" type="submit" title="قفل الشاشة فقط — الوردية تبقى مفتوحة حتى إقفالها بالمعدود">🔒 قفل الشاشة</button>
     </form>
     {% endif %}
     {% if pos_perm(request)('hotel:finance:close_day') %}
@@ -29,9 +29,27 @@
 {% include "_hotel_nav.html" %}
 
 {% if saved == 'opened' %}
-<div class="card" style="border-color:#86efac;background:#f0fdf4;margin-bottom:0.75rem"><p style="margin:0">تم فتح الوردية ✓</p></div>
-{% elif saved == 'closed' %}
-<div class="card" style="border-color:#86efac;background:#f0fdf4;margin-bottom:0.75rem"><p style="margin:0">تم إقفال الوردية ✓</p></div>
+<div class="card" style="border-color:#86efac;background:#f0fdf4;margin-bottom:0.75rem"><p style="margin:0">تم افتتاح الجلسة ✓ — يمكنك الآن إدارة الحجوزات والتحصيل على هذه الجلسة.</p></div>
+{% elif closed_shift_id or saved == 'closed' %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4;margin-bottom:0.75rem">
+  <p style="margin:0;font-weight:600">تم إقفال الجلسة{% if closed_shift_id %} #{{ closed_shift_id }}{% endif %} بنجاح ✓</p>
+  {% if closed_shift %}
+  {% if closed_shift.cash_difference is not none and closed_shift.cash_difference < 0 %}
+  <p style="margin:0.5rem 0 0;color:#b91c1c;font-size:0.9rem">عجز كاش: {{ '%.3f'|format(closed_shift.cash_difference) }} د.ل (متوقع {{ '%.3f'|format(closed_shift.expected_cash or 0) }} — معدود {{ '%.3f'|format(closed_shift.counted_cash or 0) }})</p>
+  {% elif closed_shift.cash_difference is not none and closed_shift.cash_difference > 0 %}
+  <p style="margin:0.5rem 0 0;color:#15803d;font-size:0.9rem">فائض كاش: {{ '%.3f'|format(closed_shift.cash_difference) }} د.ل</p>
+  {% endif %}
+  {% if closed_shift.bank_difference is not none and closed_shift.bank_difference < 0 %}
+  <p style="margin:0.35rem 0 0;color:#b91c1c;font-size:0.9rem">عجز مصرف: {{ '%.3f'|format(closed_shift.bank_difference) }} د.ل</p>
+  {% elif closed_shift.bank_difference is not none and closed_shift.bank_difference > 0 %}
+  <p style="margin:0.35rem 0 0;color:#15803d;font-size:0.9rem">فائض مصرف: {{ '%.3f'|format(closed_shift.bank_difference) }} د.ل</p>
+  {% endif %}
+  <p style="margin:0.65rem 0 0;display:flex;flex-wrap:wrap;gap:0.45rem">
+    <a class="btn btn-primary" href="/admin/hotel/shift/{{ closed_shift_id }}/report">تقرير الجلسة</a>
+    <a class="btn" href="/reports/hotel-shifts">قائمة جلسات الفندق</a>
+  </p>
+  {% endif %}
+</div>
 {% elif saved == 'expense' %}
 <div class="card" style="border-color:#86efac;background:#f0fdf4;margin-bottom:0.75rem"><p style="margin:0">تم تسجيل المصروف ✓</p></div>
 {% endif %}
@@ -41,24 +59,47 @@
 
 {% if overdue and open_shift %}
 <div class="fd-alert fd-alert--danger" role="alert">
-  <strong>⚠️ تأخر إقفال الوردية:</strong> مر {{ overdue_minutes }} دقيقة على موعد الإقفال.
+  <strong>⚠️ تأخر إقفال الجلسة:</strong> مر {{ overdue_minutes }} دقيقة على موعد الإقفال.
+</div>
+{% endif %}
+
+{% if open_shift and debt_due_count|default(0) > 0 %}
+<div class="card" style="margin-bottom:0.75rem;background:#fff7ed;border-color:#fdba74">
+  <h2 style="margin:0 0 0.4rem;font-size:1.05rem;color:#9a3412">تذكير تحصيل الذمم لهذه الوردية</h2>
+  <p style="margin:0 0 0.55rem;font-size:0.9rem;line-height:1.55">
+    يوجد <strong>{{ debt_due_count }}</strong> دين يحتاج متابعة/مطالبة اليوم
+    (موعد تذكير حان أو بلا موعد — يُراجع كل وردية).
+  </p>
+  <a class="btn btn-primary" href="/admin/hotel/debts" style="background:#ea580c;border-color:#c2410c">فتح قائمة ذمم الحجوزات</a>
 </div>
 {% endif %}
 
 {% if not open_shift %}
 <div class="card" style="margin-bottom:1rem;background:#eff6ff;border-color:#93c5fd">
-  <h2 style="margin-top:0;font-size:1.05rem">فتح وردية جديدة</h2>
+  <h2 style="margin-top:0;font-size:1.05rem">افتتاح جلسة جديدة</h2>
   {% if requires_pin %}
   <p class="muted">يجب إدخال الرقم السري أولاً.</p>
   <a class="btn btn-primary" href="/admin/hotel/pin">دخول بالرقم السري</a>
   {% else %}
-  <p class="muted">الوردية الحالية: <strong>{{ current_slot.name_ar }}</strong> ({{ shift_window }})</p>
-  <a class="btn btn-primary" href="/admin/hotel/shift/start">فتح الوردية</a>
+  <p class="muted">الوردية الزمنية: <strong>{{ current_slot.name_ar }}</strong> ({{ shift_window }})</p>
+  <a class="btn btn-primary" href="/admin/hotel/shift/start">افتتاح الجلسة</a>
   {% endif %}
 </div>
 {% else %}
 
-<section class="quick-grid hotel-stat-grid" aria-label="ملخص الوردية">
+<div class="card" style="margin-bottom:0.85rem;background:#eff6ff;border-color:#93c5fd">
+  <p style="margin:0;font-size:0.9rem">
+    الجلسة مفتوحة
+    {% if open_shift.employee %} — الموظف: <strong>{{ open_shift.employee.full_name_ar }}</strong>{% endif %}
+    · كل قبض/صرف يُسجَّل على هذه الجلسة
+  </p>
+  <p style="margin:0.45rem 0 0;display:flex;flex-wrap:wrap;gap:0.45rem">
+    <a class="btn btn-primary" href="/admin/hotel/shift/{{ open_shift.id }}/report">📊 تقرير مالي للجلسة</a>
+    <a class="btn" href="/reports/hotel-shifts">كل جلسات الفندق</a>
+  </p>
+</div>
+
+<section class="quick-grid hotel-stat-grid" aria-label="ملخص الجلسة">
   <div class="qlink qlink--static" style="--accent:#22c55e">
     <div class="qicon qicon--stat">{{ '%.0f'|format(summary.total_revenue) }}</div>
     <div><div class="qtitle">إيراد</div><div class="qhint">تحصيلات الحجز</div></div>
@@ -83,29 +124,38 @@
   {% endif %}
 </section>
 
-<div class="card" style="margin-bottom:1rem">
-  <h2 style="margin-top:0">إقفال الوردية</h2>
-  <p class="muted" style="font-size:0.88rem">راجع كل بند وأدخل المعدود الفعلي — كاش، مصرف، حجوزات، وجبات، مغسلة، خدمات.</p>
+<div class="card" style="margin-bottom:1rem;border:2px solid #0f766e;background:#f0fdfa">
+  <h2 style="margin-top:0;color:#115e59">إقفال الجلسة — عدّ الأرصدة (إلزامي)</h2>
+  <p style="margin:0 0 0.75rem;font-size:0.9rem;line-height:1.55;color:#134e4a">
+    مثل المطعم: لا يُقفَل إلا بعد إدخال <strong>المعدود الفعلي</strong> للكاش والمصرف وباقي البنود.
+    المتوقع = رصيد الافتتاح + تحصيلات الجلسة − مصروفات الجلسة.
+    الفرق (عجز/فائض) يُحفظ في تقرير الجلسة.
+  </p>
+  {% if open_shift and open_shift.opening_cash is not none %}
+  <p class="muted" style="margin:0 0 0.75rem;font-size:0.86rem">
+    رصيد الكاش الافتتاحي لهذه الجلسة: <strong>{{ '%.3f'|format(open_shift.opening_cash or 0) }} د.ل</strong>
+  </p>
+  {% endif %}
 
-  <form method="post" action="/admin/hotel/shift/close" id="hotel-close-form" style="display:grid;gap:0.75rem">
-    <input type="hidden" name="counted_cash" id="hid-counted-cash" value="0" />
-    <input type="hidden" name="counted_bank" id="hid-counted-bank" value="0" />
-    <input type="hidden" name="counted_bookings" id="hid-counted-bookings" value="0" />
-    <input type="hidden" name="counted_meals" id="hid-counted-meals" value="0" />
-    <input type="hidden" name="counted_laundry" id="hid-counted-laundry" value="0" />
-    <input type="hidden" name="counted_services" id="hid-counted-services" value="0" />
+  <form method="post" action="/admin/hotel/shift/close" id="hotel-close-form" style="display:grid;gap:0.75rem" novalidate>
+    <input type="hidden" name="counted_cash" id="hid-counted-cash" value="" />
+    <input type="hidden" name="counted_bank" id="hid-counted-bank" value="" />
+    <input type="hidden" name="counted_bookings" id="hid-counted-bookings" value="" />
+    <input type="hidden" name="counted_meals" id="hid-counted-meals" value="" />
+    <input type="hidden" name="counted_laundry" id="hid-counted-laundry" value="" />
+    <input type="hidden" name="counted_services" id="hid-counted-services" value="" />
 
     {% include "hotel/_shift_close_sections.html" %}
 
     <label>ملاحظة الإقفال
-      <textarea name="closing_note" rows="2" placeholder="اختياري"></textarea>
+      <textarea name="closing_note" rows="2" placeholder="اختياري — مثال: تسليم الدرج لموظف الليل"></textarea>
     </label>
-    <button class="btn btn-primary" type="submit" style="width:fit-content" id="hotel-close-btn">✓ إقفال الوردية وتأكيد المعدود</button>
+    <button class="btn btn-primary" type="submit" style="width:fit-content;font-size:1.05rem;padding:0.65rem 1.2rem" id="hotel-close-btn">✓ إقفال الجلسة بعد تأكيد المعدود</button>
   </form>
 </div>
 
 <div class="card" style="margin-bottom:1rem">
-  <h2 style="margin-top:0">مصروف وردية</h2>
+  <h2 style="margin-top:0">مصروف الجلسة</h2>
   <form method="post" action="/admin/hotel/shift/expense" class="row" style="gap:0.5rem;flex-wrap:wrap;align-items:flex-end">
     <label>المبلغ *<input name="amount" type="number" step="0.001" min="0.001" required /></label>
     <label>وسيلة الدفع *
@@ -114,7 +164,7 @@
         {% for m in methods %}<option value="{{ m.id }}">{{ m.name_ar }}</option>{% endfor %}
       </select>
     </label>
-    <label>البند<input name="category" value="مصروف وردية" /></label>
+    <label>البند<input name="category" value="مصروف جلسة" /></label>
     <label>ملاحظة<input name="note" placeholder="اختياري" /></label>
     <button class="btn" type="submit">تسجيل مصروف</button>
   </form>
@@ -137,15 +187,32 @@
 
 {% if recent %}
 <div class="card">
-  <h2 style="margin-top:0">آخر الورديات</h2>
+  <h2 style="margin-top:0">آخر الجلسات <span class="muted" style="font-size:0.85rem;font-weight:500">— الأحدث أولاً</span></h2>
+  <div class="sticky-table-wrap">
   <table style="width:100%;font-size:0.88rem">
-    <thead><tr><th>الوردية</th><th>فتح</th><th>إقفال</th><th>إيراد</th><th>مصروف</th><th></th></tr></thead>
+    <thead>
+      <tr>
+        <th>رقم الوردية</th>
+        <th>تاريخها</th>
+        <th>اسم الموظف</th>
+        <th>وقت فتح الوردية</th>
+        <th>وقت قفل الوردية</th>
+        <th>إيراد</th>
+        <th>مصروف</th>
+        <th></th>
+      </tr>
+    </thead>
     <tbody>
     {% for s in recent %}
     <tr>
-      <td>{{ s.shift_name_ar }}</td>
-      <td>{{ pos_format_dt(s.opened_at, '%Y-%m-%d %H:%M') }}</td>
-      <td>{% if s.closed_at %}{{ pos_format_dt(s.closed_at, '%Y-%m-%d %H:%M') }}{% else %}<span class="hotel-badge hotel-badge--warn">مفتوحة</span>{% endif %}</td>
+      <td>
+        <strong>#{{ s.id }}</strong>
+        <div class="muted" style="font-size:0.78rem">وردية {{ s.shift_number }} — {{ s.shift_name_ar }}</div>
+      </td>
+      <td dir="ltr" style="font-variant-numeric:tabular-nums">{{ pos_format_dt(s.opened_at, '%Y-%m-%d') }}</td>
+      <td>{% if s.employee %}{{ s.employee.full_name_ar }}{% elif s.user %}{{ s.user.username }}{% else %}—{% endif %}</td>
+      <td dir="ltr" style="font-variant-numeric:tabular-nums">{{ pos_format_dt(s.opened_at, '%H:%M:%S') }}</td>
+      <td dir="ltr" style="font-variant-numeric:tabular-nums">{% if s.closed_at %}{{ pos_format_dt(s.closed_at, '%H:%M:%S') }}{% else %}<span class="hotel-badge hotel-badge--warn">مفتوحة</span>{% endif %}</td>
       <td>{% if s.total_revenue is not none %}{{ '%.3f'|format(s.total_revenue) }}{% else %}—{% endif %}</td>
       <td>{% if s.total_expenses is not none %}{{ '%.3f'|format(s.total_expenses) }}{% else %}—{% endif %}</td>
       <td><a class="btn" href="/admin/hotel/shift/{{ s.id }}/report">تقرير</a></td>
@@ -153,6 +220,7 @@
     {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 {% endif %}
 
@@ -192,19 +260,27 @@
         laundry: "hid-counted-laundry",
         services: "hid-counted-services"
       };
-      var ok = true;
+      var missing = [];
       document.querySelectorAll(".hotel-counted-input").forEach(function (inp) {
         var field = inp.getAttribute("data-field");
         var hid = document.getElementById(map[field] || "");
-        if (hid) hid.value = inp.value || "0";
-        if (!inp.value && inp.value !== "0") ok = false;
+        var raw = String(inp.value || "").trim();
+        if (hid) hid.value = raw;
+        if (raw === "") {
+          var row = inp.closest("[data-closable]");
+          var nameEl = row ? row.querySelector(".shift-close-wallet-row__name") : null;
+          missing.push(nameEl ? nameEl.textContent.replace(/\*/g, "").trim() : field);
+          inp.style.borderColor = "#dc2626";
+        } else {
+          inp.style.borderColor = "";
+        }
       });
-      if (!ok) {
+      if (missing.length) {
         e.preventDefault();
-        alert("أدخل المعدود لكل البنود المطلوبة.");
+        alert("يجب إدخال المعدود لكل البنود قبل الإقفال (مثل جلسة المطعم):\n- " + missing.join("\n- "));
         return;
       }
-      if (!confirm("تأكيد إقفال الوردية والمبالغ المعدودة؟")) {
+      if (!confirm("تأكيد إقفال الجلسة بالمبالغ المعدودة؟\nسيُحفظ الفرق (عجز/فائض) في تقرير الجلسة.")) {
         e.preventDefault();
       }
     });

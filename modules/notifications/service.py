@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload
 
 from modules.messaging.consent import customer_can_receive
@@ -65,19 +65,68 @@ class NotificationService:
         if not is_event_module_enabled(db, event_key):
             return None
         try:
-            with db.begin_nested():
-                row = NotificationEvent(
-                    event_key=event_key.strip()[:64],
-                    source_type=source_type.strip()[:32],
-                    source_id=source_id,
-                    payload_json=json.dumps(payload or {}, ensure_ascii=False),
-                    status=NotificationEventStatus.PENDING.value,
+            # لا نستخدم begin_nested هنا: إرسال outbox يعمل db.commit()
+            # ووجود commit داخل savepoint يكسر الجلسة (closed transaction).
+            row = NotificationEvent(
+                event_key=event_key.strip()[:64],
+                source_type=source_type.strip()[:32],
+                source_id=source_id,
+                payload_json=json.dumps(payload or {}, ensure_ascii=False),
+                status=NotificationEventStatus.PENDING.value,
+            )
+            db.add(row)
+            db.flush()
+            try:
+                from modules.dashboard_notify.whatsapp_forward import (
+                    forward_hub_item_to_whatsapp,
                 )
-                db.add(row)
-                db.flush()
-                if process_now:
-                    NotificationService.process_event(db, row.id)
-                return row.id
+                from modules.notifications.events import ALL_EVENT_KEYS
+
+                label = next(
+                    (lab for k, lab in ALL_EVENT_KEYS if k == event_key),
+                    event_key,
+                )
+                hint_parts: list[str] = []
+                for k in (
+                    "room_number",
+                    "guest_name",
+                    "customer_name",
+                    "operator_name",
+                    "reference",
+                    "booking_id",
+                    "sale_id",
+                    "total",
+                    "amount",
+                    "items_summary",
+                    "order_type",
+                ):
+                    v = (payload or {}).get(k)
+                    if v is not None and str(v).strip():
+                        if k == "items_summary":
+                            hint_parts.append(str(v).strip())
+                        elif k == "total":
+                            hint_parts.append(f"الإجمالي={v}")
+                        else:
+                            hint_parts.append(f"{k}={v}")
+                    if len(hint_parts) >= 6:
+                        break
+                forward_hub_item_to_whatsapp(
+                    db,
+                    title=str(label),
+                    detail=" · ".join(hint_parts),
+                    event_type=f"hub.event.{event_key}"[:64],
+                    meta={
+                        "event_key": event_key,
+                        "source_type": source_type,
+                        "source_id": source_id,
+                        "notification_event_id": row.id,
+                    },
+                )
+            except Exception:  # noqa: BLE001
+                LOG.debug("activity hub WA forward skipped for %s", event_key, exc_info=True)
+            if process_now:
+                NotificationService.process_event(db, row.id)
+            return row.id
         except SQLAlchemyError as exc:
             LOG.warning("emit_event database failure %s: %s", event_key, exc)
             return None
@@ -232,8 +281,13 @@ class NotificationService:
                 idempotency_key=idem,
                 attempts=0,
             )
-            db.add(log)
-            db.flush()
+            try:
+                with db.begin_nested():
+                    db.add(log)
+                    db.flush()
+            except IntegrityError:
+                # مفتاح تكرار — تجاهل دون إفساد جلسة قاعدة البيانات
+                continue
             if NotificationService._send_log(db, log, tpl, body, buttons, recipient, payload):
                 sent_any = True
         return sent_any
@@ -260,23 +314,28 @@ class NotificationService:
         )
         if log_exists(db, idem, include_skipped=True):
             return
-        db.add(
-            NotificationLog(
-                event_key=event.event_key,
-                notification_event_id=event.id,
-                source_type=event.source_type,
-                source_id=event.source_id,
-                recipient_type=rule.recipient_type,
-                recipient_name=getattr(recipient, "name", None),
-                recipient_phone=getattr(recipient, "phone", None),
-                channel=rule.channel,
-                message_type=tpl.message_type,
-                template_id=tpl.id,
-                body_rendered=reason,
-                status=NotificationLogStatus.SKIPPED.value,
-                idempotency_key=idem[:200],
-            )
-        )
+        try:
+            with db.begin_nested():
+                db.add(
+                    NotificationLog(
+                        event_key=event.event_key,
+                        notification_event_id=event.id,
+                        source_type=event.source_type,
+                        source_id=event.source_id,
+                        recipient_type=rule.recipient_type,
+                        recipient_name=getattr(recipient, "name", None),
+                        recipient_phone=getattr(recipient, "phone", None),
+                        channel=rule.channel,
+                        message_type=tpl.message_type,
+                        template_id=tpl.id,
+                        body_rendered=reason,
+                        status=NotificationLogStatus.SKIPPED.value,
+                        idempotency_key=idem[:200],
+                    )
+                )
+                db.flush()
+        except IntegrityError:
+            return
 
     @staticmethod
     def _template_vars(
@@ -315,8 +374,14 @@ class NotificationService:
             "reorder_level": payload.get("reorder_level") or "",
             "driver_name": payload.get("driver_name") or "",
             "cashier_name": payload.get("cashier_name") or "",
+            "employee_name": payload.get("employee_name")
+            or payload.get("cashier_name")
+            or "",
             "shift_id": payload.get("shift_id") or "",
             "shortage": payload.get("shortage") or "",
+            "cash_shortage": payload.get("cash_shortage") or "",
+            "bank_shortage": payload.get("bank_shortage") or "",
+            "shortage_detail": payload.get("shortage_detail") or "",
             "reason": payload.get("reason") or "",
             "action_id": payload.get("action_id") or "",
             "line_id": payload.get("line_id") or "",
@@ -355,7 +420,6 @@ class NotificationService:
             "ticket_id": payload.get("ticket_id") or "",
             "section_name": payload.get("section_name") or "",
             "employee_id": payload.get("employee_id") or "",
-            "employee_name": payload.get("employee_name") or "",
             "employee_phone": payload.get("employee_phone") or "",
             "check_in_time": payload.get("check_in_time") or "",
             "check_out_time": payload.get("check_out_time") or "",
@@ -388,10 +452,15 @@ class NotificationService:
             "booking_total": payload.get("booking_total") or "",
             "paid_amount": payload.get("paid_amount") or "",
             "balance_due": payload.get("balance_due") or "",
+            "folio_lines": payload.get("folio_lines") or "",
+            "folio_summary": payload.get("folio_summary") or "",
             "service_name": payload.get("service_name") or "",
             "service_amount": payload.get("service_amount") or "",
             "payment_amount": payload.get("payment_amount") or payload.get("amount") or "",
             "payment_method": payload.get("payment_method") or "",
+            "payment_id": payload.get("payment_id") or "",
+            "payment_label": payload.get("payment_label") or "",
+            "doc_title": payload.get("doc_title") or payload.get("payment_label") or "إيصال قبض",
             "booking_url": payload.get("booking_url") or "",
             "invoice_url": payload.get("invoice_url") or "",
         })
@@ -438,23 +507,11 @@ class NotificationService:
             meta=meta,
         )
         log.outbox_id = outbox.id
-        log.attempts = 1
-        log.last_attempt_at = datetime.now(timezone.utc)
-        try:
-            send_outbox_ids_now(db, [outbox.id])
-            db.refresh(outbox)
-            if outbox.status == "sent":
-                log.status = NotificationLogStatus.SENT.value
-                log.sent_at = datetime.now(timezone.utc)
-                log.provider_message_id = str(outbox.id)
-                return True
-            log.status = NotificationLogStatus.FAILED.value
-            log.error_message = (outbox.error_message or "send failed")[:500]
-            return False
-        except Exception as exc:  # noqa: BLE001
-            log.status = NotificationLogStatus.FAILED.value
-            log.error_message = str(exc)[:500]
-            return False
+        log.attempts = 0
+        log.status = NotificationLogStatus.QUEUED.value
+        # لا نرسل واتساب بشكل متزامن هنا — عامل الرسائل يلتقط الطابور.
+        # الإرسال الفوري كان يجمّد إتمام البيع وتصفح الصفحات عند بطء المزود.
+        return True
 
     @staticmethod
     def retry_failed(db: Session, *, limit: int = 50) -> int:

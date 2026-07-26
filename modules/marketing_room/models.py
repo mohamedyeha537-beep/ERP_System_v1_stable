@@ -57,6 +57,8 @@ class MarketingArtifact(Base):
     title: Mapped[str] = mapped_column(String(240), default="")
     body_text: Mapped[str] = mapped_column(Text, default="")
     meta_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # مسار صورة مولّدة نسبي تحت /static/...
+    media_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     reviewed_by_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

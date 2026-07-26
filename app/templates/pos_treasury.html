@@ -32,13 +32,20 @@
 {% block body %}
 {% if page_error %}<div class="alert">{{ page_error }}</div>{% endif %}
 {% set pm_qs = '&pm=' ~ selected_pm_id if selected_pm_id else '' %}
+{# وضع الفندق: لا تظهر روابط المطعم/الكاشير حتى لو بقيت صلاحية sales:create #}
+{% set hotel_mode = pos_view_mode(request) == 'hotel' %}
+{% set show_pos_links = (not hotel_mode) and pos_nav_show_restaurant(request) %}
 <div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem">
   <h1 style="margin:0">{{ kind_label }}</h1>
   <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
     <a class="btn btn-primary" href="/pos/treasury/transfer?kind={{ kind }}">تحويل أموال</a>
     <a class="btn" href="/admin/payment-methods">إدارة الحسابات</a>
+    {% if show_pos_links %}
     <a class="btn" href="/pos/shift">جلسة البيع</a>
     <a class="btn" href="/pos">الكاشير</a>
+    {% else %}
+    <a class="btn" href="/admin/hotel/dashboard">لوحة الفندق</a>
+    {% endif %}
   </div>
 </div>
 
@@ -165,14 +172,16 @@
         <th>الاتجاه</th>
         <th>المبلغ</th>
         <th>التصنيف</th>
-        <th>المرجع</th>
+        <th>رقم الإيصال / المرجع</th>
+        <th>الغرفة</th>
+        <th>الموظف</th>
         <th>طريقة الدفع</th>
       </tr>
     </thead>
     <tbody>
       {% for e in entries %}
       <tr>
-        <td>{% if e.at %}{{ pos_format_dt(e.at, '%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+        <td dir="ltr" style="font-variant-numeric:tabular-nums">{% if e.at %}{{ pos_format_dt(e.at, '%Y-%m-%d %H:%M:%S') }}{% else %}—{% endif %}</td>
         <td>
           {% if e.direction == 'IN' %}
           <span class="dir-in">وارد</span>
@@ -182,7 +191,15 @@
         </td>
         <td>{{ pos_money(e.amount) }} <span class="money-currency">د.ل</span></td>
         <td>{{ e.category_ar }}</td>
-        <td>{{ e.reference }}</td>
+        <td>
+          {% if e.detail_url %}
+          <a href="{{ e.detail_url }}" style="font-weight:600">{{ e.reference }}</a>
+          {% else %}
+          {{ e.reference }}
+          {% endif %}
+        </td>
+        <td>{% if e.room_label %}{{ e.room_label }}{% else %}—{% endif %}</td>
+        <td>{% if e.employee_name %}{{ e.employee_name }}{% else %}—{% endif %}</td>
         <td>{{ e.method_name }}</td>
       </tr>
       {% endfor %}

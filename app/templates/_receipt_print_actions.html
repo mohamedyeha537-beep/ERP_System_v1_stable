@@ -45,12 +45,25 @@
   var previewBtn = document.getElementById("btn-preview-receipt");
   var browserBtn = document.getElementById("btn-browser-print");
   var url = {{ silent_print_url|tojson }};
-  var auto = {{ 1 if autoprint else 0 }};
+  var auto = {{ 1 if autoprint|default(0) else 0 }};
   var returnPos = {{ 1 if request.query_params.get('return_pos') == '1' else 0 }};
   var returnRoom = {{ 1 if request.query_params.get('room') == '1' else 0 }};
-  var returnKitchenSent = {{ sale.id|tojson if (return_kitchen_sent|default(false) and sale is defined) else 'null' }};
+  var returnBooking = {{ 1 if request.query_params.get('return_booking') == '1' else 0 }};
+  {% set _ret_booking_id = booking.id if (booking is defined and booking) else none %}
+  var returnBookingId = {{ _ret_booking_id|tojson }};
+  {% set _ks_sale_id = none %}
+  {% if return_kitchen_sent|default(false) and sale is defined and sale %}
+    {% set _ks_sale_id = sale.id %}
+  {% endif %}
+  {% set _sale_id = sale.id if (sale is defined and sale) else none %}
+  var returnKitchenSent = {{ _ks_sale_id|tojson }};
   var embed = {{ 1 if embed|default(0) else 0 }};
-  var saleId = {{ sale.id|tojson if sale is defined else 'null' }};
+  var saleId = {{ _sale_id|tojson }};
+
+  function goReturnBooking() {
+    if (!returnBooking || !returnBookingId) return;
+    window.location.href = "/admin/hotel/bookings/" + returnBookingId + "?saved=created";
+  }
 
   function notifyParent(payload) {
     if (!embed || window.parent === window) return;
@@ -121,6 +134,10 @@
       setTimeout(async function () {
         var ok = await silentPrint();
         if (embed) return;
+        if (returnBooking) {
+          setTimeout(goReturnBooking, ok ? 700 : 1200);
+          return;
+        }
         if (returnPos && ok) {
           if (returnKitchenSent && !returnRoom) {
             window.location.href = "/pos?ok=1&kitchen_sent=" + returnKitchenSent;
@@ -137,9 +154,17 @@
 <script>
 (function () {
   var browserBtn = document.getElementById("btn-browser-print");
-  var auto = {{ 1 if autoprint else 0 }};
+  var auto = {{ 1 if autoprint|default(0) else 0 }};
   var embed = {{ 1 if embed|default(0) else 0 }};
-  var saleId = {{ sale.id|tojson if sale is defined else 'null' }};
+  var returnBooking = {{ 1 if request.query_params.get('return_booking') == '1' else 0 }};
+  {% set _ret_booking_id2 = booking.id if (booking is defined and booking) else none %}
+  var returnBookingId = {{ _ret_booking_id2|tojson }};
+  {% set _sale_id2 = sale.id if (sale is defined and sale) else none %}
+  var saleId = {{ _sale_id2|tojson }};
+  function goReturnBooking() {
+    if (!returnBooking || !returnBookingId) return;
+    window.location.href = "/admin/hotel/bookings/" + returnBookingId + "?saved=created";
+  }
   function notifyParent(payload) {
     if (!embed || window.parent === window) return;
     try {
@@ -164,6 +189,8 @@
           return;
         }
         window.print();
+        window.addEventListener("afterprint", goReturnBooking, { once: true });
+        if (returnBooking) setTimeout(goReturnBooking, 2500);
       }, 350);
     });
   }

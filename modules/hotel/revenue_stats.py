@@ -40,6 +40,20 @@ class HotelCollectionsSummary:
     net_total: Decimal
     deposit_count: int
     deposit_total: Decimal
+    cash_in: Decimal = Decimal("0")
+    bank_in: Decimal = Decimal("0")
+    cash_out: Decimal = Decimal("0")
+    bank_out: Decimal = Decimal("0")
+
+
+def _wallet_kind(name: str | None) -> str:
+    text = (name or "").strip()
+    low = text.lower()
+    if "كاش" in text or "cash" in low:
+        return "cash"
+    if "مصرف" in text or "bank" in low:
+        return "bank"
+    return "other"
 
 def hotel_cash_collected(db: Session, start: datetime, end: datetime) -> Decimal:
     """صافي التحصيلات: مدفوعات الحجز − المرتجعات (حسب تاريخ كل حركة)."""
@@ -126,11 +140,47 @@ def hotel_collections_by_payment_method(
 
 
 def hotel_collections_detail(
-    db: Session, start: datetime, end: datetime
+    db: Session,
+    start: datetime,
+    end: datetime,
+    *,
+    hotel_shift_id: int | None = None,
 ) -> tuple[list[HotelCollectionRow], HotelCollectionsSummary]:
-    """سجل تحصيلات ومرتجعات الحجز للفترة."""
+    """سجل تحصيلات ومرتجعات الحجز للفترة (أو لجلسة استقبال محددة)."""
     from modules.authz.models import User
+    from modules.hr.models import Employee
     from modules.payments.models import PaymentMethod
+
+    pay_filters = [
+        HotelBookingPayment.created_at >= start,
+        HotelBookingPayment.created_at < end,
+    ]
+    refund_filters = [
+        HotelBookingPaymentRefund.created_at >= start,
+        HotelBookingPaymentRefund.created_at < end,
+    ]
+    if hotel_shift_id is not None:
+        # حركات مربوطة بالجلسة + توافق للبيانات القديمة داخل نافذة الوقت
+        pay_filters = [
+            (
+                (HotelBookingPayment.hotel_shift_id == hotel_shift_id)
+                | (
+                    HotelBookingPayment.hotel_shift_id.is_(None)
+                    & (HotelBookingPayment.created_at >= start)
+                    & (HotelBookingPayment.created_at < end)
+                )
+            )
+        ]
+        refund_filters = [
+            (
+                (HotelBookingPaymentRefund.hotel_shift_id == hotel_shift_id)
+                | (
+                    HotelBookingPaymentRefund.hotel_shift_id.is_(None)
+                    & (HotelBookingPaymentRefund.created_at >= start)
+                    & (HotelBookingPaymentRefund.created_at < end)
+                )
+            )
+        ]
 
     pay_rows = db.execute(
         select(
@@ -143,15 +193,14 @@ def hotel_collections_detail(
             PaymentMethod.name_ar,
             HotelBookingPayment.is_deposit,
             User.username,
+            Employee.full_name_ar,
             HotelBookingPayment.note,
         )
         .join(HotelBooking, HotelBooking.id == HotelBookingPayment.booking_id)
         .outerjoin(PaymentMethod, PaymentMethod.id == HotelBookingPayment.payment_method_id)
         .outerjoin(User, User.id == HotelBookingPayment.received_by_id)
-        .where(
-            HotelBookingPayment.created_at >= start,
-            HotelBookingPayment.created_at < end,
-        )
+        .outerjoin(Employee, Employee.id == HotelBookingPayment.received_by_employee_id)
+        .where(*pay_filters)
         .order_by(HotelBookingPayment.id.desc())
     ).all()
 
@@ -166,19 +215,24 @@ def hotel_collections_detail(
             PaymentMethod.name_ar,
             HotelBookingPayment.is_deposit,
             User.username,
+            Employee.full_name_ar,
             HotelBookingPaymentRefund.reason,
         )
+        .select_from(HotelBookingPaymentRefund)
         .join(
             HotelBookingPayment,
             HotelBookingPayment.id == HotelBookingPaymentRefund.payment_id,
         )
         .join(HotelBooking, HotelBooking.id == HotelBookingPayment.booking_id)
-        .outerjoin(PaymentMethod, PaymentMethod.id == HotelBookingPayment.payment_method_id)
-        .outerjoin(User, User.id == HotelBookingPaymentRefund.approved_by_id)
-        .where(
-            HotelBookingPaymentRefund.created_at >= start,
-            HotelBookingPaymentRefund.created_at < end,
+        .outerjoin(
+            PaymentMethod,
+            PaymentMethod.id == HotelBookingPaymentRefund.payment_method_id,
         )
+        .outerjoin(User, User.id == HotelBookingPaymentRefund.approved_by_id)
+        .outerjoin(
+            Employee, Employee.id == HotelBookingPaymentRefund.approved_by_employee_id
+        )
+        .where(*refund_filters)
         .order_by(
             HotelBookingPaymentRefund.created_at.desc(),
             HotelBookingPaymentRefund.id.desc(),
@@ -190,6 +244,10 @@ def hotel_collections_detail(
     refunded = Decimal("0")
     deposit_count = 0
     deposit_total = Decimal("0")
+    cash_in = Decimal("0")
+    bank_in = Decimal("0")
+    cash_out = Decimal("0")
+    bank_out = Decimal("0")
 
     for (
         pid,
@@ -201,13 +259,20 @@ def hotel_collections_detail(
         pm_name,
         is_dep,
         user_name,
+        emp_name,
         note,
     ) in pay_rows:
         amount = Decimal(str(amt or 0)).quantize(Decimal("0.001"))
         collected += amount
+        kind = _wallet_kind(pm_name)
+        if kind == "cash":
+            cash_in += amount
+        elif kind == "bank":
+            bank_in += amount
         if is_dep:
             deposit_count += 1
             deposit_total += amount
+        who = (emp_name or user_name or "—").strip() or "—"
         rows.append(
             HotelCollectionRow(
                 movement_type="تحصيل",
@@ -219,7 +284,7 @@ def hotel_collections_detail(
                 amount=amount,
                 payment_method=str(pm_name or "—"),
                 is_deposit=bool(is_dep),
-                received_by=str(user_name or "—"),
+                received_by=who,
                 note=str(note or ""),
             )
         )
@@ -234,10 +299,17 @@ def hotel_collections_detail(
         pm_name,
         is_dep,
         user_name,
+        emp_name,
         reason,
     ) in refund_rows:
         amount = Decimal(str(amt or 0)).quantize(Decimal("0.001"))
         refunded += amount
+        kind = _wallet_kind(pm_name)
+        if kind == "cash":
+            cash_out += amount
+        elif kind == "bank":
+            bank_out += amount
+        who = (emp_name or user_name or "—").strip() or "—"
         rows.append(
             HotelCollectionRow(
                 movement_type="مرتجع",
@@ -249,12 +321,12 @@ def hotel_collections_detail(
                 amount=amount,
                 payment_method=str(pm_name or "—"),
                 is_deposit=bool(is_dep),
-                received_by=str(user_name or "—"),
+                received_by=who,
                 note=str(reason or ""),
             )
         )
 
-    rows.sort(key=lambda r: r.created_at, reverse=True)
+    rows.sort(key=lambda r: r.created_at or start, reverse=True)
     summary = HotelCollectionsSummary(
         payment_count=len(pay_rows),
         refund_count=len(refund_rows),
@@ -263,6 +335,10 @@ def hotel_collections_detail(
         net_total=(collected - refunded).quantize(Decimal("0.001")),
         deposit_count=deposit_count,
         deposit_total=deposit_total.quantize(Decimal("0.001")),
+        cash_in=cash_in.quantize(Decimal("0.001")),
+        bank_in=bank_in.quantize(Decimal("0.001")),
+        cash_out=cash_out.quantize(Decimal("0.001")),
+        bank_out=bank_out.quantize(Decimal("0.001")),
     )
     return rows, summary
 

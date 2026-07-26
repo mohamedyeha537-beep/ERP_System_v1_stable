@@ -175,6 +175,13 @@
       <input type="checkbox" name="shop_enabled" {% if s.shop_enabled != '0' %}checked{% endif %} style="width:auto" />
       تفعيل المتجر الإلكتروني
     </label>
+    <label style="display:block;margin-top:0.75rem">هاتف واتساب لاستلام إشعار طلب أونلاين (المطعم / الكاشير)</label>
+    <input name="shop_online_staff_phone" dir="ltr" value="{{ s.shop_online_staff_phone }}"
+      placeholder="091xxxxxxx, 092xxxxxxx" style="width:100%;max-width:22rem;display:block;margin-top:0.3rem" />
+    <p class="muted" style="font-size:0.82rem;margin:0.35rem 0 0;line-height:1.5">
+      يُرسل واتساب <strong>بأصناف الطلب كاملة</strong> عند طلب من <strong>/shop</strong> أو محادثة الويب — حتى يبدأ الكاشير التحضير قبل فتح الجهاز.
+      عدة أرقام: افصل بفاصلة. إن تُرك فارغاً يُستخدم رقم إدارة المراسلات أعلاه.
+    </p>
     <h3 style="margin:1rem 0 0.5rem;font-size:0.95rem">🤖 شخصية البوت ورسالة الترحيب</h3>
     <p class="muted" style="font-size:0.82rem;margin:0 0 0.65rem;line-height:1.55">
       يظهر اسم البوت أسفل رسائله في صفحة <a href="{{ chat_url }}" target="_blank" rel="noopener">/chat</a>.
@@ -288,7 +295,7 @@
 
         <label>ثوانٍ بين كل رسالة</label>
 
-        <input name="messaging_send_delay_seconds" type="number" min="1" value="{{ s.messaging_send_delay_seconds or '5' }}" style="max-width:6rem" />
+        <input name="messaging_send_delay_seconds" type="number" min="10" value="{{ s.messaging_send_delay_seconds or '10' }}" style="max-width:6rem" />
 
       </div>
 
@@ -312,7 +319,7 @@
 
     <p class="muted" style="font-size:0.85rem;margin-top:0.5rem">
 
-      مثال: 1000 عميل × 5 ثوانٍ ≈ 83 دقيقة — يُرسل تلقائياً عبر الطابور.
+      مثال: 1000 عميل × 10 ثوانٍ ≈ 167 دقيقة — يُرسل تلقائياً عبر الطابور.
 
     </p>
 

@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}SEO Issues{% endblock %}
+{% block body %}
+<h1 style="margin-top:0">مشاكل السيو التقنية</h1>
+<p class="muted">البيئة: {% if is_production %}Production{% else %}Staging{% endif %}</p>
+<nav style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem">
+  <a class="btn" href="/admin/seo">لوحة</a>
+  <a class="btn" href="/admin/seo/pages">الصفحات</a>
+  <a class="btn btn-primary" href="/admin/seo/issues">المشاكل</a>
+  <a class="btn" href="/admin/seo/suggestions">الاقتراحات</a>
+  <a class="btn" href="/admin/seo/reports">التقارير</a>
+</nav>
+
+<form method="get" class="card" style="margin-bottom:1rem;display:flex;gap:0.5rem;flex-wrap:wrap;align-items:end">
+  <label>severity<br><input class="input" name="severity" value="{{ filters.severity }}" placeholder="critical/high/medium/low" /></label>
+  <label>issue_type<br><input class="input" name="issue_type" value="{{ filters.issue_type }}" /></label>
+  <label>status<br><input class="input" name="status" value="{{ filters.status }}" placeholder="open" /></label>
+  <label>page_type<br><input class="input" name="page_type" value="{{ filters.page_type }}" /></label>
+  <button class="btn btn-primary" type="submit">فلترة</button>
+</form>
+
+<div class="card">
+  <table class="table">
+    <thead><tr><th>#</th><th>شدة</th><th>نوع</th><th>عنوان</th><th>حالة</th><th>مقترح</th></tr></thead>
+    <tbody>
+    {% for i in issues %}
+      <tr>
+        <td>{{ i.id }}</td>
+        <td>{{ i.severity }}</td>
+        <td>{{ i.issue_type }}</td>
+        <td>{{ i.title }}</td>
+        <td>{{ i.status }}</td>
+        <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis">{{ (i.recommended_value or '')[:100] }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6" class="muted">لا نتائج</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

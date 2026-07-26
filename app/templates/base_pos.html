@@ -216,6 +216,11 @@
       </summary>
       <div class="pos-brand-dropdown" role="menu">
         <a href="/pos" role="menuitem">الرئيسية</a>
+        {% if pos_can_lock_pos_session(request) %}
+        <form method="post" action="/pos/pin/logout" style="margin:0">
+          <button type="submit" role="menuitem" class="logout" style="width:100%;text-align:inherit;border:none;background:transparent;cursor:pointer;font:inherit;color:inherit;padding:0.55rem 0.85rem">🔒 قفل الجلسة</button>
+        </form>
+        {% endif %}
         <a class="logout" href="/auth/logout" role="menuitem">تسجيل الخروج</a>
       </div>
       </details>
@@ -226,6 +231,11 @@
         {% block pos_topbar %}
         {% if open_pos_shift is defined and open_pos_shift %}
         <span class="pos-shift-meta">#{{ open_pos_shift.id }}</span>
+        {% if pos_can_lock_pos_session(request) %}
+        <form method="post" action="/pos/pin/logout" style="display:inline;margin:0">
+          <button type="submit" class="pos-topbar-btn" title="قفل الجلسة دون إغلاق الوردية">🔒 قفل الجلسة</button>
+        </form>
+        {% endif %}
         <a class="pos-topbar-btn primary" href="/pos/shift">إدارة وإغلاق الجلسة</a>
         <a class="pos-topbar-btn" href="/pos/shift/{{ open_pos_shift.id }}/report" target="_blank">تقرير الجلسة</a>
         {% endif %}

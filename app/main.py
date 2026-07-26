@@ -76,6 +76,7 @@ from modules.hotel.router_housekeeping_public import (
     hk_public_router as hotel_hk_public_router,
 )
 from modules.hotel.router_shifts import shifts_router as hotel_shifts_router
+from modules.hotel.reports_shifts_router import router as hotel_shift_reports_router
 from modules.hotel.router_portal import stay_api as hotel_stay_api_router
 from modules.hotel.router_portal import stay_router as hotel_stay_router
 from modules.hotel.router_store import suites_api as hotel_suites_api_router
@@ -166,6 +167,12 @@ async def lifespan(app: FastAPI):
             print(f"SEO entity columns added: {seo_cols}", flush=True)
     except Exception as exc:
         print(f"WARN SEO schema ensure at startup: {exc}", flush=True)
+    try:
+        from modules.marketing_room.schema_ensure import ensure_marketing_room_schema
+
+        ensure_marketing_room_schema(engine)
+    except Exception as exc:
+        print(f"WARN marketing_room schema ensure: {exc}", flush=True)
     upload_root = Path(__file__).resolve().parent / "static" / "uploads" / "products"
     upload_root.mkdir(parents=True, exist_ok=True)
     purchase_inv_root = Path(__file__).resolve().parent / "static" / "uploads" / "purchases"
@@ -265,7 +272,7 @@ async def lifespan(app: FastAPI):
                     from modules.settings.service import get_bool, get_int
 
                     interval = max(
-                        10, get_int(db, "messaging_worker_interval_seconds", 30)
+                        5, get_int(db, "messaging_worker_interval_seconds", 15)
                     )
                     if get_bool(db, "messaging_enabled", False) and get_bool(
                         db, "messaging_outbox_worker_enabled", True
@@ -273,9 +280,9 @@ async def lifespan(app: FastAPI):
                         sent = process_outbox_batch(db)
                         db.commit()
                         if sent > 0:
-                            interval = min(interval, 10)
+                            interval = min(interval, 5)
                         elif pending_outbox_count(db) > 0:
-                            interval = min(interval, 10)
+                            interval = min(interval, 5)
                     if get_bool(db, "notifications_enabled", True):
                         from modules.notifications.worker import run_cycle
 
@@ -333,6 +340,7 @@ def create_app() -> FastAPI:
     _LIGHT_STATE_PREFIXES = (
         "/pos/live",
         "/pos/web-chat-rails",
+        "/pos/kds-rejected",
         "/shop",
         "/api/shop",
         "/suites",
@@ -345,7 +353,9 @@ def create_app() -> FastAPI:
     )
 
     _BRAND_CACHE: dict[str, tuple[float, dict]] = {}
-    _BRAND_CACHE_TTL = 45.0
+    _BRAND_CACHE_TTL = 180.0
+    _USER_CACHE: dict[int, tuple[float, object]] = {}
+    _USER_CACHE_TTL = 60.0
 
     # =====================================================================
     # ترتيب الـ middlewares في FastAPI: الأخير المُضاف يُنفَّذ أولاً عند
@@ -377,6 +387,15 @@ def create_app() -> FastAPI:
             if light and not uid:
                 return await call_next(request)
 
+            # مسار خفيف + مستخدم مخزّن مؤقتاً: بدون فتح جلسة قاعدة بيانات
+            if light and uid:
+                uid_i = int(uid)
+                now_u = time.monotonic()
+                hit_u = _USER_CACHE.get(uid_i)
+                if hit_u is not None and (now_u - hit_u[0]) < _USER_CACHE_TTL:
+                    request.state.current_user = hit_u[1]
+                    return await call_next(request)
+
             from infra.db import get_session_factory
             from modules.authz.models import User as _User
             from modules.settings.service import get_setting
@@ -386,11 +405,22 @@ def create_app() -> FastAPI:
             try:
                 u = None
                 if uid:
-                    u = db.get(_User, int(uid))
-                    if u is not None and u.is_active:
+                    uid_i = int(uid)
+                    now_u = time.monotonic()
+                    hit_u = _USER_CACHE.get(uid_i)
+                    if hit_u is not None and (now_u - hit_u[0]) < _USER_CACHE_TTL:
+                        u = hit_u[1]
                         request.state.current_user = u
                     else:
-                        u = None
+                        u = db.get(_User, uid_i)
+                        if u is not None and u.is_active:
+                            for _role in u.roles:
+                                _ = list(_role.permissions)
+                            request.state.current_user = u
+                            _USER_CACHE[uid_i] = (now_u, u)
+                        else:
+                            u = None
+                            _USER_CACHE.pop(uid_i, None)
                 if not light:
                     try:
                         from modules.branding.service import resolve_active_branding
@@ -458,25 +488,31 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def _hotel_nav_badges(request: Request, call_next):
-        """يحسب شارات تنقل الفندق لمسارات الاستقبال."""
-        path = request.url.path or ""
-        if request.method == "GET" and (
-            path.startswith("/admin/hotel") or path.startswith("/hotel/settle")
-        ):
-            user = getattr(request.state, "current_user", None)
-            if user is not None:
-                try:
-                    from infra.db import get_session_factory
-                    from modules.hotel.nav_badges import hotel_nav_badge_counts
+        """يحسب شارات تنقل الفندق لمسارات الاستقبال.
 
-                    Session = get_session_factory()
-                    db = Session()
-                    try:
-                        request.state.hotel_nav_badges = hotel_nav_badge_counts(db)
-                    finally:
-                        db.close()
-                except Exception:
-                    request.state.hotel_nav_badges = {}
+        يُنفَّذ هذا الـ middleware قبل تحميل المستخدم أحياناً؛ لذلك لا نعتمد
+        على current_user — العدّ تشغيلي وليس خاصاً بمستخدم.
+        """
+        path = request.url.path or ""
+        if (
+            request.method == "GET"
+            and (
+                path.startswith("/admin/hotel") or path.startswith("/hotel/settle")
+            )
+            and not path.endswith((".json", ".js", ".css", ".map"))
+        ):
+            try:
+                from infra.db import get_session_factory
+                from modules.hotel.nav_badges import hotel_nav_badge_counts
+
+                Session = get_session_factory()
+                db = Session()
+                try:
+                    request.state.hotel_nav_badges = hotel_nav_badge_counts(db)
+                finally:
+                    db.close()
+            except Exception:
+                request.state.hotel_nav_badges = {}
         return await call_next(request)
 
     @app.middleware("http")
@@ -601,6 +637,7 @@ def create_app() -> FastAPI:
     app.include_router(hotel_bookings_router)
     app.include_router(hotel_hk_public_router)
     app.include_router(hotel_shifts_router)
+    app.include_router(hotel_shift_reports_router)
     app.include_router(hotel_stay_router)
     app.include_router(hotel_stay_api_router)
     app.include_router(hotel_suites_router)
@@ -734,7 +771,7 @@ def create_app() -> FastAPI:
         from modules.dashboard_notify.service import badge_counts
 
         try:
-            badges = badge_counts(db, user.id)
+            badges = badge_counts(db, user.id, domain=finance_domain)
         except Exception:
             badges = {}
 

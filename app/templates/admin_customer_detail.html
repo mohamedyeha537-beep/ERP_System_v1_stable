@@ -26,6 +26,14 @@
   <div class="card" style="flex:1; min-width:150px;text-align:center;background:linear-gradient(135deg,#eff6ff,#dbeafe)">
     <div style="color:#1e40af;font-size:0.85rem">رصيد المحفظة</div>
     <div style="font-size:2rem;font-weight:700;color:#1d4ed8">{{ '%.3f' % stats.wallet_balance }} د.ل</div>
+    {% if money_balance %}
+    <div class="muted" style="font-size:0.78rem;margin-top:0.25rem">
+      صافي الحساب: <strong style="color:{% if money_balance.has_credit %}#047857{% elif money_balance.has_debt %}#b91c1c{% else %}#475569{% endif %}">{{ money_balance.label_ar }}</strong>
+      {% if money_balance.hotel_credit and money_balance.hotel_credit > 0 %}
+      <br />رصيد حجوزات لم يُرحَّل: {{ '%.3f' % money_balance.hotel_credit }} د.ل
+      {% endif %}
+    </div>
+    {% endif %}
   </div>
   <div class="card" style="flex:1; min-width:150px;text-align:center;background:linear-gradient(135deg,#fffbeb,#fef3c7)">
     <div style="color:#92400e;font-size:0.85rem">رصيد النقاط</div>
@@ -157,6 +165,22 @@
           <option value="INDIVIDUAL" {% if customer.customer_type.value == 'INDIVIDUAL' %}selected{% endif %}>فرد</option>
           <option value="COMPANY" {% if customer.customer_type.value == 'COMPANY' %}selected{% endif %}>شركة</option>
         </select>
+      </div>
+      <div style="min-width:140px">
+        <label>المجال</label>
+        {% set dom = customer.business_domain.value if customer.business_domain else 'restaurant' %}
+        {% if can_pick_domain %}
+        <select name="business_domain">
+          <option value="restaurant" {% if dom == 'restaurant' %}selected{% endif %}>مطعم</option>
+          <option value="hotel" {% if dom == 'hotel' %}selected{% endif %}>فندق</option>
+          <option value="shared" {% if dom == 'shared' %}selected{% endif %}>مشترك</option>
+        </select>
+        {% else %}
+        <input type="hidden" name="business_domain" value="{{ dom }}" />
+        <div class="muted" style="padding:0.35rem 0">
+          {% if dom == 'hotel' %}فندق{% elif dom == 'shared' %}مشترك{% else %}مطعم{% endif %}
+        </div>
+        {% endif %}
       </div>
       <div style="flex:1; min-width:160px">
         <label>الهاتف <span style="color:#dc2626">*</span></label>

@@ -27,6 +27,21 @@
            placeholder="0 = معطّل" />
   </div>
 </div>
+{% if show_loyalty_intro_editor | default(false) %}
+<hr style="margin:1.25rem 0">
+<h3 style="margin:0 0 0.5rem;color:#0f766e">رسالة شرح برنامج الولاء (مرة واحدة)</h3>
+<p class="muted" style="font-size:0.82rem;margin:0 0 0.6rem;line-height:1.5">
+  تُرسل هذه الرسالة للزبون <strong>مرة واحدة فقط</strong> (مع أول طلب من المتجر/الشات أو عند كتابة «نقاطي»).
+  طلباته التالية تستلم إشعار الطلب فقط بدون إعادة الشرح.
+</p>
+<label for="loyalty_intro_text">نص رسالة الشرح</label>
+<textarea id="loyalty_intro_text" name="loyalty_intro_text" rows="7" style="width:100%;font-family:inherit">{{ loyalty_intro_text | default('') }}</textarea>
+<p class="muted" style="font-size:0.8rem;margin:0.4rem 0 0">
+  متغيرات: <code>{store_name}</code>، <code>{earn_per_dinar}</code>،
+  <code>{redeem_value_per_point}</code>، <code>{min_points_to_redeem}</code>.
+  اترك الحقل فارغاً لاستخدام النص الافتراضي.
+</p>
+{% endif %}
 <hr style="margin:1.25rem 0">
 <h3 style="margin:0 0 0.75rem;color:#1e40af">نظام الإحالة — {{ domain_label }}</h3>
 <label style="display:flex;align-items:center;gap:0.4rem;font-weight:600;margin-bottom:0.75rem">

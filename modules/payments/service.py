@@ -20,6 +20,7 @@ from modules.payments.models import (
     HOTEL_PURCHASE_CUSTODY_BANK_PM_NAME,
     RESTAURANT_PURCHASE_CUSTODY_CASH_PM_NAME,
     RESTAURANT_PURCHASE_CUSTODY_BANK_PM_NAME,
+    ROOM_SETTLE_CLEARING_PM_NAME,
     PURCHASE_CUSTODY_PM_NAMES,
     LEGACY_OWNER_CAPITAL_PM_NAME,
     LEGACY_OWNER_DRAW_PM_NAME,
@@ -354,29 +355,130 @@ def list_pos_sale_payment_methods(
     ]
 
 
+def user_may_receive_hotel_to_restaurant_treasury(user) -> bool:
+    """أدمن النظام وأمين الخزينة: قبض من حساب الفندق مباشرة على خزنة المطعم."""
+    from modules.authz.permissions import TREASURY_CLERK_ROLE_NAME_AR
+    from modules.authz.service import user_has_permission
+    from modules.platform.business_domain import is_system_admin, user_role_names
+
+    if user is None:
+        return False
+    if is_system_admin(user):
+        return True
+    if TREASURY_CLERK_ROLE_NAME_AR in user_role_names(user):
+        return True
+    # احتياطي إن وُجدت صلاحية الخزينة دون اسم الدور القديم
+    return user_has_permission(user, "payments:manage") and user_has_permission(
+        user, "hotel:settle"
+    )
+
+
+def _is_restaurant_main_treasury_receive_target(pm: PaymentMethod) -> bool:
+    """الخزينة الرئيسية للمطعم — قبض مسموح عند تسوية حساب فندق فقط."""
+    from modules.payments.shift_handoff_service import is_main_treasury_payment_method
+
+    return is_main_treasury_payment_method(pm) and payment_method_is_strict_domain(
+        pm, PaymentMethodDomain.RESTAURANT
+    )
+
+
+def _hotel_settle_wallet_allowed(
+    pm: PaymentMethod, *, include_restaurant: bool
+) -> bool:
+    if not pm.is_active or not is_treasury_wallet_method(pm):
+        return False
+    if (
+        is_purchase_custody_payment_method(pm)
+        or is_supplier_credit_payment_method(pm)
+        or is_owner_equity_payment_method(pm)
+    ):
+        return False
+    if payment_method_is_strict_domain(pm, PaymentMethodDomain.HOTEL):
+        return bool(pm.can_receive)
+    if not include_restaurant:
+        return False
+    # خزينة المطعم الرئيسية (can_receive=False عمداً لنقطة البيع)
+    if _is_restaurant_main_treasury_receive_target(pm):
+        return True
+    # أي محفظة قبض مطعم/مشتركة (كاش نقطة البيع…)
+    if pm.can_receive and str(
+        _domain_value(getattr(pm, "business_domain", None))
+    ).strip().lower() in (
+        PaymentMethodDomain.RESTAURANT.value,
+        PaymentMethodDomain.SHARED.value,
+    ):
+        return True
+    return False
+
+
 def list_hotel_settle_payment_methods(
-    db: Session, *, only_active: bool = True
+    db: Session,
+    *,
+    only_active: bool = True,
+    include_restaurant: bool | None = None,
+    user=None,
 ) -> list[PaymentMethod]:
-    """وسائل الدفع في الفندق — كاش/مصرف فندقي فقط، دون حسابات المطعم أو المشتركة."""
+    """وسائل الدفع في الفندق — كاش/مصرف فندقي؛ وللأدمن/الخزينة أيضاً خزائن المطعم."""
 
     ensure_hotel_treasury_payment_methods(db)
-    return [
+    if include_restaurant is None:
+        include_restaurant = bool(
+            user and user_may_receive_hotel_to_restaurant_treasury(user)
+        )
+    if include_restaurant:
+        from modules.payments.shift_handoff_service import (
+            ensure_main_treasury_payment_methods,
+        )
+
+        ensure_main_treasury_payment_methods(db)
+
+    rows = [
         m
         for m in list_payment_methods(db, only_active=only_active)
-        if is_treasury_wallet_method(m)
-        and m.can_receive
-        and payment_method_is_strict_domain(m, PaymentMethodDomain.HOTEL)
+        if _hotel_settle_wallet_allowed(m, include_restaurant=include_restaurant)
     ]
+    # فندق أولاً ثم مطعم/مشترك، والكاش قبل المصرف داخل كل مجال
+    domain_rank = {
+        PaymentMethodDomain.HOTEL.value: 0,
+        PaymentMethodDomain.RESTAURANT.value: 1,
+        PaymentMethodDomain.SHARED.value: 2,
+    }
+    kind_rank = {"cash": 0, "bank": 1}
+
+    def _sort_key(m: PaymentMethod):
+        dom = str(_domain_value(getattr(m, "business_domain", None))).strip().lower()
+        kind = str(getattr(m.kind, "value", m.kind) or "").strip().lower()
+        return (
+            domain_rank.get(dom, 9),
+            kind_rank.get(kind, 9),
+            m.sort_order,
+            m.id,
+        )
+
+    rows.sort(key=_sort_key)
+    return rows
 
 
-def assert_hotel_payment_method(db: Session, payment_method_id: int | None) -> PaymentMethod:
+def assert_hotel_payment_method(
+    db: Session,
+    payment_method_id: int | None,
+    *,
+    allow_restaurant: bool | None = None,
+    user=None,
+) -> PaymentMethod:
+    if allow_restaurant is None:
+        allow_restaurant = bool(
+            user and user_may_receive_hotel_to_restaurant_treasury(user)
+        )
     pm = db.get(PaymentMethod, payment_method_id) if payment_method_id else None
-    if pm is None or not pm.is_active:
-        raise PaymentsError("وسيلة الدفع الفندقية غير صالحة.")
-    if not is_treasury_wallet_method(pm) or not pm.can_receive:
-        raise PaymentsError("اختر خزينة فندق كاش أو مصرف.")
-    if not payment_method_is_strict_domain(pm, PaymentMethodDomain.HOTEL):
-        raise PaymentsError("لا يمكن استخدام خزائن المطعم في عمليات الفندق.")
+    if pm is None or not _hotel_settle_wallet_allowed(
+        pm, include_restaurant=bool(allow_restaurant)
+    ):
+        raise PaymentsError(
+            "اختر خزينة فندق، أو خزينة مطعم (متاحة للأدمن وأمين الخزينة)."
+            if allow_restaurant
+            else "اختر خزينة فندق كاش أو مصرف."
+        )
     return pm
 
 
@@ -418,6 +520,35 @@ def list_payment_methods_main_treasury_for_pay(
         m
         for m in list_payment_methods_for_pay(db, only_active=only_active, domain=domain)
         if is_main_treasury_payment_method(m)
+    ]
+    rows.sort(key=lambda m: (0 if m.kind == PaymentMethodKind.CASH else 1, m.sort_order))
+    return rows
+
+
+def is_hotel_treasury_payment_method(pm: PaymentMethod) -> bool:
+    return pm.name_ar in (HOTEL_TREASURY_CASH_PM_NAME, HOTEL_TREASURY_BANK_PM_NAME)
+
+
+def is_purchase_source_wallet(pm: PaymentMethod) -> bool:
+    """خزينة مطعم أو فندق أو عهدة مشتريات — مصدر دفع لفاتورة شراء."""
+    from modules.payments.shift_handoff_service import is_main_treasury_payment_method
+
+    return (
+        is_main_treasury_payment_method(pm)
+        or is_hotel_treasury_payment_method(pm)
+        or is_purchase_custody_payment_method(pm)
+    )
+
+
+def list_payment_methods_hotel_treasury_for_pay(
+    db: Session, *, only_active: bool = True, domain=None
+) -> list[PaymentMethod]:
+    """خزينة الفندق — كاش/مصرف."""
+    ensure_hotel_treasury_payment_methods(db)
+    rows = [
+        m
+        for m in list_payment_methods_for_pay(db, only_active=only_active, domain=domain)
+        if is_hotel_treasury_payment_method(m)
     ]
     rows.sort(key=lambda m: (0 if m.kind == PaymentMethodKind.CASH else 1, m.sort_order))
     return rows
@@ -516,37 +647,54 @@ def purchase_user_limited_to_custody(user) -> bool:
 def assert_purchase_term_payment_method(
     db: Session, payment_method_id: int
 ) -> PaymentMethod:
-    """فاتورة شراء: خزينة رئيسية، عهدة مشتريات، أو آجل."""
-    from modules.payments.shift_handoff_service import is_main_treasury_payment_method
-
+    """فاتورة شراء: خزينة مطعم/فندق، عهدة مشتريات، أو آجل."""
     pm = db.get(PaymentMethod, payment_method_id)
     if pm is None or not pm.is_active:
         raise PaymentsError("أسلوب الدفع غير صالح.")
-    if (
-        is_supplier_credit_payment_method(pm)
-        or is_main_treasury_payment_method(pm)
-        or is_purchase_custody_payment_method(pm)
-    ):
+    if is_supplier_credit_payment_method(pm) or is_purchase_source_wallet(pm):
         return pm
     raise PaymentsError(
-        "فواتير الشراء تُسجَّل على الخزينة الرئيسية أو عهدة المشتريات أو آجل للمورد."
+        "فواتير الشراء تُسجَّل على خزينة المطعم أو الفندق أو عهدة المشتريات أو آجل للمورد."
     )
 
 
 def assert_purchase_pay_wallet(
     db: Session, payment_method_id: int, *, custody_only: bool = False
 ) -> PaymentMethod:
-    """سداد فاتورة شراء — من الخزينة أو العهدة."""
+    """سداد فاتورة شراء — من خزينة المطعم/الفندق أو العهدة."""
     if custody_only:
         return assert_purchase_custody_payment_method(db, payment_method_id)
-    from modules.payments.shift_handoff_service import is_main_treasury_payment_method
 
     pm = db.get(PaymentMethod, payment_method_id)
     if pm is None or not pm.is_active or not pm.can_pay:
         raise PaymentsError("أسلوب الدفع غير صالح.")
-    if is_main_treasury_payment_method(pm) or is_purchase_custody_payment_method(pm):
+    if is_purchase_source_wallet(pm):
         return pm
-    raise PaymentsError("اختر الخزينة الرئيسية أو عهدة المشتريات.")
+    raise PaymentsError("اختر خزينة المطعم أو الفندق أو عهدة المشتريات.")
+
+
+def list_payment_methods_for_purchase_pay(
+    db: Session, *, only_active: bool = True, custody_only: bool = False
+) -> list[PaymentMethod]:
+    """محافظ سداد فواتير الشراء — مطعم + فندق معاً (بدون تصفية مجال)."""
+    if custody_only:
+        return list_payment_methods_purchase_custody_for_pay(
+            db, only_active=only_active, domain=None
+        )
+    out: list[PaymentMethod] = []
+    seen: set[int] = set()
+    for group in (
+        list_payment_methods_main_treasury_for_pay(db, only_active=only_active, domain=None),
+        list_payment_methods_hotel_treasury_for_pay(db, only_active=only_active, domain=None),
+        list_payment_methods_purchase_custody_for_pay(
+            db, only_active=only_active, domain=None
+        ),
+    ):
+        for m in group:
+            if m.id not in seen:
+                out.append(m)
+                seen.add(m.id)
+    return out
 
 
 def list_payment_methods_for_purchase_term(
@@ -556,14 +704,22 @@ def list_payment_methods_for_purchase_term(
     credit = ensure_supplier_credit_payment_method(db)
     out: list[PaymentMethod] = []
     seen: set[int] = set()
+    # domain=None: يظهر خزين المطعم والفندق معاً لموظف المشتريات
+    pay_domain = domain  # يُمرَّر None عادةً من الراوتر
     for m in list_payment_methods_main_treasury_for_pay(
-        db, only_active=only_active, domain=domain
+        db, only_active=only_active, domain=pay_domain
+    ):
+        if m.id not in seen:
+            out.append(m)
+            seen.add(m.id)
+    for m in list_payment_methods_hotel_treasury_for_pay(
+        db, only_active=only_active, domain=pay_domain
     ):
         if m.id not in seen:
             out.append(m)
             seen.add(m.id)
     for m in list_payment_methods_purchase_custody_for_pay(
-        db, only_active=only_active, domain=domain
+        db, only_active=only_active, domain=pay_domain
     ):
         if m.id not in seen:
             out.append(m)
@@ -978,16 +1134,28 @@ def record_sale_payment(
     amount: Decimal,
     *,
     payment_proof_image_filename: str | None = None,
+    for_hotel_settle: bool = False,
 ) -> SalePayment:
     """يسجّل دفعة لبيع (تستدعى مع complete_sale)."""
     pm = db.get(PaymentMethod, payment_method_id)
     if pm is None or not pm.is_active:
         raise PaymentsError("أسلوب الدفع غير صالح.")
-    if not pm.can_receive:
-        raise PaymentsError(f"الحساب «{pm.name_ar}» غير مسموح بالقبض عند البيع.")
-    from modules.platform.business_domain import BusinessDomain, assert_payment_method_for_domain
+    if for_hotel_settle:
+        # تسوية غرفة: خزينة فندق/مطعم، أو حساب المقاصة الداخلي بعد التحويل
+        allowed = _hotel_settle_wallet_allowed(
+            pm, include_restaurant=True
+        ) or (pm.name_ar == ROOM_SETTLE_CLEARING_PM_NAME and pm.is_active)
+        if not allowed:
+            raise PaymentsError(f"الحساب «{pm.name_ar}» غير مسموح لهذه التسوية.")
+    else:
+        if not pm.can_receive:
+            raise PaymentsError(f"الحساب «{pm.name_ar}» غير مسموح بالقبض عند البيع.")
+        from modules.platform.business_domain import (
+            BusinessDomain,
+            assert_payment_method_for_domain,
+        )
 
-    assert_payment_method_for_domain(pm, filter_domain=BusinessDomain.RESTAURANT)
+        assert_payment_method_for_domain(pm, filter_domain=BusinessDomain.RESTAURANT)
     sp = SalePayment(
         sale_id=sale_id,
         payment_method_id=payment_method_id,
@@ -2086,17 +2254,21 @@ def wallet_breakdown(
         int(mid): Decimal(str(s or 0)) for mid, s in db.execute(hotel_payments_q).all()
     }
 
+    hotel_refund_pm = func.coalesce(
+        HotelBookingPaymentRefund.payment_method_id,
+        HotelBookingPayment.payment_method_id,
+    )
     hotel_refunds_q = (
         select(
-            HotelBookingPayment.payment_method_id,
+            hotel_refund_pm,
             func.coalesce(func.sum(HotelBookingPaymentRefund.amount), 0),
         )
         .join(
             HotelBookingPayment,
             HotelBookingPayment.id == HotelBookingPaymentRefund.payment_id,
         )
-        .where(HotelBookingPayment.payment_method_id.isnot(None))
-        .group_by(HotelBookingPayment.payment_method_id)
+        .where(hotel_refund_pm.isnot(None))
+        .group_by(hotel_refund_pm)
     )
     if start is not None:
         hotel_refunds_q = hotel_refunds_q.where(HotelBookingPaymentRefund.created_at >= start)

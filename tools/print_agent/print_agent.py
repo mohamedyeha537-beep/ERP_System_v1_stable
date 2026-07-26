@@ -1,17 +1,31 @@
 #!/usr/bin/env python3
-"""وكيل طباعة محلي — يسحب print_jobs من السيرفر ويطبع ESC/POS على الشبكة."""
+"""وكيل طباعة محلي — يسحب print_jobs من السيرفر ويطبع ESC/POS على الشبكة.
+
+مصمم للعمل كخدمة Windows (NSSM) مع:
+- مهلة على الطباعة حتى لا يتجمد الـ spooler
+- تدوير السجلات
+- الخروج عند فشل متكرر ليُعاد تشغيله تلقائياً
+"""
 from __future__ import annotations
 
 import json
 import logging
+import logging.handlers
 import socket
 import sys
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from pathlib import Path
 
 LOG = logging.getLogger("print_agent")
+AGENT_VERSION = "1.2"
+
+# مهلة الطباعة (ث) — إن تجاوزتها المهمة تُعلَّم فاشلة ويستمر الاستعلام
+DEFAULT_PRINT_TIMEOUT = 45
+# بعد هذا العدد من أخطاء الاستعلام المتتالية يخرج الوكيل (NSSM يعيد التشغيل)
+DEFAULT_MAX_POLL_FAILURES = 30
 
 
 def load_config(path: Path) -> dict:
@@ -99,11 +113,6 @@ def parse_job_payload(job: dict) -> tuple[str, str | None, str | None, dict]:
     return payload_raw, None, None, {}
 
 
-def extract_text(job: dict) -> str:
-    text, _, _, _ = parse_job_payload(job)
-    return text
-
-
 def _sanitize_line_for_escpos(line: str) -> str:
     """رموز لا تدعمها معظم طابعات POS-80 الحرارية."""
     import re
@@ -122,7 +131,6 @@ def _sanitize_line_for_escpos(line: str) -> str:
 
 
 def _resolve_profile(cfg: dict, job: dict) -> str:
-    """ملف ترميز ESC/POS — انظر config.json."""
     profile = str(cfg.get("escpos_profile") or "cp1256_22").strip().lower()
     try:
         payload = json.loads(job.get("payload") or "{}")
@@ -152,7 +160,6 @@ def _printer_cfg_for_job(cfg: dict, job: dict) -> dict:
 
 
 def _resolve_raster_threshold(cfg: dict, job: dict) -> int:
-    """كلما زادت القيمة زادت سواد طباعة الصور الحرارية."""
     val = _printer_cfg_for_job(cfg, job).get("raster_threshold")
     if val is None:
         val = cfg.get("raster_threshold", 160)
@@ -174,16 +181,14 @@ def _encode_lines(text: str, encoding: str) -> list[bytes]:
 
 
 def escpos_encode(text: str, cfg: dict, job: dict) -> bytes:
-    """بناء أوامر ESC/POS حسب ملف الترميز (افتراضي UTF-8 لـ POS-80)."""
     profile = _resolve_profile(cfg, job)
-    out = bytearray(b"\x1b\x40")  # init
-    out.extend(b"\x1b\x21\x00")  # خط عادي
+    out = bytearray(b"\x1b\x40")
+    out.extend(b"\x1b\x21\x00")
 
     if profile == "utf8":
-        # Xprinter / POS-80: وضع UTF-8 (الأنسب لمعظم الطابعات الصينية)
         out.extend(b"\x1c\x26")
         out.extend(b"\x1c\x43\xff")
-        out.extend(b"\x1b\x61\x02")  # محاذاة يمين للعربية
+        out.extend(b"\x1b\x61\x02")
         for chunk in _encode_lines(text, "utf-8"):
             out.extend(chunk + b"\n")
     elif profile == "cp720_21":
@@ -197,7 +202,6 @@ def escpos_encode(text: str, cfg: dict, job: dict) -> bytes:
         for chunk in _encode_lines(text, "cp1256"):
             out.extend(chunk + b"\n")
     else:
-        # توافق قديم: escpos_encoding + escpos_code_table
         enc = str(cfg.get("escpos_encoding") or "cp1256").strip()
         try:
             table = int(cfg.get("escpos_code_table", 22))
@@ -256,18 +260,9 @@ def send_raw_windows(printer_name: str, data: bytes) -> None:
         win32print.ClosePrinter(h)
 
 
-def process_job(cfg: dict, job: dict) -> None:
+def _build_raw(cfg: dict, job: dict) -> tuple[bytes, str]:
     from escpos_raster import build_logo_block, build_receipt_raster_block
 
-    jid = job["id"]
-    try:
-        api_request(cfg, "POST", f"/api/print-agent/jobs/{jid}/claim")
-    except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            LOG.info("job %s skipped — already claimed or finished", jid)
-            return
-        raise
-    mode, target, port = resolve_printer_target(cfg, job)
     text, logo_url, image_b64, payload = parse_job_payload(job)
     paper = 80
     try:
@@ -278,62 +273,99 @@ def process_job(cfg: dict, job: dict) -> None:
         raw = build_receipt_raster_block(
             image_b64, paper, threshold=_resolve_raster_threshold(cfg, job)
         )
-        tag = " (raster)"
-    else:
-        logo_block = build_logo_block(
-            cfg, logo_url, paper, threshold=_resolve_raster_threshold(cfg, job)
-        )
-        raw = logo_block + escpos_encode(text, cfg, job)
-        tag = ""
+        return raw, " (raster)"
+    logo_block = build_logo_block(
+        cfg, logo_url, paper, threshold=_resolve_raster_threshold(cfg, job)
+    )
+    return logo_block + escpos_encode(text, cfg, job), ""
+
+
+def _do_print(cfg: dict, job: dict, mode: str, target: str | int, port: int) -> str:
+    raw, tag = _build_raw(cfg, job)
     if mode == "windows":
         send_raw_windows(str(target), raw)
-        LOG.info("printed job %s -> Windows[%s]%s", jid, target, tag)
-    else:
+        return f"Windows[{target}]{tag}"
+    try:
+        send_raw_tcp(str(target), int(port), raw)
+        return f"{target}:{port}{tag}"
+    except Exception as exc:
+        fallback = (cfg.get("fallback_windows_name") or "").strip()
+        if not fallback and cfg.get("prefer_windows_name"):
+            fallback = "__DEFAULT__"
+        if not fallback:
+            raise
+        LOG.warning(
+            "TCP print failed for job %s (%s) — trying Windows fallback %r",
+            job.get("id"),
+            exc,
+            fallback,
+        )
+        send_raw_windows(fallback, raw)
+        return f"Windows[{fallback}]{tag}"
+
+
+def process_job(cfg: dict, job: dict, *, print_timeout: float) -> None:
+    jid = job["id"]
+    try:
+        api_request(cfg, "POST", f"/api/print-agent/jobs/{jid}/claim")
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            LOG.info("job %s skipped — already claimed or finished", jid)
+            return
+        raise
+    mode, target, port = resolve_printer_target(cfg, job)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        fut = pool.submit(_do_print, cfg, job, mode, target, port)
         try:
-            send_raw_tcp(str(target), int(port), raw)
-            LOG.info("printed job %s -> %s:%s%s", jid, target, port, tag)
-        except Exception as exc:
-            fallback = (cfg.get("fallback_windows_name") or "").strip()
-            if not fallback and cfg.get("prefer_windows_name"):
-                fallback = "__DEFAULT__"
-            if not fallback:
-                raise
-            LOG.warning(
-                "TCP print failed for job %s (%s) — trying Windows fallback %r",
-                jid,
-                exc,
-                fallback,
-            )
-            send_raw_windows(fallback, raw)
-            LOG.info("printed job %s -> Windows[%s]%s", jid, fallback, tag)
+            dest = fut.result(timeout=print_timeout)
+        except FuturesTimeout as exc:
+            raise TimeoutError(
+                f"انتهت مهلة الطباعة ({print_timeout:.0f}ث) — "
+                "الطابعة أو spooler متوقف/معلّق"
+            ) from exc
+    LOG.info("printed job %s -> %s", jid, dest)
     api_request(cfg, "POST", f"/api/print-agent/jobs/{jid}/printed")
 
 
-def main() -> int:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s",
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler(
-                Path(__file__).resolve().parent / "print_agent.log",
-                encoding="utf-8",
-            ),
-        ],
+def _setup_logging(log_path: Path) -> None:
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    fmt = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+    sh = logging.StreamHandler()
+    sh.setFormatter(fmt)
+    fh = logging.handlers.RotatingFileHandler(
+        log_path,
+        maxBytes=2_000_000,
+        backupCount=5,
+        encoding="utf-8",
     )
-    cfg_path = Path(__file__).resolve().parent / "config.json"
+    fh.setFormatter(fmt)
+    root.handlers.clear()
+    root.addHandler(sh)
+    root.addHandler(fh)
+
+
+def main() -> int:
+    base = Path(__file__).resolve().parent
+    _setup_logging(base / "print_agent.log")
+    cfg_path = base / "config.json"
     if not cfg_path.exists():
         LOG.error("أنشئ config.json من config.json.example")
         return 1
     cfg = load_config(cfg_path)
     poll_interval = float(cfg.get("poll_interval_seconds", 2))
     heartbeat_interval = float(cfg.get("heartbeat_interval_seconds", 30))
+    print_timeout = float(cfg.get("print_timeout_seconds", DEFAULT_PRINT_TIMEOUT))
+    max_poll_failures = int(cfg.get("max_poll_failures", DEFAULT_MAX_POLL_FAILURES))
     LOG.info(
-        "وكيل الطباعة يعمل — السيرفر: %s (استعلام كل %.1fs)",
+        "وكيل الطباعة v%s — السيرفر: %s (استعلام كل %.1fs، مهلة طباعة %.0fs)",
+        AGENT_VERSION,
         cfg.get("server_url"),
         poll_interval,
+        print_timeout,
     )
     last_heartbeat = 0.0
+    consecutive_poll_failures = 0
     while True:
         try:
             now = time.monotonic()
@@ -342,13 +374,17 @@ def main() -> int:
                     cfg,
                     "POST",
                     "/api/print-agent/heartbeat",
-                    {"hostname": socket.gethostname(), "version": "1.0"},
+                    {
+                        "hostname": socket.gethostname(),
+                        "version": AGENT_VERSION,
+                    },
                 )
                 last_heartbeat = now
             data = api_request(cfg, "GET", "/api/print-agent/jobs")
+            consecutive_poll_failures = 0
             for job in data.get("jobs") or []:
                 try:
-                    process_job(cfg, job)
+                    process_job(cfg, job, print_timeout=print_timeout)
                 except Exception as exc:
                     LOG.exception("job %s failed: %s", job.get("id"), exc)
                     try:
@@ -361,9 +397,36 @@ def main() -> int:
                     except Exception:
                         LOG.exception("could not report failure")
         except urllib.error.HTTPError as exc:
-            LOG.warning("HTTP %s: %s", exc.code, exc.read().decode("utf-8", errors="replace"))
+            consecutive_poll_failures += 1
+            body = ""
+            try:
+                body = exc.read().decode("utf-8", errors="replace")
+            except Exception:
+                pass
+            LOG.warning(
+                "HTTP %s (%s/%s): %s",
+                exc.code,
+                consecutive_poll_failures,
+                max_poll_failures,
+                body,
+            )
+            if exc.code == 401:
+                LOG.error("رمز الوكيل غير صالح — راجع /admin/printing/agents")
+                return 2
         except Exception as exc:
-            LOG.warning("poll error: %s", exc)
+            consecutive_poll_failures += 1
+            LOG.warning(
+                "poll error (%s/%s): %s",
+                consecutive_poll_failures,
+                max_poll_failures,
+                exc,
+            )
+        if consecutive_poll_failures >= max_poll_failures:
+            LOG.error(
+                "فشل الاستعلام %s مرات متتالية — الخروج لإعادة التشغيل التلقائي",
+                consecutive_poll_failures,
+            )
+            return 3
         time.sleep(poll_interval)
 
 

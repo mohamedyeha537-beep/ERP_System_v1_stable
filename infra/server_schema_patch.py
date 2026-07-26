@@ -325,6 +325,29 @@ def patch_server_schema(engine: Engine) -> None:
                 added,
                 "activity_hub_mutes (table)",
             )
+        if "activity_hub_wa_overrides" not in tables:
+            _safe_exec(
+                conn,
+                """
+                CREATE TABLE activity_hub_wa_overrides (
+                    event_key VARCHAR(64) NOT NULL PRIMARY KEY,
+                    phones VARCHAR(255) NOT NULL DEFAULT '',
+                    message_body TEXT NULL,
+                    updated_at DATETIME(6) NULL
+                )
+                """
+                if dialect == "mysql"
+                else """
+                CREATE TABLE activity_hub_wa_overrides (
+                    event_key VARCHAR(64) NOT NULL PRIMARY KEY,
+                    phones VARCHAR(255) NOT NULL DEFAULT '',
+                    message_body TEXT,
+                    updated_at TIMESTAMP WITH TIME ZONE
+                )
+                """,
+                added,
+                "activity_hub_wa_overrides (table)",
+            )
 
         tables = set(inspect(conn).get_table_names())
         if "hr_departments" not in tables:
@@ -977,6 +1000,44 @@ def patch_server_schema(engine: Engine) -> None:
         if _table_columns(conn, "products"):
             if _add_column(conn, "products", "sales_warehouse_id", "INT NULL"):
                 added.append("products.sales_warehouse_id")
+            if _add_column(conn, "products", "show_in_shop", bool_t):
+                added.append("products.show_in_shop")
+                # الحفاظ على السلوك السابق: المتجر كان يعتمد show_in_pos
+                conn.execute(
+                    text(
+                        "UPDATE products SET show_in_shop = show_in_pos "
+                        "WHERE show_in_pos IS NOT NULL"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "UPDATE products SET show_in_shop = "
+                        + ("0" if dialect == "mysql" else "FALSE")
+                        + " WHERE kind = 'STOCK_ONLY'"
+                    )
+                )
+
+        if _table_columns(conn, "bom_lines"):
+            if _add_column(conn, "bom_lines", "packaging_only", bool_f):
+                added.append("bom_lines.packaging_only")
+                try:
+                    if dialect == "mysql":
+                        conn.execute(
+                            text(
+                                "CREATE INDEX ix_bom_lines_packaging_only "
+                                "ON bom_lines (packaging_only)"
+                            )
+                        )
+                    else:
+                        conn.execute(
+                            text(
+                                "CREATE INDEX IF NOT EXISTS ix_bom_lines_packaging_only "
+                                "ON bom_lines (packaging_only)"
+                            )
+                        )
+                    added.append("bom_lines.ix_packaging_only")
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("schema patch skipped bom_lines index: %s", exc)
 
         if _table_columns(conn, "hr_payroll_runs"):
             if _add_column(
@@ -1255,6 +1316,30 @@ def patch_server_schema(engine: Engine) -> None:
             ):
                 if _add_column(conn, "hotel_shifts", col, ddl):
                     added.append(f"hotel_shifts.{col}")
+        if _table_columns(conn, "hotel_booking_payment_refunds"):
+            if _add_column(
+                conn,
+                "hotel_booking_payment_refunds",
+                "payment_method_id",
+                "INT NULL",
+            ):
+                added.append("hotel_booking_payment_refunds.payment_method_id")
+                try:
+                    # تعبئة قديمة من وسيلة الدفعة الأصلية
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE hotel_booking_payment_refunds r
+                            JOIN hotel_booking_payments p ON p.id = r.payment_id
+                            SET r.payment_method_id = p.payment_method_id
+                            WHERE r.payment_method_id IS NULL
+                              AND p.payment_method_id IS NOT NULL
+                            """
+                        )
+                    )
+                except Exception:
+                    pass
+
         tables = set(inspect(conn).get_table_names())
         if "hotel_booking_debts" not in tables:
             created_at_ddl = (
@@ -1262,30 +1347,38 @@ def patch_server_schema(engine: Engine) -> None:
                 if dialect == "mysql"
                 else "TIMESTAMPTZ NOT NULL DEFAULT NOW()"
             )
+            pk_ddl = (
+                "INT AUTO_INCREMENT PRIMARY KEY"
+                if dialect == "mysql"
+                else "SERIAL PRIMARY KEY"
+            )
+            ts_null = "DATETIME NULL" if dialect == "mysql" else "TIMESTAMPTZ NULL"
             _safe_exec(
                 conn,
                 f"""
                 CREATE TABLE hotel_booking_debts (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    booking_id INTEGER NOT NULL REFERENCES hotel_bookings(id) ON DELETE CASCADE,
+                    id {pk_ddl},
+                    booking_id INT NOT NULL,
                     amount DECIMAL(14,3) NOT NULL,
                     status VARCHAR(20) NOT NULL DEFAULT 'OPEN',
-                    reason TEXT,
-                    settlement_json TEXT,
-                    created_by_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                    reason TEXT NULL,
+                    settlement_json TEXT NULL,
+                    created_by_id INT NULL,
                     created_at {created_at_ddl},
-                    collected_at DATETIME,
-                    collected_by_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-                    collection_payment_id INTEGER REFERENCES hotel_booking_payments(id) ON DELETE SET NULL,
-                    written_off_at DATETIME,
-                    written_off_by_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-                    write_off_reason TEXT
+                    collected_at {ts_null},
+                    collected_by_id INT NULL,
+                    collection_payment_id INT NULL,
+                    written_off_at {ts_null},
+                    written_off_by_id INT NULL,
+                    write_off_reason TEXT NULL,
+                    INDEX ix_hotel_booking_debts_booking_id (booking_id),
+                    INDEX ix_hotel_booking_debts_status (status)
                 )
                 """
-                if dialect == "sqlite"
+                if dialect == "mysql"
                 else f"""
                 CREATE TABLE hotel_booking_debts (
-                    id SERIAL PRIMARY KEY,
+                    id {pk_ddl},
                     booking_id INTEGER NOT NULL REFERENCES hotel_bookings(id) ON DELETE CASCADE,
                     amount DECIMAL(14,3) NOT NULL,
                     status VARCHAR(20) NOT NULL DEFAULT 'OPEN',
@@ -1304,16 +1397,140 @@ def patch_server_schema(engine: Engine) -> None:
                 added,
                 "hotel_booking_debts",
             )
-            for idx, col in (
-                ("ix_hotel_booking_debts_booking_id", "booking_id"),
-                ("ix_hotel_booking_debts_status", "status"),
-            ):
-                _safe_exec(
-                    conn,
-                    f"CREATE INDEX IF NOT EXISTS {idx} ON hotel_booking_debts ({col})",
-                    added,
-                    f"hotel_booking_debts.{col}_idx",
+            if dialect != "mysql":
+                for idx, col in (
+                    ("ix_hotel_booking_debts_booking_id", "booking_id"),
+                    ("ix_hotel_booking_debts_status", "status"),
+                ):
+                    _safe_exec(
+                        conn,
+                        f"CREATE INDEX IF NOT EXISTS {idx} ON hotel_booking_debts ({col})",
+                        added,
+                        f"hotel_booking_debts.{col}_idx",
+                    )
+
+        tables = set(inspect(conn).get_table_names())
+        if "hotel_booking_debts" in tables:
+            debt_cols = _table_columns(conn, "hotel_booking_debts")
+            if "amount_remaining" not in debt_cols:
+                if _add_column(conn, "hotel_booking_debts", "amount_remaining", "DECIMAL(14,3) NULL"):
+                    added.append("hotel_booking_debts.amount_remaining")
+                try:
+                    conn.execute(
+                        text(
+                            "UPDATE hotel_booking_debts SET amount_remaining = amount "
+                            "WHERE amount_remaining IS NULL AND status = 'OPEN'"
+                        )
+                    )
+                except Exception:
+                    pass
+            if "follow_up_notes" not in debt_cols:
+                if _add_column(conn, "hotel_booking_debts", "follow_up_notes", "TEXT NULL"):
+                    added.append("hotel_booking_debts.follow_up_notes")
+            if "reminder_at" not in debt_cols:
+                if _add_column(conn, "hotel_booking_debts", "reminder_at", "DATE NULL"):
+                    added.append("hotel_booking_debts.reminder_at")
+                try:
+                    conn.execute(
+                        text(
+                            "CREATE INDEX ix_hotel_booking_debts_reminder_at "
+                            "ON hotel_booking_debts (reminder_at)"
+                        )
+                    )
+                except Exception:
+                    pass
+
+        tables = set(inspect(conn).get_table_names())
+        if "hotel_invoices" not in tables and "hotel_bookings" in tables:
+            created_at_ddl = (
+                "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"
+                if dialect == "mysql"
+                else "TIMESTAMPTZ NOT NULL DEFAULT NOW()"
+            )
+            pk_ddl = (
+                "INT AUTO_INCREMENT PRIMARY KEY"
+                if dialect == "mysql"
+                else "SERIAL PRIMARY KEY"
+            )
+            ts_null = "DATETIME NULL" if dialect == "mysql" else "TIMESTAMPTZ NULL"
+            _safe_exec(
+                conn,
+                f"""
+                CREATE TABLE hotel_invoices (
+                    id {pk_ddl},
+                    booking_id INT NOT NULL,
+                    invoice_number VARCHAR(32) NOT NULL,
+                    status VARCHAR(20) NOT NULL DEFAULT 'DRAFT',
+                    subtotal DECIMAL(14,3) NOT NULL DEFAULT 0,
+                    discount DECIMAL(14,3) NOT NULL DEFAULT 0,
+                    tax DECIMAL(14,3) NOT NULL DEFAULT 0,
+                    total DECIMAL(14,3) NOT NULL DEFAULT 0,
+                    paid DECIMAL(14,3) NOT NULL DEFAULT 0,
+                    issued_at {ts_null},
+                    issued_by_id INT NULL,
+                    created_at {created_at_ddl},
+                    INDEX ix_hotel_invoices_booking_id (booking_id),
+                    INDEX ix_hotel_invoices_invoice_number (invoice_number),
+                    INDEX ix_hotel_invoices_status (status)
                 )
+                """
+                if dialect == "mysql"
+                else f"""
+                CREATE TABLE hotel_invoices (
+                    id {pk_ddl},
+                    booking_id INTEGER NOT NULL REFERENCES hotel_bookings(id) ON DELETE RESTRICT,
+                    invoice_number VARCHAR(32) NOT NULL,
+                    status VARCHAR(20) NOT NULL DEFAULT 'DRAFT',
+                    subtotal DECIMAL(14,3) NOT NULL DEFAULT 0,
+                    discount DECIMAL(14,3) NOT NULL DEFAULT 0,
+                    tax DECIMAL(14,3) NOT NULL DEFAULT 0,
+                    total DECIMAL(14,3) NOT NULL DEFAULT 0,
+                    paid DECIMAL(14,3) NOT NULL DEFAULT 0,
+                    issued_at TIMESTAMPTZ,
+                    issued_by_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                    created_at {created_at_ddl}
+                )
+                """,
+                added,
+                "hotel_invoices",
+            )
+        tables = set(inspect(conn).get_table_names())
+        if "hotel_invoice_items" not in tables and "hotel_invoices" in tables:
+            pk_ddl = (
+                "INT AUTO_INCREMENT PRIMARY KEY"
+                if dialect == "mysql"
+                else "SERIAL PRIMARY KEY"
+            )
+            _safe_exec(
+                conn,
+                f"""
+                CREATE TABLE hotel_invoice_items (
+                    id {pk_ddl},
+                    invoice_id INT NOT NULL,
+                    description VARCHAR(255) NOT NULL,
+                    quantity DECIMAL(14,4) NOT NULL DEFAULT 1,
+                    unit_price DECIMAL(14,3) NOT NULL DEFAULT 0,
+                    line_total DECIMAL(14,3) NOT NULL DEFAULT 0,
+                    item_type VARCHAR(40) NOT NULL DEFAULT 'OTHER',
+                    INDEX ix_hotel_invoice_items_invoice_id (invoice_id)
+                )
+                """
+                if dialect == "mysql"
+                else f"""
+                CREATE TABLE hotel_invoice_items (
+                    id {pk_ddl},
+                    invoice_id INTEGER NOT NULL REFERENCES hotel_invoices(id) ON DELETE CASCADE,
+                    description VARCHAR(255) NOT NULL,
+                    quantity DECIMAL(14,4) NOT NULL DEFAULT 1,
+                    unit_price DECIMAL(14,3) NOT NULL DEFAULT 0,
+                    line_total DECIMAL(14,3) NOT NULL DEFAULT 0,
+                    item_type VARCHAR(40) NOT NULL DEFAULT 'OTHER'
+                )
+                """,
+                added,
+                "hotel_invoice_items",
+            )
+
         if _table_columns(conn, "hr_employees"):
             if _add_column(conn, "hr_employees", "is_hotel_front", "TINYINT(1) NOT NULL DEFAULT 0"):
                 added.append("hr_employees.is_hotel_front")
@@ -1328,6 +1545,70 @@ def patch_server_schema(engine: Engine) -> None:
                 added.append("customers.company_name")
             if _add_column(conn, "customers", "wallet_balance", "DECIMAL(14,3) NOT NULL DEFAULT 0"):
                 added.append("customers.wallet_balance")
+            if _add_column(
+                conn,
+                "customers",
+                "business_domain",
+                "VARCHAR(20) NOT NULL DEFAULT 'restaurant'",
+            ):
+                added.append("customers.business_domain")
+            if _add_column(conn, "customers", "loyalty_intro_sent_at", "DATETIME NULL"):
+                added.append("customers.loyalty_intro_sent_at")
+            # تخمين/تصحيح من الحجوزات والمبيعات المرتبطة بغرف (آمن لإعادة التشغيل)
+            if "business_domain" in _table_columns(conn, "customers"):
+                try:
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE customers c
+                            SET business_domain = 'hotel'
+                            WHERE business_domain = 'restaurant'
+                              AND (
+                                EXISTS (
+                                    SELECT 1 FROM hotel_bookings hb
+                                    WHERE hb.customer_id = c.id
+                                )
+                                OR EXISTS (
+                                    SELECT 1 FROM sales s
+                                    WHERE s.customer_id = c.id
+                                      AND (
+                                        s.booking_id IS NOT NULL
+                                        OR UPPER(CAST(s.context_type AS CHAR)) = 'ROOM'
+                                      )
+                                )
+                                OR EXISTS (
+                                    SELECT 1 FROM hotel_bookings hb
+                                    WHERE hb.guest_phone IS NOT NULL
+                                      AND RIGHT(
+                                        REPLACE(REPLACE(REPLACE(hb.guest_phone, '+', ''), ' ', ''), '-', ''),
+                                        9
+                                      ) = RIGHT(c.phone, 9)
+                                )
+                              )
+                            """
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE customers c
+                            SET business_domain = 'shared'
+                            WHERE business_domain = 'hotel'
+                              AND EXISTS (
+                                SELECT 1 FROM sales s
+                                WHERE s.customer_id = c.id
+                                  AND s.booking_id IS NULL
+                                  AND (
+                                    s.context_type IS NULL
+                                    OR UPPER(CAST(s.context_type AS CHAR)) <> 'ROOM'
+                                  )
+                              )
+                            """
+                        )
+                    )
+                    added.append("customers.business_domain_backfill")
+                except Exception:
+                    pass
 
         tables = set(inspect(conn).get_table_names())
         if "customer_wallet_transactions" not in tables:
@@ -1383,6 +1664,38 @@ def patch_server_schema(engine: Engine) -> None:
                 added.append("hotel_rooms.show_online")
             if _add_column(conn, "hotel_rooms", "online_description", "TEXT NULL"):
                 added.append("hotel_rooms.online_description")
+            if _add_column(conn, "hotel_rooms", "lock_no", "VARCHAR(16) NULL"):
+                added.append("hotel_rooms.lock_no")
+            if _add_column(conn, "hotel_rooms", "rooms_count", "INT NOT NULL DEFAULT 1"):
+                added.append("hotel_rooms.rooms_count")
+            if _add_column(conn, "hotel_rooms", "beds_count", "INT NOT NULL DEFAULT 1"):
+                added.append("hotel_rooms.beds_count")
+            added_double = _add_column(
+                conn, "hotel_rooms", "double_beds_count", "INT NOT NULL DEFAULT 1"
+            )
+            if added_double:
+                added.append("hotel_rooms.double_beds_count")
+            added_single = _add_column(
+                conn, "hotel_rooms", "single_beds_count", "INT NOT NULL DEFAULT 0"
+            )
+            if added_single:
+                added.append("hotel_rooms.single_beds_count")
+            if added_double or added_single:
+                try:
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE hotel_rooms
+                            SET double_beds_count = COALESCE(beds_count, 1),
+                                single_beds_count = 0,
+                                beds_count = COALESCE(beds_count, 1)
+                            """
+                        )
+                    )
+                except Exception:
+                    pass
+            if _add_column(conn, "hotel_rooms", "allows_infant", bool_f):
+                added.append("hotel_rooms.allows_infant")
 
         tables = set(inspect(conn).get_table_names())
         if "hotel_room_media" not in tables:
@@ -1418,6 +1731,63 @@ def patch_server_schema(engine: Engine) -> None:
                 "hotel_room_media",
             )
 
+        if _table_columns(conn, "hotel_room_types"):
+            bool_extra = _bool_ddl(dialect, default=False)
+            for col, ddl in (
+                ("max_occupancy", "INT NULL"),
+                ("beds_description", "VARCHAR(200) NULL"),
+                ("allows_extra_bed", bool_extra),
+            ):
+                if _add_column(conn, "hotel_room_types", col, ddl):
+                    added.append(f"hotel_room_types.{col}")
+
+        if _table_columns(conn, "hotel_bookings"):
+            if _add_column(conn, "hotel_bookings", "final_invoice_number", "VARCHAR(32) NULL"):
+                added.append("hotel_bookings.final_invoice_number")
+            bool_fu = _bool_ddl(dialect, default=False)
+            for col, ddl in (
+                ("follow_up_at", "DATE NULL"),
+                ("follow_up_note", "TEXT NULL"),
+                ("claim_wa_until_paid", bool_fu),
+            ):
+                if _add_column(conn, "hotel_bookings", col, ddl):
+                    added.append(f"hotel_bookings.{col}")
+            if "follow_up_at" in _table_columns(conn, "hotel_bookings"):
+                try:
+                    conn.execute(
+                        text(
+                            "CREATE INDEX ix_hotel_bookings_follow_up_at "
+                            "ON hotel_bookings (follow_up_at)"
+                        )
+                    )
+                except Exception:
+                    pass
+        if _table_columns(conn, "hotel_booking_payments"):
+            if _add_column(conn, "hotel_booking_payments", "receipt_number", "VARCHAR(32) NULL"):
+                added.append("hotel_booking_payments.receipt_number")
+            if _add_column(conn, "hotel_booking_payments", "hotel_shift_id", "INT NULL"):
+                added.append("hotel_booking_payments.hotel_shift_id")
+            if _add_column(
+                conn, "hotel_booking_payments", "received_by_employee_id", "INT NULL"
+            ):
+                added.append("hotel_booking_payments.received_by_employee_id")
+        if _table_columns(conn, "hotel_booking_payment_refunds"):
+            if _add_column(
+                conn, "hotel_booking_payment_refunds", "hotel_shift_id", "INT NULL"
+            ):
+                added.append("hotel_booking_payment_refunds.hotel_shift_id")
+            if _add_column(
+                conn, "hotel_booking_payment_refunds", "approved_by_employee_id", "INT NULL"
+            ):
+                added.append("hotel_booking_payment_refunds.approved_by_employee_id")
+        if _table_columns(conn, "sales"):
+            for col, ddl in (
+                ("receipt_number", "VARCHAR(32) NULL"),
+                ("final_invoice_number", "VARCHAR(32) NULL"),
+            ):
+                if _add_column(conn, "sales", col, ddl):
+                    added.append(f"sales.{col}")
+
         if "hotel_service_catalog" not in tables:
             bool_svc = _bool_ddl(dialect, default=True)
             _safe_exec(
@@ -1449,6 +1819,49 @@ def patch_server_schema(engine: Engine) -> None:
                 added,
                 "hotel_service_catalog",
             )
+
+        # إفطار مشمول: تكلفة فندق لا تُحمَّل على النزيل
+        bool_true = _bool_ddl(dialect, default=True)
+        bool_false = _bool_ddl(dialect, default=False)
+        if _table_columns(conn, "hotel_booking_services"):
+            if _add_column(
+                conn, "hotel_booking_services", "charged_to_guest", bool_true
+            ):
+                added.append("hotel_booking_services.charged_to_guest")
+        if _table_columns(conn, "products"):
+            if _add_column(conn, "products", "is_hotel_breakfast", bool_false):
+                added.append("products.is_hotel_breakfast")
+
+        # SEO entity columns (SEO Center / external agents)
+        bool_idx = _bool_ddl(dialect, default=True)
+        seo_cols = (
+            ("seo_title", "VARCHAR(255) NULL"),
+            ("seo_description", "VARCHAR(500) NULL"),
+            ("seo_h1", "VARCHAR(255) NULL"),
+            ("seo_slug", "VARCHAR(255) NULL"),
+            ("seo_keywords", "VARCHAR(500) NULL"),
+            ("seo_schema_json", "TEXT NULL"),
+            ("seo_og_title", "VARCHAR(255) NULL"),
+            ("seo_og_description", "VARCHAR(500) NULL"),
+            ("seo_og_image", "VARCHAR(500) NULL"),
+            ("seo_indexable", bool_idx),
+            ("seo_canonical_url", "VARCHAR(500) NULL"),
+            (
+                "seo_updated_at",
+                "DATETIME NULL" if dialect == "mysql" else "TIMESTAMPTZ NULL",
+            ),
+        )
+        for table in (
+            "products",
+            "product_categories",
+            "hotel_rooms",
+            "hotel_service_catalog",
+        ):
+            if not _table_columns(conn, table):
+                continue
+            for col, ddl in seo_cols:
+                if _add_column(conn, table, col, ddl):
+                    added.append(f"{table}.{col}")
 
     if added:
         log.info("server schema patch applied: %s", ", ".join(added))

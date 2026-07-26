@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS marketing_artifacts (
   title VARCHAR(240) NOT NULL DEFAULT '',
   body_text MEDIUMTEXT NOT NULL,
   meta_json TEXT NULL,
+  media_path VARCHAR(500) NULL,
   reviewed_by_id INT NULL,
   reviewed_at DATETIME(6) NULL,
   review_note TEXT NULL,

@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 {% from "_reports_macros.html" import reports_nav with context %}
-{% block title %}ديون على العملاء{% endblock %}
+{% block title %}ذمم الزبائن{% endblock %}
 {% block body %}
-<h1>ديون على العملاء</h1>
-<p class="muted" style="margin-top:-0.35rem">فواتير غير مسدّدة أو مسدّدة جزئياً — بما فيها قيود غرف الفندق على الحساب.</p>
+<h1>ذمم الزبائن</h1>
+<p class="muted" style="margin-top:-0.35rem">ديون غير مسدّدة أو مسدّدة جزئياً — انقر على الدين لاختيار تسديد كامل أو جزئي.</p>
 {{ reports_nav('receivables') }}
 
 <div class="card">

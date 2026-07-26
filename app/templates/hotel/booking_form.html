@@ -5,7 +5,16 @@
 <link rel="stylesheet" href="/static/hotel_dashboard.css?v=12" />
 <script src="/static/searchable_combobox.js?v=3"></script>
 <style>
-  .guest-type-tabs { display:flex; gap:0.5rem; margin-bottom:0.85rem; }
+  .guest-type-tabs { display:flex; gap:0.5rem; margin-bottom:0.85rem; align-items:stretch; }
+  .guest-type-col { flex:1; display:flex; flex-direction:column; gap:0.35rem; min-width:0; }
+  .guest-balance-badge {
+    min-height:2.1rem; padding:0.4rem 0.55rem; border-radius:10px; font-size:0.82rem;
+    font-weight:700; text-align:center; border:1px solid transparent; line-height:1.35;
+  }
+  .guest-balance-badge.is-credit { background:#ecfdf5; color:#047857; border-color:#a7f3d0; }
+  .guest-balance-badge.is-debt { background:#fef2f2; color:#b91c1c; border-color:#fecaca; }
+  .guest-balance-badge.is-empty { background:#f8fafc; color:#64748b; border-color:#e2e8f0; }
+  .guest-balance-badge[hidden] { display:none !important; }
   .guest-type-tabs label {
     flex:1; text-align:center; padding:0.65rem; border:2px solid #cbd5e1; border-radius:10px;
     cursor:pointer; font-weight:700; background:#fff; transition:0.15s;
@@ -15,6 +24,21 @@
   .guest-type-tabs label:has(input:checked) { border-color:#2563eb; background:#eff6ff; color:#1d4ed8; }
   .guest-panel { display:none; }
   .guest-panel.active { display:contents; }
+  .guest-lookup-box {
+    position:relative; grid-column:1/-1;
+  }
+  .guest-lookup-list {
+    position:absolute; z-index:40; inset-inline:0; top:100%; margin-top:0.2rem;
+    background:#fff; border:1px solid #cbd5e1; border-radius:10px; box-shadow:0 8px 24px rgba(15,23,42,.12);
+    max-height:220px; overflow:auto; display:none;
+  }
+  .guest-lookup-list.open { display:block; }
+  .guest-lookup-item {
+    display:block; width:100%; text-align:right; padding:0.55rem 0.7rem; border:0; background:#fff;
+    cursor:pointer; border-bottom:1px solid #f1f5f9; font-size:0.9rem;
+  }
+  .guest-lookup-item:hover, .guest-lookup-item:focus { background:#eff6ff; outline:none; }
+  .guest-lookup-meta { display:block; color:#64748b; font-size:0.78rem; margin-top:0.15rem; }
 </style>
 {% endblock %}
 {% block body %}
@@ -37,23 +61,39 @@
     هذا القسم لبيانات من يُجرى الحجز باسمه (فرد أو شركة) — <strong>ليس بالضرورة كل من سيقيم في الشقة</strong>.
   </p>
   <div class="guest-type-tabs">
-    <label><input type="radio" name="guest_type" value="INDIVIDUAL" {% if draft_guest_type == 'INDIVIDUAL' %}checked{% endif %} /><span>👤 فرد</span></label>
-    <label><input type="radio" name="guest_type" value="COMPANY" {% if draft_guest_type == 'COMPANY' %}checked{% endif %} /><span>🏢 شركة</span></label>
+    <div class="guest-type-col">
+      <div id="balance-individual" class="guest-balance-badge" hidden aria-live="polite"></div>
+      <label><input type="radio" name="guest_type" value="INDIVIDUAL" {% if draft_guest_type == 'INDIVIDUAL' %}checked{% endif %} /><span>👤 فرد</span></label>
+    </div>
+    <div class="guest-type-col">
+      <div id="balance-company" class="guest-balance-badge" hidden aria-live="polite"></div>
+      <label><input type="radio" name="guest_type" value="COMPANY" {% if draft_guest_type == 'COMPANY' %}checked{% endif %} /><span>🏢 شركة</span></label>
+    </div>
   </div>
+  <p id="guest-balance-hint" class="muted" style="margin:0 0 0.75rem;font-size:0.82rem;display:none"></p>
+  <input type="hidden" name="customer_id" id="customer_id" value="{{ d.get('customer_id', '') }}" />
 
   <div id="panel-individual" class="guest-panel{% if draft_guest_type == 'INDIVIDUAL' %} active{% endif %}" style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
-    <div><label>اسم من يحجز *</label><input name="guest_name" id="guest_name" value="{{ d.get('guest_name', '') }}" {% if not is_quotation %}required{% endif %} placeholder="جهة الاتصال / الحاجز" /></div>
-    <div><label>الهاتف *</label><input name="guest_phone" id="guest_phone" value="{{ d.get('guest_phone', '') }}" {% if not is_quotation %}required{% endif %} /></div>
-    <div><label>البريد</label><input name="guest_email" type="email" value="{{ d.get('guest_email', '') }}" /></div>
+    <div class="guest-lookup-box">
+      <label>اسم من يحجز *</label>
+      <input name="guest_name" id="guest_name" value="{{ d.get('guest_name', '') }}" {% if not is_quotation %}required{% endif %} placeholder="اكتب الاسم للاستدعاء من قاعدة العملاء" autocomplete="off" />
+      <div class="guest-lookup-list" id="lookup-individual" role="listbox"></div>
+    </div>
+    <div><label>الهاتف *</label><input name="guest_phone" id="guest_phone" value="{{ d.get('guest_phone', '') }}" {% if not is_quotation %}required{% endif %} autocomplete="off" /></div>
+    <div><label>البريد</label><input name="guest_email" id="guest_email" type="email" value="{{ d.get('guest_email', '') }}" /></div>
   </div>
 
   <div id="panel-company" class="guest-panel{% if draft_guest_type == 'COMPANY' %} active{% endif %}" style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
-    <div style="grid-column:1/-1"><label>اسم الشركة *</label><input name="company_name" id="company_name" value="{{ d.get('company_name', '') }}" {% if is_quotation %}required{% endif %} /></div>
-    <div><label>السجل / الرقم الضريبي</label><input name="company_tax_id" value="{{ d.get('company_tax_id', '') }}" placeholder="اختياري" /></div>
-    <div><label>هاتف الشركة</label><input name="company_contact_phone" value="{{ d.get('company_contact_phone', '') }}" /></div>
+    <div class="guest-lookup-box" style="grid-column:1/-1">
+      <label>اسم الشركة *</label>
+      <input name="company_name" id="company_name" value="{{ d.get('company_name', '') }}" {% if is_quotation %}required{% endif %} placeholder="اكتب اسم الشركة للاستدعاء" autocomplete="off" />
+      <div class="guest-lookup-list" id="lookup-company" role="listbox"></div>
+    </div>
+    <div><label>السجل / الرقم الضريبي</label><input name="company_tax_id" id="company_tax_id" value="{{ d.get('company_tax_id', '') }}" placeholder="اختياري" /></div>
+    <div><label>هاتف الشركة</label><input name="company_contact_phone" id="company_contact_phone" value="{{ d.get('company_contact_phone', '') }}" autocomplete="off" /></div>
     <div><label>مسؤول التواصل / الحاجز *</label><input name="company_contact_name" id="company_contact_name" value="{{ d.get('company_contact_name', '') }}" placeholder="من يحجز باسم الشركة" /></div>
-    <div><label>بريد الشركة / المسؤول</label><input name="company_contact_email" type="email" value="{{ d.get('company_contact_email', '') }}" /></div>
-    <div style="grid-column:1/-1"><label>عنوان الشركة</label><input name="company_address" value="{{ d.get('company_address', '') }}" /></div>
+    <div><label>بريد الشركة / المسؤول</label><input name="company_contact_email" id="company_contact_email" type="email" value="{{ d.get('company_contact_email', '') }}" /></div>
+    <div style="grid-column:1/-1"><label>عنوان الشركة</label><input name="company_address" id="company_address" value="{{ d.get('company_address', '') }}" /></div>
   </div>
 
   <div class="card" style="margin:0.85rem 0 0;background:#fff7ed;border-color:#fed7aa">
@@ -175,14 +215,168 @@
     return n.toFixed(3).replace(/\.?0+$/, '');
   }
 
-  function requiredAmount(total) {
-    if (prepPct <= 0) return 0;
-    return total * prepPct / 100;
-  }
-
-  function syncGuestPanels() {
+  function currentGuestType() {
     var t = 'INDIVIDUAL';
     typeRadios.forEach(function (r) { if (r.checked) t = r.value; });
+    return t;
+  }
+
+  function effectivePrepPct() {
+    // الأفراد: دفع مقدّم كامل دائماً · الشركات: حسب الإعدادات
+    if (currentGuestType() === 'INDIVIDUAL') return 100;
+    return prepPct;
+  }
+
+  function requiredAmount(total) {
+    var pct = effectivePrepPct();
+    if (pct <= 0) return 0;
+    return total * pct / 100;
+  }
+
+  function setBalanceBadge(el, row) {
+    if (!el) return;
+    if (!row) {
+      el.hidden = true;
+      el.textContent = '';
+      el.className = 'guest-balance-badge';
+      return;
+    }
+    var net = parseFloat(row.net || '0');
+    el.hidden = false;
+    if (net > 0.0005) {
+      el.className = 'guest-balance-badge is-credit';
+      el.textContent = 'رصيد دائن: ' + money(net) + ' د.ل';
+    } else if (net < -0.0005) {
+      el.className = 'guest-balance-badge is-debt';
+      el.textContent = 'عليه (مدين): ' + money(Math.abs(net)) + ' د.ل';
+    } else {
+      el.className = 'guest-balance-badge is-empty';
+      el.textContent = 'لا رصيد / لا مديونية';
+    }
+  }
+
+  function showBalanceFor(row) {
+    var balInd = document.getElementById('balance-individual');
+    var balCo = document.getElementById('balance-company');
+    var hint = document.getElementById('guest-balance-hint');
+    setBalanceBadge(balInd, null);
+    setBalanceBadge(balCo, null);
+    if (!row) {
+      if (hint) { hint.style.display = 'none'; hint.textContent = ''; }
+      return;
+    }
+    if ((row.customer_type || '').toUpperCase() === 'COMPANY') {
+      setBalanceBadge(balCo, row);
+    } else {
+      setBalanceBadge(balInd, row);
+    }
+    if (hint) {
+      var parts = [];
+      if (parseFloat(row.wallet_credit || 0) > 0) parts.push('محفظة: ' + money(row.wallet_credit) + ' د.ل');
+      if (parseFloat(row.restaurant_debt || 0) > 0) parts.push('دين مطعم: ' + money(row.restaurant_debt) + ' د.ل');
+      if (parseFloat(row.hotel_debt || 0) > 0) parts.push('دين فندق: ' + money(row.hotel_debt) + ' د.ل');
+      hint.textContent = parts.length ? ('تفاصيل: ' + parts.join(' · ')) : '';
+      hint.style.display = parts.length ? 'block' : 'none';
+    }
+  }
+
+  function applyCustomer(row) {
+    if (!row) return;
+    var cid = document.getElementById('customer_id');
+    if (cid) cid.value = row.customer_id || '';
+    var wantCompany = (row.customer_type || '').toUpperCase() === 'COMPANY';
+    typeRadios.forEach(function (r) {
+      r.checked = wantCompany ? (r.value === 'COMPANY') : (r.value === 'INDIVIDUAL');
+    });
+    syncGuestPanels();
+    if (wantCompany) {
+      var cn = document.getElementById('company_name');
+      var cphone = document.getElementById('company_contact_phone');
+      var ccontact = document.getElementById('company_contact_name');
+      var cemail = document.getElementById('company_contact_email');
+      if (cn) cn.value = row.company_name || row.name || '';
+      if (cphone) cphone.value = row.phone || '';
+      if (ccontact) ccontact.value = row.name || row.company_name || '';
+      if (cemail) cemail.value = row.email || '';
+    } else {
+      var gn = document.getElementById('guest_name');
+      var gp = document.getElementById('guest_phone');
+      var ge = document.getElementById('guest_email');
+      if (gn) gn.value = row.name || '';
+      if (gp) gp.value = row.phone || '';
+      if (ge) ge.value = row.email || '';
+    }
+    showBalanceFor(row);
+    syncStaySummary(false);
+    closeLookupLists();
+  }
+
+  function closeLookupLists() {
+    document.querySelectorAll('.guest-lookup-list').forEach(function (el) {
+      el.classList.remove('open');
+      el.innerHTML = '';
+    });
+  }
+
+  var lookupTimer = null;
+  function runLookup(q, listEl) {
+    q = (q || '').trim();
+    if (!listEl || q.length < 2) {
+      if (listEl) { listEl.classList.remove('open'); listEl.innerHTML = ''; }
+      return;
+    }
+    var url = '/admin/hotel/bookings/lookup-customer?q=' + encodeURIComponent(q)
+      + '&guest_type=' + encodeURIComponent(currentGuestType());
+    fetch(url, { headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var rows = (data && data.results) || [];
+        listEl.innerHTML = '';
+        if (!rows.length) {
+          listEl.classList.remove('open');
+          return;
+        }
+        rows.forEach(function (row) {
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'guest-lookup-item';
+          var title = row.customer_type === 'COMPANY'
+            ? (row.company_name || row.name || 'شركة')
+            : (row.name || row.phone || 'عميل');
+          btn.innerHTML = '<strong>' + title + '</strong>'
+            + '<span class="guest-lookup-meta">' + (row.phone || '')
+            + (row.label_ar ? ' · ' + row.label_ar : '') + '</span>';
+          btn.addEventListener('click', function () { applyCustomer(row); });
+          listEl.appendChild(btn);
+        });
+        listEl.classList.add('open');
+      })
+      .catch(function () { listEl.classList.remove('open'); });
+  }
+
+  function bindLookup(inputId, listId) {
+    var inp = document.getElementById(inputId);
+    var list = document.getElementById(listId);
+    if (!inp || !list) return;
+    inp.addEventListener('input', function () {
+      clearTimeout(lookupTimer);
+      var q = inp.value;
+      lookupTimer = setTimeout(function () { runLookup(q, list); }, 280);
+    });
+    inp.addEventListener('focus', function () {
+      if ((inp.value || '').trim().length >= 2) runLookup(inp.value, list);
+    });
+  }
+  bindLookup('guest_name', 'lookup-individual');
+  bindLookup('guest_phone', 'lookup-individual');
+  bindLookup('company_name', 'lookup-company');
+  bindLookup('company_contact_phone', 'lookup-company');
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest('.guest-lookup-box')) closeLookupLists();
+  });
+
+  function syncGuestPanels() {
+    var t = currentGuestType();
     var isCo = t === 'COMPANY';
     panelInd.style.display = isCo ? 'none' : 'grid';
     panelCo.style.display = isCo ? 'grid' : 'none';
@@ -192,6 +386,16 @@
     if (gn) gn.required = !isQuotation && !isCo;
     if (gp) gp.required = !isQuotation && !isCo;
     if (cn) cn.required = isCo;
+    var note = document.getElementById('prepayment-note');
+    if (note && !isQuotation) {
+      if (!isCo) {
+        note.textContent = 'فرد: دفع مقدّم كامل إلزامي — بدون الدفع لا يُكتمل الحجز.';
+      } else {
+        note.textContent = {{ (prepayment_percent_label | default('حسب سياسة العربون')) | tojson }}
+          + ' — الشركات يمكن أن تظهر بمديونية سالبة للمتابعة.';
+      }
+    }
+    syncStaySummary(true);
   }
 
   typeRadios.forEach(function (r) { r.addEventListener('change', syncGuestPanels); });
@@ -301,9 +505,10 @@
       depositEl.min = money(req);
       depositEl.required = true;
     }
-    if (payFields) payFields.hidden = prepPct <= 0;
-    if (depositEl) depositEl.required = prepPct > 0;
-    if (payMethod) payMethod.required = prepPct > 0;
+    var pct = effectivePrepPct();
+    if (payFields) payFields.hidden = pct <= 0;
+    if (depositEl) depositEl.required = pct > 0;
+    if (payMethod) payMethod.required = pct > 0;
   }
 
   if (depositEl) {
@@ -351,7 +556,7 @@
       if (!idType) { alert(label + ' (' + name + '): نوع الوثيقة مطلوب.'); return false; }
       if (!nat) { alert(label + ' (' + name + '): الجنسية مطلوبة.'); return false; }
       if (!phone) { alert(label + ' (' + name + '): الهاتف مطلوب.'); return false; }
-      if (!addr) { alert(label + ' (' + name + '): العنوان مطلوب.'); return false; }
+      if (!addr) { alert(label + ' (' + name + '): قادم من مطلوب.'); return false; }
       if (!hasFile) { alert(label + ' (' + name + '): إرفاق صورة/مسح الوثيقة مطلوب.'); return false; }
     }
     if (!count) {
@@ -387,12 +592,15 @@
       alert('أدخل اسم نزيل واحد على الأقل في الشقة (قسم النزلاء المقيمون).');
       return;
     }
-    if (!isQuotation && prepPct > 0) {
+    if (!isQuotation && effectivePrepPct() > 0) {
       var due = requiredAmount(selectedRoomRate() * nights);
       var paid = parseFloat((depositEl && depositEl.value) || '0');
       if (!paid || paid + 0.001 < due) {
         e.preventDefault();
-        alert('يجب دفع ' + money(due) + ' د.ل على الأقل (' + prepPct + '%).');
+        var msg = currentGuestType() === 'INDIVIDUAL'
+          ? ('حجز الأفراد يتطلب دفعاً مقدّماً كاملاً: ' + money(due) + ' د.ل')
+          : ('يجب دفع ' + money(due) + ' د.ل على الأقل (' + effectivePrepPct() + '%).');
+        alert(msg);
         return;
       }
       if (payMethod && !payMethod.value) {

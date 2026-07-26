@@ -130,6 +130,7 @@ def _employee_form_ctx(request: Request, db, error: str | None, emp=None, user=N
     from modules.platform.business_domain import (
         domain_label,
         employee_domain_choices,
+        is_system_admin,
         resolve_finance_domain,
     )
 
@@ -144,6 +145,11 @@ def _employee_form_ctx(request: Request, db, error: str | None, emp=None, user=N
     if emp is not None and emp.user_id:
         u = db.get(_U, emp.user_id)
         linked_username = u.username if u else None
+    fin_dom = (
+        resolve_finance_domain(user, request.session) if user is not None else None
+    )
+    # الأدمن يختار المجال يدوياً حتى في وضع عرض مطعم/فندق
+    can_pick_domain = bool(user and is_system_admin(user)) or fin_dom is None
     return {
         "request": request,
         "emp": emp,
@@ -166,12 +172,9 @@ def _employee_form_ctx(request: Request, db, error: str | None, emp=None, user=N
         "today": now_local().strftime("%Y-%m-%d"),
         "error": error,
         "domain_choices": employee_domain_choices(),
-        "finance_domain_filter": resolve_finance_domain(user, request.session)
-        if user is not None
-        else None,
-        "domain_label": domain_label(
-            resolve_finance_domain(user, request.session) if user else None
-        )
+        "finance_domain_filter": None if can_pick_domain else fin_dom,
+        "can_pick_employee_domain": can_pick_domain,
+        "domain_label": domain_label(fin_dom)
         if user
         else "الكل",
     }
@@ -289,11 +292,15 @@ async def employee_save(
     create_pos_user = form.get("create_pos_user") == "on"
     pos_username = (form.get("pos_username") or "").strip()
     pos_password = (form.get("pos_password") or "").strip()
-    from modules.platform.business_domain import resolve_finance_domain
+    from modules.platform.business_domain import (
+        is_system_admin,
+        resolve_finance_domain,
+    )
 
     finance_domain = resolve_finance_domain(user, request.session)
     dom_raw = (form.get("business_domain") or "").strip()
-    if finance_domain is not None:
+    # موظف محدود المجال فقط يُفرض عليه المجال — الأدمن يختار من النموذج
+    if finance_domain is not None and not is_system_admin(user):
         dom_raw = finance_domain.value
 
     try:

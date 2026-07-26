@@ -593,9 +593,12 @@ def post_hotel_booking_payment_refund_shadow(
     if amount <= 0:
         return
     hp = ref.payment
-    if hp is None or hp.payment_method_id is None:
+    if hp is None:
         return
-    cash_code = _cash_account_code_for_pm(db, int(hp.payment_method_id))
+    pm_id = getattr(ref, "payment_method_id", None) or hp.payment_method_id
+    if pm_id is None:
+        return
+    cash_code = _cash_account_code_for_pm(db, int(pm_id))
     booking = hp.booking
     booking_ref = booking.reference if booking is not None else hp.booking_id
     post_balanced_entry(

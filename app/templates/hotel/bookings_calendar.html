@@ -3,7 +3,7 @@
 {% block body %}
 <h1 style="margin-top:0">تقويم الحجوزات</h1>
 <p><a class="btn" href="/admin/hotel/bookings">← قائمة الحجوزات</a> · {{ start }} → {{ end }}</p>
-<div class="card" style="overflow-x:auto">
+<div class="card sticky-table-wrap">
   <table>
     <thead><tr><th>الغرفة</th>{% for d in date_cols %}<th>{{ d }}</th>{% endfor %}</tr></thead>
     <tbody>

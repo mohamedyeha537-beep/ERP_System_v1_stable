@@ -36,7 +36,7 @@ from modules.notifications.models import (
 )
 from modules.notifications.seed import ensure_notification_defaults
 from modules.notifications.service import NotificationService
-from modules.settings.service import get_bool, get_setting, set_setting
+from modules.settings.service import get_bool, get_setting, invalidate_settings_cache, set_setting
 
 router = APIRouter(prefix="/admin/notifications", tags=["notifications"])
 _perm = require_permission(MESSAGING_MANAGE)
@@ -363,6 +363,8 @@ def delivery_settings_page(request: Request, db: DBSession, _: User = Depends(_p
         "messaging_whatsapp_provider",
         "messaging_country_code",
         "messaging_admin_phone",
+        "shop_online_staff_phone",
+        "hotel_online_staff_phone",
         "messaging_test_phone",
         "messaging_send_delay_seconds",
         "messaging_outbox_batch_size",
@@ -407,8 +409,10 @@ def delivery_settings_save(
     messaging_textmebot_base_url: str = Form("http://api.textmebot.com/send.php"),
     messaging_country_code: str = Form("218"),
     messaging_admin_phone: str = Form(""),
+    shop_online_staff_phone: str = Form(""),
+    hotel_online_staff_phone: str = Form(""),
     messaging_test_phone: str = Form(""),
-    messaging_send_delay_seconds: str = Form("5"),
+    messaging_send_delay_seconds: str = Form("10"),
     messaging_outbox_batch_size: str = Form("1"),
     messaging_worker_interval_seconds: str = Form("30"),
     messaging_webhook_url: str = Form(""),
@@ -441,9 +445,15 @@ def delivery_settings_save(
         messaging_textmebot_base_url.strip() or "http://api.textmebot.com/send.php",
     )
     set_setting(db, "messaging_country_code", messaging_country_code.strip() or "218")
-    set_setting(db, "messaging_admin_phone", messaging_admin_phone.strip())
+    set_setting(db, "messaging_admin_phone", messaging_admin_phone.strip()[:40])
+    set_setting(db, "shop_online_staff_phone", shop_online_staff_phone.strip()[:40])
+    set_setting(db, "hotel_online_staff_phone", hotel_online_staff_phone.strip()[:40])
     set_setting(db, "messaging_test_phone", messaging_test_phone.strip())
-    set_setting(db, "messaging_send_delay_seconds", messaging_send_delay_seconds.strip() or "5")
+    try:
+        _delay = max(10, int((messaging_send_delay_seconds or "10").strip() or "10"))
+    except ValueError:
+        _delay = 10
+    set_setting(db, "messaging_send_delay_seconds", str(_delay))
     set_setting(db, "messaging_outbox_batch_size", messaging_outbox_batch_size.strip() or "1")
     set_setting(
         db,
@@ -462,6 +472,7 @@ def delivery_settings_save(
         secret = secrets.token_hex(24)
     if secret:
         set_setting(db, "messaging_inbound_secret", secret)
+    invalidate_settings_cache()
     db.commit()
     return RedirectResponse("/admin/notifications/delivery?saved=1", status_code=302)
 
@@ -682,9 +693,13 @@ def test_emit(
         "unit": "قطعة",
         "driver_name": "سائق تجريبي",
         "cashier_name": "كاشير",
+        "employee_name": "أحمد محمد",
         "shift_id": "1",
-        "shortage": "5.000",
-        "shortage_amount": "5.000",
+        "shortage": "15.000",
+        "cash_shortage": "10.000",
+        "bank_shortage": "5.000",
+        "shortage_detail": "نقداً: 10.000 د.ل · مصرف: 5.000 د.ل",
+        "shortage_amount": "15.000",
         "reason": "اختبار",
         "action_id": "1",
         "line_id": "1",

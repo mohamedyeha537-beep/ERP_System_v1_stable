@@ -14,7 +14,9 @@
 
 <h1 style="margin-top:0">الجهات الأمنية</h1>
 <p class="muted" style="margin-top:0">
-  أضف الجهات التي تستلم تقرير النزلاء، وحدّد وسيلة التواصل (واتساب أو بريد) ونطاق النزلاء المطلوب (أجانب / ليبيون / الكل).
+  أنشئ الجهة (مثال: الأمن الخارجي)، وحدّد هل تريد <strong>أجانب فقط</strong> أو <strong>ليبيين فقط</strong> أو <strong>الاثنين معاً</strong>،
+  وأدخل رقم واتساب <strong>أو معرّف جروب واتساب</strong> (أو بريداً) الذي يستلم التقرير.
+  بعد الحفظ تظهر الجهة في صفحة التقارير بالضغط على اسمها لتجهيز الإرسال أو الطباعة أو Excel/PDF.
 </p>
 
 {% if error %}<div class="alert">{{ error }}</div>{% endif %}
@@ -38,9 +40,9 @@
         </select>
       </div>
       <div>
-        <label for="contact_value" id="contact_value_label">رقم واتساب *</label>
-        <input id="contact_value" name="contact_value" required dir="ltr" placeholder="0912345678" />
-        <div class="contact-hint" id="contact_hint">يُرسل التقرير كنص عبر واتساب.</div>
+        <label for="contact_value" id="contact_value_label">رقم واتساب أو جروب *</label>
+        <input id="contact_value" name="contact_value" required dir="ltr" placeholder="0912345678 أو 120363...@g.us" />
+        <div class="contact-hint" id="contact_hint">يُرسل التقرير كنص عبر واتساب (رقم أو جروب).</div>
       </div>
     </div>
     <div class="grid-3" style="margin-top:0.65rem">
@@ -128,9 +130,9 @@
       valueInput.placeholder = 'security@example.com';
       hint.textContent = 'يُرسل التقرير كنص عبر البريد الإلكتروني (يتطلب إعداد SMTP).';
     } else {
-      valueLabel.textContent = 'رقم واتساب *';
-      valueInput.placeholder = '0912345678';
-      hint.textContent = 'يُرسل التقرير كنص عبر واتساب (يتطلب تفعيل المراسلة).';
+      valueLabel.textContent = 'رقم واتساب أو جروب *';
+      valueInput.placeholder = '0912345678 أو 120363...@g.us';
+      hint.textContent = 'رقم فرد، أو معرّف الجروب بصيغة 120363...@g.us. يجب أن يكون رقم الإرسال عضواً في الجروب. (يتطلب تفعيل المراسلة / TextMeBot)';
     }
   }
   channelSel.addEventListener('change', syncContactField);

@@ -46,7 +46,7 @@
 {% endif %}
 
 <div class="card">
-  <h2 style="margin-top:0">ملخص الفترة المحددة</h2>
+  <h2 style="margin-top:0">{% if date_filtered %}ملخص الفترة المحددة{% else %}ملخص كل الفواتير{% endif %}</h2>
   <div style="display:flex;flex-wrap:wrap;gap:0.75rem;margin-bottom:1rem">
     <div style="flex:1;min-width:10rem;padding:0.65rem 0.85rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px">
       <div class="muted" style="font-size:0.82rem">مشتريات الموردين</div>
@@ -162,10 +162,18 @@
   </form>
 
   <p class="muted" style="margin:0;font-size:0.88rem">
-    الفترة: {{ pos_format_dt(start, '%Y-%m-%d') }} → {{ pos_format_dt(end, '%Y-%m-%d') }}
+    {% if date_filtered %}
+    الفترة:
+    {% if start %}{{ pos_format_dt(start, '%Y-%m-%d') }}{% else %}—{% endif %}
+    →
+    {% if end %}{{ pos_format_dt(end, '%Y-%m-%d') }}{% else %}—{% endif %}
+    {% else %}
+    الفترة: <strong>الكل</strong> (بدون تصفية تاريخ — اختر الفترة أعلاه عند الحاجة)
+    {% endif %}
     {% if selected_suppliers %}
     — المورد: {{ selected_suppliers[0] }}
     {% endif %}
+    — الأحدث أولاً
   </p>
 
   {% if rows %}

@@ -33,9 +33,14 @@ from modules.payments.depreciation import (
 from modules.payments.models import PaymentMethod, PurchaseKind
 from modules.payments.service import list_purchases, wallet_breakdown
 from modules.reporting import queries as report_queries
-from modules.reporting.exports import csv_response
+from modules.reporting.exports import SheetSpec, csv_response, xlsx_response
 from modules.reporting.profit_calc import calc_net_profit
 from modules.customers.loyalty_shift_reports import loyalty_redeem_cost_in_period
+from modules.reporting.unified_transactions import (
+    KIND_OPTIONS,
+    export_unified_rows,
+    list_unified_transactions,
+)
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -134,6 +139,159 @@ def reports_hub(
     return templates.TemplateResponse("reports_hub.html", ctx)
 
 
+def _unified_export_query_params(
+    period: str,
+    start: str | None,
+    end: str | None,
+    kind: str,
+    q: str,
+) -> str:
+    params: dict[str, str] = {"period": period, "kind": kind or "all"}
+    if period == "custom":
+        if start:
+            params["start"] = start
+        if end:
+            params["end"] = end
+    if q:
+        params["q"] = q
+    return urlencode(params)
+
+
+@router.get("/transactions", response_class=HTMLResponse)
+def reports_unified_transactions(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_perm),
+    period: str = Query("month"),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+    kind: str = Query("all"),
+    q: str = Query(""),
+    page: int = Query(1, ge=1),
+):
+    """سجل موحّد: مبيعات + مقبوضات + مشتريات + مصروفات — الأحدث أولاً."""
+    from modules.platform.business_domain import domain_label
+
+    period, s, e = _resolve_period(period, start, end)
+    domain = _finance_domain_filter(request, user)
+    kind_f = (kind or "all").strip().lower()
+    q_f = (q or "").strip()
+    rows, summary, total, total_pages = list_unified_transactions(
+        db,
+        s,
+        e,
+        domain=domain,
+        kind=kind_f,
+        q=q_f,
+        page=page,
+    )
+    export_qs = _unified_export_query_params(period, start, end, kind_f, q_f)
+    ctx = _common_ctx(request, period, s, e, start, end)
+    ctx.update(
+        {
+            "rows": rows,
+            "summary": summary,
+            "total": total,
+            "page": page,
+            "total_pages": total_pages,
+            "kind": kind_f,
+            "kind_options": KIND_OPTIONS,
+            "q": q_f,
+            "finance_domain_filter": domain,
+            "domain_label": domain_label(domain) if domain else "الكل",
+            "export_qs": export_qs,
+        }
+    )
+    return templates.TemplateResponse("reports_transactions.html", ctx)
+
+
+@router.get("/export/transactions.csv")
+def export_unified_transactions_csv(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_perm),
+    period: str = Query("month"),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+    kind: str = Query("all"),
+    q: str = Query(""),
+):
+    period, s, e = _resolve_period(period, start, end)
+    domain = _finance_domain_filter(request, user)
+    rows = export_unified_rows(
+        db, s, e, domain=domain, kind=kind, q=(q or "").strip()
+    )
+    headers = [
+        "النوع",
+        "التاريخ",
+        "المرجع",
+        "الاسم / الطرف",
+        "المبلغ",
+        "موجب/سالب",
+        "طريقة الدفع",
+        "ملاحظة",
+    ]
+    data = [
+        [
+            r.kind_label,
+            r.created_at,
+            r.ref,
+            r.party_name,
+            r.amount,
+            r.signed_amount,
+            r.method_name,
+            r.note,
+        ]
+        for r in rows
+    ]
+    return csv_response("transactions", headers, data)
+
+
+@router.get("/export/transactions.xlsx")
+def export_unified_transactions_xlsx(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_perm),
+    period: str = Query("month"),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+    kind: str = Query("all"),
+    q: str = Query(""),
+):
+    period, s, e = _resolve_period(period, start, end)
+    domain = _finance_domain_filter(request, user)
+    rows = export_unified_rows(
+        db, s, e, domain=domain, kind=kind, q=(q or "").strip()
+    )
+    headers = [
+        "النوع",
+        "التاريخ",
+        "المرجع",
+        "الاسم / الطرف",
+        "المبلغ",
+        "موجب/سالب",
+        "طريقة الدفع",
+        "ملاحظة",
+    ]
+    data = [
+        [
+            r.kind_label,
+            format_local_dt(r.created_at, "%Y-%m-%d %H:%M") if r.created_at else "",
+            r.ref,
+            r.party_name,
+            r.amount,
+            r.signed_amount,
+            r.method_name,
+            r.note,
+        ]
+        for r in rows
+    ]
+    return xlsx_response(
+        "transactions",
+        [SheetSpec(name="العمليات", headers=headers, rows=data)],
+    )
+
+
 @router.get("/sales", response_class=HTMLResponse)
 def reports_sales(
     request: Request,
@@ -201,6 +359,95 @@ def reports_sales(
         }
     )
     return templates.TemplateResponse("reports_sales.html", ctx)
+
+
+@router.get("/product-invoices", response_class=HTMLResponse)
+def reports_product_invoices(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_perm),
+    period: str = Query("month"),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+    q: str | None = Query(None),
+    product_id: str | None = Query(None),
+):
+    """بحث فواتير البيع التي ظهر فيها صنف معيّن — بالاسم مع فلترة زمنية."""
+    from modules.catalog.models import Product
+    from modules.platform.business_domain import BusinessDomain, domain_label
+
+    period, s, e = _resolve_period(period, start, end)
+    domain = _finance_domain_filter(request, user)
+    search_q = (q or "").strip()
+    pid: int | None = None
+    if product_id and str(product_id).strip().isdigit():
+        pid = int(str(product_id).strip())
+
+    matched: list = []
+    selected = None
+    rows = []
+    summary = report_queries.ProductInvoiceSummary(
+        invoice_count=0,
+        line_count=0,
+        qty_total=Decimal("0"),
+        amount_total=Decimal("0"),
+    )
+    need_pick = False
+    notice = None
+
+    if domain == BusinessDomain.HOTEL:
+        notice = "تقرير فواتير الأصناف خاص بنقطة البيع (POS). بدّل نطاق العرض إلى المطعم/الكل."
+    elif pid is not None:
+        selected = db.get(Product, pid)
+        if selected is None:
+            notice = "الصنف غير موجود."
+        else:
+            matched = [selected]
+            rows, summary = report_queries.product_sale_invoices(
+                db, s, e, product_ids=[selected.id]
+            )
+    elif search_q:
+        matched = report_queries.search_catalog_products(db, search_q)
+        if not matched:
+            notice = f"لا يوجد صنف يطابق «{search_q}»."
+        elif len(matched) == 1:
+            selected = matched[0]
+            rows, summary = report_queries.product_sale_invoices(
+                db, s, e, product_ids=[selected.id]
+            )
+        else:
+            need_pick = True
+            notice = f"وُجد {len(matched)} صنفاً — اختر صنفاً من القائمة لعرض فواتيره."
+    else:
+        notice = "ابحث باسم الصنف أو الباركود أو SKU، أو افتح الرابط من كرت الصنف."
+
+    # معاملات إضافية لأزرار الفترة
+    extra_parts: list[str] = []
+    if search_q:
+        extra_parts.append(f"&q={quote(search_q)}")
+    if selected is not None:
+        extra_parts.append(f"&product_id={selected.id}")
+    elif pid is not None:
+        extra_parts.append(f"&product_id={pid}")
+    extra_params = "".join(extra_parts)
+
+    ctx = _common_ctx(request, period, s, e, start, end)
+    ctx.update(
+        {
+            "search_q": search_q,
+            "product_id": selected.id if selected is not None else pid,
+            "selected_product": selected,
+            "matched_products": matched,
+            "need_pick": need_pick,
+            "rows": rows,
+            "summary": summary,
+            "notice": notice,
+            "extra_params": extra_params,
+            "finance_domain_filter": domain,
+            "domain_label": domain_label(domain) if domain else None,
+        }
+    )
+    return templates.TemplateResponse("reports_product_invoices.html", ctx)
 
 
 @router.get("/hotel-collections", response_class=HTMLResponse)
@@ -290,6 +537,7 @@ def reports_hotel_balances(
         "request": request,
         "rows": rows,
         "summary": summary,
+        "open_debts": open_debts,
         "open_debts_count": len(open_debts),
         "open_debts_total": open_debts_total,
         "finance_domain_filter": domain,
@@ -1392,6 +1640,99 @@ def export_sales_detailed_csv(
     return csv_response(
         f"sales-detailed-{_period_tag(period, s, e)}", headers, out_rows
     )
+
+
+@router.get("/export/product-invoices.csv")
+def export_product_invoices_csv(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_perm),
+    period: str = Query("month"),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+    q: str | None = Query(None),
+    product_id: str | None = Query(None),
+):
+    from modules.platform.business_domain import BusinessDomain
+
+    period, s, e = _resolve_period(period, start, end)
+    domain = _finance_domain_filter(request, user)
+    headers = [
+        "رقم الفاتورة",
+        "التاريخ",
+        "الصنف",
+        "الكمية",
+        "سعر الوحدة",
+        "إجمالي السطر",
+        "إجمالي الفاتورة",
+        "المصدر",
+        "السياق",
+        "العميل",
+        "رابط الفاتورة",
+    ]
+    if domain == BusinessDomain.HOTEL:
+        return csv_response(
+            f"product-invoices-{_period_tag(period, s, e)}",
+            headers,
+            [["—", "غير متاح في وضع الفندق", "", "", "", "", "", "", "", "", ""]],
+        )
+
+    search_q = (q or "").strip()
+    pid: int | None = None
+    if product_id and str(product_id).strip().isdigit():
+        pid = int(str(product_id).strip())
+
+    product_ids: list[int] = []
+    if pid is not None:
+        product_ids = [pid]
+    elif search_q:
+        matched = report_queries.search_catalog_products(db, search_q)
+        if len(matched) == 1:
+            product_ids = [matched[0].id]
+        elif len(matched) > 1:
+            return csv_response(
+                f"product-invoices-{_period_tag(period, s, e)}",
+                headers,
+                [
+                    [
+                        "—",
+                        f"نتائج متعددة ({len(matched)}) — حدّد product_id",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                    ]
+                ],
+            )
+
+    rows, _summary = report_queries.product_sale_invoices(
+        db, s, e, product_ids=product_ids
+    )
+    out = []
+    for r in rows:
+        out.append(
+            [
+                r.sale_id,
+                format_local_dt(r.sale_at, "%Y-%m-%d %H:%M"),
+                r.product_name,
+                r.quantity,
+                r.unit_price,
+                r.line_total,
+                r.sale_total,
+                r.source,
+                r.context_type,
+                r.customer_name or "",
+                f"/pos/receipt/{r.sale_id}",
+            ]
+        )
+    tag = _period_tag(period, s, e)
+    name_bit = f"p{product_ids[0]}" if len(product_ids) == 1 else "search"
+    return csv_response(f"product-invoices-{name_bit}-{tag}", headers, out)
 
 
 @router.get("/export/hotel-collections.csv")

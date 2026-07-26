@@ -102,7 +102,7 @@
       <div class="pif-cell">
         <label for="payment_method_id">طريقة السداد</label>
         <select id="payment_method_id" name="payment_method_id" required class="pif-control">
-          {% for m in methods if pos_is_main_treasury_wallet(m) or pos_is_supplier_credit_wallet(m) %}
+          {% for m in methods if pos_is_purchase_pay_wallet(m) or pos_is_supplier_credit_wallet(m) %}
           <option value="{{ m.id }}" {% if m.id == purchase.payment_method_id %}selected{% endif %}
                   data-kind="{{ m.kind.value }}" data-credit="{% if pos_is_supplier_credit_wallet(m) %}1{% else %}0{% endif %}">
             {{ m.name_ar }}

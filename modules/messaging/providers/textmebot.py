@@ -4,20 +4,19 @@ from __future__ import annotations
 import json
 import logging
 import re
-import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from typing import TypedDict
 
+from modules.messaging.send_gap import MIN_SEND_GAP_SEC, wait_send_gap
+
 LOG = logging.getLogger("messaging.textmebot")
 
 DEFAULT_BASE_URL = "http://api.textmebot.com/send.php"
 MAX_BUTTONS = 3
-_TEXTMEBOT_MIN_GAP_SEC = 8.0
-_TEXTMEBOT_LAST_SEND_AT = 0.0
-_TEXTMEBOT_SEND_LOCK = threading.Lock()
+_TEXTMEBOT_MIN_GAP_SEC = float(MIN_SEND_GAP_SEC)
 
 class TextMeBotButton(TypedDict):
     """زر واتساب — النوع يُحدَّد تلقائياً من ``id``:
@@ -131,14 +130,8 @@ def _parse_delay_seconds(message: str) -> int | None:
 
 
 def _wait_textmebot_gap(min_gap: float = _TEXTMEBOT_MIN_GAP_SEC) -> None:
-    """يحترم الحد الأدنى بين رسائل TextMeBot المتتالية."""
-    global _TEXTMEBOT_LAST_SEND_AT
-    with _TEXTMEBOT_SEND_LOCK:
-        now = time.monotonic()
-        elapsed = now - _TEXTMEBOT_LAST_SEND_AT
-        if elapsed < min_gap:
-            time.sleep(min_gap - elapsed)
-        _TEXTMEBOT_LAST_SEND_AT = time.monotonic()
+    """يحترم الحد الأدنى بين رسائل TextMeBot — نفس ساعة الفاصل العامة."""
+    wait_send_gap(max(_TEXTMEBOT_MIN_GAP_SEC, float(min_gap or 0)))
 
 
 def _request_send(
@@ -155,7 +148,9 @@ def _request_send(
     last_error = "TextMeBot: فشل الإرسال."
 
     for attempt in range(max_retries + 1):
-        _wait_textmebot_gap()
+        # الفاصل بين الرسائل يُفرَض من outbox.send_gap — هنا فقط عند إعادة المحاولة بعد rate-limit
+        if attempt > 0:
+            _wait_textmebot_gap()
         req = urllib.request.Request(full, method="GET")
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:

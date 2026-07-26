@@ -25,12 +25,13 @@ from modules.messaging.chat_order_service import (
     cart_lines,
     cart_total,
     clear_cart,
+    clear_cart_items,
     create_or_update_chat_sale,
     customer_total,
     delivery_fee,
     list_chat_payment_options,
     load_order_data,
-    order_confirmation_message,
+    order_confirmation_parts,
     order_payment_amount,
     save_guest_phone,
     set_order_phase,
@@ -138,6 +139,8 @@ def _product_image_url(product: Product) -> str | None:
 
 
 def _assert_product_shop_visible(db: Session, product: Product) -> None:
+    if not product.is_active or not product.show_in_shop:
+        raise ShopError("هذا الصنف غير معروض في المتجر الإلكتروني.")
     if product.category_id is not None and int(product.category_id) not in _shop_visible_category_ids(db):
         raise ShopError("هذا الصنف غير معروض في المتجر الإلكتروني.")
 
@@ -149,7 +152,7 @@ def list_shop_products(db: Session, *, category_id: int | None = None) -> list[P
         .where(
             Product.kind == ProductKind.FINAL_SELLABLE,
             Product.is_active.is_(True),
-            Product.show_in_pos.is_(True),
+            Product.show_in_shop.is_(True),
             Product.sell_price.isnot(None),
         )
         .order_by(Product.name_ar.asc())
@@ -195,7 +198,7 @@ def _fetch_shop_products(db: Session) -> list[Product]:
         .where(
             Product.kind == ProductKind.FINAL_SELLABLE,
             Product.is_active.is_(True),
-            Product.show_in_pos.is_(True),
+            Product.show_in_shop.is_(True),
             Product.sell_price.isnot(None),
         )
         .order_by(Product.name_ar.asc())
@@ -498,14 +501,41 @@ def shop_set_payment_method(db: Session, session: WebChatSession, payment_method
     session.order_json = json.dumps(data, ensure_ascii=False)
 
 
-def shop_set_guest(session: WebChatSession, *, name: str | None, phone: str) -> None:
+def lookup_guest_name_by_phone(db: Session, phone: str) -> str | None:
+    """يعيد اسم العميل المسجّل لهذا الهاتف (إن وُجد) — للمتجر العام."""
+    from modules.customers.service import get_by_phone
+
+    try:
+        phone_clean = require_valid_phone((phone or "").strip())
+    except Exception:
+        return None
+    cust = get_by_phone(db, phone_clean, active_only=True)
+    if cust is None:
+        return None
+    name = (cust.name or "").strip()
+    return name[:120] if name else None
+
+
+def shop_set_guest(
+    session: WebChatSession,
+    *,
+    name: str | None,
+    phone: str,
+    db: Session | None = None,
+) -> None:
     try:
         phone_clean = require_valid_phone((phone or "").strip())
     except Exception as exc:
         raise ShopError("رقم الهاتف غير صالح.") from exc
     session.guest_phone = phone_clean
-    if (name or "").strip():
-        session.guest_name = (name or "").strip()[:120]
+    name_s = (name or "").strip()[:120]
+    if name_s:
+        session.guest_name = name_s
+        return
+    if db is not None:
+        found = lookup_guest_name_by_phone(db, phone_clean)
+        if found:
+            session.guest_name = found
 
 
 def shop_set_referral_code(session: WebChatSession, code: str) -> None:
@@ -659,6 +689,8 @@ def finalize_shop_order(
         raise ShopError(str(exc)) from exc
     _apply_referral_to_shop_sale(db, session, sale)
     set_order_phase(session, PHASE_SUBMITTED)
+    # فرّغ السلة بعد الإرسال حتى لا يبقى عداد الشارة «1» والسلة فارغة ظاهرياً
+    clear_cart_items(session)
     _touch_session(session)
     return sale, "submitted"
 
@@ -685,10 +717,24 @@ def session_state(db: Session, session: WebChatSession) -> dict[str, Any]:
         )
     sale_id = session.sale_id
     confirmation = None
+    confirmation_parts: list[str] = []
     if session.order_phase in (PHASE_SUBMITTED, PHASE_AWAIT_RECEIPT) and sale_id:
         sale = db.get(Sale, int(sale_id))
         if sale is not None:
-            confirmation = order_confirmation_message(db, session, sale)
+            data_conf = load_order_data(session)
+            stored = data_conf.get("confirmation_parts")
+            if (
+                isinstance(stored, list)
+                and stored
+                and str(data_conf.get("confirmation_sent_for_sale_id") or "")
+                == str(sale.id)
+            ):
+                confirmation_parts = [str(p).strip() for p in stored if str(p).strip()]
+            else:
+                confirmation_parts = order_confirmation_parts(
+                    db, session, sale, mark_intro=False
+                )
+            confirmation = "\n\n".join(confirmation_parts)
     from modules.customers.referral_service import referral_settings
 
     ref = referral_settings(db)
@@ -717,4 +763,5 @@ def session_state(db: Session, session: WebChatSession) -> dict[str, Any]:
         "bank_instructions": bank_instructions,
         "sale_id": sale_id,
         "confirmation_message": confirmation,
+        "confirmation_parts": confirmation_parts,
     }

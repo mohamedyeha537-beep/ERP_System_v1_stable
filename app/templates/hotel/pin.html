@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}دخول وردية الفندق{% endblock %}
+{% block title %}دخول جلسة الفندق{% endblock %}
 {% block head_extra %}
 <style>
   .pin-wrap { max-width: 380px; margin: 2rem auto; text-align: center; }
@@ -23,13 +23,13 @@
 {% endblock %}
 {% block body %}
 <div class="pin-wrap">
-  <h1 style="margin-top:0">وردية الاستقبال</h1>
-  <p class="muted">أدخل الرقم السري — ثم افتح الوردية</p>
+  <h1 style="margin-top:0">جلسة الاستقبال</h1>
+  <p class="muted">أدخل الرقم السري — ثم افتح الجلسة</p>
 
   {% if request.query_params.get('closed') %}
   <div class="alert" style="background:#ecfdf5;border-color:#6ee7b7;margin-bottom:1rem">
-    تم إقفال الوردية #{{ request.query_params.get('closed') }}.
-    <a href="/admin/hotel/shift/{{ request.query_params.get('closed') }}/report">عرض التقرير</a>
+    تم إقفال الجلسة #{{ request.query_params.get('closed') }} مع حفظ مطابقة الكاش/المصرف.
+    <a href="/admin/hotel/shift/{{ request.query_params.get('closed') }}/report">عرض تقرير الجلسة والأرصدة</a>
   </div>
   {% endif %}
 

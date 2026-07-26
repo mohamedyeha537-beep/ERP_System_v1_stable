@@ -580,6 +580,9 @@ class AccountLedgerRow:
     credit: Decimal
     running_balance: Decimal
     post_mode: str
+    detail_url: str | None = None
+    is_aggregate: bool = False
+    item_count: int = 1
 
 
 @dataclass
@@ -592,6 +595,21 @@ class AccountLedgerPage:
     linked_wallets: list[tuple[str, Decimal]]
     is_header: bool = False
     child_summaries: list[tuple[GlAccount, Decimal]] | None = None
+    #: عرض مجمّع حسب جلسة/يوم (خزائن كاش ومصرف)
+    session_view: bool = False
+
+
+_DAY_SOURCE_LABELS: dict[str, str] = {
+    "sale_payment": "تحصيلات مبيعات",
+    "refund_payment": "إرجاعات نقدية",
+    "hotel_booking_payment": "تحصيلات فندق",
+    "hotel_booking_payment_refund": "إرجاعات فندق",
+    "purchase_payment": "مدفوعات مشتريات/مصروف",
+    "payment_transfer": "تحويلات وتسويات",
+    "salary_advance": "سلف رواتب",
+    "payroll_payment": "صرف رواتب",
+    "other": "حركات أخرى",
+}
 
 
 def wallet_maps_for_account(db: Session, account_id: int) -> list[GlPaymentMethodMap]:
@@ -604,6 +622,269 @@ def wallet_maps_for_account(db: Session, account_id: int) -> list[GlPaymentMetho
     )
 
 
+def _is_vault_session_account(db: Session, acc: GlAccount) -> bool:
+    """خزائن الكاش/المصرف: أكواد 111*/112* أو حساب مربوط بمحفظة تشغيلية."""
+    code = (acc.code or "").strip()
+    if code.startswith(("111", "112")):
+        return True
+    return bool(wallet_maps_for_account(db, int(acc.id)))
+
+
+def _vault_shift_maps(
+    db: Session, pairs: list[tuple[object, object]]
+) -> dict[str, dict[int, int]]:
+    """ربط مصدر القيد → معرف الجلسة (كاشير أو فندق)."""
+    sale_pay_ids: set[int] = set()
+    hotel_pay_ids: set[int] = set()
+    hotel_refund_ids: set[int] = set()
+    purchase_pay_ids: set[int] = set()
+    for _ln, ent in pairs:
+        st = (ent.source_type or "").strip()
+        sid = ent.source_id
+        if sid is None:
+            continue
+        sid_i = int(sid)
+        if st == "sale_payment":
+            sale_pay_ids.add(sid_i)
+        elif st == "hotel_booking_payment":
+            hotel_pay_ids.add(sid_i)
+        elif st == "hotel_booking_payment_refund":
+            hotel_refund_ids.add(sid_i)
+        elif st == "purchase_payment":
+            purchase_pay_ids.add(sid_i)
+
+    out: dict[str, dict[int, int]] = {
+        "sale_payment": {},
+        "hotel_booking_payment": {},
+        "hotel_booking_payment_refund": {},
+        "purchase_payment_pos": {},
+        "purchase_payment_hotel": {},
+    }
+    if sale_pay_ids:
+        from sqlalchemy import column, table
+        from modules.payments.models import SalePayment
+
+        sales_t = table("sales", column("id"), column("pos_shift_id"))
+        for sp_id, shift_id in db.execute(
+            select(SalePayment.id, sales_t.c.pos_shift_id)
+            .select_from(
+                SalePayment.__table__.join(
+                    sales_t, sales_t.c.id == SalePayment.sale_id
+                )
+            )
+            .where(SalePayment.id.in_(sale_pay_ids))
+        ).all():
+            if shift_id is not None:
+                out["sale_payment"][int(sp_id)] = int(shift_id)
+    if hotel_pay_ids:
+        from modules.hotel.booking_models import HotelBookingPayment
+
+        for pid, shift_id in db.execute(
+            select(HotelBookingPayment.id, HotelBookingPayment.hotel_shift_id).where(
+                HotelBookingPayment.id.in_(hotel_pay_ids)
+            )
+        ).all():
+            if shift_id is not None:
+                out["hotel_booking_payment"][int(pid)] = int(shift_id)
+    if hotel_refund_ids:
+        from modules.hotel.booking_models import HotelBookingPaymentRefund
+
+        for rid, shift_id in db.execute(
+            select(
+                HotelBookingPaymentRefund.id,
+                HotelBookingPaymentRefund.hotel_shift_id,
+            ).where(HotelBookingPaymentRefund.id.in_(hotel_refund_ids))
+        ).all():
+            if shift_id is not None:
+                out["hotel_booking_payment_refund"][int(rid)] = int(shift_id)
+    if purchase_pay_ids:
+        from sqlalchemy import column, table
+        from modules.payments.models import PurchasePayment
+
+        purchases_t = table(
+            "purchases",
+            column("id"),
+            column("pos_shift_id"),
+            column("hotel_shift_id"),
+        )
+        for pp_id, pos_sid, hotel_sid in db.execute(
+            select(
+                PurchasePayment.id,
+                purchases_t.c.pos_shift_id,
+                purchases_t.c.hotel_shift_id,
+            )
+            .select_from(
+                PurchasePayment.__table__.join(
+                    purchases_t, purchases_t.c.id == PurchasePayment.purchase_id
+                )
+            )
+            .where(PurchasePayment.id.in_(purchase_pay_ids))
+        ).all():
+            if pos_sid is not None:
+                out["purchase_payment_pos"][int(pp_id)] = int(pos_sid)
+            elif hotel_sid is not None:
+                out["purchase_payment_hotel"][int(pp_id)] = int(hotel_sid)
+    return out
+
+
+def _vault_group_key(
+    ent: object, shift_maps: dict[str, dict[int, int]]
+) -> tuple:
+    st = (getattr(ent, "source_type", None) or "").strip()
+    sid = getattr(ent, "source_id", None)
+    entry_date = getattr(ent, "entry_date")
+    if sid is not None:
+        sid_i = int(sid)
+        if st == "sale_payment":
+            ps = shift_maps["sale_payment"].get(sid_i)
+            if ps:
+                return ("pos_shift", ps)
+        elif st == "hotel_booking_payment":
+            hs = shift_maps["hotel_booking_payment"].get(sid_i)
+            if hs:
+                return ("hotel_shift", hs)
+        elif st == "hotel_booking_payment_refund":
+            hs = shift_maps["hotel_booking_payment_refund"].get(sid_i)
+            if hs:
+                return ("hotel_shift", hs)
+        elif st == "purchase_payment":
+            ps = shift_maps["purchase_payment_pos"].get(sid_i)
+            if ps:
+                return ("pos_shift", ps)
+            hs = shift_maps["purchase_payment_hotel"].get(sid_i)
+            if hs:
+                return ("hotel_shift", hs)
+    return ("day", entry_date, st or "other")
+
+
+def _vault_group_labels(
+    db: Session, keys: list[tuple]
+) -> dict[tuple, tuple[str, str | None]]:
+    """وصف الصف المجمّع + رابط التفاصيل."""
+    pos_ids = {k[1] for k in keys if k[0] == "pos_shift"}
+    hotel_ids = {k[1] for k in keys if k[0] == "hotel_shift"}
+    pos_labels: dict[int, str] = {}
+    hotel_labels: dict[int, str] = {}
+    if pos_ids:
+        from modules.authz.models import User
+        from modules.pos_shifts.models import PosShift
+
+        for sid, uid in db.execute(
+            select(PosShift.id, PosShift.user_id).where(PosShift.id.in_(pos_ids))
+        ).all():
+            uname = ""
+            if uid is not None:
+                u = db.get(User, int(uid))
+                uname = (u.username if u else "") or ""
+            label = f"جلسة كاشير #{int(sid)}"
+            if uname:
+                label += f" — {uname}"
+            pos_labels[int(sid)] = label
+    if hotel_ids:
+        from modules.hotel.shift_models import HotelShift
+
+        for hs in db.scalars(
+            select(HotelShift).where(HotelShift.id.in_(hotel_ids))
+        ).all():
+            name = (hs.shift_name_ar or "").strip() or f"#{hs.shift_number}"
+            hotel_labels[int(hs.id)] = f"جلسة فندق #{int(hs.id)} — {name}"
+
+    out: dict[tuple, tuple[str, str | None]] = {}
+    for key in keys:
+        kind = key[0]
+        if kind == "pos_shift":
+            sid = int(key[1])
+            out[key] = (
+                pos_labels.get(sid, f"جلسة كاشير #{sid}"),
+                f"/reports/shifts/{sid}",
+            )
+        elif kind == "hotel_shift":
+            sid = int(key[1])
+            out[key] = (
+                hotel_labels.get(sid, f"جلسة فندق #{sid}"),
+                f"/admin/hotel/shift/{sid}/report",
+            )
+        else:
+            d = key[1]
+            st = str(key[2])
+            label = _DAY_SOURCE_LABELS.get(st, st or "حركات")
+            out[key] = (f"{label} — {d}", None)
+    return out
+
+
+def _aggregate_vault_ledger_rows(
+    db: Session,
+    chrono_pairs: list[tuple],
+    *,
+    opening: Decimal,
+    account_id: int,
+) -> list[AccountLedgerRow]:
+    if not chrono_pairs:
+        return []
+    shift_maps = _vault_shift_maps(db, chrono_pairs)
+    groups: dict[tuple, list[tuple]] = {}
+    for pair in chrono_pairs:
+        _ln, ent = pair
+        key = _vault_group_key(ent, shift_maps)
+        groups.setdefault(key, []).append(pair)
+
+    def _group_sort_key(k: tuple) -> tuple:
+        items = groups[k]
+        last_ent = items[-1][1]
+        return (last_ent.entry_date, int(last_ent.id))
+
+    order = sorted(groups.keys(), key=_group_sort_key)
+
+    labels = _vault_group_labels(db, order)
+    running = opening
+    rows: list[AccountLedgerRow] = []
+    for key in order:
+        items = groups[key]
+        debit = Decimal("0")
+        credit = Decimal("0")
+        last_ln, last_ent = items[-1]
+        first_ent = items[0][1]
+        for ln, _ent in items:
+            debit += Decimal(str(ln.debit or 0))
+            credit += Decimal(str(ln.credit or 0))
+        debit = debit.quantize(Decimal("0.001"))
+        credit = credit.quantize(Decimal("0.001"))
+        running = (running + debit - credit).quantize(Decimal("0.001"))
+        desc, detail = labels.get(key, ("حركة مجمّعة", None))
+        n = len(items)
+        if n > 1:
+            desc = f"{desc} · {n} حركة"
+        kind = key[0]
+        if detail is None and kind == "day":
+            d = key[1]
+            detail = f"/admin/gl/accounts/{account_id}?from={d}&to={d}&flat=1"
+        source_type = (
+            "pos_shift"
+            if kind == "pos_shift"
+            else ("hotel_shift" if kind == "hotel_shift" else str(key[2]))
+        )
+        source_id = int(key[1]) if kind in ("pos_shift", "hotel_shift") else None
+        rows.append(
+            AccountLedgerRow(
+                line_id=int(last_ln.id),
+                entry_id=int(last_ent.id),
+                entry_date=last_ent.entry_date or first_ent.entry_date,
+                description_ar=desc,
+                source_type=source_type,
+                source_id=source_id,
+                memo=None,
+                debit=debit,
+                credit=credit,
+                running_balance=running,
+                post_mode=last_ent.post_mode,
+                detail_url=detail,
+                is_aggregate=True,
+                item_count=n,
+            )
+        )
+    return rows
+
+
 def list_account_ledger(
     db: Session,
     account_id: int,
@@ -613,6 +894,7 @@ def list_account_ledger(
     from_date: date | None = None,
     to_date: date | None = None,
     domain=None,
+    flat: bool = False,
 ) -> AccountLedgerPage:
     from modules.gl.domain import gl_entry_db_values
     from modules.gl.models import GlJournalEntry
@@ -656,57 +938,60 @@ def list_account_ledger(
     if to_date is not None:
         base = base.where(GlJournalEntry.entry_date <= to_date)
 
-    count_stmt = (
-        select(func.count(GlJournalLine.id))
-        .select_from(GlJournalLine)
-        .join(GlJournalEntry, GlJournalEntry.id == GlJournalLine.entry_id)
-        .where(GlJournalLine.account_id == account_id)
-    )
-    if domain_vals is not None:
-        count_stmt = count_stmt.where(GlJournalEntry.business_domain.in_(domain_vals))
-    if from_date is not None:
-        count_stmt = count_stmt.where(GlJournalEntry.entry_date >= from_date)
-    if to_date is not None:
-        count_stmt = count_stmt.where(GlJournalEntry.entry_date <= to_date)
-    total_lines = int(db.scalar(count_stmt) or 0)
-
     chrono = base.order_by(
         GlJournalEntry.entry_date.asc(),
         GlJournalEntry.id.asc(),
         GlJournalLine.line_no.asc(),
     )
     opening = get_opening_balance(db, account_id, domain=domain)
-    if offset > 0:
-        for ln, _ent in db.execute(chrono.limit(offset)).all():
-            opening += Decimal(str(ln.debit or 0)) - Decimal(str(ln.credit or 0))
-        opening = opening.quantize(Decimal("0.001"))
 
+    all_chrono = list(db.execute(chrono).all())
     period_balance = Decimal("0")
-    for ln, _ent in db.execute(chrono).all():
+    for ln, _ent in all_chrono:
         period_balance += Decimal(str(ln.debit or 0)) - Decimal(str(ln.credit or 0))
     period_balance = period_balance.quantize(Decimal("0.001"))
 
-    running = opening
-    rows: list[AccountLedgerRow] = []
-    for ln, ent in db.execute(chrono.offset(offset).limit(limit)).all():
-        d = Decimal(str(ln.debit or 0)).quantize(Decimal("0.001"))
-        c = Decimal(str(ln.credit or 0)).quantize(Decimal("0.001"))
-        running = (running + d - c).quantize(Decimal("0.001"))
-        rows.append(
-            AccountLedgerRow(
-                line_id=int(ln.id),
-                entry_id=int(ent.id),
-                entry_date=ent.entry_date,
-                description_ar=ent.description_ar,
-                source_type=ent.source_type,
-                source_id=ent.source_id,
-                memo=ln.memo,
-                debit=d,
-                credit=c,
-                running_balance=running,
-                post_mode=ent.post_mode,
-            )
+    session_view = (not flat) and _is_vault_session_account(db, acc)
+
+    if session_view:
+        chrono_rows = _aggregate_vault_ledger_rows(
+            db, all_chrono, opening=opening, account_id=account_id
         )
+        total_lines = len(chrono_rows)
+        end_idx = total_lines - offset
+        start_idx = max(0, end_idx - limit)
+        page_chrono = chrono_rows[start_idx:end_idx]
+        rows = list(reversed(page_chrono))
+    else:
+        total_lines = len(all_chrono)
+        end_idx = total_lines - offset
+        start_idx = max(0, end_idx - limit)
+        page_pairs = all_chrono[start_idx:end_idx]
+        running = opening
+        for ln, _ent in all_chrono[:start_idx]:
+            running += Decimal(str(ln.debit or 0)) - Decimal(str(ln.credit or 0))
+        running = running.quantize(Decimal("0.001"))
+        chrono_page: list[AccountLedgerRow] = []
+        for ln, ent in page_pairs:
+            d = Decimal(str(ln.debit or 0)).quantize(Decimal("0.001"))
+            c = Decimal(str(ln.credit or 0)).quantize(Decimal("0.001"))
+            running = (running + d - c).quantize(Decimal("0.001"))
+            chrono_page.append(
+                AccountLedgerRow(
+                    line_id=int(ln.id),
+                    entry_id=int(ent.id),
+                    entry_date=ent.entry_date,
+                    description_ar=ent.description_ar,
+                    source_type=ent.source_type,
+                    source_id=ent.source_id,
+                    memo=ln.memo,
+                    debit=d,
+                    credit=c,
+                    running_balance=running,
+                    post_mode=ent.post_mode,
+                )
+            )
+        rows = list(reversed(chrono_page))
 
     from modules.payments.service import method_current_balance
 
@@ -727,6 +1012,7 @@ def list_account_ledger(
         total_lines=total_lines,
         linked_wallets=linked,
         is_header=False,
+        session_view=session_view,
     )
 
 

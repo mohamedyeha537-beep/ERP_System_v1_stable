@@ -14,12 +14,73 @@
 {% if error %}
 <div class="card" style="border-color:#fecaca; background:#fef2f2"><p style="margin:0; color:#b91c1c">{{ error }}</p></div>
 {% endif %}
+{% if linked_ok %}
+<div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0;color:#065f46">تم ربط الفواتير بالحجز — يمكنك الآن إتمام التسوية.</p></div>
+{% endif %}
+{% if pickup_ok %}
+<div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0;color:#065f46">تم تحويل الطلب إلى <strong>استلام من المطعم</strong> وتحصيله — لم يعد على حساب الشقة.</p></div>
+{% endif %}
+{% if not linked_booking and open_charges %}
+<div class="card" style="border-color:#86efac;background:#ecfdf5">
+  <h2 style="margin-top:0;color:#065f46">تخليص سريع: تحويل إلى استلام من المطعم</h2>
+  <p style="margin:0 0 0.75rem;color:#14532d;font-size:0.92rem;line-height:1.55">
+    يغيّر <strong>نوع الطلب</strong> من حساب شقة إلى <strong>استلام (EXTERNAL / PICKUP)</strong>،
+    يحذف قيد الشقة، ويحصّل المبلغ على خزينة المطعم — بدون إنشاء حجز.
+  </p>
+  {% if pickup_payment_methods %}
+  <form method="post" action="/hotel/settle/room/{{ room.id }}/to-pickup"
+        style="display:flex;flex-wrap:wrap;gap:0.65rem;align-items:flex-end"
+        onsubmit="return confirm('تحويل كل الفواتير المفتوحة على هذه الشقة إلى استلام من المطعم وتحصيلها الآن؟');">
+    <label style="flex:1;min-width:14rem">
+      <span style="display:block;font-size:0.85rem;margin-bottom:0.25rem">وسيلة الدفع (المطعم)</span>
+      <select name="payment_method_id" required style="width:100%">
+        <option value="">— اختر —</option>
+        {% for m in pickup_payment_methods %}
+        <option value="{{ m.id }}">{{ m.name_ar }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button class="btn btn-primary" type="submit" style="background:#0f766e;border-color:#0f766e">
+      تحويل إلى استلام من المطعم وتحصيل
+    </button>
+  </form>
+  {% else %}
+  <p class="muted" style="margin:0">لا توجد وسائل دفع مطعم مفعّلة — اضبطها من إدارة أساليب الدفع.</p>
+  {% endif %}
+</div>
+<div class="card" style="border-color:#fca5a5;background:#fef2f2">
+  <h2 style="margin-top:0;color:#991b1b">أو: اربط بحجز على هذه الشقة (دين على النزيل)</h2>
+  <p style="margin:0 0 0.75rem;color:#7f1d1d;font-size:0.92rem;line-height:1.55">
+    إذا كان الطلب فعلاً على نزيل مقيم — اربطه بحجز مؤكد/مقيم ثم سوِّ كدين على الحساب.
+  </p>
+  {% if linkable_bookings %}
+  <form method="post" action="/hotel/settle/room/{{ room.id }}/link-booking"
+        style="display:flex;flex-wrap:wrap;gap:0.65rem;align-items:flex-end">
+    <label style="flex:1;min-width:16rem">
+      <span style="display:block;font-size:0.85rem;margin-bottom:0.25rem">الحجز على الشقة #{{ room.number }}</span>
+      <select name="booking_id" required style="width:100%">
+        <option value="">— اختر الحجز —</option>
+        {% for b in linkable_bookings %}
+        <option value="{{ b.id }}">{{ b.reference }} — {{ b.guest_name or 'بدون اسم' }} ({{ b.booking_status.value }})</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button class="btn btn-primary" type="submit">ربط الفواتير بالحجز</button>
+  </form>
+  {% else %}
+  <p style="margin:0 0 0.65rem;color:#7f1d1d">لا يوجد حالياً حجز مؤكد أو مقيم على هذه الشقة.</p>
+  <a class="btn" href="/admin/hotel/bookings/new?room_id={{ room.id }}">إنشاء حجز لهذه الشقة</a>
+  {% endif %}
+</div>
+{% endif %}
 {% if paid_msg == 'partial' %}
 <div class="card" style="border-color:#93c5fd; background:#eff6ff"><p style="margin:0;color:#1e40af">تم تسجيل الدفعة. ما زال هناك رصيد مفتوح على الغرفة — يمكنك دفع الباقي لاحقاً.</p></div>
-{% elif paid_msg == 'full' %}
-<div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0;color:#065f46">تمت تسوية الفواتير المختارة بالكامل ✓</p></div>
+{% elif paid_msg == 'full' or paid_msg == 'settled' %}
+<div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0;color:#065f46">تمت التسوية: حُوِّل المبلغ للمطعم وسُجِّل على حساب الحجز ليُحصَّل من النزيل ✓</p></div>
+{% elif paid_msg == 'breakfast_settled' %}
+<div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0;color:#065f46">تمت تسوية الإفطار: حُوِّل المبلغ للمطعم وسُجِّل <strong>كتكلفة فندق</strong> دون إضافته على حساب النزيل ✓</p></div>
 {% elif paid_msg == 'recorded' %}
-<div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0;color:#065f46">تم تسجيل الدفعة.</p></div>
+<div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0;color:#065f46">تم تسجيل العملية.</p></div>
 {% endif %}
 
 {% set ns = namespace(guests=[]) %}
@@ -63,7 +124,8 @@
   {% endif %}
   {% else %}
   <form method="post" action="/hotel/settle/room/{{ room.id }}/pay" id="settle-form">
-    <table>
+    <div class="table-x-scroll">
+    <table class="no-sticky-head">
       <thead>
         <tr>
           <th style="width:40px">
@@ -82,14 +144,18 @@
         {% for c in open_charges %}
         {% set due = charge_totals.get(c.id, c.sale.total) %}
         {% set paid = charge_paid.get(c.id, 0) %}
-        <tr>
-          <td><input type="checkbox" name="charge_ids" value="{{ c.id }}" class="charge-check" checked data-due="{{ due }}" /></td>
-          <td>#{{ c.sale_id }}</td>
+        {% set is_bf = charge_is_breakfast.get(c.id, false) %}
+        <tr{% if is_bf %} style="background:#fff7ed"{% endif %}>
+          <td><input type="checkbox" name="charge_ids" value="{{ c.id }}" class="charge-check" checked data-due="{{ due }}" data-breakfast="{{ '1' if is_bf else '0' }}" /></td>
+          <td>
+            #{{ c.sale_id }}
+            {% if is_bf and breakfast_included_enabled %}<div style="font-size:0.72rem;color:#c2410c;font-weight:700;margin-top:0.15rem">إفطار مشمول</div>{% endif %}
+          </td>
           <td style="font-size:0.88rem">{{ pos_format_dt(c.created_at, '%Y-%m-%d %H:%M') }}</td>
           <td>{{ c.guest_name_snapshot or '—' }}</td>
           <td style="max-width:280px; font-size:0.9rem">
             {% for line in c.sale.lines %}
-            <span style="display:inline-block; background:#f3f4f6; padding:0.1rem 0.4rem; border-radius:5px; margin:0.1rem">
+            <span style="display:inline-block; background:{% if is_bf %}#ffedd5{% else %}#f3f4f6{% endif %}; padding:0.1rem 0.4rem; border-radius:5px; margin:0.1rem">
               {{ (line.product.name_ar if line.product else ('منتج محذوف #' ~ line.product_id)) }} × {{ pos_qty(line.quantity) }}
             </span>
             {% endfor %}
@@ -109,108 +175,113 @@
         </tr>
       </tfoot>
     </table>
-
-    <div style="margin-top:1rem;padding:0.85rem 1rem;background:#f8fafc;border:1px solid var(--border);border-radius:10px">
-      <h3 style="margin:0 0 0.5rem;font-size:1rem">نقاط الولاء</h3>
-      <p class="muted" style="margin:0 0 0.65rem;font-size:0.85rem">
-        تُمنح النقاط عند تسجيل الدفع هنا (وليس عند القيد على الغرفة من الكاشير).
-        أدخل هاتف النزيل لربط الحساب.
-      </p>
-      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.65rem">
-        <div style="flex:1;min-width:160px">
-          <label style="font-size:0.82rem;color:var(--muted)">هاتف النزيل</label>
-          <input class="input" type="tel" name="guest_phone" dir="ltr" autocomplete="tel"
-                 value="{{ guest_phone_prefill }}" placeholder="09xxxxxxxx" style="width:100%" />
-        </div>
-        <div style="flex:1;min-width:140px">
-          <label style="font-size:0.82rem;color:var(--muted)">الاسم (اختياري)</label>
-          <input class="input" type="text" name="guest_name"
-                 value="{{ guest_name_prefill }}" placeholder="اسم النزيل" style="width:100%" />
-        </div>
-      </div>
-      {% if customer and loyalty.enabled %}
-      <div style="font-size:0.88rem;color:#1e3a8a;margin-bottom:0.5rem">
-        {% if customer.points_balance and customer.points_balance > 0 %}
-        ⭐ رصيد: {{ '%.0f' % customer.points_balance }} نقطة
-        (≈ {{ '%.3f' % customer_points_value }} د.ل)
-        {% else %}
-        <span class="muted">لا يوجد رصيد نقاط حالياً — سيُمنح رصيد بعد الدفع.</span>
-        {% endif %}
-      </div>
-      {% endif %}
-      {% if loyalty_quote and loyalty_quote.can_redeem %}
-      <label style="display:flex;align-items:flex-start;gap:0.45rem;cursor:pointer;font-weight:600;font-size:0.92rem">
-        <input type="checkbox" name="use_loyalty_redeem" value="on" style="margin-top:0.15rem" />
-        <span>
-          استخدام النقاط كخصم على الفواتير المختارة
-          <span style="display:block;font-weight:400;font-size:0.82rem;color:#92400e;margin-top:0.15rem">
-            يُطبَّق على كل فاتورة على حدة (حتى {{ '%.3f' % loyalty_quote.max_discount }} د.ل تقريباً على المجموع المفتوح).
-          </span>
-        </span>
-      </label>
-      {% elif loyalty.enabled and customer and customer.points_balance and customer.points_balance > 0 %}
-      <p class="muted" style="margin:0;font-size:0.85rem">
-        {% if (loyalty.max_redeem_percent_of_sale | default(0)) <= 0 %}
-        صرف النقاط غير مفعّل من إعدادات الولاء.
-        {% else %}
-        الرصيد أقل من الحد الأدنى للصرف ({{ '%.0f' % loyalty.min_points_to_redeem }} نقطة) أو يتجاوز حد النسبة المسموح بها.
-        {% endif %}
-      </p>
-      {% endif %}
     </div>
 
-    {% if linked_booking and booking_credit and booking_credit > 0 %}
+    <div style="margin-top:0.75rem;padding:0.85rem 1rem;background:#eff6ff;border:1px solid #93c5fd;border-radius:10px;font-size:0.92rem;line-height:1.55">
+      <strong style="color:#1e3a8a">آلية التسوية فندق → مطعم</strong>
+      <ol style="margin:0.4rem 0 0;padding-inline-start:1.2rem;color:#1e40af">
+        <li>يُحوَّل المبلغ من خزينة/خزائن الفندق التي تختارها إلى خزينة/خزائن المطعم (يمكن تقسيم كاش + مصرف).</li>
+        <li>تُقفَل فاتورة المطعم تجاه الفندق — <strong>هذا ليس سداداً من النزيل</strong>.</li>
+        <li><strong>وجبات عادية</strong>: يبقى المبلغ ديناً على حساب الحجز ويظهر في تفاصيل الحجز حتى التحصيل.</li>
+        {% if breakfast_included_enabled %}
+        <li><strong>إفطار مشمول</strong>: تكلفة فندق فقط على حساب هذه الشقة — تُحوَّل للمطعم ولا تُضاف لمستحق النزيل ولا تظهر في تفاصيل الحجز.</li>
+        {% else %}
+        <li><strong>وضع الإفطار المشمول معطّل</strong> من إعدادات الحجز — كل الوجبات على حساب النزيل.</li>
+        {% endif %}
+      </ol>
+      {% if breakfast_included_enabled %}
+      <p style="margin:0.5rem 0 0;color:#9a3412;font-size:0.88rem">
+        لا تخلط فواتير الإفطار مع فواتير النزيل في نفس العملية — سوِّ كل نوع بزرّه.
+      </p>
+      {% endif %}
+      <p style="margin:0.45rem 0 0;font-size:0.85rem">
+        <a href="/admin/hotel/reports/breakfast">تقرير تكلفة الإفطار ←</a>
+        · <a href="/admin/hotel/settings#hotel-breakfast">إعداد الإفطار</a>
+      </p>
+    </div>
+    {% if linked_booking %}
     <div style="margin-top:0.75rem;padding:0.65rem 0.85rem;background:#ecfdf5;border:1px solid #86efac;border-radius:8px;font-size:0.92rem">
-      رصيد مسبق على الحجز <strong>{{ linked_booking.reference }}</strong>:
-      <strong style="color:#15803d">{{ '%.3f' % booking_credit }} د.ل</strong>
-      — يُخصم تلقائياً عند التسوية (يمكنك ترك مبلغ الدفع صفراً إن يكفي الرصيد).
+      الحجز المرتبط: <strong>{{ linked_booking.reference }}</strong>
+      — بعد التسوية ستظهر الطلبات في كشف حساب الحجز ضمن المستحقات.
+      {% if booking_credit and booking_credit > 0 %}
+      <br />رصيد مسبق للنزيل: <strong style="color:#15803d">{{ '%.3f' % booking_credit }} د.ل</strong>
+      (يُخصم تلقائياً من المستحق عند احتساب حساب الزبون).
+      {% endif %}
+    </div>
+    {% else %}
+    <div style="margin-top:0.75rem;padding:0.65rem 0.85rem;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;font-size:0.92rem;color:#9a3412">
+      أكمل أولاً خطوة <strong>«ربط الفواتير بالحجز»</strong> في المربع أعلى الصفحة، ثم يعود زر التسوية للعمل.
     </div>
     {% endif %}
     <div style="margin-top:1rem;padding:0.85rem 1rem;background:#fff;border:1px solid var(--border);border-radius:10px">
-      <h3 style="margin:0 0 0.35rem">تسجيل دفعة (جزئية أو كاملة)</h3>
+      <h3 style="margin:0 0 0.35rem">تسوية (تحويل فندق → مطعم)</h3>
       <p class="muted" style="margin:0 0 0.75rem;font-size:0.85rem;line-height:1.55">
-        يمكنك دفع جزء اليوم والباقي لاحقاً، أو تقسيم المبلغ بين كاش ومصرف في نفس العملية.
-        تظهر هنا نفس وسائل الدفع المتاحة في نقطة البيع (كاش ومصرف فقط).
-        الفاتورة تُسوّى تلقائياً عند اكتمال سدادها فقط. أزل التحديد عن فواتير تريد تأجيلها.
+        اختر <strong>من أي خزينة فندق</strong> وإلى <strong>أي خزينة مطعم</strong>، ويمكن تقسيم المبلغ (جزء كاش + جزء مصرف).
+        التحويل هنا يسدّد المطعم فقط — <strong>يبقى المبلغ ديناً على النزيل</strong> في تفاصيل الحجز حتى يُحصَّل لاحقاً.
       </p>
-      {% if methods %}
-      <div id="payment-lines" style="display:flex;flex-direction:column;gap:0.5rem">
-        <div class="payment-line row" style="gap:0.45rem;flex-wrap:wrap;align-items:flex-end">
-          <div style="flex:1;min-width:180px">
-            <label style="font-size:0.82rem;color:var(--muted)">الحساب / وسيلة الدفع</label>
-            <select name="pay_method_id" class="input pay-method-select" style="width:100%" required>
+      {% if methods and to_methods %}
+      <div style="margin:0 0 0.75rem;padding:0.65rem 0.85rem;background:#f8fafc;border-radius:8px;font-size:0.92rem">
+        المستحق المختار للتحويل:
+        <strong id="due-selected">{{ '%.3f' % open_total }}</strong> د.ل
+        · مجموع أسطر التحويل:
+        <strong id="xfer-sum">0.000</strong> د.ل
+        <span id="xfer-match" class="muted" style="margin-inline-start:0.35rem"></span>
+      </div>
+      <div class="table-x-scroll" style="margin-bottom:0.65rem">
+        <table style="width:100%;font-size:0.88rem" id="xfer-table" class="no-sticky-head">
+          <thead>
+            <tr>
+              <th>من (خزينة الفندق)</th>
+              <th>إلى (خزينة المطعم)</th>
+              <th style="width:8rem">المبلغ</th>
+              <th style="width:3rem"></th>
+            </tr>
+          </thead>
+          <tbody id="xfer-body"></tbody>
+        </table>
+      </div>
+      <button type="button" class="btn" id="xfer-add-btn" style="margin-bottom:0.85rem">+ إضافة سطر تحويل</button>
+      <template id="xfer-row-tpl">
+        <tr class="xfer-row">
+          <td>
+            <select name="xfer_from_id" class="input xfer-from" required style="width:100%;min-width:10rem">
               {% for m in methods %}
               <option value="{{ m.id }}">{{ m.name_ar }} ({{ {'CASH': 'كاش', 'BANK': 'مصرف', 'OTHER': 'أخرى'}.get(m.kind.value, '') }})</option>
               {% endfor %}
             </select>
-          </div>
-          <div style="min-width:140px">
-            <label style="font-size:0.82rem;color:var(--muted)">المبلغ د.ل</label>
-            <input name="pay_amount" type="number" step="0.001" min="0" class="input pay-amount-input" style="width:100%" />
-          </div>
-          <button type="button" class="btn remove-pay-line" style="display:none;color:#b91c1c" title="حذف السطر">✕</button>
-        </div>
-      </div>
-      <button type="button" class="btn" id="add-pay-line" style="margin-top:0.5rem">+ إضافة دفعة (كاش + مصرف)</button>
-      <div style="margin-top:0.75rem;padding:0.65rem 0.85rem;background:#f8fafc;border-radius:8px;font-size:0.92rem">
-        <div>المستحق للفواتير المختارة: <strong id="due-selected">{{ '%.3f' % open_total }}</strong> د.ل</div>
-        {% if linked_booking and booking_credit and booking_credit > 0 %}
-        <div>يُخصم من رصيد الحجز: <strong id="credit-applied" style="color:#15803d">0.000</strong> د.ل</div>
-        <div>المطلوب نقداً بعد الرصيد: <strong id="cash-needed">0.000</strong> د.ل</div>
-        {% endif %}
-        <div>مجموع ما تدفعه الآن: <strong id="paying-now">0.000</strong> د.ل</div>
-        <div>يتبقى بعد هذه الدفعة: <strong id="remain-after" style="color:#7c2d12">—</strong> د.ل</div>
-      </div>
-      <div style="margin-top:1rem; display:flex; gap:0.5rem;flex-wrap:wrap">
-        <button class="btn btn-primary" type="submit" id="submit-pay-btn">
-          ✅ تسجيل الدفعة
+          </td>
+          <td>
+            <select name="xfer_to_id" class="input xfer-to" required style="width:100%;min-width:10rem">
+              {% for m in to_methods %}
+              <option value="{{ m.id }}">{{ m.name_ar }} ({{ {'CASH': 'كاش', 'BANK': 'مصرف', 'OTHER': 'أخرى'}.get(m.kind.value, '') }})</option>
+              {% endfor %}
+            </select>
+          </td>
+          <td>
+            <input name="xfer_amount" type="number" step="0.001" min="0.001" class="input xfer-amt" required style="width:100%" />
+          </td>
+          <td>
+            <button type="button" class="btn xfer-del" title="حذف السطر" style="padding:0.25rem 0.45rem">×</button>
+          </td>
+        </tr>
+      </template>
+      <div style="margin-top:0.5rem; display:flex; gap:0.5rem;flex-wrap:wrap">
+        <button class="btn btn-primary" type="submit" name="settle_mode" value="transfer" id="submit-settle-btn"
+                {% if not linked_booking %}disabled title="يلزم نزيل مقيم (Check-in) على هذه الشقة"{% endif %}>
+          ✅ تسوية (دين على النزيل)
         </button>
-        <button type="button" class="btn" id="fill-full-pay">ملء كامل المستحق</button>
+        {% if breakfast_included_enabled %}
+        <button class="btn" type="submit" name="settle_mode" value="breakfast" id="submit-breakfast-btn"
+                style="background:#ea580c;color:#fff;border-color:#c2410c"
+                {% if not linked_booking %}disabled title="يلزم نزيل مقيم (Check-in) على هذه الشقة"{% endif %}>
+          🥐 تسوية إفطار (تكلفة فندق)
+        </button>
+        {% endif %}
         <a class="btn" href="/hotel/settle">رجوع</a>
       </div>
       {% else %}
       <div class="alert">
-        لا توجد أساليب دفع مفعّلة. على الأدمن إضافة أسلوب واحد على الأقل من
+        لا توجد خزائن فندق أو مطعم مفعّلة. على الأدمن ضبطها من
         <a href="/admin/payment-methods">إدارة أساليب الدفع</a>.
       </div>
       {% endif %}
@@ -219,146 +290,143 @@
 
   <script>
     (function () {
-      var bookingCredit = {{ (booking_credit or 0) | float }};
-
       function num(v) {
         var x = parseFloat(v);
         return isNaN(x) ? 0 : x;
       }
-
+      function fmt(n) {
+        return (Math.round(n * 1000) / 1000).toFixed(3);
+      }
       function selectedDue() {
         var sum = 0;
-        document.querySelectorAll(".charge-check:checked").forEach(function (cb) {
-          sum += num(cb.getAttribute("data-due"));
+        document.querySelectorAll('.charge-check:checked').forEach(function (cb) {
+          sum += num(cb.getAttribute('data-due'));
         });
         return sum;
       }
-
-      function payingNow() {
+      function xferSum() {
         var sum = 0;
-        document.querySelectorAll(".pay-amount-input").forEach(function (inp) {
+        document.querySelectorAll('.xfer-amt').forEach(function (inp) {
           sum += num(inp.value);
         });
         return sum;
       }
-
+      function syncFirstAmount() {
+        var due = selectedDue();
+        var amts = document.querySelectorAll('.xfer-amt');
+        if (amts.length === 1) {
+          amts[0].value = due > 0 ? fmt(due) : '';
+        }
+      }
       function recalc() {
         var due = selectedDue();
-        var pay = payingNow();
-        var creditUse = Math.min(bookingCredit, due);
-        var cashNeeded = Math.max(0, due - creditUse);
-        var remain = Math.max(0, cashNeeded - pay);
-        var elDue = document.getElementById("selected-total");
-        var elDue2 = document.getElementById("due-selected");
-        var elPay = document.getElementById("paying-now");
-        var elRem = document.getElementById("remain-after");
-        var elCredit = document.getElementById("credit-applied");
-        var elCash = document.getElementById("cash-needed");
-        if (elDue) elDue.textContent = due.toFixed(3) + " د.ل";
-        if (elDue2) elDue2.textContent = due.toFixed(3);
-        if (elCredit) elCredit.textContent = creditUse.toFixed(3);
-        if (elCash) elCash.textContent = cashNeeded.toFixed(3);
-        if (elPay) elPay.textContent = pay.toFixed(3);
-        if (elRem) elRem.textContent = remain.toFixed(3);
-        var loyaltyCb = document.querySelector('input[name="use_loyalty_redeem"]');
-        if (loyaltyCb) {
-          loyaltyCb.disabled = pay + creditUse + 0.0005 < due;
+        var sum = xferSum();
+        var elDue = document.getElementById('due-selected');
+        var elSel = document.getElementById('selected-total');
+        var elSum = document.getElementById('xfer-sum');
+        var elMatch = document.getElementById('xfer-match');
+        if (elDue) elDue.textContent = fmt(due);
+        if (elSel) elSel.textContent = fmt(due) + ' د.ل';
+        if (elSum) elSum.textContent = fmt(sum);
+        if (elMatch) {
+          if (due <= 0.0005) {
+            elMatch.textContent = '';
+            elMatch.style.color = '';
+          } else if (Math.abs(sum - due) <= 0.001) {
+            elMatch.textContent = '✓ متطابق';
+            elMatch.style.color = '#15803d';
+          } else {
+            elMatch.textContent = 'يجب أن يساوي المستحق';
+            elMatch.style.color = '#b91c1c';
+          }
         }
       }
-
-      function bindPayLine(line) {
-        line.querySelectorAll(".pay-amount-input").forEach(function (inp) {
-          inp.addEventListener("input", recalc);
+      function bindRow(row) {
+        row.querySelectorAll('.xfer-amt').forEach(function (inp) {
+          inp.addEventListener('input', recalc);
         });
-        var rm = line.querySelector(".remove-pay-line");
-        if (rm) {
-          rm.addEventListener("click", function () {
-            line.remove();
-            refreshRemoveButtons();
-            recalc();
+        var del = row.querySelector('.xfer-del');
+        if (del) {
+          del.addEventListener('click', function () {
+            var body = document.getElementById('xfer-body');
+            if (body && body.querySelectorAll('.xfer-row').length > 1) {
+              row.remove();
+              recalc();
+            }
           });
         }
       }
-
-      function refreshRemoveButtons() {
-        var lines = document.querySelectorAll("#payment-lines .payment-line");
-        lines.forEach(function (line, i) {
-          var rm = line.querySelector(".remove-pay-line");
-          if (rm) rm.style.display = lines.length > 1 ? "inline-block" : "none";
+      function addRow(prefillDue) {
+        var tpl = document.getElementById('xfer-row-tpl');
+        var body = document.getElementById('xfer-body');
+        if (!tpl || !body) return;
+        var node = tpl.content.cloneNode(true);
+        var row = node.querySelector('.xfer-row');
+        body.appendChild(node);
+        row = body.lastElementChild;
+        bindRow(row);
+        var amt = row.querySelector('.xfer-amt');
+        if (amt && prefillDue) amt.value = fmt(prefillDue);
+        // اختيار الوجهة بنفس نوع المصدر إن أمكن
+        var fromSel = row.querySelector('.xfer-from');
+        var toSel = row.querySelector('.xfer-to');
+        function syncKind() {
+          if (!fromSel || !toSel) return;
+          var fromOpt = fromSel.options[fromSel.selectedIndex];
+          var label = (fromOpt && fromOpt.textContent) || '';
+          var wantBank = label.indexOf('مصرف') >= 0 || label.toLowerCase().indexOf('bank') >= 0;
+          for (var i = 0; i < toSel.options.length; i++) {
+            var t = toSel.options[i].textContent || '';
+            var isBank = t.indexOf('مصرف') >= 0 || t.toLowerCase().indexOf('bank') >= 0;
+            if (wantBank === isBank) {
+              toSel.selectedIndex = i;
+              break;
+            }
+          }
+        }
+        if (fromSel) fromSel.addEventListener('change', syncKind);
+        syncKind();
+        recalc();
+      }
+      var addBtn = document.getElementById('xfer-add-btn');
+      if (addBtn) {
+        addBtn.addEventListener('click', function () {
+          addRow(0);
         });
       }
-
-      var container = document.getElementById("payment-lines");
-      var addBtn = document.getElementById("add-pay-line");
-      if (addBtn && container) {
-        addBtn.addEventListener("click", function () {
-          var first = container.querySelector(".payment-line");
-          if (!first) return;
-          var clone = first.cloneNode(true);
-          clone.querySelectorAll(".pay-amount-input").forEach(function (inp) {
-            inp.value = "";
-          });
-          container.appendChild(clone);
-          bindPayLine(clone);
-          refreshRemoveButtons();
-          recalc();
-        });
-        container.querySelectorAll(".payment-line").forEach(bindPayLine);
-        refreshRemoveButtons();
-      }
-
-      var fillBtn = document.getElementById("fill-full-pay");
-      if (fillBtn) {
-        fillBtn.addEventListener("click", function () {
-          var due = selectedDue();
-          var creditUse = Math.min(bookingCredit, due);
-          var cashNeeded = Math.max(0, due - creditUse);
-          var firstAmt = document.querySelector(".pay-amount-input");
-          if (firstAmt) firstAmt.value = cashNeeded.toFixed(3);
-          recalc();
-        });
-      }
-
-      var all = document.getElementById("check-all");
+      var all = document.getElementById('check-all');
       if (all) {
-        all.addEventListener("change", function () {
-          document.querySelectorAll(".charge-check").forEach(function (cb) {
+        all.addEventListener('change', function () {
+          document.querySelectorAll('.charge-check').forEach(function (cb) {
             cb.checked = all.checked;
           });
+          syncFirstAmount();
           recalc();
         });
       }
-      document.querySelectorAll(".charge-check").forEach(function (cb) {
-        cb.addEventListener("change", recalc);
+      document.querySelectorAll('.charge-check').forEach(function (cb) {
+        cb.addEventListener('change', function () {
+          syncFirstAmount();
+          recalc();
+        });
       });
-
-      var form = document.getElementById("settle-form");
+      var form = document.getElementById('settle-form');
       if (form) {
-        form.addEventListener("submit", function (e) {
+        form.addEventListener('submit', function (e) {
           var due = selectedDue();
-          var pay = payingNow();
-          var creditUse = Math.min(bookingCredit, due);
-          var cashNeeded = Math.max(0, due - creditUse);
-          if (pay + 0.0005 < cashNeeded) {
+          if (due <= 0.0005) {
             e.preventDefault();
-            if (cashNeeded <= 0.0005) {
-              return;
-            }
-            alert(
-              "أدخل " +
-                cashNeeded.toFixed(3) +
-                " د.ل على الأقل (بعد خصم الرصيد " +
-                creditUse.toFixed(3) +
-                " د.ل)."
-            );
+            alert('اختر فاتورة واحدة على الأقل للتسوية.');
             return;
           }
-          if (pay > cashNeeded + 0.0005) {
+          var sum = xferSum();
+          if (Math.abs(sum - due) > 0.001) {
             e.preventDefault();
-            alert("مجموع الدفعات النقدية أكبر من المطلوب بعد خصم الرصيد.");
+            alert('مجموع أسطر التحويل (' + fmt(sum) + ') يجب أن يساوي المستحق المختار (' + fmt(due) + ').');
           }
         });
       }
+      addRow(selectedDue());
       recalc();
     })();
   </script>
@@ -368,7 +436,8 @@
 {% if history %}
 <div class="card">
   <h2 style="margin-top:0">سجل آخر التسويات على هذه الغرفة</h2>
-  <table>
+  <div class="table-x-scroll">
+  <table class="no-sticky-head">
     <thead>
       <tr>
         <th>#الفاتورة</th>
@@ -388,6 +457,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 {% endif %}
 {% endblock %}

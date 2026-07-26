@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -9,24 +9,37 @@ from sqlalchemy.orm import Session
 
 from modules.hotel.booking_models import BookingStatus, HotelBooking
 from modules.notifications.events import (
+    HOTEL_BALANCE_CLAIM,
     HOTEL_BOOKING_CONFIRMED,
     HOTEL_BOOKING_CREATED,
     HOTEL_CHECKOUT_REMINDER,
     HOTEL_NIGHT_PAYMENT_DUE,
     HOTEL_PAYMENT_RECEIVED,
+    HOTEL_ROOM_CLEANING,
     HOTEL_ROOM_MAINTENANCE,
     HOTEL_UNPAID_SERVICE_ADDED,
 )
 from modules.notifications.service import emit_event_safe
-from modules.settings.service import get_setting
+from modules.settings.service import get_public_base_url, get_setting
 
 
 def _fmt(value: Decimal | int | str | None) -> str:
-    return str(Decimal(str(value or 0)).quantize(Decimal("0.001")))
+    """مبلغ بصيغة 1,380.000"""
+    q = Decimal(str(value or 0)).quantize(Decimal("0.001"))
+    return f"{q:,.3f}"
+
+
+def _fmt_date(value) -> str:
+    if value is None:
+        return ""
+    try:
+        return value.strftime("%d-%m-%Y")
+    except Exception:
+        return str(value)
 
 
 def _public_base_url(db: Session) -> str:
-    return (get_setting(db, "public_base_url", "") or "").strip().rstrip("/")
+    return get_public_base_url(db)
 
 
 def _booking_url(db: Session, booking: HotelBooking) -> str:
@@ -37,12 +50,7 @@ def _booking_url(db: Session, booking: HotelBooking) -> str:
 
 
 def emit_hotel_online_booking_request(db: Session, booking: HotelBooking) -> None:
-    from modules.hotel.store_service import staff_notify_phone
-    from modules.messaging.models import MessageChannel, MessageOutboxStatus
-    from modules.messaging.outbox import enqueue_message, send_outbox_item_now
-    from modules.messaging.phone_utils import normalize_whatsapp_phone
     from modules.notifications.events import HOTEL_ONLINE_BOOKING_REQUEST
-    from modules.settings.service import get_bool, get_setting
 
     payload = _booking_payload(
         db,
@@ -50,6 +58,7 @@ def emit_hotel_online_booking_request(db: Session, booking: HotelBooking) -> Non
         booking_source=booking.source.value if booking.source else "",
         admin_booking_url=f"{_public_base_url(db)}/admin/hotel/bookings/{booking.id}",
     )
+    # مسار واحد فقط عبر محرك الإشعارات — لا نُكرّر بإرسال يدوي ثانٍ
     emit_event_safe(
         db,
         event_key=HOTEL_ONLINE_BOOKING_REQUEST,
@@ -57,40 +66,16 @@ def emit_hotel_online_booking_request(db: Session, booking: HotelBooking) -> Non
         source_id=booking.id,
         payload=payload,
     )
-    if not get_bool(db, "messaging_enabled", False):
-        return
-    phone = staff_notify_phone(db)
-    if not phone:
-        phone = (get_setting(db, "hotel_reception_phone", "") or "").strip()
-    if not phone:
-        return
-    cc = (get_setting(db, "messaging_default_country_code", "218") or "218").strip()
-    norm = normalize_whatsapp_phone(phone, country_code=cc)
-    if len(norm) < 8:
-        return
-    body = (
-        f"🏨 *طلب حجز أونلاين جديد*\n"
-        f"المرجع: {booking.reference}\n"
-        f"الضيف: {booking.guest_name}\n"
-        f"الهاتف: {booking.guest_phone or '—'}\n"
-        f"الشقة: {payload.get('room_name') or '—'}\n"
-        f"الوصول: {booking.check_in} → {booking.check_out}\n"
-        f"الإجمالي: {payload.get('booking_total')} د.ل\n"
-        f"راجع النظام وأكمل التواصل مع الزبون."
-    )
-    try:
-        row = enqueue_message(
-            db,
-            body=body[:4000],
-            channel=MessageChannel.WHATSAPP.value,
-            phone=norm,
-            event_type="hotel.online_booking_request",
-            meta={"booking_id": booking.id},
-        )
-        db.flush()
-        send_outbox_item_now(db, row)
-    except Exception:  # noqa: BLE001
-        pass
+
+
+def _folio_lines_summary(folio) -> str:
+    """ملخص بنود الحساب كنص واتساب — مطابق لما يظهر في الإيصال."""
+    lines_out: list[str] = []
+    for line in list(getattr(folio, "lines", None) or [])[:12]:
+        desc = (getattr(line, "description", None) or "").strip() or "بند"
+        amt = _fmt(getattr(line, "amount", 0))
+        lines_out.append(f"• {desc}: {amt} د.ل")
+    return "\n".join(lines_out)
 
 
 def _booking_payload(db: Session, booking: HotelBooking, **extra: Any) -> dict[str, Any]:
@@ -102,6 +87,7 @@ def _booking_payload(db: Session, booking: HotelBooking, **extra: Any) -> dict[s
     if booking.room is not None:
         room_name = booking.room.number or booking.room.name_ar or ""
     booking_url = _booking_url(db, booking)
+    folio_lines = _folio_lines_summary(folio)
     payload: dict[str, Any] = {
         "booking_id": booking.id,
         "booking_reference": booking.reference,
@@ -111,13 +97,19 @@ def _booking_payload(db: Session, booking: HotelBooking, **extra: Any) -> dict[s
         "guest_phone": booking.guest_phone or "",
         "room_name": room_name,
         "room_type": booking.room_type.name_ar if booking.room_type else "",
-        "check_in_date": booking.check_in.isoformat() if booking.check_in else "",
-        "check_out_date": booking.check_out.isoformat() if booking.check_out else "",
+        "check_in_date": _fmt_date(booking.check_in),
+        "check_out_date": _fmt_date(booking.check_out),
         "nights": booking.nights,
         "nightly_rate": _fmt(booking.nightly_rate),
         "booking_total": _fmt(folio.total),
         "paid_amount": _fmt(folio.paid),
         "balance_due": _fmt(folio.balance),
+        "folio_lines": folio_lines,
+        "folio_summary": (
+            f"الإجمالي: {_fmt(folio.total)} د.ل\n"
+            f"المدفوع: {_fmt(folio.paid)} د.ل\n"
+            f"المتبقي: {_fmt(folio.balance)} د.ل"
+        ),
         "booking_url": booking_url,
         "invoice_url": booking_url,
         "store_name": hotel_display_name(db),
@@ -173,56 +165,184 @@ def emit_hotel_payment_received(
     *,
     payment_amount: Decimal,
     payment_method: str = "",
+    payment_id: int | None = None,
+    is_deposit: bool = False,
 ) -> None:
+    pay_label = "عربون" if is_deposit else "إيصال قبض"
     emit_event_safe(
         db,
         event_key=HOTEL_PAYMENT_RECEIVED,
         source_type="hotel_booking_payment",
-        source_id=booking.id,
+        source_id=int(payment_id or 0) or booking.id,
         payload=_booking_payload(
             db,
             booking,
+            payment_id=int(payment_id or 0),
             payment_amount=_fmt(payment_amount),
-            payment_method=payment_method,
+            payment_method=payment_method or "—",
+            payment_label=pay_label,
+            doc_title=pay_label,
         ),
     )
 
 
+def emit_hotel_balance_claim(
+    db: Session,
+    booking: HotelBooking,
+    *,
+    claim_note: str | None = None,
+) -> None:
+    """مطالبة واتساب برصيد مستحق — من صفحة الحجز أو الجدولة اليومية."""
+    note = (claim_note or "").strip()
+    note_line = f"ملاحظة الاستقبال: {note}\n" if note else ""
+    phone = (booking.guest_phone or "").strip()
+    if not phone:
+        phone = (getattr(booking, "company_contact_phone", None) or "").strip()
+    payload = _booking_payload(
+        db,
+        booking,
+        claim_note=note,
+        claim_note_line=note_line,
+        phone=phone,
+        guest_phone=phone,
+    )
+    emit_event_safe(
+        db,
+        event_key=HOTEL_BALANCE_CLAIM,
+        source_type="hotel_booking",
+        source_id=booking.id,
+        payload=payload,
+    )
+
+
 def emit_hotel_daily_guest_reminders(db: Session) -> int:
-    today = date.today()
+    from app.datetime_local import now_local
+    from modules.hotel.folio import booking_balance_due
+    from modules.hotel.follow_up import clear_claim_wa_if_settled
+
+    today = now_local().date()
+    tomorrow = today + timedelta(days=1)
     count = 0
     rows = list(
         db.scalars(
             select(HotelBooking).where(
                 HotelBooking.booking_status == BookingStatus.CHECKED_IN,
-                HotelBooking.guest_phone.is_not(None),
             )
         ).all()
     )
     for booking in rows:
-        if booking.check_out == today:
+        phone = (booking.guest_phone or "").strip() or (
+            getattr(booking, "company_contact_phone", None) or ""
+        ).strip()
+
+        # تذكير المغادرة قبل 24 ساعة + يوم المغادرة
+        if booking.check_out in (today, tomorrow) and phone:
             emit_event_safe(
                 db,
                 event_key=HOTEL_CHECKOUT_REMINDER,
                 source_type="hotel_booking",
                 source_id=booking.id,
-                payload=_booking_payload(db, booking),
+                payload=_booking_payload(
+                    db,
+                    booking,
+                    phone=phone,
+                    guest_phone=phone,
+                    departure_timing="today" if booking.check_out == today else "24h",
+                ),
             )
             count += 1
-        if booking.check_in < today < booking.check_out:
-            from modules.hotel.folio import booking_balance_due
 
-            balance = booking_balance_due(db, booking.id)
+        balance = booking_balance_due(db, booking.id)
+        if clear_claim_wa_if_settled(db, booking):
+            continue
+
+        # مطالبة واتساب مفعّلة من صفحة الحجز — يومياً حتى السداد
+        if getattr(booking, "claim_wa_until_paid", False) and phone:
+            rem = getattr(booking, "follow_up_at", None)
+            if rem is None or rem <= today:
+                if balance > Decimal("0.001"):
+                    emit_hotel_balance_claim(
+                        db,
+                        booking,
+                        claim_note=getattr(booking, "follow_up_note", None),
+                    )
+                    count += 1
+            continue
+
+        # تنبيه تلقائي لمنتصف الإقامة عند وجود متبقٍ
+        if booking.check_in < today < booking.check_out and phone:
             if balance > Decimal("0.001"):
                 emit_event_safe(
                     db,
                     event_key=HOTEL_NIGHT_PAYMENT_DUE,
                     source_type="hotel_booking",
                     source_id=booking.id,
-                    payload=_booking_payload(db, booking),
+                    payload=_booking_payload(
+                        db, booking, phone=phone, guest_phone=phone
+                    ),
                 )
                 count += 1
     return count
+
+
+def emit_hotel_room_cleaning(
+    db: Session,
+    room,
+    *,
+    cleaning_phone: str = "",
+    cleaning_staff_name: str = "",
+    note: str = "",
+    employee_id: int | None = None,
+    reported_by: str = "",
+    base_url: str = "",
+) -> None:
+    from modules.branding.service import hotel_display_name
+    from modules.hotel.dashboard import room_display_name
+    from modules.hotel.housekeeping_links import (
+        housekeeping_confirm_button_id,
+        housekeeping_done_url,
+    )
+
+    store = hotel_display_name(db)
+    room_name = room_display_name(room)
+    detail = (note or "").strip()
+    note_line = f"ملاحظات: {detail}\n" if detail else ""
+    task_token = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    done_url = housekeeping_done_url(db, room.id, base_url=base_url)
+    confirm_button_id = housekeeping_confirm_button_id(
+        db, room.id, base_url=base_url
+    )
+    # زر الرابط (https…) يفتح صفحة التأكيد مباشرة — لا يحتاج webhook TextMeBot.
+    # إن لم يتوفر رابط عام يبقى الرد السريع housekeeping_done:{id}.
+    done_link_line = (
+        f"أو افتح الرابط لتأكيد الانتهاء:\n{done_url}\n"
+        if done_url
+        else ""
+    )
+    emit_event_safe(
+        db,
+        event_key=HOTEL_ROOM_CLEANING,
+        source_type="hotel_room",
+        source_id=room.id,
+        payload={
+            "store_name": store,
+            "room_id": room.id,
+            "room_name": room_name,
+            "room_number": room.number or "",
+            "floor": room.floor or "",
+            "cleaning_phone": (cleaning_phone or "").strip(),
+            "cleaning_staff_name": (cleaning_staff_name or "").strip(),
+            "phone": (cleaning_phone or "").strip(),
+            "note": detail,
+            "note_line": note_line,
+            "employee_id": employee_id,
+            "reported_by": (reported_by or "").strip(),
+            "task_token": task_token,
+            "done_url": done_url,
+            "confirm_button_id": confirm_button_id,
+            "done_link_line": done_link_line,
+        },
+    )
 
 
 def emit_hotel_room_maintenance(

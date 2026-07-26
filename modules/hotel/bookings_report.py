@@ -43,6 +43,7 @@ class HotelBookingReportRow:
     accommodation_total: Decimal
     paid_amount: Decimal
     balance: Decimal
+    room_label: str = ""
 
 
 @dataclass
@@ -87,6 +88,11 @@ def _booking_to_row(db: Session, booking: HotelBooking) -> HotelBookingReportRow
         if hasattr(booking.payment_status, "value")
         else str(booking.payment_status)
     )
+    room_label = ""
+    if booking.room is not None:
+        room_label = (
+            booking.room.number or booking.room.name_ar or f"#{booking.room_id}"
+        )
     return HotelBookingReportRow(
         booking_id=int(booking.id),
         reference=str(booking.reference or f"#{booking.id}"),
@@ -101,6 +107,7 @@ def _booking_to_row(db: Session, booking: HotelBooking) -> HotelBookingReportRow
         accommodation_total=acc,
         paid_amount=paid,
         balance=bal,
+        room_label=str(room_label or ""),
     )
 
 

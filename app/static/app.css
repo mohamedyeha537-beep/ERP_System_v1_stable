@@ -80,7 +80,9 @@ a:hover {
 
 table {
   width: 100%;
-  border-collapse: collapse;
+  /* separate مطلوب حتى يعمل position:sticky — !important يتجاوز inline collapse في القوالب */
+  border-collapse: separate !important;
+  border-spacing: 0;
 }
 
 th,
@@ -93,6 +95,138 @@ td {
 th {
   color: var(--muted);
   font-weight: 600;
+}
+
+/* ===== رؤوس الجداول الثابتة ===== */
+thead th,
+table > tr:first-child > th,
+.sticky-table-head th {
+  position: sticky;
+  top: var(--header-h, 76px);
+  z-index: 20;
+  background-color: #f8fafc !important;
+  box-shadow: 0 1px 0 var(--border), 0 2px 8px rgba(15, 23, 42, 0.08);
+}
+
+/* تمرير أفقي فقط للجداول القصيرة */
+.table-x-scroll {
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
+/*
+  الحل الذكي للجداول الطويلة في كل الصفحات:
+  صندوق تمرير محلي + thead sticky بـ top:0 وخلفية معتمة
+  — لا يتسرب نص فوق الرأس ولا يظهر من تحته
+*/
+.sticky-table-wrap,
+.table-scroll,
+.table-sticky-host,
+.gl-ledger-scroll {
+  max-height: min(72vh, 780px);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  position: relative;
+  background: #fff;
+}
+.sticky-table-wrap thead,
+.table-scroll thead,
+.table-sticky-host thead,
+.gl-ledger-scroll thead {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+.sticky-table-wrap thead th,
+.table-scroll thead th,
+.table-sticky-host thead th,
+.gl-ledger-scroll thead th,
+.sticky-table-wrap > table > tr:first-child > th,
+.table-scroll > table > tr:first-child > th,
+.table-sticky-host > table > tr:first-child > th,
+.card.table-scroll thead th {
+  position: relative;
+  top: auto !important;
+  z-index: auto;
+  background-color: #f8fafc !important;
+  box-shadow: none;
+  border-bottom: 1px solid var(--border);
+}
+.sticky-table-wrap thead tr,
+.table-scroll thead tr,
+.table-sticky-host thead tr,
+.gl-ledger-scroll thead tr {
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
+}
+
+/* بطاقات تحتوي جدولاً مباشرة — نفس سلوك الرأس الثابت بدون تعديل كل قالب */
+.card:has(> table) {
+  max-height: min(72vh, 780px);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  position: relative;
+}
+.card:has(> table) > table > thead {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+.card:has(> table) > table > thead > tr > th {
+  position: relative;
+  top: auto !important;
+  background-color: #f8fafc !important;
+  box-shadow: none;
+  border-bottom: 1px solid var(--border);
+}
+.card:has(> table) > table > thead > tr {
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
+}
+
+/* جداول نماذج قصيرة — بدون رأس لاصق (يمنع ظهور العناوين تحت الحقول) */
+table.no-sticky-head > thead,
+table.no-sticky-head thead {
+  position: static !important;
+  top: auto !important;
+  z-index: auto !important;
+  box-shadow: none !important;
+}
+table.no-sticky-head > thead > tr > th,
+table.no-sticky-head thead th,
+table.no-sticky-head > tr:first-child > th {
+  position: static !important;
+  top: auto !important;
+  z-index: auto !important;
+  box-shadow: none !important;
+  background-color: #f8fafc !important;
+}
+table.no-sticky-head > thead > tr > th::before,
+table.no-sticky-head thead th::before {
+  display: none !important;
+  content: none !important;
+}
+
+@media print {
+  thead th,
+  table > tr:first-child > th,
+  .sticky-table-head th {
+    position: static;
+    box-shadow: none;
+  }
+  .sticky-table-wrap,
+  .table-scroll,
+  .table-sticky-host,
+  .gl-ledger-scroll,
+  .card:has(> table) {
+    max-height: none;
+    overflow: visible;
+  }
+  .sticky-table-wrap thead,
+  .table-scroll thead,
+  .table-sticky-host thead,
+  .gl-ledger-scroll thead,
+  .card:has(> table) > table > thead {
+    position: static;
+  }
 }
 
 input,
@@ -339,6 +473,7 @@ input[type="number"] {
 }
 .page-trail__back {
   font-weight: 600;
+  cursor: pointer;
 }
 .page-trail__home {
   background: #f8fafc;

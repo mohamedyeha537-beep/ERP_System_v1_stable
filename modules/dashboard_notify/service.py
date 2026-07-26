@@ -47,15 +47,35 @@ def record_activity(
         return
     if key in LIVE_PENDING_SECTIONS and key != INVENTORY:
         return
+    et = (event_type or "change")[:64]
+    note_s = (note or "").strip()[:255] or None
     db.add(
         DashboardActivity(
             section_key=key,
-            event_type=(event_type or "change")[:64],
+            event_type=et,
             ref_id=ref_id,
-            note=(note or "").strip()[:255] or None,
+            note=note_s,
         )
     )
     db.flush()
+    try:
+        from modules.dashboard_notify.whatsapp_forward import forward_hub_item_to_whatsapp
+
+        title = f"نشاط: {key}"
+        detail_parts = [et]
+        if ref_id is not None:
+            detail_parts.append(f"#{ref_id}")
+        if note_s:
+            detail_parts.append(note_s)
+        forward_hub_item_to_whatsapp(
+            db,
+            title=title,
+            detail=" · ".join(detail_parts),
+            event_type=f"hub.activity.{key}"[:64],
+            meta={"section_key": key, "ref_id": ref_id, "activity_event": et},
+        )
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def resolve_activity(
@@ -234,21 +254,81 @@ def sync_activity_resolution(db: Session, *, force: bool = False) -> None:
     db.flush()
 
 
+def load_purchase_domain_map(db: Session, purchase_ids: set[int]) -> dict[int, str]:
+    """خريطة purchase_id → مجال العمل (نص صغير)."""
+    if not purchase_ids:
+        return {}
+    from modules.payments.models import Purchase
+
+    out: dict[int, str] = {}
+    for pid, pdom in db.execute(
+        select(Purchase.id, Purchase.business_domain).where(
+            Purchase.id.in_(purchase_ids)
+        )
+    ).all():
+        if pdom is None:
+            continue
+        out[int(pid)] = (
+            pdom.value if hasattr(pdom, "value") else str(pdom)
+        ).strip().lower()
+    return out
+
+
+def activity_matches_finance_domain(
+    act: DashboardActivity,
+    *,
+    domain_vals: list[str] | None,
+    purchase_domain_by_id: dict[int, str],
+) -> bool:
+    """True إن كان النشاط يظهر في مجال العرض الحالي (مطعم/فندق)."""
+    if domain_vals is None:
+        return True
+    if act.section_key not in (PURCHASES, ASSETS, EXPENSES):
+        return True
+    if act.ref_id is None:
+        return False
+    pdom = purchase_domain_by_id.get(int(act.ref_id))
+    return pdom is not None and pdom in domain_vals
+
+
 def _activity_badge_counts(
-    db: Session, user_id: int, last_seen: dict[str, datetime]
+    db: Session,
+    user_id: int,
+    last_seen: dict[str, datetime],
+    *,
+    domain=None,
 ) -> dict[str, int]:
     """أقسام تعتمد على سجل النشاط."""
+    from modules.platform.business_domain import purchase_domain_db_values
+
     sync_activity_resolution(db)
     rows = list(
         db.scalars(
             select(DashboardActivity).where(DashboardActivity.resolved_at.is_(None))
         ).all()
     )
+    domain_vals = purchase_domain_db_values(domain)
+    purchase_domain_by_id: dict[int, str] = {}
+    if domain_vals is not None:
+        pids = {
+            int(act.ref_id)
+            for act in rows
+            if act.section_key in (PURCHASES, ASSETS, EXPENSES)
+            and act.ref_id is not None
+        }
+        purchase_domain_by_id = load_purchase_domain_map(db, pids)
+
     seen: dict[tuple[str, int | str], bool] = {}
     counts: dict[str, int] = {}
     for act in rows:
         sk = act.section_key
         if sk in LIVE_PENDING_SECTIONS:
+            continue
+        if not activity_matches_finance_domain(
+            act,
+            domain_vals=domain_vals,
+            purchase_domain_by_id=purchase_domain_by_id,
+        ):
             continue
         if not _activity_visible_to_user(act, section_key=sk, last_seen=last_seen):
             continue
@@ -285,8 +365,13 @@ def _inventory_info_activity_count(
     return n
 
 
-def badge_counts(db: Session, user_id: int) -> dict[str, int]:
-    """عدد المهام المعلّقة لكل قسم."""
+def badge_counts(
+    db: Session,
+    user_id: int,
+    *,
+    domain=None,
+) -> dict[str, int]:
+    """عدد المهام المعلّقة لكل قسم — مع تصفية مجال العرض (مطعم/فندق) للمشتريات."""
     last_seen = _last_seen_map(db, user_id)
     counts: dict[str, int] = {}
 
@@ -297,7 +382,9 @@ def badge_counts(db: Session, user_id: int) -> dict[str, int]:
         if n > 0:
             counts[section_key] = n
 
-    for section_key, n in _activity_badge_counts(db, user_id, last_seen).items():
+    for section_key, n in _activity_badge_counts(
+        db, user_id, last_seen, domain=domain
+    ).items():
         if n > 0:
             counts[section_key] = counts.get(section_key, 0) + n
 

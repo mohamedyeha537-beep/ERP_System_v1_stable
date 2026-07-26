@@ -1194,34 +1194,37 @@ def _parse_datetime_local(raw: str) -> datetime | None:
         return None
 
 
-def _purchase_term_methods(db: DBSession, user: User):
+def _purchase_custody_domain_for_user(request: Request | None, user: User):
+    """مجال عهدة المشتريات حسب نطاق المستخدم (مطعم/فندق)."""
     from modules.payments.models import PaymentMethodDomain
+    from modules.platform.business_domain import BusinessDomain
 
+    if request is not None:
+        dom = _finance_domain_filter(request, user)
+        if dom == BusinessDomain.HOTEL:
+            return PaymentMethodDomain.HOTEL
+        if dom == BusinessDomain.RESTAURANT:
+            return PaymentMethodDomain.RESTAURANT
+    return PaymentMethodDomain.RESTAURANT
+
+
+def _purchase_term_methods(db: DBSession, user: User, request: Request | None = None):
+    # موظف المشتريات يرى خزين/عهد المطعم والفندق معاً (قد يشتري لأي مجال)
     if purchase_user_limited_to_custody(user):
         return list_payment_methods_for_purchase_term_custody(
-            db, only_active=True, domain=PaymentMethodDomain.RESTAURANT
+            db, only_active=True, domain=None
         )
-    return list_payment_methods_for_purchase_term(db, only_active=True)
+    return list_payment_methods_for_purchase_term(db, only_active=True, domain=None)
 
 
-def _purchase_pay_methods(db: DBSession, user: User):
-    from modules.payments.models import PaymentMethodDomain
+def _purchase_pay_methods(db: DBSession, user: User, request: Request | None = None):
+    from modules.payments.service import list_payment_methods_for_purchase_pay
 
-    if purchase_user_limited_to_custody(user):
-        return list_payment_methods_purchase_custody_for_pay(
-            db, only_active=True, domain=PaymentMethodDomain.RESTAURANT
-        )
-    out: list = []
-    seen: set[int] = set()
-    for m in list_payment_methods_main_treasury_for_pay(db, only_active=True):
-        if m.id not in seen:
-            out.append(m)
-            seen.add(m.id)
-    for m in list_payment_methods_purchase_custody_for_pay(db, only_active=True):
-        if m.id not in seen:
-            out.append(m)
-            seen.add(m.id)
-    return out
+    return list_payment_methods_for_purchase_pay(
+        db,
+        only_active=True,
+        custody_only=purchase_user_limited_to_custody(user),
+    )
 
 
 def _assert_purchase_term_pm(db: DBSession, user: User, pm_id: int):
@@ -1256,32 +1259,28 @@ def purchases_list(
     )
     from modules.platform.business_domain import domain_label, purchase_domain_db_values
 
-    s, e = _month_default_range()
-    s_user = _parse_date(start)
-    e_user = _parse_date(end)
-    if s_user is not None:
-        s = s_user
-    if e_user is not None:
-        e = e_user
+    # بدون فترة افتراضية — الكل حتى يختار الأدمن تصفية يدوية
+    s = _parse_date(start)
+    e = _parse_date(end)
     supplier_filter = [x.strip() for x in (suppliers or []) if (x or "").strip()]
     pay_filter = (pay or "all").strip().lower()
     domain = _finance_domain_filter(request, user)
 
     stmt = (
         select(Purchase)
-        .where(
-            Purchase.created_at >= s,
-            Purchase.created_at < e,
-            Purchase.kind == PurchaseKind.INVENTORY,
-        )
+        .where(Purchase.kind == PurchaseKind.INVENTORY)
         .options(
             selectinload(Purchase.lines),
             selectinload(Purchase.method),
             selectinload(Purchase.warehouse),
         )
-        .order_by(Purchase.id.desc())
-        .limit(500)
+        .order_by(Purchase.created_at.desc(), Purchase.id.desc())
+        .limit(2000)
     )
+    if s is not None:
+        stmt = stmt.where(Purchase.created_at >= s)
+    if e is not None:
+        stmt = stmt.where(Purchase.created_at < e)
     domain_vals = purchase_domain_db_values(domain)
     if domain_vals is not None:
         stmt = stmt.where(Purchase.business_domain.in_(domain_vals))
@@ -1303,6 +1302,7 @@ def purchases_list(
             "pay_filter": pay_filter,
             "start": s,
             "end": e,
+            "date_filtered": s is not None or e is not None,
             "error": error,
             "saved": bool(saved),
             "finance_domain_filter": domain,
@@ -1320,7 +1320,7 @@ def purchases_new_page(
 ):
     from modules.inventory.service import get_main_warehouse, list_warehouses
 
-    methods = _purchase_term_methods(db, user)
+    methods = _purchase_term_methods(db, user, request)
     products = list_stockable_products(db)
     warehouses = list_warehouses(db)
     main_wh = get_main_warehouse(db)
@@ -1555,7 +1555,7 @@ async def purchases_create(
     created_at = _parse_datetime_local(purchase_date_raw)
     finance_domain = _finance_domain_filter(request, user)
     try:
-        record_inventory_purchase(
+        purchase = record_inventory_purchase(
             db,
             payment_method_id=pm_id,
             supplier=supplier,
@@ -1587,6 +1587,17 @@ async def purchases_create(
             f"/admin/purchases/new?error={quote(str(e))}",
             status_code=302,
         )
+    # أي صرف نقدي عند الإنشاء → إيصال صرف
+    pm_obj = db.get(PaymentMethod, pm_id)
+    money_out = (
+        not is_supplier_credit_payment_method(pm_obj)
+        or (pay_now_amount is not None and pay_now_amount > 0)
+    )
+    if money_out and purchase is not None:
+        return RedirectResponse(
+            f"/admin/purchases/{purchase.id}/voucher?autoprint=1",
+            status_code=302,
+        )
     return RedirectResponse("/admin/purchases?saved=1", status_code=302)
 
 
@@ -1614,7 +1625,7 @@ def purchases_detail(
     }
     paid = sum_purchase_payments(db, p.id)
     outstanding = purchase_outstanding(db, p)
-    pay_methods = _purchase_pay_methods(db, user)
+    pay_methods = _purchase_pay_methods(db, user, request)
     from modules.payments.cost_reference import (
         effective_purchase_amount,
         is_cost_reference_purchase,
@@ -1689,7 +1700,10 @@ async def purchases_record_payment(
             f"/admin/purchases/{pid}?error={quote(str(e))}",
             status_code=302,
         )
-    return RedirectResponse(f"/admin/purchases/{pid}?saved=1", status_code=302)
+    return RedirectResponse(
+        f"/admin/purchases/{pid}/voucher?autoprint=1",
+        status_code=302,
+    )
 
 
 @purchases_router.post("/{pid}/edit-cost-reference", response_class=HTMLResponse)
@@ -1848,7 +1862,7 @@ async def expenses_add(
             )
     created_at = _parse_datetime_local(purchase_date)
     try:
-        record_expense(
+        purchase = record_expense(
             db,
             payment_method_id=pm_id,
             amount=amt,
@@ -1871,7 +1885,140 @@ async def expenses_add(
             "/admin/expenses?error=" + quote(str(e)),
             status_code=302,
         )
-    return RedirectResponse("/admin/expenses?saved=1", status_code=302)
+    # أي مبلغ يُصرف → طباعة إيصال صرف
+    return RedirectResponse(
+        f"/admin/expenses/{purchase.id}/voucher?autoprint=1",
+        status_code=302,
+    )
+
+
+def _disbursement_voucher_response(
+    request: Request,
+    db: DBSession,
+    *,
+    pid: int,
+    back_url: str,
+    form_action: str,
+    missing_redirect: str,
+    paper: str | None = None,
+    orientation: str | None = None,
+    autoprint: int = 0,
+):
+    from modules.platform.business_domain import BusinessDomain
+    from modules.printing.doc_numbers import PrintDocKind, doc_kind_label, next_doc_number
+    from modules.settings.service import (
+        PAPER_ORIENTATIONS,
+        PAPER_SIZES,
+        get_paper_css,
+        get_receipt_orientation,
+        get_receipt_paper_size,
+        get_setting,
+        normalize_orientation,
+        normalize_paper,
+        set_setting,
+    )
+
+    purchase = db.get(Purchase, pid)
+    if purchase is None:
+        return RedirectResponse(
+            missing_redirect + ("&" if "?" in missing_redirect else "?")
+            + "error="
+            + quote("السند غير موجود"),
+            status_code=302,
+        )
+    domain = getattr(purchase, "business_domain", None)
+    dom = "hotel" if str(domain or "").lower() == "hotel" else "restaurant"
+    bd = BusinessDomain.HOTEL if dom == "hotel" else BusinessDomain.RESTAURANT
+    chosen = normalize_paper(paper, get_receipt_paper_size(db, bd))
+    orient = normalize_orientation(orientation, get_receipt_orientation(db, bd))
+    meta_key = f"disbursement_voucher_{pid}"
+    existing = (get_setting(db, meta_key, "") or "").strip()
+    if not existing:
+        # توافق مع المفتاح السابق للمصروفات
+        existing = (get_setting(db, f"expense_voucher_{pid}", "") or "").strip()
+    if existing:
+        doc_number = existing
+    else:
+        doc_number = next_doc_number(db, PrintDocKind.DISBURSEMENT, domain=dom)
+        set_setting(db, meta_key, doc_number)
+        db.commit()
+    method = purchase.payment_method
+    emp = db.get(User, purchase.created_by_id) if purchase.created_by_id else None
+    preserve = {}
+    if autoprint:
+        preserve["autoprint"] = "1"
+    return templates.TemplateResponse(
+        "disbursement_voucher.html",
+        {
+            "request": request,
+            "doc_title": doc_kind_label(PrintDocKind.DISBURSEMENT),
+            "doc_number": doc_number,
+            "amount": purchase.amount,
+            "method_name": method.name_ar if method else "—",
+            "category": purchase.expense_category or "",
+            "party": purchase.supplier or "",
+            "note": purchase.note or "",
+            "created_at": purchase.created_at,
+            "employee_name": emp.username if emp else "",
+            "store_name": get_setting(db, "store_name", "نقطة البيع"),
+            "back_url": back_url,
+            "paper": chosen,
+            "orientation": orient,
+            "paper_css": get_paper_css(chosen, orient),
+            "paper_choices": PAPER_SIZES,
+            "orientation_choices": PAPER_ORIENTATIONS,
+            "can_choose_paper": True,
+            "print_form_action": form_action,
+            "print_preserve_params": preserve,
+            "autoprint": autoprint,
+        },
+    )
+
+
+@purchases_router.get("/{pid}/voucher", response_class=HTMLResponse)
+def purchases_voucher_print(
+    request: Request,
+    pid: int,
+    db: DBSession,
+    user: User = Depends(_purchases_perm),
+    paper: str | None = Query(None),
+    orientation: str | None = Query(None),
+    autoprint: int = Query(0, ge=0, le=1),
+):
+    return _disbursement_voucher_response(
+        request,
+        db,
+        pid=pid,
+        back_url=f"/admin/purchases/{pid}",
+        form_action=f"/admin/purchases/{pid}/voucher",
+        missing_redirect="/admin/purchases",
+        paper=paper,
+        orientation=orientation,
+        autoprint=autoprint,
+    )
+
+
+@expenses_router.get("/{pid}/voucher", response_class=HTMLResponse)
+def expenses_voucher_print(
+    request: Request,
+    pid: int,
+    db: DBSession,
+    user: User = Depends(_purchase_finance_perm),
+    paper: str | None = Query(None),
+    orientation: str | None = Query(None),
+    autoprint: int = Query(0, ge=0, le=1),
+):
+    return _disbursement_voucher_response(
+        request,
+        db,
+        pid=pid,
+        back_url="/admin/expenses",
+        form_action=f"/admin/expenses/{pid}/voucher",
+        missing_redirect="/admin/expenses",
+        paper=paper,
+        orientation=orientation,
+        autoprint=autoprint,
+    )
 
 
 @expenses_router.post("/{pid}/delete", response_class=HTMLResponse)

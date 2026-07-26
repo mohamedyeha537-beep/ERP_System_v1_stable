@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ doc_title }} {{ doc_number }}</title>
+  <link rel="stylesheet" href="/static/app.css" />
+  <link rel="stylesheet" href="/static/receipt_print.css?v=3" />
+  <style>
+    @page { size: {{ paper_css.size }}; margin: {{ paper_css.margin }}; }
+    .receipt-page { max-width: {{ paper_css.max_width }}; }
+  </style>
+</head>
+<body class="paper-{{ paper }}">
+  <div class="receipt-page paper-{{ paper }}">
+    <div class="receipt-actions no-print" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.75rem">
+      <a class="btn" href="{{ back_url }}">← رجوع</a>
+      <button type="button" class="btn btn-primary" onclick="window.print()">طباعة</button>
+      {% if autoprint|default(0) %}
+      <script>window.addEventListener('load', function () { setTimeout(function () { window.print(); }, 350); });</script>
+      {% endif %}
+      {% if can_choose_paper|default(true) %}
+      {% set form_action = print_form_action %}
+      {% set preserve_params = print_preserve_params|default({}) %}
+      {% include "_print_paper_options.html" %}
+      {% endif %}
+    </div>
+    <div id="receipt-capture-root" class="receipt-capture-root">
+      <header class="receipt-header">
+        <h1 style="margin:0;font-size:1.15rem">{{ store_name }}</h1>
+        <p style="margin:0.25rem 0 0;font-size:1.05rem;font-weight:700">{{ doc_title }}</p>
+        <p style="margin:0.15rem 0 0;font-size:0.9rem;font-weight:700;color:#1d4ed8">رقم المستند: {{ doc_number }}</p>
+        <p style="margin:0.15rem 0 0;font-size:0.85rem">{{ pos_format_dt(created_at, '%Y-%m-%d %H:%M') if created_at else '' }}</p>
+      </header>
+      <section class="receipt-section">
+        <table class="receipt-table">
+          <tr><th>المبلغ المصروف</th><td class="num"><strong>{{ '%.3f'|format(amount) }}</strong> د.ل</td></tr>
+          <tr><th>من الخزينة / الوسيلة</th><td>{{ method_name }}</td></tr>
+          {% if category %}<tr><th>التصنيف</th><td>{{ category }}</td></tr>{% endif %}
+          {% if party %}<tr><th>الجهة / المورد</th><td>{{ party }}</td></tr>{% endif %}
+          {% if note %}<tr><th>ملاحظات</th><td>{{ note }}</td></tr>{% endif %}
+          {% if employee_name %}<tr><th>بواسطة</th><td>{{ employee_name }}</td></tr>{% endif %}
+        </table>
+      </section>
+      <p class="muted" style="margin-top:1rem;font-size:0.82rem;text-align:center">إيصال صرف — يثبت خروج المبلغ من الخزينة</p>
+    </div>
+  </div>
+</body>
+</html>

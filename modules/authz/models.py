@@ -47,8 +47,9 @@ class Role(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     name_ar: Mapped[str] = mapped_column(String(120), unique=True)
 
+    # لا تستخدم selectin هنا: تحميل مستخدم واحد كان يجلب كل مستخدمي الأدوار
     users: Mapped[list[User]] = relationship(
-        secondary=user_roles, back_populates="roles", lazy="selectin"
+        secondary=user_roles, back_populates="roles", lazy="select"
     )
     permissions: Mapped[list[Permission]] = relationship(
         secondary=role_permissions, back_populates="roles", lazy="selectin"
@@ -62,6 +63,7 @@ class Permission(Base):
     code: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     label_ar: Mapped[str] = mapped_column(String(160), default="")
 
+    # select يتجنب سلسلة تحميل عكسية عند قراءة صلاحيات المستخدم في كل طلب
     roles: Mapped[list[Role]] = relationship(
-        secondary=role_permissions, back_populates="permissions", lazy="selectin"
+        secondary=role_permissions, back_populates="permissions", lazy="select"
     )

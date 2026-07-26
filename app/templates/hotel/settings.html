@@ -1,12 +1,25 @@
 {% extends "base.html" %}
 {% block title %}إعدادات الحجز{% endblock %}
 {% block head_extra %}
-<link rel="stylesheet" href="/static/hotel_dashboard.css?v=16" />
+<link rel="stylesheet" href="/static/hotel_dashboard.css?v=29" />
 {% endblock %}
 {% block body %}
 <h1 style="margin-top:0">⚙️ إعدادات الحجز</h1>
 {% set active = 'settings' %}
 {% include "_hotel_nav.html" %}
+
+<nav class="hotel-settings-jump" aria-label="أقسام إعدادات الحجز" style="display:flex;flex-wrap:wrap;gap:0.4rem;margin:0.85rem 0 0.35rem">
+  <a class="btn" href="#hotel-store" style="background:#fff;font-size:0.88rem">المتجر الأونلاين</a>
+  <a class="btn" href="#hotel-id-types" style="background:#fff;font-size:0.88rem">وثائق النزلاء</a>
+  <a class="btn" href="#hotel-prepay" style="background:#fff;font-size:0.88rem">الدفع عند الحجز</a>
+  <a class="btn" href="#hotel-print" style="background:#fff;font-size:0.88rem">الطباعة</a>
+  <a class="btn" href="#hotel-lock-cards" style="background:#fff;font-size:0.88rem">أقفال البطاقات</a>
+  <a class="btn" href="#hotel-loyalty" style="background:#fff;font-size:0.88rem">الولاء والإحالة</a>
+  <a class="btn" href="#hotel-breakfast" style="background:#fff;font-size:0.88rem">إفطار مشمول</a>
+  <a class="btn" href="#hotel-apt-icons" style="background:#fff;font-size:0.88rem">أيقونات الشقق</a>
+  <a class="btn" href="#hotel-amenity-icons" style="background:#fff;font-size:0.88rem">رموز المحتويات</a>
+  <a class="btn" href="#hotel-extra-services" style="background:#fff;font-size:0.88rem">خدمات إضافية</a>
+</nav>
 
 {% if error %}<div class="alert">{{ error }}</div>{% endif %}
 {% if saved == 'store' %}
@@ -17,6 +30,12 @@
 <div class="alert" style="background:#ecfdf5;margin:0.75rem 0">تم حفظ إعدادات الولاء والإحالة للفندق ✓</div>
 {% elif saved == 'print' %}
 <div class="alert" style="background:#ecfdf5;margin:0.75rem 0">تم حفظ إعدادات الطباعة للفندق ✓</div>
+{% elif saved == 'locks' %}
+<div class="alert" style="background:#ecfdf5;margin:0.75rem 0">تم حفظ إعدادات أقفال البطاقات ✓</div>
+{% elif saved == 'breakfast' %}
+<div class="alert" style="background:#ecfdf5;margin:0.75rem 0">تم حفظ إعدادات الإفطار ✓</div>
+{% elif saved == 'apt_icons' %}
+<div class="alert" style="background:#ecfdf5;margin:0.75rem 0">تم حفظ أيقونات خريطة الشقق ✓</div>
 {% elif saved == 'services' %}
 <div class="alert" style="background:#ecfdf5;margin:0.75rem 0">تم حفظ الخدمات الإضافية ✓</div>
 {% elif saved %}
@@ -24,7 +43,125 @@
 {% endif %}
 
 <div class="hotel-settings-grid">
-  <div class="card">
+  <div class="card" id="hotel-apt-icons" style="grid-column:1 / -1">
+    <h2 style="margin-top:0;font-size:1.05rem">أيقونات خريطة الشقق</h2>
+    <p class="muted" style="font-size:0.9rem;margin:0 0 0.85rem;line-height:1.55">
+      خصّص شكل كروت لوحة الشقق: إيموجي نصي أو صورة مرفوعة لكل حالة
+      (متاحة / مشغولة / تنظيف / صيانة). الصورة إن وُجدت تُفضَّل على الإيموجي.
+      الصيغ: PNG / JPG / WEBP / SVG — حتى 512KB.
+    </p>
+    <form method="post" action="/admin/hotel/settings/apartment-icons" enctype="multipart/form-data">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:0.85rem">
+        {% for key, label in apt_icon_labels %}
+        {% set ic = apt_icons.get(key) %}
+        <div style="border:1px solid #e2e8f0;border-radius:12px;padding:0.85rem;background:#fafafa">
+          <div style="display:flex;align-items:center;gap:0.65rem;margin-bottom:0.65rem">
+            <div class="apt-tile__icon apt-tile__icon--xl" style="--accent:#0ea5e9;width:56px;height:56px;font-size:1.7rem">
+              {% if ic and ic.image_url %}
+              <img class="apt-tile__icon-img" src="{{ ic.image_url }}" alt="" />
+              {% else %}
+              {{ (ic.emoji if ic else '🏠') }}
+              {% endif %}
+            </div>
+            <strong>{{ label }}</strong>
+          </div>
+          <label style="display:block;font-size:0.82rem;margin-bottom:0.25rem">إيموجي / رمز</label>
+          <input name="emoji_{{ key }}" value="{{ ic.emoji if ic else '' }}" maxlength="8" style="width:100%;margin-bottom:0.55rem;text-align:center;font-size:1.35rem" />
+          <label style="display:block;font-size:0.82rem;margin-bottom:0.25rem">رفع صورة مخصّصة</label>
+          <input type="file" name="img_{{ key }}" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" style="width:100%;font-size:0.82rem" />
+          {% if ic and ic.filename %}
+          <label style="display:flex;align-items:center;gap:0.35rem;margin-top:0.45rem;font-size:0.82rem;color:#b91c1c">
+            <input type="checkbox" name="clear_{{ key }}" value="1" /> حذف الصورة والعودة للإيموجي
+          </label>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      <button class="btn btn-primary" type="submit" style="margin-top:0.9rem">حفظ أيقونات الشقق</button>
+    </form>
+  </div>
+
+  <div class="card" id="hotel-amenity-icons" style="grid-column:1 / -1">
+    <h2 style="margin-top:0;font-size:1.05rem">أيقونات محتويات الشقة على الكرت</h2>
+    <p class="muted" style="font-size:0.9rem;margin:0 0 0.85rem;line-height:1.55">
+      رموز عدد الغرف والأسرة والرضيع التي تظهر أسفل كرت الشقة — إيموجي أو صورة مرفوعة.
+      يمكن تغييرها أيضاً من نافذة «تعديل الشقة».
+    </p>
+    <form method="post" action="/admin/hotel/settings/amenity-icons" enctype="multipart/form-data">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:0.85rem">
+        {% for key, label in amenity_icon_labels %}
+        {% set ic = amenity_icons.get(key) %}
+        <div style="border:1px solid #e2e8f0;border-radius:12px;padding:0.85rem;background:#fafafa">
+          <div style="display:flex;align-items:center;gap:0.55rem;margin-bottom:0.55rem">
+            <div class="apt-tile__icon" style="width:56px;height:56px;font-size:1.7rem;--accent:#6366f1">
+              {% if ic and ic.image_url %}
+              <img class="apt-tile__icon-img" src="{{ ic.image_url }}" alt="" />
+              {% else %}
+              {{ (ic.emoji if ic else '🏠') }}
+              {% endif %}
+            </div>
+            <strong>{{ label }}</strong>
+          </div>
+          <input name="emoji_{{ key }}" value="{{ ic.emoji if ic else '' }}" maxlength="8" style="width:100%;margin-bottom:0.45rem;text-align:center;font-size:1.55rem;min-height:2.5rem" />
+          <div style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-bottom:0.45rem">
+            {% for em in amenity_emoji_choices.get(key, ()) %}
+            <button type="button" class="btn amenity-settings-pick" data-target="emoji_{{ key }}" data-emoji="{{ em }}" style="padding:0.25rem 0.45rem;font-size:1.35rem;min-width:2.3rem">{{ em }}</button>
+            {% endfor %}
+          </div>
+          <label style="display:block;font-size:0.82rem;margin-bottom:0.25rem">رفع صورة من الجهاز</label>
+          <input type="file" name="img_{{ key }}" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" style="width:100%;font-size:0.82rem" />
+          {% if ic and ic.filename %}
+          <label style="display:flex;align-items:center;gap:0.35rem;margin-top:0.4rem;font-size:0.82rem;color:#b91c1c">
+            <input type="checkbox" name="clear_{{ key }}" value="1" /> حذف الصورة والعودة للإيموجي
+          </label>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      <button class="btn btn-primary" type="submit" style="margin-top:0.9rem">حفظ أيقونات المحتويات</button>
+    </form>
+  </div>
+  <script>
+  document.querySelectorAll('.amenity-settings-pick').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var name = btn.getAttribute('data-target');
+      var inp = document.querySelector('input[name="' + name + '"]');
+      if (inp) inp.value = btn.getAttribute('data-emoji') || '';
+    });
+  });
+  </script>
+
+  <div class="card" id="hotel-breakfast">
+    <h2 style="margin-top:0;font-size:1.05rem">إفطار مشمول / تكلفة فندق</h2>
+    <p class="muted" style="font-size:0.9rem;margin:0 0 0.85rem">
+      عند التفعيل: فواتير الإفطار فقط تُسوَّى كتكلفة على الفندق (لا تُضاف على النزيل)،
+      ويُحوَّل المبلغ للمطعم. عند الإلغاء: تُعامل مثل باقي وجبات الغرفة (دين على النزيل).
+      راجع أيضاً تقرير
+      <a href="/admin/hotel/reports/breakfast">تكلفة الإفطار</a>
+      وعلَم «إفطار مشمول» على الصنف من بطاقة المنتج.
+    </p>
+    <form method="post" action="/admin/hotel/settings">
+      <input type="hidden" name="section" value="breakfast" />
+      <label style="display:flex;align-items:flex-start;gap:0.55rem;font-weight:600;line-height:1.45">
+        <input
+          type="checkbox"
+          name="hotel_breakfast_included_enabled"
+          value="on"
+          {% if hotel_breakfast_included_enabled %}checked{% endif %}
+          style="margin-top:0.25rem"
+        />
+        <span>
+          إفطار محسوب كتكلفة فندق (مشمول)
+          <span class="muted" style="display:block;font-weight:400;font-size:0.85rem;margin-top:0.2rem">
+            ألغِ التحديد إذا أردت محاسبة النزيل على وجبة الإفطار كأي طلب مطعم آخر.
+          </span>
+        </span>
+      </label>
+      <button class="btn btn-primary" type="submit" style="margin-top:0.85rem">حفظ إعداد الإفطار</button>
+    </form>
+  </div>
+
+  <div class="card" id="hotel-store">
     <h2 style="margin-top:0;font-size:1.05rem">متجر الشقق الأونلاين</h2>
     <p class="muted" style="font-size:0.9rem;margin:0 0 0.85rem">
       الرابط العام: <a href="/suites" target="_blank"><strong>/suites</strong></a> —
@@ -40,7 +177,7 @@
     </form>
   </div>
 
-  <div class="card">
+  <div class="card" id="hotel-id-types">
     <h2 style="margin-top:0;font-size:1.05rem">أنواع وثائق النزلاء</h2>
     <p class="muted" style="font-size:0.9rem;margin:0 0 0.85rem">
       تظهر في قائمة «نوع الوثيقة» عند الحجز. سطر واحد لكل نوع — يمكنك الإضافة والتعديل والحذف.
@@ -55,7 +192,7 @@
   </div>
 
   <div class="hotel-settings-stack">
-    <div class="card">
+    <div class="card" id="hotel-prepay">
       <h2 style="margin-top:0;font-size:1.05rem">الحد الأدنى للدفع عند الحجز</h2>
       <p class="muted" style="font-size:0.9rem;margin:0 0 0.85rem">
         يُطبَّق على الحجز من الاستقبال وتحويل عروض الأسعار.
@@ -74,7 +211,7 @@
       </form>
     </div>
 
-    <div class="card">
+    <div class="card" id="hotel-print">
       <h2 style="margin-top:0;font-size:1.05rem">الطباعة — الفندق</h2>
       <p class="muted" style="font-size:0.9rem;margin:0 0 0.85rem">
         مقاس ورق وطابعة فواتير الحجز وتسوية الغرف. إعدادات الكاشير من
@@ -86,6 +223,12 @@
         <select id="hotel_print_paper_size" name="hotel_print_paper_size" style="min-width:100%;display:block;margin:0.35rem 0 0.75rem">
           {% for code, label in paper_sizes %}
           <option value="{{ code }}" {% if hotel_print_paper == code %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <label for="hotel_print_paper_orientation">اتجاه الورق الافتراضي</label>
+        <select id="hotel_print_paper_orientation" name="hotel_print_paper_orientation" style="min-width:100%;display:block;margin:0.35rem 0 0.75rem">
+          {% for code, label in paper_orientations|default([('portrait','طولية'),('landscape','عرضية')]) %}
+          <option value="{{ code }}" {% if hotel_print_orientation|default('portrait') == code %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
         </select>
         <label for="hotel_receipt_printer_id">طابعة الاستقبال (طباعة مباشرة)</label>
@@ -105,11 +248,58 @@
     </div>
   </div>
 
-  <div class="card">
+  <div class="card card--wide" id="hotel-lock-cards">
+    <h2 style="margin-top:0;font-size:1.05rem">أقفال الأبواب — برمجة بطاقات النزلاء</h2>
+    <p class="muted" style="font-size:0.9rem;margin:0 0 0.85rem;line-height:1.6">
+      يستبدل الاعتماد على التطبيق الصيني لبرمجة بطاقة النزيل يومياً.
+      شغّل الوكيل المحلي على جهاز الاستقبال:
+      <code dir="ltr">tools/door_lock_agent/door_lock_agent.py</code>
+      ثم أدخل رقم القفل لكل شقة من
+      <a href="/admin/hotel/rooms">إعداد الشقق</a>.
+    </p>
+    <form method="post" action="/admin/hotel/settings">
+      <input type="hidden" name="section" value="locks" />
+      <label style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.75rem">
+        <input type="checkbox" name="hotel_lock_encoder_enabled" {% if hotel_lock_encoder_enabled %}checked{% endif %} />
+        تفعيل برمجة البطاقات من المنظومة
+      </label>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:0.75rem">
+        <label>رقم الفندق CoID *
+          <input name="hotel_lock_co_id" dir="ltr" value="{{ hotel_lock_co_id }}" placeholder="مثال: 12345" />
+        </label>
+        <label>رابط الوكيل المحلي
+          <input name="hotel_lock_encoder_url" dir="ltr" value="{{ hotel_lock_encoder_url }}" placeholder="http://127.0.0.1:9199" />
+        </label>
+        <label>نوع USB
+          <select name="hotel_lock_usb_flag">
+            <option value="1" {% if hotel_lock_usb_flag == '1' %}selected{% endif %}>proUSB (1)</option>
+            <option value="0" {% if hotel_lock_usb_flag == '0' %}selected{% endif %}>USB (0)</option>
+          </select>
+        </label>
+      </div>
+      <div style="display:flex;gap:1.25rem;flex-wrap:wrap;margin:0.85rem 0">
+        <label style="display:flex;align-items:center;gap:0.35rem">
+          <input type="checkbox" name="hotel_lock_public_doors" {% if hotel_lock_public_doors %}checked{% endif %} />
+          أبواب عامة (pdoors)
+        </label>
+        <label style="display:flex;align-items:center;gap:0.35rem">
+          <input type="checkbox" name="hotel_lock_deadbolt" {% if hotel_lock_deadbolt %}checked{% endif %} />
+          قفل إضافي / DeadBolt
+        </label>
+      </div>
+      <p class="muted" style="font-size:0.82rem;margin:0 0 0.75rem">
+        CoID يُؤخذ من بطاقة تعمل بالفعل (زر «قراءة البطاقة» في الحجز أو مثال SDK).
+      </p>
+      <button class="btn btn-primary" type="submit">حفظ إعدادات الأقفال</button>
+    </form>
+  </div>
+
+  <div class="card" id="hotel-loyalty">
     <h2 style="margin-top:0;font-size:1.05rem">الولاء والإحالة — الفندق</h2>
+    {% set loyalty_nav_active = 'hotel' %}
+    {% include "_loyalty_hub_nav.html" %}
     <p class="muted" style="font-size:0.9rem;margin:0 0 0.85rem">
       إعدادات منفصلة عن المطعم/الكاشير. تُطبَّق عند تسوية حساب الشقة والحجوزات.
-      إعدادات المطعم من <a href="/admin/loyalty">إعدادات الولاء — المطعم</a>.
     </p>
     <form method="post" action="/admin/hotel/settings">
       <input type="hidden" name="section" value="loyalty" />

@@ -130,7 +130,7 @@ def export_post_text(db: Session, artifact_id: int) -> str:
     if art.body_text:
         parts.append(art.body_text.strip())
     # attach hashtags from same run if exporting a post
-    if art.kind == "post":
+    if art.kind in ("post", "post_with_image"):
         tag_art = db.scalar(
             select(MarketingArtifact).where(
                 MarketingArtifact.run_id == art.run_id,

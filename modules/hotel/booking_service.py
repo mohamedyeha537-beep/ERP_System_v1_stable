@@ -159,8 +159,13 @@ def validate_booking_prepayment(
     check_out: date,
     discount_amount: Decimal | str | float = Decimal("0"),
     nightly_rate: Decimal | None = None,
+    guest_type: GuestType | str | None = None,
 ) -> Decimal:
-    """يرفض الحجز إذا لم يُدفع الحد الأدنى المطلوب — يُرجع المبلغ المستحق."""
+    """يرفض الحجز إذا لم يُدفع الحد الأدنى المطلوب — يُرجع المبلغ المستحق.
+
+    الأفراد: دفع مقدّم إلزامي (100% من قيمة الإقامة) ولا يُكتمل الحجز بدونه.
+    الشركات: حسب نسبة العربون في الإعدادات (قد تكون 0% مع السماح بالمديونية لاحقاً).
+    """
     due = booking_amount_due(
         db,
         room_type_id=room_type_id,
@@ -171,7 +176,14 @@ def validate_booking_prepayment(
     )
     if due <= 0:
         raise BookingError("تعذّر حساب تكلفة الإقامة — تحقق من التواريخ.")
-    required = required_prepayment_amount(db, due=due)
+
+    gt_raw = guest_type.value if isinstance(guest_type, GuestType) else str(guest_type or "")
+    is_individual = gt_raw.strip().upper() in ("", GuestType.INDIVIDUAL.value)
+    if is_individual:
+        required = due
+    else:
+        required = required_prepayment_amount(db, due=due)
+
     amt = Decimal(str(amount or "0")).quantize(Decimal("0.001"))
     pm_raw = str(payment_method_id or "").strip()
 
@@ -181,10 +193,19 @@ def validate_booking_prepayment(
         return due
 
     if amt <= 0:
+        if is_individual:
+            raise BookingError(
+                f"حجز الأفراد يتطلب دفع مقدّم كامل ({due} د.ل). "
+                "بدون الدفع لا يُكتمل الحجز."
+            )
         raise BookingError(prepayment_requirement_message(db, due=due, required=required))
     if not pm_raw.isdigit():
         raise BookingError("اختر وسيلة الدفع — بدونها لا يُسجَّل المبلغ ولا يُنشأ الحجز.")
     if amt + Decimal("0.001") < required:
+        if is_individual:
+            raise BookingError(
+                f"حجز الأفراد يتطلب دفع مقدّم كامل ({due} د.ل). المُدخل: {amt} د.ل."
+            )
         raise BookingError(
             f"{prepayment_requirement_message(db, due=due, required=required)} "
             f"المُدخل: {amt} د.ل."
@@ -366,6 +387,7 @@ def _log_room_status(
     note: str | None = None,
 ) -> None:
     from modules.hotel.booking_models import HotelRoomStatusLog
+    from modules.hotel.nav_badges import invalidate_hotel_nav_badges
 
     old = room.physical_status
     db.add(
@@ -378,6 +400,16 @@ def _log_room_status(
         )
     )
     room.physical_status = to_status
+    try:
+        invalidate_hotel_nav_badges()
+    except Exception:
+        pass
+    try:
+        from modules.dashboard_notify.pending import invalidate_pending_counts
+
+        invalidate_pending_counts("hotel_housekeeping", "hotel_cleaning")
+    except Exception:
+        pass
 
 
 def ensure_default_property(db: Session) -> HotelProperty:
@@ -564,8 +596,26 @@ def list_quotations(
     return list(db.scalars(stmt).all())
 
 
-def _recalc_payment_status(booking: HotelBooking) -> None:
+def _recalc_payment_status(db: Session, booking: HotelBooking) -> None:
+    """حالة الدفع من كشف الحساب الكامل (إقامة + خدمات + مطعم)، وليس الإقامة وحدها."""
     paid = Decimal(str(booking.paid_amount or 0))
+    try:
+        from modules.hotel.folio import build_folio
+
+        folio = build_folio(db, int(booking.id))
+        total = Decimal(str(folio.total or 0))
+        balance = Decimal(str(folio.balance or 0))
+        if total <= 0 and paid <= 0:
+            booking.payment_status = BookingPaymentStatus.UNPAID
+        elif balance <= Decimal("0.001"):
+            booking.payment_status = BookingPaymentStatus.FULLY_PAID
+        elif paid > 0:
+            booking.payment_status = BookingPaymentStatus.PARTIALLY_PAID
+        else:
+            booking.payment_status = BookingPaymentStatus.UNPAID
+        return
+    except Exception:
+        pass
     due = Decimal(str(booking.accommodation_total or 0)) - Decimal(
         str(booking.discount_amount or 0)
     )
@@ -611,9 +661,12 @@ def _apply_stay_pricing(
         db, booking, room=room, through_date=through_date
     )
     booking.accommodation_total = total
-    nights = max(1, booking.nights)
-    booking.nightly_rate = (total / Decimal(nights)).quantize(Decimal("0.001"))
-    _recalc_payment_status(booking)
+    nights = max(0, int(booking.nights or 0))
+    if nights <= 0:
+        booking.nightly_rate = Decimal("0")
+    else:
+        booking.nightly_rate = (total / Decimal(nights)).quantize(Decimal("0.001"))
+    _recalc_payment_status(db, booking)
 
 
 def adjust_stay_dates(
@@ -897,6 +950,7 @@ def create_booking(
     auto_confirm: bool = False,
     customer_id: int | None = None,
     staying_guests: list[StayingGuestInput] | None = None,
+    notify_created: bool = True,
 ) -> HotelBooking:
     is_quotation = record_kind == RecordKind.QUOTATION
     identity = _resolve_guest_fields(
@@ -998,6 +1052,34 @@ def create_booking(
     )
     db.add(booking)
     db.flush()
+    # ربط/وسم عميل الفندق برقم الهاتف حتى لا يختلط بقوائم المطعم
+    from modules.customers.models import CustomerBusinessDomain, CustomerType
+    from modules.customers.service import (
+        CustomersError,
+        apply_customer_domain,
+        get_customer,
+        get_or_create_by_phone,
+    )
+
+    try:
+        if booking.customer_id:
+            cust = get_customer(db, int(booking.customer_id))
+            if cust is not None:
+                apply_customer_domain(cust, CustomerBusinessDomain.HOTEL)
+        elif identity["guest_phone"]:
+            cust = get_or_create_by_phone(
+                db,
+                phone=identity["guest_phone"],
+                name=name,
+                business_domain=CustomerBusinessDomain.HOTEL,
+            )
+            booking.customer_id = cust.id
+            if guest_type == GuestType.COMPANY and identity.get("company_name"):
+                cust.customer_type = CustomerType.COMPANY
+                cust.company_name = identity["company_name"]
+            db.flush()
+    except CustomersError:
+        pass
     sync_staying_guests(
         db,
         booking,
@@ -1023,7 +1105,13 @@ def create_booking(
         db.refresh(booking)
     elif not is_quotation and booking.room_id and booking.check_in > date.today():
         _keep_room_available_for_future_booking(db, booking, user_id=user_id)
-    if not is_quotation and source != BookingSource.ONLINE_STORE:
+    # لا ترسل «حجز جديد» إذا أُرسل «تأكيد» في نفس العملية — رسالة واحدة كافية
+    if (
+        notify_created
+        and not is_quotation
+        and source != BookingSource.ONLINE_STORE
+        and booking.booking_status != BookingStatus.CONFIRMED
+    ):
         try:
             from modules.notifications.hotel_hooks import emit_hotel_booking_created
 
@@ -1053,7 +1141,13 @@ def _keep_room_available_for_future_booking(
     db.flush()
 
 
-def confirm_booking(db: Session, booking_id: int, *, user_id: int | None = None) -> HotelBooking:
+def confirm_booking(
+    db: Session,
+    booking_id: int,
+    *,
+    user_id: int | None = None,
+    notify: bool = True,
+) -> HotelBooking:
     booking = db.get(HotelBooking, booking_id)
     if booking is None:
         raise BookingError("الحجز غير موجود.")
@@ -1076,12 +1170,13 @@ def confirm_booking(db: Session, booking_id: int, *, user_id: int | None = None)
     log_audit(db, entity_type="booking", entity_id=booking.id, action="confirm", user_id=user_id)
     _keep_room_available_for_future_booking(db, booking, user_id=user_id)
     db.flush()
-    try:
-        from modules.notifications.hotel_hooks import emit_hotel_booking_confirmed
+    if notify:
+        try:
+            from modules.notifications.hotel_hooks import emit_hotel_booking_confirmed
 
-        emit_hotel_booking_confirmed(db, booking)
-    except Exception:  # noqa: BLE001
-        pass
+            emit_hotel_booking_confirmed(db, booking)
+        except Exception:  # noqa: BLE001
+            pass
     if booking.source == BookingSource.ONLINE_STORE:
         try:
             from modules.hotel.folio import build_folio
@@ -1187,6 +1282,7 @@ def convert_quotation_to_booking(
     )
     db.flush()
 
+    had_payment = False
     if require_payment:
         validate_booking_prepayment(
             db,
@@ -1209,17 +1305,21 @@ def convert_quotation_to_booking(
                 user_id=user_id,
                 note="دفع عند تحويل عرض السعر إلى حجز",
             )
+            had_payment = True
 
     if auto_confirm:
-        confirm_booking(db, booking.id, user_id=user_id)
+        # إن وُجدت رسالة سداد فلا نكرر برسالة تأكيد في نفس العملية
+        confirm_booking(db, booking.id, user_id=user_id, notify=not had_payment)
         db.refresh(booking)
 
-    try:
-        from modules.notifications.hotel_hooks import emit_hotel_booking_created
+    # رسالة واحدة: سداد أو تأكيد أو إنشاء — لا الثلاثة معاً
+    if not had_payment and booking.booking_status != BookingStatus.CONFIRMED:
+        try:
+            from modules.notifications.hotel_hooks import emit_hotel_booking_created
 
-        emit_hotel_booking_created(db, booking)
-    except Exception:  # noqa: BLE001
-        pass
+            emit_hotel_booking_created(db, booking)
+        except Exception:  # noqa: BLE001
+            pass
     db.flush()
     return booking
 
@@ -1333,6 +1433,7 @@ def check_out_booking(
     user_id: int | None = None,
     allow_balance: bool = False,
     post_as_debt: bool = False,
+    debt_reminder_at: date | None = None,
     debt_note: str | None = None,
     actual_departure: date | None = None,
 ) -> HotelBooking:
@@ -1348,9 +1449,11 @@ def check_out_booking(
 
     settlement_snapshot = None
     if actual_departure and actual_departure < booking.check_out:
-        if actual_departure <= booking.check_in:
-            raise BookingError("تاريخ المغادرة الفعلي يجب أن يكون بعد تاريخ الوصول.")
+        # يُسمح بمغادرة نفس يوم الوصول (بعد ساعات قليلة مثلاً)
+        if actual_departure < booking.check_in:
+            raise BookingError("تاريخ المغادرة الفعلي لا يمكن أن يكون قبل تاريخ الوصول.")
         old_out = booking.check_out
+        old_acc = Decimal(str(booking.accommodation_total or 0)).quantize(Decimal("0.001"))
         if booking.scheduled_check_out is None:
             booking.scheduled_check_out = old_out
         try:
@@ -1359,8 +1462,24 @@ def check_out_booking(
             )
         except BookingError:
             settlement_snapshot = None
+        # تاريخ المغادرة الفعلي يُحفظ كما هو (تحرير الشقة)،
+        # أما التسعير: نفس يوم الوصول = ليلة واحدة مستهلكة على الأقل.
         booking.check_out = actual_departure
-        _apply_stay_pricing(db, booking, through_date=actual_departure)
+        # تخفيض نسبي من الإقامة المسجّلة — لا إعادة تسعير من سعر الغرفة (يمنع رصيداً وهمياً)
+        from modules.hotel.departure_settlement import accommodation_after_early_departure
+
+        new_total = accommodation_after_early_departure(
+            booking, actual_departure=actual_departure, old_check_out=old_out
+        )
+        booking.accommodation_total = new_total
+        nights_left = max(0, (actual_departure - booking.check_in).days)
+        if actual_departure == booking.check_in:
+            nights_left = 1
+        if nights_left > 0 and new_total > 0:
+            booking.nightly_rate = (new_total / Decimal(nights_left)).quantize(
+                Decimal("0.001")
+            )
+        _recalc_payment_status(db, booking)
         log_audit(
             db,
             entity_type="booking",
@@ -1370,7 +1489,41 @@ def check_out_booking(
             old_value=str(old_out),
             new_value=str(actual_departure),
             user_id=user_id,
+            reason=(
+                "مغادرة بنفس يوم الوصول — تُحسب ليلة واحدة (استهلاك الشقة)"
+                if actual_departure == booking.check_in
+                else None
+            ),
         )
+        new_acc = Decimal(str(booking.accommodation_total or 0)).quantize(Decimal("0.001"))
+        saved_acc = (
+            settlement_snapshot.accommodation_saved
+            if settlement_snapshot is not None
+            else (old_acc - new_acc).quantize(Decimal("0.001"))
+        )
+        if saved_acc > Decimal("0.0005"):
+            cancelled_n = (
+                settlement_snapshot.cancelled_nights if settlement_snapshot else None
+            )
+            log_audit(
+                db,
+                entity_type="booking",
+                entity_id=booking.id,
+                action="charge_reduction",
+                field_name="accommodation_total",
+                old_value=str(
+                    settlement_snapshot.accommodation_booked
+                    if settlement_snapshot is not None
+                    else old_acc
+                ),
+                new_value=str(saved_acc),
+                reason=(
+                    f"تخفيض ليالي ملغاة ({cancelled_n} ليلة)"
+                    if cancelled_n is not None
+                    else "تخفيض مستحقات الإقامة بعد مغادرة مبكرة"
+                ),
+                user_id=user_id,
+            )
 
     balance = booking_balance_due(db, booking.id)
     if balance > Decimal("0.001"):
@@ -1386,9 +1539,24 @@ def check_out_booking(
                 user_id=user_id,
                 note=debt_note,
                 settlement_json=settlement_snapshot.to_json() if settlement_snapshot else None,
+                reminder_at=debt_reminder_at,
             )
         elif not allow_balance:
             raise BookingError(f"لا يمكن Check-out — متبقٍ {balance} د.ل على الحساب.")
+
+    # دفع زائد → محفظة العميل (يظهر في الملف الشخصي)
+    transfer_booking_overpay_to_customer_wallet(
+        db, booking, user_id=user_id
+    )
+
+    try:
+        from modules.hotel.follow_up import clear_claim_wa_if_settled
+
+        booking.claim_wa_until_paid = False
+        booking.follow_up_at = None
+        clear_claim_wa_if_settled(db, booking)
+    except Exception:  # noqa: BLE001
+        pass
 
     booking.booking_status = BookingStatus.CHECKED_OUT
     booking.checked_out_at = datetime.now(timezone.utc)
@@ -1507,13 +1675,8 @@ def extend_stay(
     old_out = booking.check_out
     booking.check_out = new_check_out
     booking.scheduled_check_out = new_check_out
-    if booking.room_type_id:
-        booking.accommodation_total = accommodation_total(
-            db,
-            room_type_id=booking.room_type_id,
-            check_in=booking.check_in,
-            check_out=new_check_out,
-        )
+    # نفس مسار التسعير المستخدم في معاينة المغادرة (سعر الشقة / تغيير الغرفة)
+    _apply_stay_pricing(db, booking)
     log_audit(
         db,
         entity_type="booking",
@@ -1593,7 +1756,7 @@ def change_room(
         booking.room_type_id = new_room.room_type_id
     booking.accommodation_total = new_total
     booking.nightly_rate = avg_rate
-    _recalc_payment_status(booking)
+    _recalc_payment_status(db, booking)
     _migrate_unsettled_room_charges(db, booking.id, new_room_id)
 
     if booking.booking_status == BookingStatus.CHECKED_IN:
@@ -1625,6 +1788,116 @@ def change_room(
     return booking
 
 
+def transfer_booking_overpay_to_customer_wallet(
+    db: Session,
+    booking: HotelBooking,
+    *,
+    user_id: int | None = None,
+    note: str | None = None,
+) -> Decimal:
+    """ينقل رصيد الدفع الزائد من الحجز إلى محفظة العميل ويصفّر رصيد الفوليو."""
+    from modules.customers.service import (
+        CustomersError,
+        adjust_wallet,
+        get_or_create_by_phone,
+    )
+    from modules.hotel.folio import build_guest_account
+
+    if booking is None:
+        return Decimal("0")
+    if not booking.customer_id:
+        phone = (booking.guest_phone or booking.company_contact_phone or "").strip()
+        if phone:
+            try:
+                cust = get_or_create_by_phone(
+                    db,
+                    phone=phone,
+                    name=(booking.guest_name or booking.company_name or "").strip()
+                    or None,
+                )
+                booking.customer_id = int(cust.id)
+            except Exception:  # noqa: BLE001
+                return Decimal("0")
+        else:
+            return Decimal("0")
+    try:
+        credit = build_guest_account(db, int(booking.id)).amount_credit
+    except Exception:  # noqa: BLE001
+        return Decimal("0")
+    credit = Decimal(str(credit or 0)).quantize(Decimal("0.001"))
+    if credit <= Decimal("0.001"):
+        return Decimal("0")
+    try:
+        adjust_wallet(
+            db,
+            int(booking.customer_id),
+            amount=credit,
+            note=(
+                (note or "").strip()
+                or f"رصيد دفع زائد من حجز {booking.reference}"
+            ),
+            user_id=user_id,
+        )
+    except CustomersError:
+        return Decimal("0")
+    booking.paid_amount = max(
+        Decimal("0"),
+        (Decimal(str(booking.paid_amount or 0)) - credit).quantize(Decimal("0.001")),
+    )
+    _recalc_payment_status(db, booking)
+    log_audit(
+        db,
+        entity_type="booking",
+        entity_id=booking.id,
+        action="credit_to_wallet",
+        new_value=str(credit),
+        reason=(note or "").strip() or "نقل رصيد الحجز إلى محفظة العميل",
+        user_id=user_id,
+    )
+    db.flush()
+    return credit
+
+
+def consolidate_checked_out_credits_to_wallet(
+    db: Session,
+    customer_id: int,
+    *,
+    user_id: int | None = None,
+) -> Decimal:
+    """يرحّل أرصدة الحجوزات المُغلقة إلى المحفظة (إصلاح حجوزات غادرت سابقاً)."""
+    from modules.customers.models import Customer
+    from modules.customers.service import normalize_phone
+    from sqlalchemy import or_
+
+    customer = db.get(Customer, int(customer_id))
+    if customer is None:
+        return Decimal("0")
+    phone = normalize_phone(customer.phone or "")
+    clauses = [HotelBooking.customer_id == customer.id]
+    if phone:
+        clauses.append(HotelBooking.guest_phone == phone)
+        clauses.append(HotelBooking.company_contact_phone == phone)
+    rows = list(
+        db.scalars(
+            select(HotelBooking).where(
+                HotelBooking.booking_status == BookingStatus.CHECKED_OUT,
+                or_(*clauses),
+            )
+        ).all()
+    )
+    moved = Decimal("0")
+    for booking in rows:
+        if not booking.customer_id:
+            booking.customer_id = int(customer.id)
+        moved += transfer_booking_overpay_to_customer_wallet(
+            db,
+            booking,
+            user_id=user_id,
+            note=f"ترحيل رصيد حجز مغلق إلى محفظة العميل #{customer.id}",
+        )
+    return moved.quantize(Decimal("0.001"))
+
+
 def apply_prepaid_credit(
     db: Session,
     booking_id: int,
@@ -1649,7 +1922,7 @@ def apply_prepaid_credit(
         Decimal("0"),
         Decimal(str(booking.paid_amount or 0)) - amt,
     )
-    _recalc_payment_status(booking)
+    _recalc_payment_status(db, booking)
     log_audit(
         db,
         entity_type="booking",
@@ -1662,6 +1935,32 @@ def apply_prepaid_credit(
     db.flush()
 
 
+def _resolve_hotel_shift_stamp(
+    db: Session,
+    *,
+    hotel_shift_id: int | None = None,
+    employee_id: int | None = None,
+) -> tuple[int | None, int | None]:
+    """يربط الحركة بجلسة الاستقبال المفتوحة وموظف الرقم السري إن وُجدا."""
+    if hotel_shift_id is not None and employee_id is not None:
+        return int(hotel_shift_id), int(employee_id)
+    try:
+        from modules.hotel.shift_service import get_open_shift
+
+        open_s = get_open_shift(db)
+    except Exception:  # noqa: BLE001
+        open_s = None
+    if open_s is None:
+        return hotel_shift_id, employee_id
+    sid = int(hotel_shift_id) if hotel_shift_id is not None else int(open_s.id)
+    eid = (
+        int(employee_id)
+        if employee_id is not None
+        else (int(open_s.employee_id) if open_s.employee_id else None)
+    )
+    return sid, eid
+
+
 def record_payment(
     db: Session,
     booking_id: int,
@@ -1671,6 +1970,9 @@ def record_payment(
     is_deposit: bool = False,
     note: str | None = None,
     user_id: int | None = None,
+    notify: bool = True,
+    hotel_shift_id: int | None = None,
+    employee_id: int | None = None,
 ) -> HotelBookingPayment:
     booking = db.get(HotelBooking, booking_id)
     if booking is None:
@@ -1679,11 +1981,16 @@ def record_payment(
     if amt <= 0:
         raise BookingError("المبلغ يجب أن يكون موجباً.")
     try:
+        from modules.authz.models import User
         from modules.payments.service import assert_hotel_payment_method
 
-        assert_hotel_payment_method(db, payment_method_id)
+        pay_user = db.get(User, int(user_id)) if user_id else None
+        assert_hotel_payment_method(db, payment_method_id, user=pay_user)
     except Exception as exc:
         raise BookingError(str(exc)) from exc
+    shift_id, emp_id = _resolve_hotel_shift_stamp(
+        db, hotel_shift_id=hotel_shift_id, employee_id=employee_id
+    )
     pay = HotelBookingPayment(
         booking_id=booking.id,
         amount=amt,
@@ -1691,6 +1998,8 @@ def record_payment(
         is_deposit=is_deposit,
         note=(note or "").strip() or None,
         received_by_id=user_id,
+        hotel_shift_id=shift_id,
+        received_by_employee_id=emp_id,
     )
     db.add(pay)
     db.flush()
@@ -1700,7 +2009,7 @@ def record_payment(
     booking.paid_amount = Decimal(str(booking.paid_amount or 0)) + amt
     if is_deposit:
         booking.deposit_amount = Decimal(str(booking.deposit_amount or 0)) + amt
-    _recalc_payment_status(booking)
+    _recalc_payment_status(db, booking)
     log_audit(
         db,
         entity_type="booking",
@@ -1709,21 +2018,30 @@ def record_payment(
         new_value=str(amt),
         user_id=user_id,
     )
+    if notify:
+        try:
+            from modules.notifications.hotel_hooks import emit_hotel_payment_received
+
+            method_name = ""
+            if payment_method_id:
+                from modules.payments.models import PaymentMethod
+
+                pm = db.get(PaymentMethod, payment_method_id)
+                method_name = pm.name_ar if pm else ""
+            emit_hotel_payment_received(
+                db,
+                booking,
+                payment_amount=amt,
+                payment_method=method_name,
+                payment_id=pay.id,
+                is_deposit=is_deposit,
+            )
+        except Exception:  # noqa: BLE001
+            pass
     try:
-        from modules.notifications.hotel_hooks import emit_hotel_payment_received
+        from modules.hotel.follow_up import clear_claim_wa_if_settled
 
-        method_name = ""
-        if payment_method_id:
-            from modules.payments.models import PaymentMethod
-
-            pm = db.get(PaymentMethod, payment_method_id)
-            method_name = pm.name_ar if pm else ""
-        emit_hotel_payment_received(
-            db,
-            booking,
-            payment_amount=amt,
-            payment_method=method_name,
-        )
+        clear_claim_wa_if_settled(db, booking)
     except Exception:  # noqa: BLE001
         pass
     return pay
@@ -1736,6 +2054,9 @@ def refund_payment(
     amount: Decimal,
     reason: str | None,
     user_id: int | None = None,
+    payment_method_id: int | None = None,
+    hotel_shift_id: int | None = None,
+    employee_id: int | None = None,
 ) -> HotelBookingPaymentRefund:
     pay = db.get(HotelBookingPayment, payment_id)
     if pay is None:
@@ -1745,11 +2066,27 @@ def refund_payment(
     amt = Decimal(str(amount)).quantize(Decimal("0.001"))
     if amt <= 0 or amt > pay.amount:
         raise BookingError("مبلغ الاسترداد غير صالح.")
+    # وسيلة الصرف للنزيل — افتراضياً نفس وسيلة الدفعة إن لم تُحدَّد
+    pm_id = payment_method_id if payment_method_id is not None else pay.payment_method_id
+    try:
+        from modules.authz.models import User
+        from modules.payments.service import assert_hotel_payment_method
+
+        pay_user = db.get(User, int(user_id)) if user_id else None
+        assert_hotel_payment_method(db, pm_id, user=pay_user)
+    except Exception as exc:
+        raise BookingError(str(exc)) from exc
+    shift_id, emp_id = _resolve_hotel_shift_stamp(
+        db, hotel_shift_id=hotel_shift_id, employee_id=employee_id
+    )
     ref = HotelBookingPaymentRefund(
         payment_id=pay.id,
         amount=amt,
+        payment_method_id=pm_id,
         reason=(reason or "").strip() or None,
         approved_by_id=user_id,
+        hotel_shift_id=shift_id,
+        approved_by_employee_id=emp_id,
     )
     db.add(ref)
     db.flush()
@@ -1787,6 +2124,8 @@ def add_booking_service(
     sale_id: int | None = None,
     notes: str | None = None,
     user_id: int | None = None,
+    notify: bool = True,
+    charged_to_guest: bool = True,
 ) -> HotelBookingService:
     booking = db.get(HotelBooking, booking_id)
     if booking is None:
@@ -1804,28 +2143,31 @@ def add_booking_service(
         sale_id=sale_id,
         notes=(notes or "").strip() or None,
         added_by_id=user_id,
+        charged_to_guest=bool(charged_to_guest),
     )
     db.add(svc)
     log_audit(
         db,
         entity_type="booking",
         entity_id=booking.id,
-        action="add_service",
-        new_value=f"{name_ar}: {line}",
+        action="add_service" if charged_to_guest else "add_hotel_cost",
+        new_value=f"{name_ar}: {line}"
+        + ("" if charged_to_guest else " (تكلفة فندق — غير على النزيل)"),
         user_id=user_id,
     )
     db.flush()
-    try:
-        from modules.notifications.hotel_hooks import emit_hotel_unpaid_service_added
+    if notify and charged_to_guest:
+        try:
+            from modules.notifications.hotel_hooks import emit_hotel_unpaid_service_added
 
-        emit_hotel_unpaid_service_added(
-            db,
-            booking,
-            service_name=svc.name_ar,
-            service_amount=svc.line_total,
-        )
-    except Exception:  # noqa: BLE001
-        pass
+            emit_hotel_unpaid_service_added(
+                db,
+                booking,
+                service_name=svc.name_ar,
+                service_amount=svc.line_total,
+            )
+        except Exception:  # noqa: BLE001
+            pass
     return svc
 
 
@@ -1833,10 +2175,85 @@ def mark_room_clean(db: Session, room_id: int, *, user_id: int | None = None) ->
     room = db.get(HotelRoom, room_id)
     if room is None:
         raise BookingError("الغرفة غير موجودة.")
-    if room.physical_status != RoomPhysicalStatus.DIRTY:
-        raise BookingError("الغرفة ليست بحاجة تنظيف.")
+    if room.physical_status not in (
+        RoomPhysicalStatus.DIRTY,
+        RoomPhysicalStatus.CLEANING,
+    ):
+        raise BookingError("الغرفة ليست بحاجة تنظيف / قيد التنظيف.")
     _log_room_status(db, room, RoomPhysicalStatus.AVAILABLE, user_id, "Housekeeping")
     db.flush()
+    return room
+
+
+def assign_room_cleaning(
+    db: Session,
+    room_id: int,
+    *,
+    user_id: int | None = None,
+    cleaning_phone: str | None = None,
+    cleaning_staff_name: str | None = None,
+    employee_id: int | None = None,
+    note: str | None = None,
+    send_notification: bool = True,
+    base_url: str | None = None,
+) -> HotelRoom:
+    """إرسال مهمة تنظيف عبر واتساب — الشقة تصبح «قيد التنظيف»."""
+    from modules.settings.service import get_setting
+
+    room = db.get(HotelRoom, room_id)
+    if room is None:
+        raise BookingError("الغرفة غير موجودة.")
+    if room.physical_status not in (
+        RoomPhysicalStatus.DIRTY,
+        RoomPhysicalStatus.CLEANING,
+    ):
+        raise BookingError("يمكن إرسال مهمة التنظيف فقط للشقق «تحتاج تنظيف» أو «قيد التنظيف».")
+
+    if employee_id:
+        from modules.hr.models import Employee
+
+        emp = db.get(Employee, int(employee_id))
+        if emp is None:
+            raise BookingError("موظف التنظيف غير موجود.")
+        cleaning_phone = (emp.phone or cleaning_phone or "").strip()
+        cleaning_staff_name = (emp.full_name_ar or cleaning_staff_name or "").strip()
+        if send_notification and not cleaning_phone:
+            raise BookingError("موظف التنظيف المختار لا يملك رقم هاتف في ملفه.")
+
+    phone = (cleaning_phone or "").strip()
+    if not phone:
+        phone = (get_setting(db, "hotel_cleaning_phone") or "").strip()
+    if send_notification and not phone:
+        raise BookingError("أدخل رقم واتساب التنظيف أو اضبط الرقم الافتراضي في الإعدادات.")
+    if send_notification:
+        from modules.hotel.housekeeping_links import ensure_inbound_ready_for_buttons
+        from modules.messaging.service import whatsapp_send_blocker
+
+        block = whatsapp_send_blocker(db)
+        if block:
+            raise BookingError(block)
+        ensure_inbound_ready_for_buttons(db)
+
+    detail = (note or "").strip()
+    reason = "إرسال للتنظيف" + (f" — {detail}" if detail else "")
+    if room.physical_status != RoomPhysicalStatus.CLEANING:
+        _log_room_status(db, room, RoomPhysicalStatus.CLEANING, user_id, reason)
+    db.flush()
+
+    if send_notification:
+        from modules.notifications.hotel_hooks import emit_hotel_room_cleaning
+
+        emit_hotel_room_cleaning(
+            db,
+            room,
+            cleaning_phone=phone,
+            cleaning_staff_name=cleaning_staff_name
+            or (get_setting(db, "hotel_cleaning_name") or "").strip(),
+            note=detail,
+            employee_id=employee_id,
+            reported_by="",
+            base_url=(base_url or "").strip(),
+        )
     return room
 
 
@@ -1844,6 +2261,7 @@ _MAINTENANCE_ALLOWED_FROM = frozenset(
     {
         RoomPhysicalStatus.AVAILABLE,
         RoomPhysicalStatus.DIRTY,
+        RoomPhysicalStatus.CLEANING,
         RoomPhysicalStatus.RESERVED,
         RoomPhysicalStatus.BLOCKED,
         RoomPhysicalStatus.OUT_OF_SERVICE,
@@ -1863,7 +2281,7 @@ def set_room_maintenance_status(
     employee_id: int | None = None,
     reported_by: str | None = None,
     send_notification: bool = True,
-    required_from: RoomPhysicalStatus | None = None,
+    required_from: RoomPhysicalStatus | frozenset[RoomPhysicalStatus] | None = None,
 ) -> HotelRoom:
     """وضع الشقة في الصيانة — من متاحة أو بعد التنظيف."""
     from modules.hotel.maintenance import issue_label
@@ -1880,8 +2298,15 @@ def set_room_maintenance_status(
     if active_booking_for_room(db, room_id):
         raise BookingError("الشقة مرتبطة بنزيل مسكّن — لا يمكن إرسالها للصيانة.")
     if required_from is not None:
-        if room.physical_status != required_from:
-            raise BookingError("يمكن إرسال الشقة للصيانة فقط من حالة «تحتاج تنظيف».")
+        allowed = (
+            required_from
+            if isinstance(required_from, (set, frozenset))
+            else frozenset({required_from})
+        )
+        if room.physical_status not in allowed:
+            raise BookingError(
+                "يمكن إرسال الشقة للصيانة فقط من حالة «تحتاج تنظيف» أو «قيد التنظيف»."
+            )
     elif room.physical_status not in _MAINTENANCE_ALLOWED_FROM:
         raise BookingError(
             f"لا يمكن إرسال الشقة للصيانة من حالة «{room.physical_status.value}»."
@@ -1956,7 +2381,9 @@ def mark_room_maintenance(
         employee_id=employee_id,
         reported_by=reported_by,
         send_notification=send_notification,
-        required_from=RoomPhysicalStatus.DIRTY,
+        required_from=frozenset(
+            {RoomPhysicalStatus.DIRTY, RoomPhysicalStatus.CLEANING}
+        ),
     )
 
 

@@ -1985,6 +1985,17 @@ def patch_sqlite_schema(engine: Engine) -> None:
                 conn.execute(
                     text("UPDATE products SET show_in_pos = 0 WHERE kind = 'STOCK_ONLY'")
                 )
+            if "show_in_shop" not in pcols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE products ADD COLUMN show_in_shop "
+                        "BOOLEAN NOT NULL DEFAULT 1"
+                    )
+                )
+                conn.execute(text("UPDATE products SET show_in_shop = show_in_pos"))
+                conn.execute(
+                    text("UPDATE products SET show_in_shop = 0 WHERE kind = 'STOCK_ONLY'")
+                )
         if "bom_lines" in names:
             bl_cols = {c["name"] for c in insp.get_columns("bom_lines")}
             if "packaging_only" not in bl_cols:
@@ -2148,6 +2159,19 @@ def patch_sqlite_schema(engine: Engine) -> None:
                     muted_at DATETIME NOT NULL,
                     PRIMARY KEY (user_id, mute_key),
                     FOREIGN KEY(user_id) REFERENCES users (id) ON DELETE CASCADE
+                )
+                """
+                )
+            )
+        if "activity_hub_wa_overrides" not in names:
+            conn.execute(
+                text(
+                    """
+                CREATE TABLE activity_hub_wa_overrides (
+                    event_key VARCHAR(64) NOT NULL PRIMARY KEY,
+                    phones VARCHAR(255) NOT NULL DEFAULT '',
+                    message_body TEXT,
+                    updated_at DATETIME
                 )
                 """
                 )
@@ -2994,6 +3018,35 @@ def patch_sqlite_schema(engine: Engine) -> None:
                     "ON hotel_booking_debts (status)"
                 )
             )
+        if "hotel_booking_debts" in names:
+            debt_cols = {c["name"] for c in insp.get_columns("hotel_booking_debts")}
+            if "amount_remaining" not in debt_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE hotel_booking_debts "
+                        "ADD COLUMN amount_remaining NUMERIC(14, 3)"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "UPDATE hotel_booking_debts SET amount_remaining = amount "
+                        "WHERE amount_remaining IS NULL AND status = 'OPEN'"
+                    )
+                )
+            if "follow_up_notes" not in debt_cols:
+                conn.execute(
+                    text("ALTER TABLE hotel_booking_debts ADD COLUMN follow_up_notes TEXT")
+                )
+            if "reminder_at" not in debt_cols:
+                conn.execute(
+                    text("ALTER TABLE hotel_booking_debts ADD COLUMN reminder_at DATE")
+                )
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_hotel_booking_debts_reminder_at "
+                        "ON hotel_booking_debts (reminder_at)"
+                    )
+                )
         if "hotel_room_charges" in names:
             rc_cols = {c["name"] for c in insp.get_columns("hotel_room_charges")}
             if "booking_id" not in rc_cols:
@@ -3231,9 +3284,55 @@ def patch_sqlite_schema(engine: Engine) -> None:
                 ("customer_type", "VARCHAR(20) NOT NULL DEFAULT 'INDIVIDUAL'"),
                 ("company_name", "VARCHAR(200)"),
                 ("wallet_balance", "NUMERIC(14, 3) NOT NULL DEFAULT 0"),
+                ("business_domain", "VARCHAR(20) NOT NULL DEFAULT 'restaurant'"),
+                ("loyalty_intro_sent_at", "DATETIME"),
             ):
                 if col not in ccols:
                     conn.execute(text(f"ALTER TABLE customers ADD COLUMN {col} {ddl}"))
+            # أُضيف العمود للتو أو كان موجوداً — حدّث التخزين فقط عند الإضافة الأولى
+            ccols_after = {c["name"] for c in insp.get_columns("customers")}
+            if "business_domain" in ccols_after and "business_domain" not in ccols:
+                try:
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE customers
+                            SET business_domain = 'hotel'
+                            WHERE id IN (
+                                SELECT customer_id FROM hotel_bookings
+                                WHERE customer_id IS NOT NULL
+                            )
+                            OR id IN (
+                                SELECT customer_id FROM sales
+                                WHERE customer_id IS NOT NULL
+                                  AND (
+                                    booking_id IS NOT NULL
+                                    OR UPPER(COALESCE(context_type, '')) = 'ROOM'
+                                  )
+                            )
+                            """
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE customers
+                            SET business_domain = 'shared'
+                            WHERE business_domain = 'hotel'
+                              AND id IN (
+                                SELECT customer_id FROM sales
+                                WHERE customer_id IS NOT NULL
+                                  AND booking_id IS NULL
+                                  AND (
+                                    context_type IS NULL
+                                    OR UPPER(COALESCE(context_type, '')) <> 'ROOM'
+                                  )
+                              )
+                            """
+                        )
+                    )
+                except Exception:
+                    pass
         if "customer_wallet_transactions" not in names:
             conn.execute(
                 text(
@@ -3256,6 +3355,34 @@ def patch_sqlite_schema(engine: Engine) -> None:
                     "ON customer_wallet_transactions (customer_id)"
                 )
             )
+        if "hotel_booking_payment_refunds" in names:
+            href_cols = {
+                c["name"] for c in insp.get_columns("hotel_booking_payment_refunds")
+            }
+            if "payment_method_id" not in href_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE hotel_booking_payment_refunds "
+                        "ADD COLUMN payment_method_id INTEGER "
+                        "REFERENCES payment_methods(id) ON DELETE SET NULL"
+                    )
+                )
+                try:
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE hotel_booking_payment_refunds
+                            SET payment_method_id = (
+                                SELECT payment_method_id FROM hotel_booking_payments
+                                WHERE hotel_booking_payments.id =
+                                      hotel_booking_payment_refunds.payment_id
+                            )
+                            WHERE payment_method_id IS NULL
+                            """
+                        )
+                    )
+                except Exception:
+                    pass
         if "hotel_booking_guests" in names:
             bg_cols = {c["name"] for c in insp.get_columns("hotel_booking_guests")}
             for col, ddl in (
@@ -3271,9 +3398,41 @@ def patch_sqlite_schema(engine: Engine) -> None:
             for col, ddl in (
                 ("show_online", "BOOLEAN NOT NULL DEFAULT 0"),
                 ("online_description", "TEXT"),
+                ("lock_no", "VARCHAR(16)"),
+                ("rooms_count", "INTEGER NOT NULL DEFAULT 1"),
+                ("beds_count", "INTEGER NOT NULL DEFAULT 1"),
+                ("allows_infant", "BOOLEAN NOT NULL DEFAULT 0"),
             ):
                 if col not in hr_cols:
                     conn.execute(text(f"ALTER TABLE hotel_rooms ADD COLUMN {col} {ddl}"))
+            hr_cols = {c["name"] for c in insp.get_columns("hotel_rooms")}
+            added_bed_split = False
+            if "double_beds_count" not in hr_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE hotel_rooms ADD COLUMN double_beds_count INTEGER NOT NULL DEFAULT 1"
+                    )
+                )
+                added_bed_split = True
+            if "single_beds_count" not in hr_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE hotel_rooms ADD COLUMN single_beds_count INTEGER NOT NULL DEFAULT 0"
+                    )
+                )
+                added_bed_split = True
+            if added_bed_split:
+                # الأسرة القديمة → زوجية (مرة واحدة عند إضافة الأعمدة)
+                conn.execute(
+                    text(
+                        """
+                        UPDATE hotel_rooms
+                        SET double_beds_count = COALESCE(beds_count, 1),
+                            single_beds_count = 0,
+                            beds_count = COALESCE(beds_count, 1)
+                        """
+                    )
+                )
         if "hotel_room_media" not in names:
             conn.execute(
                 text(
@@ -3291,6 +3450,106 @@ def patch_sqlite_schema(engine: Engine) -> None:
                     """
                 )
             )
+        if "hotel_room_types" in names:
+            hrt_cols = {c["name"] for c in insp.get_columns("hotel_room_types")}
+            for col, ddl in (
+                ("max_occupancy", "INTEGER"),
+                ("beds_description", "VARCHAR(200)"),
+                ("allows_extra_bed", "BOOLEAN NOT NULL DEFAULT 0"),
+            ):
+                if col not in hrt_cols:
+                    conn.execute(text(f"ALTER TABLE hotel_room_types ADD COLUMN {col} {ddl}"))
+        if "hotel_bookings" in names:
+            hb_cols = {c["name"] for c in insp.get_columns("hotel_bookings")}
+            if "final_invoice_number" not in hb_cols:
+                conn.execute(
+                    text("ALTER TABLE hotel_bookings ADD COLUMN final_invoice_number VARCHAR(32)")
+                )
+            for col, ddl in (
+                ("follow_up_at", "DATE"),
+                ("follow_up_note", "TEXT"),
+                ("claim_wa_until_paid", "BOOLEAN NOT NULL DEFAULT 0"),
+            ):
+                if col not in hb_cols:
+                    conn.execute(text(f"ALTER TABLE hotel_bookings ADD COLUMN {col} {ddl}"))
+            if "follow_up_at" not in hb_cols:
+                try:
+                    conn.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS ix_hotel_bookings_follow_up_at "
+                            "ON hotel_bookings (follow_up_at)"
+                        )
+                    )
+                except Exception:
+                    pass
+        if "hotel_booking_payments" in names:
+            hbp_cols = {c["name"] for c in insp.get_columns("hotel_booking_payments")}
+            if "receipt_number" not in hbp_cols:
+                conn.execute(
+                    text("ALTER TABLE hotel_booking_payments ADD COLUMN receipt_number VARCHAR(32)")
+                )
+            if "hotel_shift_id" not in hbp_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE hotel_booking_payments ADD COLUMN hotel_shift_id "
+                        "INTEGER REFERENCES hotel_shifts(id) ON DELETE SET NULL"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_hotel_booking_payments_hotel_shift_id "
+                        "ON hotel_booking_payments (hotel_shift_id)"
+                    )
+                )
+            if "received_by_employee_id" not in hbp_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE hotel_booking_payments ADD COLUMN received_by_employee_id "
+                        "INTEGER REFERENCES hr_employees(id) ON DELETE SET NULL"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_hotel_booking_payments_recv_emp "
+                        "ON hotel_booking_payments (received_by_employee_id)"
+                    )
+                )
+        if "hotel_booking_payment_refunds" in names:
+            hbr_cols = {c["name"] for c in insp.get_columns("hotel_booking_payment_refunds")}
+            if "hotel_shift_id" not in hbr_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE hotel_booking_payment_refunds ADD COLUMN hotel_shift_id "
+                        "INTEGER REFERENCES hotel_shifts(id) ON DELETE SET NULL"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_hotel_booking_payment_refunds_shift "
+                        "ON hotel_booking_payment_refunds (hotel_shift_id)"
+                    )
+                )
+            if "approved_by_employee_id" not in hbr_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE hotel_booking_payment_refunds ADD COLUMN approved_by_employee_id "
+                        "INTEGER REFERENCES hr_employees(id) ON DELETE SET NULL"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_hotel_booking_payment_refunds_emp "
+                        "ON hotel_booking_payment_refunds (approved_by_employee_id)"
+                    )
+                )
+        if "sales" in names:
+            sale_cols = {c["name"] for c in insp.get_columns("sales")}
+            for col, ddl in (
+                ("receipt_number", "VARCHAR(32)"),
+                ("final_invoice_number", "VARCHAR(32)"),
+            ):
+                if col not in sale_cols:
+                    conn.execute(text(f"ALTER TABLE sales ADD COLUMN {col} {ddl}"))
         if "hotel_service_catalog" not in names:
             conn.execute(
                 text(
@@ -3319,3 +3578,52 @@ def patch_sqlite_schema(engine: Engine) -> None:
                     "ON hotel_service_catalog (is_active)"
                 )
             )
+        # إفطار مشمول / تكلفة فندق
+        names = set(insp.get_table_names())
+        if "hotel_booking_services" in names:
+            hbs_cols = {c["name"] for c in insp.get_columns("hotel_booking_services")}
+            if "charged_to_guest" not in hbs_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE hotel_booking_services "
+                        "ADD COLUMN charged_to_guest BOOLEAN NOT NULL DEFAULT 1"
+                    )
+                )
+        if "products" in names:
+            pcols = {c["name"] for c in insp.get_columns("products")}
+            if "is_hotel_breakfast" not in pcols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE products "
+                        "ADD COLUMN is_hotel_breakfast BOOLEAN NOT NULL DEFAULT 0"
+                    )
+                )
+
+        # SEO entity columns
+        names = set(insp.get_table_names())
+        seo_col_defs = (
+            ("seo_title", "VARCHAR(255)"),
+            ("seo_description", "VARCHAR(500)"),
+            ("seo_h1", "VARCHAR(255)"),
+            ("seo_slug", "VARCHAR(255)"),
+            ("seo_keywords", "VARCHAR(500)"),
+            ("seo_schema_json", "TEXT"),
+            ("seo_og_title", "VARCHAR(255)"),
+            ("seo_og_description", "VARCHAR(500)"),
+            ("seo_og_image", "VARCHAR(500)"),
+            ("seo_indexable", "BOOLEAN DEFAULT 1"),
+            ("seo_canonical_url", "VARCHAR(500)"),
+            ("seo_updated_at", "DATETIME"),
+        )
+        for table in (
+            "products",
+            "product_categories",
+            "hotel_rooms",
+            "hotel_service_catalog",
+        ):
+            if table not in names:
+                continue
+            tcols = {c["name"] for c in insp.get_columns(table)}
+            for col, ddl in seo_col_defs:
+                if col not in tcols:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}"))

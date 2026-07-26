@@ -9,35 +9,77 @@
 
 {% if saved == 'clean' %}
 <div class="alert" style="background:#ecfdf5;margin:0.75rem 0">تم التنظيف — الشقة متاحة للحجز ✓</div>
+{% elif saved == 'assigned' %}
+<div class="alert" style="background:#ecfdf5;margin:0.75rem 0">الشقة الآن «قيد التنظيف» ✓</div>
 {% elif saved == 'maintenance' %}
-<div class="alert" style="background:#fff7ed;margin:0.75rem 0">تم إرسال الشقة للصيانة وإشعار موظف الصيانة عبر واتساب ✓</div>
+<div class="alert" style="background:#fff7ed;margin:0.75rem 0">تم إرسال الشقة للصيانة ✓</div>
 {% elif saved == 'ready' %}
 <div class="alert" style="background:#ecfdf5;margin:0.75rem 0">اكتملت الصيانة — الشقة متاحة للحجز ✓</div>
 {% elif saved == 'settings' %}
-<div class="alert" style="background:#ecfdf5;margin:0.75rem 0">تم حفظ بيانات موظف الصيانة الافتراضي ✓</div>
+<div class="alert" style="background:#ecfdf5;margin:0.75rem 0">تم حفظ أرقام واتساب التنظيف/الصيانة ✓</div>
+{% endif %}
+{% if warn == 'messaging_off' %}
+<div class="alert" style="background:#fff7ed;color:#9a3412;margin:0.75rem 0">
+  تم تحديث حالة الشقة، لكن <strong>واتساب غير مفعّل</strong> فلم تُرسل الرسالة.
+  فعّله من <a href="/admin/messaging">إعدادات المراسلة</a> ثم أعد الإرسال.
+</div>
+{% elif warn == 'notifications_off' %}
+<div class="alert" style="background:#fff7ed;color:#9a3412;margin:0.75rem 0">
+  تم تحديث حالة الشقة، لكن <strong>نظام الإشعارات موقوف</strong>.
+  فعّله من <a href="/admin/notifications">الإشعارات</a>.
+</div>
 {% endif %}
 {% if error %}
 <div class="alert" style="background:#fef2f2;color:#b91c1c;margin:0.75rem 0">{{ error }}</div>
 {% endif %}
+{% if not messaging_on|default(false) %}
+<div class="alert" style="background:#fef3c7;color:#92400e;margin:0.75rem 0">
+  <strong>واتساب معطّل — لن تُرسل رسائل التنظيف.</strong><br />
+  الرقم الذي حفظته لا يكفي. افتح
+  <a href="/admin/messaging" style="font-weight:700">إعدادات المراسلة</a>
+  → فعّل «تفعيل الإرسال» → اختر TextMeBot وأدخل المفتاح (أو Webhook برابط صالح) → احفظ، ثم أعد الإرسال من هنا.
+</div>
+{% endif %}
 
-<div class="card" style="margin-bottom:1rem;max-width:720px">
-  <h2 style="margin-top:0;font-size:1.05rem">👷 موظف الصيانة الافتراضي</h2>
-  <p class="muted" style="font-size:0.9rem;margin:0 0 0.75rem">يُستخدم الرقم عند إرسال طلب صيانة — يمكن تغييره لكل شقة.</p>
-  <form method="post" action="/admin/hotel/housekeeping/settings" style="display:grid;gap:0.5rem;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));align-items:end">
-    <div>
-      <label>اسم موظف الصيانة</label>
-      <input class="input" name="maintenance_name" value="{{ default_maintenance_name }}" placeholder="مثال: أحمد — صيانة" />
+<div class="card" style="margin-bottom:1rem;max-width:900px">
+  <h2 style="margin-top:0;font-size:1.05rem">أرقام واتساب الافتراضية</h2>
+  <form method="post" action="/admin/hotel/housekeeping/settings" style="display:grid;gap:0.75rem">
+    <div style="display:grid;gap:0.5rem;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));align-items:end">
+      <div>
+        <label>اسم موظف التنظيف</label>
+        <input class="input" name="cleaning_name" value="{{ default_cleaning_name }}" placeholder="مثال: فاطمة — تنظيف" />
+      </div>
+      <div>
+        <label>واتساب التنظيف *</label>
+        <input class="input" name="cleaning_phone" value="{{ default_cleaning_phone }}" dir="ltr" placeholder="0912345678" />
+      </div>
+      <div>
+        <label>اسم موظف الصيانة</label>
+        <input class="input" name="maintenance_name" value="{{ default_maintenance_name }}" placeholder="مثال: أحمد — صيانة" />
+      </div>
+      <div>
+        <label>واتساب الصيانة</label>
+        <input class="input" name="maintenance_phone" value="{{ default_maintenance_phone }}" dir="ltr" placeholder="0912345678" />
+      </div>
+      <div><button class="btn btn-primary" type="submit">حفظ</button></div>
     </div>
-    <div>
-      <label>رقم واتساب *</label>
-      <input class="input" name="maintenance_phone" value="{{ default_maintenance_phone }}" dir="ltr" placeholder="0912345678" required />
-    </div>
-    <div><button class="btn btn-primary" type="submit">حفظ</button></div>
   </form>
+  <p class="muted" style="font-size:0.85rem;margin:0.65rem 0 0">
+    رسالة واتساب تتضمن <strong>زر تأكيد</strong> يفتح رابطاً على النظام — عند فتحه تتحول الشقة إلى متاحة تلقائياً.
+    يجب ضبط <code>public_base_url</code> في الإعدادات بعنوان عام يصل إليه جوال العامل (HTTPS)، وإلا لن يعمل الزر من خارج الشبكة المحلية.
+  </p>
+  {% if not public_base_ok|default(false) %}
+  <div class="alert" style="background:#fef3c7;color:#92400e;margin:0.65rem 0 0;font-size:0.9rem">
+    <strong>تنبيه:</strong> لم يُضبط عنوان عام صالح لروابط التأكيد
+    (<code>public_base_url</code>).
+    بدون ذلك قد يضغط العامل الزر دون أن يتحدّث النظام.
+    اضبطه من <a href="/admin/settings">الإعدادات</a> ثم أعد إرسال مهمة التنظيف.
+  </div>
+  {% endif %}
 </div>
 
 <p class="muted" style="margin-bottom:1rem;font-size:0.92rem">
-  بعد مغادرة النزيل تظهر الشقة للتنظيف. عند اكتشاف عطل، اختر النوع (مكيف، ميكروويف، …) ويُرسل إشعار واتساب لموظف الصيانة.
+  بعد مغادرة النزيل تظهر الشقة للتنظيف. أرسل المهمة عبر واتساب فتصبح <strong>قيد التنظيف</strong> حتى يؤكد العامل الانتهاء من الزر.
   <strong>الشقق في التنظيف أو الصيانة لا تُعرَض للإيجار.</strong>
 </p>
 
@@ -49,8 +91,25 @@
     <strong>{{ r.name_ar or ('شقة ' ~ r.number) }}</strong>
     <span class="muted">#{{ r.number }}</span>
     <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.65rem;align-items:flex-start">
+      <form method="post" action="/admin/hotel/housekeeping/{{ r.id }}/assign-cleaning" style="flex:1;min-width:260px;display:grid;gap:0.45rem;background:#ecfeff;padding:0.55rem;border-radius:10px">
+        <div style="font-weight:700;font-size:0.9rem;color:#0e7490">إرسال مهمة تنظيف واتساب</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.45rem">
+          {% if maintenance_staff %}
+          <select class="input hk-staff-pick" name="employee_id" data-phone-target="cphone-{{ r.id }}" data-name-target="cname-{{ r.id }}">
+            <option value="">— موظف (اختياري) —</option>
+            {% for s in maintenance_staff %}
+            <option value="{{ s.id }}" data-phone="{{ s.phone }}" data-name="{{ s.name }}">{{ s.name }} · {{ s.phone }}</option>
+            {% endfor %}
+          </select>
+          {% endif %}
+          <input class="input" id="cphone-{{ r.id }}" name="cleaning_phone" value="{{ default_cleaning_phone }}" dir="ltr" placeholder="رقم واتساب التنظيف" required />
+          <input class="input" id="cname-{{ r.id }}" name="cleaning_name" value="{{ default_cleaning_name }}" placeholder="اسم المستلم" />
+        </div>
+        <input class="input" name="note" maxlength="240" placeholder="ملاحظات للتنظيف (اختياري)" />
+        <button class="btn btn-primary" type="submit" style="width:fit-content">📲 إرسال للتنظيف + واتساب</button>
+      </form>
       <form method="post" action="/admin/hotel/housekeeping/{{ r.id }}/clean">
-        <button class="btn btn-primary" type="submit">✓ تم التنظيف — جاهزة</button>
+        <button class="btn" type="submit">✓ تم التنظيف يدوياً — جاهزة</button>
       </form>
       <form method="post" action="/admin/hotel/housekeeping/{{ r.id }}/maintenance" style="flex:1;min-width:280px;display:grid;gap:0.45rem">
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.45rem">
@@ -78,7 +137,40 @@
   </div>
   {% endfor %}
   {% else %}
-  <p class="muted">لا توجد شقق بانتظار التنظيف.</p>
+  <p class="muted">لا توجد شقق بانتظار إرسال مهمة تنظيف.</p>
+  {% endif %}
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <h2 style="margin-top:0">⏳ قيد التنظيف ({{ cleaning_rooms|length }})</h2>
+  <p class="muted" style="font-size:0.88rem;margin-top:0">بانتظار فتح زر/رابط التأكيد من عامل التنظيف — أو التأكيد اليدوي أدناه. إن ضغط الزر سابقاً دون تحديث، أعد الإرسال بعد ضبط العنوان العام.</p>
+  {% if cleaning_rooms %}
+  <table class="table">
+    <thead><tr><th>الشقة</th><th>إجراء</th></tr></thead>
+    <tbody>
+    {% for r in cleaning_rooms %}
+    <tr>
+      <td>
+        <strong>{{ r.name_ar or ('شقة ' ~ r.number) }}</strong>
+        <span class="muted">#{{ r.number }}</span>
+        <span style="display:inline-block;margin-inline-start:0.35rem;background:#cffafe;color:#0e7490;font-size:0.78rem;padding:0.1rem 0.45rem;border-radius:999px">قيد التنظيف</span>
+      </td>
+      <td style="display:flex;gap:0.4rem;flex-wrap:wrap">
+        <form method="post" action="/admin/hotel/housekeeping/{{ r.id }}/clean">
+          <button class="btn btn-primary" type="submit">✓ تم الانتهاء من التنظيف — جاهزة</button>
+        </form>
+        <form method="post" action="/admin/hotel/housekeeping/{{ r.id }}/assign-cleaning">
+          <input type="hidden" name="cleaning_phone" value="{{ default_cleaning_phone }}" />
+          <input type="hidden" name="cleaning_name" value="{{ default_cleaning_name }}" />
+          <button class="btn" type="submit">🔁 إعادة إرسال واتساب</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">لا توجد شقق قيد التنظيف حالياً.</p>
   {% endif %}
 </div>
 

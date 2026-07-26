@@ -30,7 +30,12 @@ from modules.dashboard_notify.pending import (
     pending_messaging_inbox_count,
     pending_printing_count,
 )
-from modules.dashboard_notify.service import badge_counts, mark_section_seen
+from modules.dashboard_notify.service import (
+    activity_matches_finance_domain,
+    badge_counts,
+    load_purchase_domain_map,
+    mark_section_seen,
+)
 
 _BELL_CACHE: dict[int, tuple[float, int]] = {}
 _BELL_TTL_SEC = 45.0
@@ -168,6 +173,53 @@ def _activity_href(section_key: str, ref_id: int | None) -> str:
     return base
 
 
+def _href_for_notification_event(event_key: str, payload: dict | None = None) -> str:
+    """رابط فتح مناسب لكل نوع إشعار (وليس كل hotel.* → الحجوزات)."""
+    key = (event_key or "").strip()
+    payload = payload if isinstance(payload, dict) else {}
+
+    # ورديات الفندق → صفحة الجلسة (افتتاح/إقفال) مثل جلسات المطعم
+    if key in (
+        "hotel.shift_overdue",
+        "hotel.shift_opened",
+        "hotel.shift_closed",
+    ) or key.startswith("hotel.shift_"):
+        shift_id = payload.get("shift_id") or payload.get("source_id")
+        if key == "hotel.shift_closed" and shift_id:
+            try:
+                return f"/admin/hotel/shift/{int(shift_id)}/report"
+            except (TypeError, ValueError):
+                pass
+        return "/admin/hotel/shift"
+
+    if key.startswith("hotel."):
+        booking_id = payload.get("booking_id") or payload.get("source_id")
+        if key.startswith("hotel.booking") or key in (
+            "hotel.checkout_reminder",
+            "hotel.night_payment_due",
+            "hotel.balance_claim",
+            "hotel.unpaid_service_added",
+            "hotel.payment_received",
+            "hotel.online_booking_request",
+        ):
+            if booking_id:
+                try:
+                    return f"/admin/hotel/bookings/{int(booking_id)}"
+                except (TypeError, ValueError):
+                    pass
+            return "/admin/hotel/bookings"
+        if "cleaning" in key or "maintenance" in key:
+            return "/admin/hotel/housekeeping"
+        return "/admin/hotel/bookings"
+
+    if key.startswith("order.") or key.startswith("pos."):
+        # جلسات بيع المطعم تُدار من شاشة الـ POS
+        return "/pos"
+    if key.startswith("inventory."):
+        return "/inventory"
+    return "/admin/notifications/logs"
+
+
 def _new_engine_events_count(db: Session, user_id: int, *, mutes=None, states=None) -> int:
     from modules.notifications.models import NotificationEvent
 
@@ -195,15 +247,28 @@ def _new_engine_events_count(db: Session, user_id: int, *, mutes=None, states=No
 def invalidate_bell_cache(user_id: int | None = None) -> None:
     if user_id is None:
         _BELL_CACHE.clear()
-    else:
-        _BELL_CACHE.pop(int(user_id), None)
+        return
+    uid = int(user_id)
+    for k in list(_BELL_CACHE.keys()):
+        if k == uid or (isinstance(k, tuple) and len(k) >= 1 and k[0] == uid):
+            _BELL_CACHE.pop(k, None)
 
 
-def bell_unread_count(db: Session, user_id: int, *, force: bool = False) -> int:
+def bell_unread_count(
+    db: Session,
+    user_id: int,
+    *,
+    force: bool = False,
+    domain=None,
+) -> int:
     """عداد خفيف للجرس — بدون مسح المخزون المنخفض ولا مزامنة كاملة."""
+    from modules.platform.business_domain import purchase_domain_db_values
+
     now_mono = time.monotonic()
+    domain_key = getattr(domain, "value", None) or ("all" if domain is None else str(domain))
+    cache_key = (int(user_id), domain_key)
     if not force:
-        hit = _BELL_CACHE.get(int(user_id))
+        hit = _BELL_CACHE.get(cache_key)
         if hit is not None and (now_mono - hit[0]) < _BELL_TTL_SEC:
             return hit[1]
 
@@ -240,7 +305,23 @@ def bell_unread_count(db: Session, user_id: int, *, force: bool = False) -> int:
         .order_by(desc(DashboardActivity.id))
         .limit(80)
     ).all()
+    domain_vals = purchase_domain_db_values(domain)
+    purchase_domain_by_id: dict[int, str] = {}
+    if domain_vals is not None:
+        pids = {
+            int(act.ref_id)
+            for act in acts
+            if act.section_key in (C.PURCHASES, C.ASSETS, C.EXPENSES)
+            and act.ref_id is not None
+        }
+        purchase_domain_by_id = load_purchase_domain_map(db, pids)
     for act in acts:
+        if not activity_matches_finance_domain(
+            act,
+            domain_vals=domain_vals,
+            purchase_domain_by_id=purchase_domain_by_id,
+        ):
+            continue
         ik = item_key_activity(act.id)
         if states.get(ik) in ("deleted", "read"):
             continue
@@ -265,21 +346,21 @@ def bell_unread_count(db: Session, user_id: int, *, force: bool = False) -> int:
         pass
 
     total = int(total)
-    _BELL_CACHE[int(user_id)] = (now_mono, total)
+    _BELL_CACHE[cache_key] = (now_mono, total)
     return total
 
 
-def unread_total(db: Session, user_id: int) -> int:
+def unread_total(db: Session, user_id: int, *, domain=None) -> int:
     """للتوافق — الجرس والـ API يستخدمان المسار الخفيف."""
-    return bell_unread_count(db, user_id)
+    return bell_unread_count(db, user_id, domain=domain)
 
 
 def mark_hub_seen(db: Session, user_id: int) -> None:
     mark_section_seen(db, user_id, HUB_SEEN_KEY)
 
 
-def mark_all_read(db: Session, user_id: int) -> int:
-    sections = build_activity_hub(db, user_id)
+def mark_all_read(db: Session, user_id: int, *, domain=None) -> int:
+    sections = build_activity_hub(db, user_id, domain=domain)
     n = 0
     for sec in sections:
         for item in sec.items:
@@ -347,8 +428,11 @@ def build_activity_hub(
     user_id: int,
     *,
     limit_per_section: int = 40,
+    domain=None,
 ) -> list[ActivitySection]:
-    badges = badge_counts(db, user_id)
+    from modules.platform.business_domain import purchase_domain_db_values
+
+    badges = badge_counts(db, user_id, domain=domain)
     hub_seen = _hub_last_seen(db, user_id)
     now = datetime.now(timezone.utc)
     since = hub_seen or (now - timedelta(days=7))
@@ -399,7 +483,23 @@ def build_activity_hub(
         .order_by(desc(DashboardActivity.id))
         .limit(200)
     ).all()
+    domain_vals = purchase_domain_db_values(domain)
+    purchase_domain_by_id: dict[int, str] = {}
+    if domain_vals is not None:
+        pids = {
+            int(act.ref_id)
+            for act in acts
+            if act.section_key in (C.PURCHASES, C.ASSETS, C.EXPENSES)
+            and act.ref_id is not None
+        }
+        purchase_domain_by_id = load_purchase_domain_map(db, pids)
     for act in acts:
+        if not activity_matches_finance_domain(
+            act,
+            domain_vals=domain_vals,
+            purchase_domain_by_id=purchase_domain_by_id,
+        ):
+            continue
         meta = SECTION_META.get(act.section_key)
         group_id = meta[2] if meta else "system"
         label = meta[0] if meta else act.section_key
@@ -465,24 +565,32 @@ def build_activity_hub(
                     created is not None and created > hub_seen
                 )
             payload_hint = ""
+            payload: dict = {}
             try:
                 import json
 
-                payload = json.loads(ev.payload_json or "{}")
-                if isinstance(payload, dict):
-                    for k in ("room_number", "booking_ref", "sale_id", "product_name", "guest_name"):
+                raw_payload = json.loads(ev.payload_json or "{}")
+                if isinstance(raw_payload, dict):
+                    payload = raw_payload
+                    for k in (
+                        "overdue_minutes",
+                        "operator_name",
+                        "shift_name",
+                        "room_number",
+                        "booking_ref",
+                        "sale_id",
+                        "product_name",
+                        "guest_name",
+                    ):
                         if payload.get(k) is not None:
-                            payload_hint = f"{k}={payload[k]}"
+                            if k == "overdue_minutes":
+                                payload_hint = f"متأخر {payload[k]} د"
+                            else:
+                                payload_hint = f"{k}={payload[k]}"
                             break
             except Exception:
-                pass
-            href = "/admin/notifications/logs"
-            if ev.event_key.startswith("hotel."):
-                href = "/admin/hotel/bookings"
-            elif ev.event_key.startswith("order.") or ev.event_key.startswith("pos."):
-                href = "/pos"
-            elif ev.event_key.startswith("inventory."):
-                href = "/inventory"
+                payload = {}
+            href = _href_for_notification_event(ev.event_key, payload)
             label = _event_label(ev.event_key)
             sec.items.append(
                 ActivityItem(

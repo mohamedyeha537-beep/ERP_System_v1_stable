@@ -176,29 +176,70 @@ def _render_order_template(db: Session, session: WebChatSession, sale: Sale) -> 
         return DEFAULT_SHOP_ORDER_CONFIRMATION_TEXT.format(**values)
 
 
-def _enqueue_customer_order_confirmation(db: Session, session: WebChatSession, sale: Sale) -> None:
-    if not get_bool(db, "shop_send_order_confirmation_whatsapp", True):
-        return
+def order_confirmation_parts(
+    db: Session, session: WebChatSession, sale: Sale, *, mark_intro: bool = True
+) -> list[str]:
+    """رسائل التأكيد: شرح الولاء (مرة واحدة) ثم رسالة الطلب."""
+    from modules.messaging.hermes_loyalty import (
+        loyalty_order_event_note,
+        take_loyalty_intro_if_needed,
+    )
+
+    parts: list[str] = []
     phone = (session.guest_phone or "").strip()
-    if not phone:
-        return
+    if phone and mark_intro:
+        intro = take_loyalty_intro_if_needed(db, phone)
+        if intro:
+            parts.append(intro)
+
+    order_lines = [_render_order_template(db, session, sale)]
+    if phone:
+        note = loyalty_order_event_note(db, phone, sale.total)
+        if note:
+            order_lines.append("")
+            order_lines.append(note)
+    else:
+        order_lines.append("💡 اكتب «نقاطي» لمعرفة برنامج الولاء.")
+    parts.append("\n".join(order_lines).replace("**", ""))
+    return [p for p in parts if (p or "").strip()]
+
+
+def _enqueue_customer_order_confirmation(db: Session, session: WebChatSession, sale: Sale) -> None:
+    phone = (session.guest_phone or "").strip()
     data = load_order_data(session)
     sent_for = str(data.get("confirmation_sent_for_sale_id") or "").strip()
     if sent_for == str(sale.id):
         return
+
+    parts = order_confirmation_parts(db, session, sale, mark_intro=True)
+    data["confirmation_parts"] = parts
+    data["confirmation_sent_for_sale_id"] = int(sale.id)
+    session.order_json = json.dumps(data, ensure_ascii=False)
+
+    if not get_bool(db, "shop_send_order_confirmation_whatsapp", True):
+        return
+    if not phone:
+        return
     from modules.messaging.models import MessageChannel
     from modules.messaging.outbox import enqueue_message
 
-    enqueue_message(
-        db,
-        body=order_confirmation_message(db, session, sale),
-        channel=MessageChannel.WHATSAPP.value,
-        phone=phone,
-        event_type="shop.order_submitted",
-        meta={"sale_id": int(sale.id), "session_id": int(session.id)},
-    )
-    data["confirmation_sent_for_sale_id"] = int(sale.id)
-    session.order_json = json.dumps(data, ensure_ascii=False)
+    for idx, body in enumerate(parts):
+        event_type = (
+            "loyalty.program_intro" if idx == 0 and len(parts) > 1 else "shop.order_submitted"
+        )
+        enqueue_message(
+            db,
+            body=body,
+            channel=MessageChannel.WHATSAPP.value,
+            phone=phone,
+            event_type=event_type,
+            meta={
+                "sale_id": int(sale.id),
+                "session_id": int(session.id),
+                "part": idx + 1,
+                "parts_total": len(parts),
+            },
+        )
 
 
 def format_cart_summary(session: WebChatSession) -> str:
@@ -218,6 +259,13 @@ def format_cart_summary(session: WebChatSession) -> str:
     out.append("• «السلة» — عرض السلة")
     out.append("• «إلغاء» — تفريغ السلة")
     return "\n".join(out).replace("**", "")
+
+
+def clear_cart_items(session: WebChatSession) -> None:
+    """يفرّغ أصناف السلة فقط — يبقي مرحلة الطلب ورسالة التأكيد."""
+    data = load_order_data(session)
+    data["cart"] = []
+    session.order_json = json.dumps(data, ensure_ascii=False)
 
 
 def clear_cart(session: WebChatSession) -> None:
@@ -612,6 +660,12 @@ def attach_receipt_and_submit(
         emit_order_created(db, sale)
     except Exception:  # noqa: BLE001
         pass
+    try:
+        from modules.shop.staff_notify import notify_shop_staff_new_order
+
+        notify_shop_staff_new_order(db, sale)
+    except Exception:  # noqa: BLE001
+        pass
     return sale
 
 
@@ -624,6 +678,12 @@ def submit_cash_order(db: Session, session: WebChatSession) -> Sale:
         from modules.notifications.hooks import emit_order_created
 
         emit_order_created(db, sale)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from modules.shop.staff_notify import notify_shop_staff_new_order
+
+        notify_shop_staff_new_order(db, sale)
     except Exception:  # noqa: BLE001
         pass
     return sale
@@ -654,18 +714,14 @@ def save_guest_phone(db: Session, session: WebChatSession, phone: str) -> None:
 
 
 def order_confirmation_message(db: Session, session: WebChatSession, sale: Sale) -> str:
-    lines = [_render_order_template(db, session, sale)]
-    phone = (session.guest_phone or "").strip()
-    if phone:
-        from modules.messaging.hermes_loyalty import loyalty_order_confirmation_note
-
-        note = loyalty_order_confirmation_note(db, phone, sale.total)
-        if note:
-            lines.append("")
-            lines.append(note)
-    else:
-        lines.append("💡 اكتب «نقاطي» لمعرفة برنامج الولاء.")
-    return "\n".join(lines).replace("**", "")
+    data = load_order_data(session)
+    stored = data.get("confirmation_parts")
+    if isinstance(stored, list) and stored and str(data.get("confirmation_sent_for_sale_id") or "") == str(
+        sale.id
+    ):
+        return "\n\n".join(str(p).strip() for p in stored if str(p).strip())
+    # للعرض فقط — لا يعلّم شرح الولاء كمُرسَل (التوسيم عند الإرسال الفعلي)
+    return "\n\n".join(order_confirmation_parts(db, session, sale, mark_intro=False))
 
 
 @dataclass
@@ -698,6 +754,21 @@ def _pending_web_chat_sale_ok(sale: Sale | None) -> bool:
     return is_online_guest_sale(sale)
 
 
+def _order_cart_preview(session: WebChatSession, sale: Sale | None) -> str:
+    """معاينة الأصناف — من السلة، أو من بنود الفاتورة إن فُرّغت السلة بعد الإرسال."""
+    cart = cart_lines(session)
+    if cart:
+        return "، ".join(f"{ln.get('name_ar')}×{ln.get('qty')}" for ln in cart[:4]) or "—"
+    if sale is None:
+        return "—"
+    parts: list[str] = []
+    for ln in list(getattr(sale, "lines", None) or [])[:4]:
+        prod = getattr(ln, "product", None)
+        name = getattr(prod, "name_ar", None) or f"#{ln.product_id}"
+        parts.append(f"{name}×{ln.quantity}")
+    return "، ".join(parts) or "—"
+
+
 def list_pending_chat_orders(db: Session, *, limit: int = 50) -> list[ChatOrderRow]:
     rows = db.scalars(
         select(WebChatSession)
@@ -716,10 +787,6 @@ def list_pending_chat_orders(db: Session, *, limit: int = 50) -> list[ChatOrderR
         if not _pending_web_chat_sale_ok(sale):
             continue
         data = load_order_data(s)
-        cart = cart_lines(s)
-        preview = "، ".join(
-            f"{ln.get('name_ar')}×{ln.get('qty')}" for ln in cart[:4]
-        )
         out.append(
             ChatOrderRow(
                 session_id=s.id,
@@ -733,7 +800,7 @@ def list_pending_chat_orders(db: Session, *, limit: int = 50) -> list[ChatOrderR
                 payment_kind=data.get("payment_kind"),
                 has_proof=bool(s.payment_proof_filename),
                 created_at=sale.created_at.isoformat() if sale.created_at else None,
-                cart_preview=preview or "—",
+                cart_preview=_order_cart_preview(s, sale),
             )
         )
     return out
@@ -760,10 +827,6 @@ def list_in_progress_chat_orders(db: Session, *, limit: int = 50) -> list[ChatOr
         ):
             continue
         data = load_order_data(s)
-        cart = cart_lines(s)
-        preview = "، ".join(
-            f"{ln.get('name_ar')}×{ln.get('qty')}" for ln in cart[:4]
-        )
         out.append(
             ChatOrderRow(
                 session_id=s.id,
@@ -777,7 +840,7 @@ def list_in_progress_chat_orders(db: Session, *, limit: int = 50) -> list[ChatOr
                 payment_kind=data.get("payment_kind"),
                 has_proof=bool(s.payment_proof_filename),
                 created_at=sale.created_at.isoformat() if sale.created_at else None,
-                cart_preview=preview or "—",
+                cart_preview=_order_cart_preview(s, sale),
             )
         )
     return out

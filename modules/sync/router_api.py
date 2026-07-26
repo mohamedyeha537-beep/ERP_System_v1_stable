@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.deps import get_db_session, require_permission
+from app.deps import LoggedInUser, get_db_session, require_permission
 from app.jinja_env import templates
 from infra.config import get_settings
 from modules.authz.models import User
@@ -19,6 +19,15 @@ from modules.sync.service import get_sync_status
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
 web_router = APIRouter(prefix="/admin/sync", tags=["admin-sync"])
+
+
+@router.get("/local-status")
+def sync_local_status(
+    _user: LoggedInUser,
+    db: Session = Depends(get_db_session),
+):
+    """حالة الأوفلاين/المزامنة لأي مستخدم مسجّل — للعمل المحلي بدون إنترنت."""
+    return get_sync_status(db)
 
 
 def verify_sync_api_key(

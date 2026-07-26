@@ -1,24 +1,46 @@
 {% extends "base.html" %}
-{% block title %}حالة المزامنة{% endblock %}
+{% block title %}العمل أوفلاين والمزامنة{% endblock %}
 {% block body %}
-<h1>حالة المزامنة (أوفلاين / أونلاين)</h1>
+<h1>العمل أوفلاين والمزامنة</h1>
+
+<div class="card" style="margin-bottom:1rem;border-inline-start:4px solid #22c55e">
+  <h2 style="margin-top:0">كيف يعمل النظام</h2>
+  <ol style="line-height:1.8;margin:0;padding-inline-start:1.25rem">
+    <li><strong>محلياً دائماً:</strong> المبيعات والحجوزات والطباعة تُحفظ في قاعدة البيانات على هذا الجهاز — لا تحتاج إنترنت.</li>
+    <li><strong>عند انقطاع الإنترنت:</strong> يستمر العمل كالمعتاد، وتُصفّ الأحداث في طابور محلي.</li>
+    <li><strong>عند عودة الإنترنت:</strong> تُدفع الأحداث تلقائياً إلى السيرفر المركزي كل بضع ثوانٍ.</li>
+  </ol>
+</div>
 
 <div class="card">
-  <h2 style="margin-top: 0">إعدادات المزامنة</h2>
+  <h2 style="margin-top: 0">الحالة الحالية</h2>
+  <p id="status-message" style="font-weight:600">{{ status.message_ar }}</p>
   <table>
-    <tr><th>المزامنة مفعّلة</th><td>{% if status.enabled %}نعم{% else %}لا{% endif %}</td></tr>
+    <tr><th>المزامنة السحابية</th><td id="st-enabled">{% if status.enabled %}مفعّلة{% else %}مطفأة{% endif %}</td></tr>
+    <tr><th>إعداد السيرفر المركزي</th><td id="st-configured">{% if status.configured %}جاهز{% else %}غير مكتمل (ONLINE_SYNC_URL / API_KEY){% endif %}</td></tr>
     <tr><th>معرّف الموقع</th><td>{{ status.site_id or "غير محدد" }}</td></tr>
-    <tr><th>حالة الاتصال</th><td>{% if status.online %}متصل{% else %}غير متصل{% endif %}</td></tr>
-    <tr><th>أحداث معلّقة</th><td id="pending-count">{{ status.pending_count }}</td></tr>
+    <tr><th>اتصال السحابة</th><td id="st-online">{% if status.online %}متصل{% else %}غير متصل — العمل المحلي مستمر{% endif %}</td></tr>
+    <tr><th>أحداث بانتظار المزامنة</th><td id="pending-count">{{ status.pending_count }}</td></tr>
     <tr><th>آخر دفع</th><td id="last-push">{{ status.last_push_at or "—" }}</td></tr>
     <tr><th>آخر سحب</th><td id="last-pull">{{ status.last_pull_at or "—" }}</td></tr>
     <tr><th>آخر خطأ</th><td id="last-error" style="color: #c00">{{ status.last_error or "لا يوجد" }}</td></tr>
   </table>
 
   <form id="trigger-form" method="post" action="/admin/sync/trigger" style="margin-top: 1rem">
-    <button type="submit" class="btn btn-primary">تشغيل المزامنة الآن</button>
+    <button type="submit" class="btn btn-primary">مزامنة الآن</button>
     <span id="trigger-result" style="margin-right: 1rem"></span>
   </form>
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0">التفعيل في .env</h2>
+  <pre style="direction:ltr;text-align:left;overflow:auto;background:#0f172a;color:#e2e8f0;padding:1rem;border-radius:8px;font-size:0.85rem">SYNC_ENABLED=true
+SYNC_SITE_ID=bayatak-main
+ONLINE_SYNC_URL=https://your-central-server.com
+ONLINE_SYNC_API_KEY=مفتاح-قوي-مشترك
+SYNC_INTERVAL_SECONDS=60
+SYNC_PULL_ENABLED=true</pre>
+  <p style="opacity:0.85;margin-bottom:0">بعد التعديل أعد تشغيل السيرفر. بدون <code>ONLINE_SYNC_URL</code> يبقى العمل أوفلاين محلياً فقط ولن تُرفع البيانات لسحابة.</p>
 </div>
 
 <script>
@@ -30,6 +52,14 @@ async function refreshStatus() {
     document.getElementById('last-push').textContent = data.last_push_at || '—';
     document.getElementById('last-pull').textContent = data.last_pull_at || '—';
     document.getElementById('last-error').textContent = data.last_error || 'لا يوجد';
+    document.getElementById('status-message').textContent = data.message_ar || '';
+    document.getElementById('st-online').textContent = data.online
+      ? 'متصل'
+      : 'غير متصل — العمل المحلي مستمر';
+    document.getElementById('st-enabled').textContent = data.enabled ? 'مفعّلة' : 'مطفأة';
+    document.getElementById('st-configured').textContent = data.configured
+      ? 'جاهز'
+      : 'غير مكتمل (ONLINE_SYNC_URL / API_KEY)';
   } catch (e) {
     console.error('refresh failed', e);
   }
@@ -38,9 +68,12 @@ document.getElementById('trigger-form').addEventListener('submit', async (e) => 
   e.preventDefault();
   const res = await fetch('/admin/sync/trigger', {method: 'POST'});
   const data = await res.json();
-  document.getElementById('trigger-result').textContent = 'تم: دفع ' + data.pushed + '، سحب ' + data.pulled;
+  let msg = 'تم: دفع ' + data.pushed + '، سحب ' + data.pulled;
+  if (data.push_error) msg += ' · خطأ دفع: ' + data.push_error;
+  if (data.pull_error) msg += ' · خطأ سحب: ' + data.pull_error;
+  document.getElementById('trigger-result').textContent = msg;
   refreshStatus();
 });
-setInterval(refreshStatus, 15000);
+setInterval(refreshStatus, 10000);
 </script>
 {% endblock %}

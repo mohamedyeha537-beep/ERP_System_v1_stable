@@ -198,6 +198,7 @@ def gl_account_ledger_page(
         from_date = None
         to_date = None
     domain = _finance_domain_filter(request, user)
+    flat = (request.query_params.get("flat") or "").strip() in ("1", "true", "yes")
     try:
         ledger = list_account_ledger(
             db,
@@ -207,10 +208,18 @@ def gl_account_ledger_page(
             from_date=from_date,
             to_date=to_date,
             domain=domain,
+            flat=flat,
         )
     except GLError as e:
         return _err_redirect("/admin/gl/accounts", str(e))
     status = gl_status_summary(db)
+    q_extra = ""
+    if raw_from:
+        q_extra += f"&from={raw_from}"
+    if raw_to:
+        q_extra += f"&to={raw_to}"
+    if flat:
+        q_extra += "&flat=1"
     return templates.TemplateResponse(
         "admin_gl_account_ledger.html",
         {
@@ -222,6 +231,8 @@ def gl_account_ledger_page(
             "has_next": (page + 1) * limit < ledger.total_lines,
             "from_date": raw_from,
             "to_date": raw_to,
+            "flat": flat,
+            "q_extra": q_extra,
             "account_type_label": account_type_label,
             "domain_label": domain_label(domain) if domain else "الكل",
         },

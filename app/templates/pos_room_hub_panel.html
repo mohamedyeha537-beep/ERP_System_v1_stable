@@ -5,7 +5,7 @@
     <select name="room_id" class="input pos-ext-hub-select" onchange="this.form.submit()">
       <option value="" {% if not session_room_id %}selected{% endif %}>— اختر شقة —</option>
       {% for r in rooms %}
-      <option value="{{ r.id }}" {% if session_room_id and session_room_id|int == r.id|int %}selected{% endif %}>#{{ r.number }}</option>
+      <option value="{{ r.id }}" {% if session_room_id and session_room_id|int == r.id|int %}selected{% endif %}>#{{ r.number }}{% if r.guest_name %} — {{ r.guest_name }}{% endif %}</option>
       {% endfor %}
     </select>
   {% else %}

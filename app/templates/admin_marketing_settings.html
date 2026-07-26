@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}إعدادات غرفة التسويق{% endblock %}
+{% block head_extra %}
+<style>
+  .mkt-set-hint { font-size: 0.86rem; color: #64748b; margin: 0.15rem 0 0.5rem; line-height: 1.5; }
+  .mkt-provider-box {
+    border: 1px solid #99f6e4; background: #f0fdfa; border-radius: 12px;
+    padding: 0.85rem 1rem; margin: 0.5rem 0 1rem;
+  }
+</style>
+{% endblock %}
+{% block body %}
+<div class="row" style="justify-content:space-between;align-items:center">
+  <h1 style="margin:0">إعدادات الغرفة — AI / fal.ai / n8n</h1>
+  <a class="btn" href="/admin/marketing-room">رجوع للغرفة</a>
+</div>
+
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+{% if notice %}<div class="alert" style="background:#ecfdf5;border-color:#10b981;color:#065f46">{{ notice }}</div>{% endif %}
+
+<div class="card" style="margin-top:0.85rem;border-color:#99f6e4;background:#f0fdfa">
+  <h2 style="margin-top:0;font-size:1.05rem">ما الذي نربطه؟</h2>
+  <ul style="margin:0;padding-inline-start:1.2rem;line-height:1.7;font-size:0.92rem">
+    <li><strong>النصوص:</strong> OpenAI أو أي API متوافق مع <code>/v1/chat/completions</code> (اختياري — بدون مفتاح تُستخدم قوالب محلية).</li>
+    <li><strong>الصور (موصى به):</strong> مفتاح <strong>fal.ai</strong> — الصق المفتاح هنا واختر موديلاً مثل <code>fal-ai/flux/schnell</code>.</li>
+    <li><strong>بديل للصور:</strong> OpenAI Images (DALL·E) إن فضّلت.</li>
+    <li><strong>اختياري:</strong> n8n Webhook كمنسّق خارجي.</li>
+    <li><strong>حملات فيسبوك:</strong> Meta Access Token + Ad Account لمدير الحملات، أو دفع الرؤى عبر MCP/n8n.</li>
+    <li><strong>لاحقاً:</strong> نشر عضوي تلقائي، ومنصات فيديو.</li>
+  </ul>
+</div>
+
+<form method="post" action="/admin/marketing-room/settings" class="card" style="margin-top:0.85rem" id="mkt-settings-form">
+  <h2 style="margin-top:0">ذكاء النصوص</h2>
+  <label>API Key</label>
+  <input name="marketing_ai_api_key" type="password" placeholder="{% if ai.api_key %}•••• محفوظ — اتركه فارغاً للإبقاء{% else %}sk-...{% endif %}" style="width:100%;margin:0.35rem 0 0.75rem" autocomplete="off" />
+  <label>Base URL</label>
+  <input name="marketing_ai_base_url" value="{{ ai.base_url }}" style="width:100%;margin:0.35rem 0 0.75rem;direction:ltr" />
+  <label>Model</label>
+  <input name="marketing_ai_model" value="{{ ai.model }}" style="width:100%;margin:0.35rem 0 0.75rem;direction:ltr" />
+
+  <h2>توليد الصور</h2>
+  <label>مزوّد الصور</label>
+  <select name="marketing_image_provider" id="marketing_image_provider" style="display:block;width:100%;max-width:28rem;margin:0.35rem 0 0.75rem">
+    {% for value, label in image_providers %}
+    <option value="{{ value }}" {% if img.provider == value %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+
+  <div class="mkt-provider-box" id="mkt-fal-box" {% if img.provider != 'fal' %}style="display:none"{% endif %}>
+    <strong>fal.ai</strong>
+    <p class="mkt-set-hint">عند الفشل يُجرَّب تلقائياً Higgsfield ثم OpenAI إن وُجدت مفاتيحها.</p>
+    <label>FAL API Key</label>
+    <input name="marketing_fal_api_key" type="password" placeholder="{% if img.provider == 'fal' and img.api_key %}•••• محفوظ — اتركه فارغاً للإبقاء{% else %}الصق مفتاح fal.ai هنا{% endif %}" style="width:100%;margin:0.35rem 0 0.5rem" autocomplete="off" />
+    <p class="mkt-set-hint">أمثلة للموديل: <code>fal-ai/flux/schnell</code> · <code>fal-ai/flux/dev</code></p>
+  </div>
+
+  <div class="mkt-provider-box" id="mkt-hg-box" style="border-color:#c4b5fd;background:#f5f3ff{% if img.provider != 'higgsfield' %};display:none{% endif %}">
+    <strong>Higgsfield.ai</strong>
+    <p class="mkt-set-hint">مفتاح بصيغة <code>key_id:key_secret</code> من لوحة Higgsfield. يُستخدم للصور (احتياطي) وللفيديو.</p>
+    <label>Higgsfield API Key</label>
+    <input name="marketing_higgsfield_api_key" type="password" placeholder="{% if hg.api_key %}•••• محفوظ — اتركه فارغاً للإبقاء{% else %}key_id:key_secret{% endif %}" style="width:100%;margin:0.35rem 0 0.5rem" autocomplete="off" />
+    <label>موديل الصور</label>
+    <input name="marketing_higgsfield_image_model" value="{{ hg.image_model }}" style="width:100%;margin:0.35rem 0 0.5rem;direction:ltr" />
+    <label>موديل الفيديو</label>
+    <input name="marketing_higgsfield_video_model" value="{{ hg.video_model }}" style="width:100%;margin:0.35rem 0 0.5rem;direction:ltr" />
+  </div>
+
+  <div id="mkt-openai-box" {% if img.provider != 'openai' %}style="display:none"{% endif %}>
+    <label>Image API Key (فارغ = نفس مفتاح النصوص)</label>
+    <input name="marketing_image_api_key" type="password" placeholder="{% if img.provider == 'openai' and img.api_key %}•••• محفوظ{% else %}اختياري{% endif %}" style="width:100%;margin:0.35rem 0 0.75rem" autocomplete="off" />
+    <label>Image Base URL</label>
+    <input name="marketing_image_base_url" value="{% if img.provider == 'openai' %}{{ img.base_url }}{% else %}https://api.openai.com/v1{% endif %}" style="width:100%;margin:0.35rem 0 0.75rem;direction:ltr" />
+  </div>
+
+  <label id="mkt-model-label">{% if img.provider == 'fal' %}Model ID (fal){% else %}Image Model{% endif %}</label>
+  <input name="marketing_image_model" id="marketing_image_model" value="{{ img.model }}" style="width:100%;margin:0.35rem 0 0.75rem;direction:ltr" />
+
+  <label>الحجم / الاتجاه</label>
+  <select name="marketing_image_size" style="display:block;margin:0.35rem 0 0.75rem">
+    <option value="1024x1024" {% if img.size == '1024x1024' %}selected{% endif %}>مربع (1024×1024)</option>
+    <option value="1792x1024" {% if img.size == '1792x1024' %}selected{% endif %}>أفقي عريض</option>
+    <option value="1024x1792" {% if img.size == '1024x1792' %}selected{% endif %}>عمودي</option>
+  </select>
+
+  <h2>n8n (اختياري)</h2>
+  <label>Webhook URL</label>
+  <input name="marketing_n8n_webhook_url" value="{{ n8n_url }}" placeholder="https://n8n.../webhook/..." style="width:100%;margin:0.35rem 0 0.85rem;direction:ltr" />
+
+  <h2>Meta — مدير حملات فيسبوك</h2>
+  <p class="mkt-set-hint">للمتابعة داخل النظام: Access Token من Meta Business + Ad Account ID (مثل act_123…). يمكن أيضاً دفع الرؤى عبر MCP/n8n بدون توكن هنا.</p>
+  <label>Access Token</label>
+  <input name="marketing_meta_access_token" type="password" placeholder="{% if meta.access_token %}•••• محفوظ — اتركه فارغاً للإبقاء{% else %}EAAB...{% endif %}" style="width:100%;margin:0.35rem 0 0.75rem" autocomplete="off" />
+  <label>Ad Account ID</label>
+  <input name="marketing_meta_ad_account_id" value="{{ meta.ad_account_id }}" placeholder="act_123456789" style="width:100%;margin:0.35rem 0 0.75rem;direction:ltr" />
+  <label>Page ID (اختياري)</label>
+  <input name="marketing_meta_page_id" value="{{ meta.page_id }}" placeholder="رقم الصفحة" style="width:100%;margin:0.35rem 0 0.75rem;direction:ltr" />
+  <label>Graph API Version</label>
+  <input name="marketing_meta_api_version" value="{{ meta.api_version or 'v21.0' }}" style="width:100%;margin:0.35rem 0 0.85rem;direction:ltr" />
+
+  <button class="btn btn-primary" type="submit">حفظ الإعدادات</button>
+</form>
+
+<script>
+(function () {
+  var sel = document.getElementById('marketing_image_provider');
+  var falBox = document.getElementById('mkt-fal-box');
+  var hgBox = document.getElementById('mkt-hg-box');
+  var oaiBox = document.getElementById('mkt-openai-box');
+  var model = document.getElementById('marketing_image_model');
+  var label = document.getElementById('mkt-model-label');
+  var lastFal = 'fal-ai/flux/schnell';
+  var lastOai = 'dall-e-3';
+  if (model && model.value.indexOf('fal-') === 0) lastFal = model.value;
+  if (model && model.value.indexOf('dall-e') === 0) lastOai = model.value;
+  function sync() {
+    var p = (sel && sel.value) || 'fal';
+    if (falBox) falBox.style.display = p === 'fal' ? 'block' : 'none';
+    if (hgBox) hgBox.style.display = (p === 'higgsfield' || p === 'fal') ? 'block' : 'none';
+    if (oaiBox) oaiBox.style.display = p === 'openai' ? 'block' : 'none';
+    if (label) {
+      label.textContent = p === 'fal' ? 'Model ID (fal)' : (p === 'higgsfield' ? 'Model ID (Higgsfield — أعلاه)' : 'Image Model');
+    }
+    if (!model) return;
+    if (p === 'fal') {
+      if (model.value.indexOf('fal-') !== 0) model.value = lastFal;
+      else lastFal = model.value;
+    } else if (p === 'openai') {
+      if (model.value.indexOf('fal-') === 0 || model.value.indexOf('bytedance/') === 0) model.value = lastOai;
+      else lastOai = model.value;
+    }
+  }
+  if (sel) sel.addEventListener('change', sync);
+  sync();
+})();
+</script>
+{% endblock %}

@@ -25,13 +25,44 @@ from modules.sync.models import (
 
 log = logging.getLogger("sync")
 
+# جداول تُسجَّل محلياً أثناء الأوفلاين ثم تُدفع عند عودة الاتصال
 TRACKED_TABLES = {
     "sales",
-    "sale_lines",
     "products",
     "product_categories",
     "customers",
+    "sale_payments",
+    "hotel_rooms",
+    "hotel_room_types",
+    "hotel_bookings",
+    "hotel_booking_guests",
+    "hotel_booking_room_assignments",
+    "hotel_booking_services",
+    "hotel_booking_payments",
+    "hotel_booking_debts",
+    "hotel_invoices",
+    "hotel_invoice_items",
 }
+
+# ربط المفاتيح الأجنبية الشائعة عند تطبيق أحداث بعيدة
+_FK_TABLE_HINTS: dict[tuple[str, str], str] = {
+    ("products", "category_id"): "product_categories",
+    ("sales", "customer_id"): "customers",
+    ("sales", "booking_id"): "hotel_bookings",
+    ("sale_payments", "sale_id"): "sales",
+    ("hotel_rooms", "room_type_id"): "hotel_room_types",
+    ("hotel_bookings", "room_type_id"): "hotel_room_types",
+    ("hotel_booking_guests", "booking_id"): "hotel_bookings",
+    ("hotel_booking_room_assignments", "booking_id"): "hotel_bookings",
+    ("hotel_booking_room_assignments", "room_id"): "hotel_rooms",
+    ("hotel_booking_services", "booking_id"): "hotel_bookings",
+    ("hotel_booking_payments", "booking_id"): "hotel_bookings",
+    ("hotel_booking_debts", "booking_id"): "hotel_bookings",
+    ("hotel_invoices", "booking_id"): "hotel_bookings",
+    ("hotel_invoice_items", "invoice_id"): "hotel_invoices",
+}
+
+MAX_SYNC_RETRIES = 50
 
 
 def now_utc() -> datetime:
@@ -65,6 +96,21 @@ def _serialize_record(instance: Any) -> str:
     data = {}
     for col in instance.__table__.columns:
         data[col.name] = _serialize_value(getattr(instance, col.name, None))
+    # الفاتورة تحتاج البنود لتطبيقها على السيرفر المركزي
+    if getattr(instance, "__tablename__", None) == "sales":
+        lines = []
+        for line in getattr(instance, "lines", None) or []:
+            lines.append(
+                {
+                    "id": getattr(line, "id", None),
+                    "product_id": getattr(line, "product_id", None),
+                    "quantity": _serialize_value(getattr(line, "quantity", None)),
+                    "unit_price": _serialize_value(getattr(line, "unit_price", None)),
+                    "line_total": _serialize_value(getattr(line, "line_total", None)),
+                    "line_note": getattr(line, "line_note", None),
+                }
+            )
+        data["lines"] = lines
     return json.dumps(data, ensure_ascii=False)
 
 
@@ -227,18 +273,17 @@ def _apply_columns(
         if col.name not in payload:
             continue
         value = payload[col.name]
-        # Map common foreign keys by SyncRecordMap
-        if col.name == "category_id" and table == "products":
-            value = _map_fk(db, site_id, "product_categories", value)
-        elif col.name == "customer_id" and table == "sales":
-            value = _map_fk(db, site_id, "customers", value)
+        hint = _FK_TABLE_HINTS.get((table, col.name))
+        if hint is not None and value is not None:
+            mapped = _map_fk(db, site_id, hint, value)
+            if mapped is not None:
+                value = mapped
         elif col.name in (
             "parent_id",
             "kitchen_department_id",
             "kitchen_section_id",
             "sales_warehouse_id",
         ):
-            # محاولة الترجمة إن وُجدت، وإلا نترك القيمة كما هي (قد تكون null)
             mapped = _map_fk(db, site_id, "kitchen_departments", value)
             if mapped is None:
                 mapped = _map_fk(db, site_id, "kitchen_sections", value)
@@ -247,9 +292,8 @@ def _apply_columns(
             if mapped is not None:
                 value = mapped
         if value is None and not col.nullable:
-            # تجنب إدخال null في أعمدة غير nullable
             continue
-        if isinstance(value, str) and col.name in ("created_at", "updated_at"):
+        if isinstance(value, str) and col.name.endswith("_at"):
             try:
                 value = datetime.fromisoformat(value)
             except Exception:
@@ -325,7 +369,8 @@ def apply_sale_event(db: ORMSession, event: SyncIncomingEvent) -> tuple[bool, st
         qty = line.get("quantity") if isinstance(line, dict) else line[1]
         mapped = _map_fk(db, event.site_id, "products", product_id)
         if mapped is None:
-            return False, f"product map missing for {product_id}"
+            # نفس المعرّف إن وُجد المنتج محلياً (نسخ متطابقة / أول مزامنة)
+            mapped = product_id
         mapped_lines.append((int(mapped), Decimal(str(qty))))
 
     external_order_id = f"{event.site_id}:{event.record_id}"
@@ -345,9 +390,9 @@ def apply_sale_event(db: ORMSession, event: SyncIncomingEvent) -> tuple[bool, st
 
 
 def apply_remote_event(db: ORMSession, event: SyncIncomingEvent) -> tuple[bool, str]:
-    if event.table_name == "sales":
+    if event.table_name == "sales" and event.action == SyncEventAction.INSERT.value:
         return apply_sale_event(db, event)
-    if event.table_name in ("products", "product_categories", "customers"):
+    if event.table_name in TRACKED_TABLES:
         return apply_generic_event(db, event)
     return False, f"unsupported table {event.table_name}"
 
@@ -357,34 +402,97 @@ def apply_remote_event(db: ORMSession, event: SyncIncomingEvent) -> tuple[bool, 
 # =============================================================================
 
 
+def _pending_filter():
+    from sqlalchemy import and_, or_
+
+    return or_(
+        SyncEvent.status == SyncEventStatus.PENDING.value,
+        and_(
+            SyncEvent.status == SyncEventStatus.FAILED.value,
+            SyncEvent.retries < MAX_SYNC_RETRIES,
+        ),
+    )
+
+
+def count_pending_events(db: ORMSession) -> int:
+    """عدّ سريع للأحداث المعلّقة بدون تحميل الصفوف."""
+    from sqlalchemy import func
+
+    return int(
+        db.scalar(select(func.count()).select_from(SyncEvent).where(_pending_filter()))
+        or 0
+    )
+
+
 def get_pending_events(db: ORMSession, limit: int = 100) -> list[SyncEvent]:
-    return list(
+    """أحداث معلّقة + فاشلة قابلة لإعادة المحاولة بعد انقطاع الإنترنت."""
+    rows = list(
         db.scalars(
             select(SyncEvent)
-            .where(SyncEvent.status == SyncEventStatus.PENDING.value)
+            .where(_pending_filter())
             .order_by(SyncEvent.id)
             .limit(limit)
         ).all()
     )
+    for ev in rows:
+        if ev.status == SyncEventStatus.FAILED.value:
+            ev.status = SyncEventStatus.PENDING.value
+            ev.last_error = None
+    return rows
+
+
+_SYNC_STATUS_CACHE: dict[str, Any] = {"at": 0.0, "payload": None}
+_SYNC_STATUS_TTL = 5.0
 
 
 def get_sync_status(db: ORMSession) -> dict[str, Any]:
+    import time
+
+    now = time.monotonic()
+    cached = _SYNC_STATUS_CACHE.get("payload")
+    if cached is not None and (now - float(_SYNC_STATUS_CACHE["at"])) < _SYNC_STATUS_TTL:
+        return cached
+
     settings = get_settings()
     site_id = get_site_id()
     state = get_or_create_sync_state(db, site_id)
-    pending_count = db.execute(
-        select(SyncEvent.id)
-        .where(SyncEvent.status == SyncEventStatus.PENDING.value)
-    ).fetchall()
-    return {
+    pending_count = count_pending_events(db)
+    configured = bool(
+        (settings.online_sync_url or "").strip() and (settings.online_sync_api_key or "").strip()
+    )
+    payload = {
         "enabled": settings.sync_enabled,
+        "configured": configured,
         "site_id": site_id,
-        "online": state.is_online,
-        "pending_count": len(pending_count),
-        "last_push_at": state.last_push_at,
-        "last_pull_at": state.last_pull_at,
+        "online": bool(state.is_online) if configured else True,
+        "local_ok": True,
+        "pending_count": pending_count,
+        "last_push_at": state.last_push_at.isoformat() if state.last_push_at else None,
+        "last_pull_at": state.last_pull_at.isoformat() if state.last_pull_at else None,
         "last_error": state.last_error,
+        "mode": "offline_first",
+        "message_ar": _status_message_ar(
+            enabled=settings.sync_enabled,
+            configured=configured,
+            online=bool(state.is_online) if configured else True,
+            pending=pending_count,
+        ),
     }
+    _SYNC_STATUS_CACHE["at"] = now
+    _SYNC_STATUS_CACHE["payload"] = payload
+    return payload
+
+
+def _status_message_ar(*, enabled: bool, configured: bool, online: bool, pending: int) -> str:
+    if not enabled:
+        return "يعمل محلياً بالكامل بدون إنترنت (المزامنة السحابية مطفأة)"
+    if not configured:
+        return "يعمل أوفلاين — فعّل ONLINE_SYNC_URL لمزامنة السحابة عند عودة الإنترنت"
+    if not online:
+        return f"أوفلاين — العمل مستمر محلياً · بانتظار المزامنة ({pending})"
+    if pending:
+        return f"متصل — جارٍ دفع {pending} حدث معلّق"
+    return "متصل — المزامنة محدّثة"
 
 
 def mark_events_sent(

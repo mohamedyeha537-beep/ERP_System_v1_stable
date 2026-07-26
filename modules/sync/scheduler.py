@@ -7,11 +7,15 @@ import time
 from infra.background import with_db
 from infra.config import get_settings
 from modules.sync import client
+from modules.sync.service import get_sync_status
 
 log = logging.getLogger("sync.scheduler")
 
 _scheduler_thread: threading.Thread | None = None
 _stop_event = threading.Event()
+
+# عند انقطاع الإنترنت أو وجود أحداث معلّقة نعيد المحاولة بسرعة أكبر
+_OFFLINE_RETRY_SECONDS = 15
 
 
 def _sync_loop():
@@ -20,20 +24,38 @@ def _sync_loop():
         if not settings.sync_enabled:
             time.sleep(max(settings.sync_interval_seconds, 10))
             continue
+
+        need_fast_retry = False
         try:
             with with_db() as db:
-                client.push_pending(db)
+                status = get_sync_status(db)
+                need_fast_retry = (not status.get("online")) or int(status.get("pending_count") or 0) > 0
+
+                pushed, err_push = client.push_pending(db)
+                if err_push:
+                    need_fast_retry = True
+                    log.warning("scheduled push failed: %s", err_push)
+                elif pushed:
+                    log.info("scheduled push ok: %s events", pushed)
+
+                if settings.sync_pull_enabled:
+                    pulled, err_pull = client.pull_remote(db)
+                    if err_pull:
+                        need_fast_retry = True
+                        log.warning("scheduled pull failed: %s", err_pull)
+                    elif pulled:
+                        log.info("scheduled pull ok: %s events", pulled)
         except Exception as exc:
-            log.warning("scheduled push failed: %s", exc)
+            need_fast_retry = True
+            log.warning("scheduled sync cycle failed: %s", exc)
 
-        if settings.sync_pull_enabled:
-            try:
-                with with_db() as db:
-                    client.pull_remote(db)
-            except Exception as exc:
-                log.warning("scheduled pull failed: %s", exc)
-
-        time.sleep(max(settings.sync_interval_seconds, 10))
+        delay = (
+            _OFFLINE_RETRY_SECONDS
+            if need_fast_retry
+            else max(settings.sync_interval_seconds, 10)
+        )
+        # انتظار قابل للمقاطعة عند الإيقاف
+        _stop_event.wait(delay)
 
 
 def start_scheduler() -> threading.Thread | None:

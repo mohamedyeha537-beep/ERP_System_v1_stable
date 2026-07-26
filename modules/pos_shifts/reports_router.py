@@ -50,7 +50,7 @@ def reports_shifts_index(
     from modules.platform.business_domain import reports_show_pos_sections
 
     if not reports_show_pos_sections(user, request.session):
-        return RedirectResponse("/reports/hotel-collections?period=month", status_code=302)
+        return RedirectResponse("/reports/hotel-shifts", status_code=302)
 
     status_f = (status or "all").lower()
     if status_f not in ("all", "open", "closed"):

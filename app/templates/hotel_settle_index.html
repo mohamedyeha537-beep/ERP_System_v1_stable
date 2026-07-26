@@ -11,8 +11,9 @@
   </div>
 </div>
 <p class="muted">
-  هنا تظهر الغرف التي عليها فواتير مفتوحة مسجّلة بقيد شقة.
-  الفواتير التي تظهر في «ديون العملاء» باسم «غير مربوطة» لا تُحسب هنا حتى تُربط برقم الغرفة أدناه.
+  البطاقات أدناه = فواتير قُيِّدت مسبقاً على رقم الشقة من نقطة البيع.
+  يمكنك اختيار غرف كاملة أو فواتير معيّنة ثم تسويتها جماعياً (تحويل فندق → مطعم)
+  بنفس آلية صفحة الغرفة. للتسوية يلزم حجز مقيم/مرتبط.
 </p>
 
 {% if error %}
@@ -20,6 +21,23 @@
 {% endif %}
 {% if saved %}
 <div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0">تم الحفظ.</p></div>
+{% endif %}
+{% if pickup %}
+<div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0">تم تحويل الطلبات إلى استلام من المطعم وتحصيلها — أُزيلت من حساب الشقق.</p></div>
+{% endif %}
+{% if paid == 'bulk' or paid == 'bulk_breakfast' %}
+<div class="card" style="border-color:#86efac; background:#f0fdf4">
+  <p style="margin:0;color:#065f46">
+    {% if paid == 'bulk_breakfast' %}
+    تمت التسوية الجماعية كإفطار (تكلفة فندق)
+    {% else %}
+    تمت التسوية الجماعية: حُوِّل المبلغ للمطعم وسُجِّل ديناً على الحجوزات
+    {% endif %}
+    {% if request.query_params.get('n') %}
+    — {{ request.query_params.get('n') }} فاتورة.
+    {% else %}.{% endif %}
+  </p>
+</div>
 {% endif %}
 
 <div class="card" style="background:linear-gradient(135deg,#fef3c7,#fde68a); border-color:#f59e0b">
@@ -104,42 +122,487 @@
   {% elif not open_rooms %}
   <p class="muted">لا توجد غرف بقيود مفتوحة — لكن يوجد {{ unlinked_invoices|length }} فاتورة غير مربوطة أعلاه.</p>
   {% else %}
-  <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:0.75rem">
-    {% for room, total, count in open_rooms %}
-    {% set guests = guests_by_room.get(room.id, []) %}
-    <a href="/hotel/settle/room/{{ room.id }}"
-       style="display:block; text-decoration:none; color:inherit; border:2px solid #f59e0b; border-radius:12px; padding:1rem; background:#fffbeb; transition:all 0.15s"
-       onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(0,0,0,0.08)'"
-       onmouseout="this.style.transform='none'; this.style.boxShadow='none'">
-      <div style="display:flex; justify-content:space-between; align-items:flex-start">
-        <div>
-          <div style="font-size:1.6rem; font-weight:800; color:#b45309">#{{ room.number }}</div>
-          <div style="font-size:0.88rem; color:#78350f; margin-top:0.25rem; line-height:1.4">
-            {% if guests %}
-              {% if guests|length == 1 %}
-                👤 {{ guests[0] }}
-              {% else %}
-                👥 {{ guests|length }} نزلاء:
-                <span style="display:block; color:#92400e; font-size:0.82rem">
-                  {{ guests|join(' · ') }}
-                </span>
-              {% endif %}
-            {% else %}
-              <span class="muted">— بدون اسم —</span>
-            {% endif %}
+
+  <style>
+    .settle-bulk-bar__pick {
+      display: flex !important;
+      align-items: center;
+      gap: 0.35rem;
+      margin: 0 !important;
+      color: inherit;
+      font-size: 0.92rem;
+      cursor: pointer;
+      user-select: none;
+    }
+    .settle-room-card input[type="checkbox"],
+    #bulk-bar input[type="checkbox"] {
+      width: 1.15rem;
+      height: 1.15rem;
+      accent-color: #b45309;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .settle-room-card input[type="checkbox"]:disabled,
+    #bulk-bar input[type="checkbox"]:disabled {
+      cursor: not-allowed;
+      opacity: 0.45;
+    }
+    .settle-room-card .settle-charge-row {
+      display: flex !important;
+      align-items: flex-start;
+      gap: 0.55rem;
+      width: 100%;
+      box-sizing: border-box;
+      margin: 0.4rem 0 !important;
+      padding: 0.45rem 0.5rem;
+      background: #fff;
+      border: 1px solid #fde68a;
+      border-radius: 8px;
+      color: inherit;
+      font-size: 0.88rem;
+    }
+    .settle-room-card .settle-charge-row__meta {
+      flex: 1 1 auto;
+      min-width: 0;
+      width: 100%;
+      line-height: 1.45;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: normal;
+    }
+    .settle-room-card .room-charges {
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+  </style>
+
+  <form method="post" action="/hotel/settle/bulk-pay" id="bulk-settle-form">
+    <div id="bulk-bar" style="display:flex;flex-wrap:wrap;gap:0.65rem;align-items:center;margin:0 0 1rem;padding:0.75rem 0.9rem;background:#fff7ed;border:1px solid #fdba74;border-radius:10px;position:sticky;top:0.5rem;z-index:5">
+      <label class="settle-bulk-bar__pick" for="select-all-settleable">
+        <input type="checkbox" id="select-all-settleable" />
+        اختيار الكل
+      </label>
+      <span class="muted" style="font-size:0.88rem">
+        المختار: <strong id="bulk-count">0</strong> فاتورة —
+        <strong id="bulk-due">0.000</strong> د.ل
+        · مرتبط بحجز: <strong>{{ settleable_charge_count }}</strong> / {{ total_open_charge_count }}
+      </span>
+      <button type="button" class="btn" id="bulk-toggle-panel">إظهار التحويل / تسوية المجموعة</button>
+    </div>
+    {% if settleable_charge_count < total_open_charge_count %}
+    <div class="card" style="border-color:#fcd34d;background:#fffbeb;margin-bottom:0.85rem">
+      <p style="margin:0;color:#92400e;line-height:1.55">
+        {% if settleable_charge_count == 0 %}
+        الفواتير غير مربوطة بحجز بعد. يمكنك اختيارها، لكن عند التسوية يلزم وجود
+        <strong>حجز واحد مؤكد أو مقيم</strong> على الشقة (يُربط تلقائياً إن وُجد)،
+        أو اربط يدوياً من <strong>تفاصيل / ربط حجز</strong>.
+        {% else %}
+        بعض الفواتير غير مربوطة بحجز — ستُستثنى من التسوية إن لم يوجد حجز مناسب على شقتها.
+        {% endif %}
+      </p>
+    </div>
+    {% endif %}
+
+    <div id="bulk-xfer-panel" hidden style="margin:0 0 1rem;padding:0.85rem 1rem;background:#f8fafc;border:1px solid var(--border);border-radius:10px">
+      <h3 style="margin:0 0 0.35rem">تسوية المجموعة (تحويل فندق → مطعم)</h3>
+      <p class="muted" style="margin:0 0 0.75rem;font-size:0.85rem;line-height:1.55">
+        نفس منطق صفحة الغرفة: التحويل يسدّد المطعم ويبقى المبلغ <strong>ديناً على النزيل</strong> في كل حجز.
+        لا تخلط فواتير إفطار مشمول مع وجبات عادية في نفس العملية.
+      </p>
+      {% if methods and to_methods %}
+      <div style="margin:0 0 0.75rem;padding:0.65rem 0.85rem;background:#fff;border-radius:8px;font-size:0.92rem">
+        المستحق المختار:
+        <strong id="due-selected">0.000</strong> د.ل
+        · مجموع أسطر التحويل:
+        <strong id="xfer-sum">0.000</strong> د.ل
+        <span id="xfer-match" class="muted" style="margin-inline-start:0.35rem"></span>
+      </div>
+      <div class="table-x-scroll" style="margin-bottom:0.65rem">
+        <table style="width:100%;font-size:0.88rem" id="xfer-table" class="no-sticky-head">
+          <thead>
+            <tr>
+              <th>من (خزينة الفندق)</th>
+              <th>إلى (خزينة المطعم)</th>
+              <th style="width:8rem">المبلغ</th>
+              <th style="width:3rem"></th>
+            </tr>
+          </thead>
+          <tbody id="xfer-body"></tbody>
+        </table>
+      </div>
+      <button type="button" class="btn" id="xfer-add-btn" style="margin-bottom:0.85rem">+ إضافة سطر تحويل</button>
+      <template id="xfer-row-tpl">
+        <tr class="xfer-row">
+          <td>
+            <select name="xfer_from_id" class="input xfer-from" required style="width:100%;min-width:10rem">
+              {% for m in methods %}
+              <option value="{{ m.id }}">{{ m.name_ar }} ({{ {'CASH': 'كاش', 'BANK': 'مصرف', 'OTHER': 'أخرى'}.get(m.kind.value, '') }})</option>
+              {% endfor %}
+            </select>
+          </td>
+          <td>
+            <select name="xfer_to_id" class="input xfer-to" required style="width:100%;min-width:10rem">
+              {% for m in to_methods %}
+              <option value="{{ m.id }}">{{ m.name_ar }} ({{ {'CASH': 'كاش', 'BANK': 'مصرف', 'OTHER': 'أخرى'}.get(m.kind.value, '') }})</option>
+              {% endfor %}
+            </select>
+          </td>
+          <td>
+            <input name="xfer_amount" type="number" step="0.001" min="0.001" class="input xfer-amt" required style="width:100%" />
+          </td>
+          <td>
+            <button type="button" class="btn xfer-del" title="حذف السطر" style="padding:0.25rem 0.45rem">×</button>
+          </td>
+        </tr>
+      </template>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+        <button class="btn btn-primary" type="submit" name="settle_mode" value="transfer" id="submit-settle-btn">
+          ✅ تسوية المجموعة (دين على النزيل)
+        </button>
+        {% if breakfast_included_enabled %}
+        <button class="btn" type="submit" name="settle_mode" value="breakfast" id="submit-breakfast-btn"
+                style="background:#ea580c;color:#fff;border-color:#c2410c">
+          🥐 تسوية إفطار (تكلفة فندق)
+        </button>
+        {% endif %}
+      </div>
+      {% else %}
+      <div class="alert">
+        لا توجد خزائن فندق أو مطعم مفعّلة. على الأدمن ضبطها من
+        <a href="/admin/payment-methods">إدارة أساليب الدفع</a>.
+      </div>
+      {% endif %}
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:0.75rem">
+      {% for room, total, count in open_rooms %}
+      {% set guests = guests_by_room.get(room.id, []) %}
+      {% set charges = charges_by_room.get(room.id, []) %}
+      <div class="settle-room-card"
+           style="border:2px solid #f59e0b; border-radius:12px; padding:1rem; background:#fffbeb">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:0.5rem">
+          <div style="display:flex;align-items:flex-start;gap:0.5rem;min-width:0">
+            <input type="checkbox" class="room-check"
+                   data-room-id="{{ room.id }}"
+                   style="margin-top:0.45rem" />
+            <div style="min-width:0">
+              <div style="font-size:1.6rem; font-weight:800; color:#b45309">#{{ room.number }}</div>
+              <div style="font-size:0.88rem; color:#78350f; margin-top:0.25rem; line-height:1.4">
+                {% if guests %}
+                  {% if guests|length == 1 %}
+                    👤 {{ guests[0] }}
+                  {% else %}
+                    👥 {{ guests|length }} نزلاء:
+                    <span style="display:block; color:#92400e; font-size:0.82rem">
+                      {{ guests|join(' · ') }}
+                    </span>
+                  {% endif %}
+                {% else %}
+                  <span class="muted">— بدون اسم —</span>
+                {% endif %}
+              </div>
+            </div>
           </div>
+          <span style="background:#f59e0b; color:#fff; padding:0.15rem 0.5rem; border-radius:8px; font-size:0.78rem; font-weight:700; flex-shrink:0">
+            {{ count }} فاتورة
+          </span>
         </div>
-        <span style="background:#f59e0b; color:#fff; padding:0.15rem 0.5rem; border-radius:8px; font-size:0.78rem; font-weight:700; flex-shrink:0">
-          {{ count }} فاتورة
-        </span>
+        <div style="margin-top:0.75rem; font-size:1.35rem; font-weight:800; color:#7c2d12">
+          {{ '%.3f' % total }} د.ل
+        </div>
+        <div style="margin-top:0.55rem;display:flex;gap:0.4rem;flex-wrap:wrap;align-items:center">
+          <button type="button" class="btn room-toggle-charges" data-room-id="{{ room.id }}"
+                  style="font-size:0.82rem;padding:0.25rem 0.55rem;background:#fff">
+            الفواتير ▾
+          </button>
+          <a class="btn" href="/hotel/settle/room/{{ room.id }}"
+             style="font-size:0.82rem;padding:0.25rem 0.55rem;background:#fff">
+            تفاصيل / ربط حجز
+          </a>
+        </div>
+        <div class="room-charges" id="room-charges-{{ room.id }}" hidden
+             style="margin-top:0.65rem;padding-top:0.55rem;border-top:1px dashed #fcd34d">
+          {% for ch in charges %}
+          <div class="settle-charge-row">
+            <input type="checkbox" name="charge_ids" value="{{ ch.charge_id }}"
+                   class="charge-check"
+                   data-room-id="{{ room.id }}"
+                   data-due="{{ '%.3f' % ch.outstanding }}"
+                   data-breakfast="{{ '1' if ch.is_breakfast else '0' }}"
+                   data-can-settle="{{ '1' if ch.can_settle else '0' }}" />
+            <div class="settle-charge-row__meta">
+              <div>
+                فاتورة <strong>#{{ ch.sale_id }}</strong>
+                — <strong>{{ '%.3f' % ch.outstanding }}</strong> د.ل
+                {% if ch.is_breakfast %}<span style="color:#c2410c;font-size:0.78rem">· إفطار</span>{% endif %}
+              </div>
+              {% if ch.guest_name %}
+              <div class="muted" style="font-size:0.78rem;margin-top:0.15rem">{{ ch.guest_name }}</div>
+              {% endif %}
+              {% if not ch.can_settle %}
+              <div style="color:#b45309;font-size:0.8rem;margin-top:0.2rem;line-height:1.4">
+                غير مربوط بحجز بعد — يُربط تلقائياً إن وُجد حجز واحد على الشقة
+              </div>
+              {% endif %}
+            </div>
+          </div>
+          {% else %}
+          <p class="muted" style="margin:0;font-size:0.85rem">لا فواتير مستحقة.</p>
+          {% endfor %}
+        </div>
       </div>
-      <div style="margin-top:0.75rem; font-size:1.4rem; font-weight:800; color:#7c2d12">
-        {{ '%.3f' % total }} د.ل
-      </div>
-      <div style="margin-top:0.5rem; font-size:0.85rem; color:#92400e">اضغط للتسوية ←</div>
-    </a>
-    {% endfor %}
-  </div>
+      {% endfor %}
+    </div>
+  </form>
   {% endif %}
 </div>
+
+{% if open_rooms %}
+<script>
+(function () {
+  function num(v) {
+    var x = parseFloat(v);
+    return isNaN(x) ? 0 : x;
+  }
+  function fmt(n) {
+    return (Math.round(n * 1000) / 1000).toFixed(3);
+  }
+  function allCharges() {
+    return Array.prototype.slice.call(
+      document.querySelectorAll('.charge-check')
+    );
+  }
+  function selectedCharges() {
+    return Array.prototype.slice.call(
+      document.querySelectorAll('.charge-check:checked')
+    );
+  }
+  function selectedDue() {
+    var sum = 0;
+    selectedCharges().forEach(function (cb) {
+      sum += num(cb.getAttribute('data-due'));
+    });
+    return sum;
+  }
+  function xferSum() {
+    var sum = 0;
+    document.querySelectorAll('.xfer-amt').forEach(function (inp) {
+      sum += num(inp.value);
+    });
+    return sum;
+  }
+  function syncFirstAmount() {
+    var due = selectedDue();
+    var amts = document.querySelectorAll('.xfer-amt');
+    if (amts.length === 1) {
+      amts[0].value = due > 0 ? fmt(due) : '';
+    }
+  }
+  function syncRoomChecks() {
+    document.querySelectorAll('.room-check').forEach(function (rc) {
+      var rid = rc.getAttribute('data-room-id');
+      var boxes = document.querySelectorAll(
+        '.charge-check[data-room-id="' + rid + '"]'
+      );
+      if (!boxes.length) {
+        rc.checked = false;
+        rc.indeterminate = false;
+        return;
+      }
+      var n = 0;
+      boxes.forEach(function (b) { if (b.checked) n++; });
+      rc.checked = n === boxes.length && n > 0;
+      rc.indeterminate = n > 0 && n < boxes.length;
+    });
+    var all = document.getElementById('select-all-settleable');
+    if (all) {
+      var boxes = allCharges();
+      var n = selectedCharges().length;
+      all.checked = boxes.length > 0 && n === boxes.length;
+      all.indeterminate = n > 0 && n < boxes.length;
+    }
+  }
+  function recalc() {
+    var due = selectedDue();
+    var sum = xferSum();
+    var n = selectedCharges().length;
+    var elCount = document.getElementById('bulk-count');
+    var elDue = document.getElementById('bulk-due');
+    var elDue2 = document.getElementById('due-selected');
+    var elSum = document.getElementById('xfer-sum');
+    var elMatch = document.getElementById('xfer-match');
+    if (elCount) elCount.textContent = String(n);
+    if (elDue) elDue.textContent = fmt(due);
+    if (elDue2) elDue2.textContent = fmt(due);
+    if (elSum) elSum.textContent = fmt(sum);
+    if (elMatch) {
+      if (due <= 0.0005) {
+        elMatch.textContent = '';
+        elMatch.style.color = '';
+      } else if (Math.abs(sum - due) <= 0.001) {
+        elMatch.textContent = '✓ متطابق';
+        elMatch.style.color = '#15803d';
+      } else {
+        elMatch.textContent = 'يجب أن يساوي المستحق';
+        elMatch.style.color = '#b91c1c';
+      }
+    }
+    syncRoomChecks();
+  }
+  function bindRow(row) {
+    row.querySelectorAll('.xfer-amt').forEach(function (inp) {
+      inp.addEventListener('input', recalc);
+    });
+    var del = row.querySelector('.xfer-del');
+    if (del) {
+      del.addEventListener('click', function () {
+        var body = document.getElementById('xfer-body');
+        if (body && body.querySelectorAll('.xfer-row').length > 1) {
+          row.remove();
+          recalc();
+        }
+      });
+    }
+  }
+  function addRow(prefillDue) {
+    var tpl = document.getElementById('xfer-row-tpl');
+    var body = document.getElementById('xfer-body');
+    if (!tpl || !body) return;
+    var node = tpl.content.cloneNode(true);
+    body.appendChild(node);
+    var row = body.lastElementChild;
+    bindRow(row);
+    var amt = row.querySelector('.xfer-amt');
+    if (amt && prefillDue) amt.value = fmt(prefillDue);
+    recalc();
+  }
+
+  document.querySelectorAll('.charge-check').forEach(function (cb) {
+    cb.addEventListener('change', function () {
+      syncFirstAmount();
+      recalc();
+    });
+  });
+  document.querySelectorAll('.room-check').forEach(function (rc) {
+    rc.addEventListener('change', function () {
+      var rid = rc.getAttribute('data-room-id');
+      var on = !!rc.checked;
+      document.querySelectorAll(
+        '.charge-check[data-room-id="' + rid + '"]'
+      ).forEach(function (b) { b.checked = on; });
+      var panel = document.getElementById('room-charges-' + rid);
+      if (panel && on) {
+        panel.hidden = false;
+        var btn = document.querySelector(
+          '.room-toggle-charges[data-room-id="' + rid + '"]'
+        );
+        if (btn) btn.textContent = 'الفواتير ▴';
+      }
+      syncFirstAmount();
+      recalc();
+    });
+  });
+  var selectAll = document.getElementById('select-all-settleable');
+  if (selectAll) {
+    selectAll.addEventListener('change', function () {
+      var on = !!selectAll.checked;
+      allCharges().forEach(function (b) { b.checked = on; });
+      if (on) {
+        document.querySelectorAll('.room-charges').forEach(function (p) {
+          p.hidden = false;
+        });
+        document.querySelectorAll('.room-toggle-charges').forEach(function (btn) {
+          btn.textContent = 'الفواتير ▴';
+        });
+      }
+      syncFirstAmount();
+      recalc();
+    });
+  }
+  document.querySelectorAll('.room-toggle-charges').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var rid = btn.getAttribute('data-room-id');
+      var panel = document.getElementById('room-charges-' + rid);
+      if (!panel) return;
+      panel.hidden = !panel.hidden;
+      btn.textContent = panel.hidden ? 'الفواتير ▾' : 'الفواتير ▴';
+    });
+  });
+  var togglePanel = document.getElementById('bulk-toggle-panel');
+  var panel = document.getElementById('bulk-xfer-panel');
+  if (togglePanel && panel) {
+    togglePanel.addEventListener('click', function () {
+      panel.hidden = !panel.hidden;
+      togglePanel.textContent = panel.hidden
+        ? 'إظهار التحويل / تسوية المجموعة'
+        : 'إخفاء لوحة التحويل';
+      if (!panel.hidden) {
+        var body = document.getElementById('xfer-body');
+        if (body && !body.querySelector('.xfer-row')) {
+          addRow(selectedDue());
+        } else {
+          syncFirstAmount();
+          recalc();
+        }
+      }
+    });
+  }
+  var addBtn = document.getElementById('xfer-add-btn');
+  if (addBtn) {
+    addBtn.addEventListener('click', function () { addRow(0); });
+  }
+
+  var form = document.getElementById('bulk-settle-form');
+  if (form) {
+    form.addEventListener('submit', function (ev) {
+      var selected = selectedCharges();
+      if (!selected.length) {
+        ev.preventDefault();
+        alert('اختر فاتورة واحدة على الأقل قابلة للتسوية.');
+        return;
+      }
+      var hasBf = false;
+      var hasMeal = false;
+      selected.forEach(function (cb) {
+        if (cb.getAttribute('data-breakfast') === '1') hasBf = true;
+        else hasMeal = true;
+      });
+      var mode = (ev.submitter && ev.submitter.name === 'settle_mode')
+        ? String(ev.submitter.value || '')
+        : 'transfer';
+      if (hasBf && hasMeal) {
+        ev.preventDefault();
+        alert('لا تخلط فواتير إفطار مشمول مع وجبات عادية في نفس التسوية.');
+        return;
+      }
+      if ((mode === 'breakfast' || mode === 'hotel_cost') && hasMeal) {
+        ev.preventDefault();
+        alert('زر الإفطار مخصص لفواتير الإفطار المشمول فقط.');
+        return;
+      }
+      if ((mode === 'transfer' || mode === 'settle' || mode === 'room') && hasBf) {
+        ev.preventDefault();
+        alert('فواتير الإفطار المشمول سوِّها بزر «تسوية إفطار».');
+        return;
+      }
+      var due = selectedDue();
+      var sum = xferSum();
+      if (Math.abs(sum - due) > 0.001) {
+        ev.preventDefault();
+        alert('مجموع أسطر التحويل يجب أن يساوي المستحق المختار (' + fmt(due) + ' د.ل).');
+        return;
+      }
+      var msg = mode.indexOf('breakfast') >= 0 || mode === 'hotel_cost'
+        ? 'تأكيد تسوية المجموعة كإفطار (تكلفة فندق)؟'
+        : 'تأكيد تسوية المجموعة كدين على النزلاء؟';
+      if (!confirm(msg + '\n' + selected.length + ' فاتورة — ' + fmt(due) + ' د.ل')) {
+        ev.preventDefault();
+      }
+    });
+  }
+  recalc();
+})();
+</script>
+{% endif %}
 {% endblock %}

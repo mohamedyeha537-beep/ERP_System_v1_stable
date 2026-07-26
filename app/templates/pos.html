@@ -2,11 +2,11 @@
 {% set brand = pos_brand(request) %}
 {% block title %}{{ brand.pos_label }}{% endblock %}
 {% block head_extra %}
-<link rel="stylesheet" href="/static/pos.css?v=6" />
+<link rel="stylesheet" href="/static/pos.css?v=7" />
 <script src="/static/kds_alert_sound.js" defer></script>
 <script src="/static/pos_web_chat_alert.js" defer></script>
 <script src="/static/pos_checkout.js?v=4" defer></script>
-<script src="/static/pos_receipt_print.js?v=7" defer></script>
+<script src="/static/pos_receipt_print.js?v=8" defer></script>
 <script src="/static/receipt_whatsapp.js?v=3" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" crossorigin="anonymous" defer></script>
 {% endblock %}
@@ -1024,8 +1024,8 @@
         });
     }
 
-    setTimeout(pollRejected, 1500);
-    setInterval(pollRejected, 10000);
+    setTimeout(pollRejected, 2500);
+    setInterval(pollRejected, 30000);
   }
 
   initPosOrderHub();
@@ -1357,7 +1357,8 @@
       sessionStorage.setItem(key, "1");
       if (window.posReceiptPrint) {
         setTimeout(function () {
-          window.posReceiptPrint(parseInt(rid, 10), true, "receipt");
+          // بعد إقفال الفاتورة في الكاشير → فاتورة نهائية
+          window.posReceiptPrint(parseInt(rid, 10), true, "invoice");
         }, 450);
       }
     } catch (e) { /* ignore */ }
@@ -1369,7 +1370,7 @@
       btn._posAutoPrintBound = true;
       btn.addEventListener("click", function () {
         var sid = btn.getAttribute("data-sale-id");
-        if (sid && window.posReceiptPrint) window.posReceiptPrint(sid, true, "receipt");
+        if (sid && window.posReceiptPrint) window.posReceiptPrint(sid, true, "invoice");
       });
     });
     document.querySelectorAll(".pos-auto-receipt-preview-btn").forEach(function (btn) {
@@ -1377,7 +1378,7 @@
       btn._posAutoPreviewBound = true;
       btn.addEventListener("click", function () {
         var sid = btn.getAttribute("data-sale-id");
-        if (sid && window.posReceiptPreview) window.posReceiptPreview(sid, "receipt");
+        if (sid && window.posReceiptPreview) window.posReceiptPreview(sid, "invoice");
       });
     });
   }

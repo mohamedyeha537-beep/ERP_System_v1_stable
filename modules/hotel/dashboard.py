@@ -38,14 +38,24 @@ class RoomDashboardCard:
     status_detail: str | None
     guest_name: str | None
     booking_id: int | None
+    check_in: date | None
     check_out: date | None
     image_url: str | None
     is_active: bool
     room_type_name: str | None
+    rooms_count: int = 1
+    beds_count: int = 1
+    double_beds_count: int = 1
+    single_beds_count: int = 0
+    allows_infant: bool = False
     balance_due: Decimal = Decimal("0")
     debt_stay: Decimal = Decimal("0")
     debt_laundry: Decimal = Decimal("0")
     debt_restaurant: Decimal = Decimal("0")
+    debt_watch: bool = False
+    #: unpaid | partial | paid | "" — شارة حالة السداد على الكرت
+    pay_status: str = ""
+    pay_label: str = ""
     checkout_today: bool = False
     upcoming_booking_id: int | None = None
     upcoming_check_in: date | None = None
@@ -91,6 +101,7 @@ _STATUS_LABELS: dict[RoomPhysicalStatus, str] = {
     RoomPhysicalStatus.OUT_OF_SERVICE: "خارج الخدمة",
     RoomPhysicalStatus.BLOCKED: "محجوبة",
     RoomPhysicalStatus.DIRTY: "للتنظيف",
+    RoomPhysicalStatus.CLEANING: "قيد التنظيف",
     RoomPhysicalStatus.OCCUPIED: "مشغولة",
     RoomPhysicalStatus.RESERVED: "محجوزة",
 }
@@ -208,10 +219,12 @@ def build_room_dashboard(
         rt = room.room_type
         guest = None
         booking_id = None
+        check_in = None
         check_out = None
         if booking:
             guest = (booking.guest_name or "").strip() or None
             booking_id = booking.id
+            check_in = booking.check_in
             check_out = booking.check_out
         elif room.physical_status == RoomPhysicalStatus.OCCUPIED and room.guest_name:
             guest = room.guest_name.strip()
@@ -224,7 +237,7 @@ def build_room_dashboard(
             counts["occupied"] += 1
         elif key == "reserved":
             counts["reserved"] += 1
-        elif key == "dirty":
+        elif key in ("dirty", "cleaning"):
             counts["dirty"] += 1
         elif key == "maintenance":
             counts["maintenance"] += 1
@@ -235,24 +248,55 @@ def build_room_dashboard(
         debt_stay = Decimal("0")
         debt_laundry = Decimal("0")
         debt_restaurant = Decimal("0")
+        debt_watch = False
+        pay_status = ""
+        pay_label = ""
         checkout_today = False
 
         if booking is not None and booking.booking_status == BookingStatus.CHECKED_IN:
-            from modules.hotel.folio import folio_debt_breakdown
+            from modules.hotel.folio import build_folio, folio_debt_breakdown
+            from modules.hotel.service import room_open_total
 
             br = folio_debt_breakdown(db, booking.id)
+            folio = build_folio(db, booking.id)
             debt_stay = br.stay
             debt_laundry = br.laundry
-            debt_restaurant = br.restaurant + br.other_services
-            balance_due = br.balance
+            # فوليو يشمل POS المربوط/على الغرفة؛ نضمن أيضاً أي رصيد غرفة مفتوح
+            pos_due = room_open_total(db, room.id, include_hotel_breakfast=False)
+            debt_restaurant = max(
+                br.restaurant + br.other_services,
+                pos_due,
+            ).quantize(Decimal("0.001"))
+            balance_due = max(br.balance, debt_stay + debt_laundry + debt_restaurant).quantize(
+                Decimal("0.001")
+            )
             checkout_today = booking.check_out == day
+            debt_watch = bool(getattr(booking, "claim_wa_until_paid", False))
+            paid_amt = Decimal(str(folio.paid or 0))
+            total_amt = Decimal(str(folio.total or 0))
+            if balance_due > Decimal("0.001"):
+                if paid_amt > Decimal("0.001"):
+                    pay_status, pay_label = "partial", "مدفوعة جزئياً"
+                else:
+                    pay_status, pay_label = "unpaid", "غير مدفوعة"
+            elif total_amt > Decimal("0.001") or paid_amt > Decimal("0.001"):
+                pay_status, pay_label = "paid", "مدفوعة"
+            else:
+                ps = getattr(booking.payment_status, "value", str(booking.payment_status or ""))
+                if ps == "FULLY_PAID":
+                    pay_status, pay_label = "paid", "مدفوعة"
+                elif ps == "PARTIALLY_PAID":
+                    pay_status, pay_label = "partial", "مدفوعة جزئياً"
+                elif ps == "UNPAID":
+                    pay_status, pay_label = "unpaid", "غير مدفوعة"
         elif key == "occupied" and room.is_active:
             from modules.hotel.service import room_open_total
 
-            pos_due = room_open_total(db, room.id)
+            pos_due = room_open_total(db, room.id, include_hotel_breakfast=False)
             if pos_due > Decimal("0"):
                 debt_restaurant = pos_due
                 balance_due = pos_due
+                pay_status, pay_label = "unpaid", "غير مدفوعة"
 
         cards.append(
             RoomDashboardCard(
@@ -270,14 +314,35 @@ def build_room_dashboard(
                 status_detail=status_detail,
                 guest_name=guest,
                 booking_id=booking_id,
+                check_in=check_in,
                 check_out=check_out,
                 image_url=room_image_public_url(getattr(room, "image_filename", None)),
                 is_active=room.is_active,
                 room_type_name=rt.name_ar if rt else None,
+                rooms_count=max(0, int(getattr(room, "rooms_count", None) or 1)),
+                double_beds_count=max(
+                    0, int(getattr(room, "double_beds_count", None) or 0)
+                ),
+                single_beds_count=max(
+                    0, int(getattr(room, "single_beds_count", None) or 0)
+                ),
+                beds_count=max(
+                    0,
+                    int(getattr(room, "beds_count", None) or 0)
+                    or (
+                        int(getattr(room, "double_beds_count", None) or 0)
+                        + int(getattr(room, "single_beds_count", None) or 0)
+                    )
+                    or 1,
+                ),
+                allows_infant=bool(getattr(room, "allows_infant", False)),
                 balance_due=balance_due,
                 debt_stay=debt_stay,
                 debt_laundry=debt_laundry,
                 debt_restaurant=debt_restaurant,
+                debt_watch=debt_watch,
+                pay_status=pay_status,
+                pay_label=pay_label,
                 checkout_today=checkout_today,
                 upcoming_booking_id=upcoming_booking_id,
                 upcoming_check_in=upcoming_check_in,
@@ -410,3 +475,113 @@ def build_front_desk_summary(
         online_list=online_list,
         debt_alerts=alerts,
     )
+
+
+# مفاتيح بطاقات الملخص → عنوان عربي للتركيز
+DASHBOARD_VIEW_LABELS: dict[str, str] = {
+    "available": "الشقق المتاحة",
+    "occupied": "الشقق المشغولة",
+    "checkout": "مغادرة اليوم",
+    "arrivals": "وصول اليوم",
+    "online": "طلبات الحجز الأونلاين",
+    "reserved": "الشقق المحجوزة",
+    "dirty": "شقق للتنظيف",
+    "maintenance": "شقق الصيانة",
+    "debt_stay": "ديون الإقامة",
+    "debt_laundry": "ديون المغسلة",
+    "debt_restaurant": "ديون المطعم",
+}
+
+
+def normalize_dashboard_view(raw: str | None) -> str | None:
+    key = (raw or "").strip().lower()
+    if key in DASHBOARD_VIEW_LABELS:
+        return key
+    return None
+
+
+def filter_dashboard_by_view(
+    cards: list[RoomDashboardCard],
+    summary: FrontDeskSummary,
+    view: str | None,
+) -> tuple[list[RoomDashboardCard], FrontDeskSummary, str | None]:
+    """يُضيّق خريطة الشقق والقوائم حسب بطاقة الملخص المختارة."""
+    view = normalize_dashboard_view(view)
+    if view is None:
+        return cards, summary, None
+
+    zero = Decimal("0")
+    filtered = list(cards)
+    checkout_list = list(summary.checkout_list)
+    arrivals_list = list(summary.arrivals_list)
+    online_list = list(summary.online_list)
+    debt_alerts = list(summary.debt_alerts)
+
+    if view == "available":
+        filtered = [c for c in cards if c.is_active and c.status_key == "available"]
+        checkout_list, arrivals_list, online_list, debt_alerts = [], [], [], []
+    elif view == "occupied":
+        filtered = [c for c in cards if c.is_active and c.status_key == "occupied"]
+        checkout_list, arrivals_list, online_list = [], [], []
+        debt_alerts = [a for a in debt_alerts if a.room_id in {c.room_id for c in filtered}]
+    elif view == "checkout":
+        room_ids = {int(b.room_id) for b in checkout_list if getattr(b, "room_id", None)}
+        filtered = [
+            c for c in cards if c.checkout_today or (c.room_id in room_ids)
+        ]
+        arrivals_list, online_list = [], []
+        debt_alerts = [a for a in debt_alerts if a.room_id in {c.room_id for c in filtered}]
+    elif view == "arrivals":
+        room_ids = {int(b.room_id) for b in arrivals_list if getattr(b, "room_id", None)}
+        filtered = [c for c in cards if c.room_id in room_ids] if room_ids else []
+        checkout_list, online_list, debt_alerts = [], [], []
+    elif view == "online":
+        room_ids = {int(b.room_id) for b in online_list if getattr(b, "room_id", None)}
+        filtered = [c for c in cards if c.room_id in room_ids] if room_ids else []
+        checkout_list, arrivals_list, debt_alerts = [], [], []
+    elif view == "reserved":
+        filtered = [c for c in cards if c.is_active and c.status_key == "reserved"]
+        checkout_list, arrivals_list, online_list, debt_alerts = [], [], [], []
+    elif view == "dirty":
+        filtered = [
+            c for c in cards if c.is_active and c.status_key in ("dirty", "cleaning")
+        ]
+        checkout_list, arrivals_list, online_list, debt_alerts = [], [], [], []
+    elif view == "maintenance":
+        filtered = [c for c in cards if c.status_key == "maintenance"]
+        checkout_list, arrivals_list, online_list, debt_alerts = [], [], [], []
+    elif view == "debt_stay":
+        filtered = [c for c in cards if c.debt_stay > zero]
+        checkout_list, arrivals_list, online_list = [], [], []
+        debt_alerts = [a for a in debt_alerts if a.category == "stay"]
+    elif view == "debt_laundry":
+        filtered = [c for c in cards if c.debt_laundry > zero]
+        checkout_list, arrivals_list, online_list = [], [], []
+        debt_alerts = [a for a in debt_alerts if a.category == "laundry"]
+    elif view == "debt_restaurant":
+        filtered = [c for c in cards if c.debt_restaurant > zero]
+        checkout_list, arrivals_list, online_list = [], [], []
+        debt_alerts = [a for a in debt_alerts if a.category == "restaurant"]
+
+    focused = FrontDeskSummary(
+        available=summary.available,
+        occupied=summary.occupied,
+        reserved=summary.reserved,
+        dirty=summary.dirty,
+        maintenance=summary.maintenance,
+        checkout_due=summary.checkout_due,
+        arrivals_today=summary.arrivals_today,
+        online_requests=summary.online_requests,
+        debt_stay_total=summary.debt_stay_total,
+        debt_laundry_total=summary.debt_laundry_total,
+        debt_restaurant_total=summary.debt_restaurant_total,
+        debt_grand_total=summary.debt_grand_total,
+        debt_stay_rooms=summary.debt_stay_rooms,
+        debt_laundry_rooms=summary.debt_laundry_rooms,
+        debt_restaurant_rooms=summary.debt_restaurant_rooms,
+        checkout_list=checkout_list,
+        arrivals_list=arrivals_list,
+        online_list=online_list,
+        debt_alerts=debt_alerts,
+    )
+    return filtered, focused, DASHBOARD_VIEW_LABELS.get(view)

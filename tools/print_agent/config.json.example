@@ -3,6 +3,8 @@
   "agent_token": "ضع_الرمز_من_/admin/printing/agents",
   "poll_interval_seconds": 2,
   "heartbeat_interval_seconds": 30,
+  "print_timeout_seconds": 45,
+  "max_poll_failures": 30,
   "escpos_profile": "cp1256_22",
   "raster_threshold": 200,
   "prefer_windows_name": true,

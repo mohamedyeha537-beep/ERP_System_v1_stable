@@ -26,22 +26,55 @@
     }, tone === "ok" ? 5000 : 9000);
   }
 
+  function financialDocQuery(docKind) {
+    // invoice = فاتورة نهائية بعد إقفال الفاتورة · receipt = إيصال قبض لأي دفعة
+    if (docKind === "invoice" || docKind === "final") return "doc=invoice";
+    if (docKind === "receipt" || docKind === "rcp") return "doc=receipt";
+    return "";
+  }
+
   function printPath(saleId, autoprint, docKind) {
     var ap = autoprint !== false ? "1" : "0";
-    var base =
-      docKind === "receipt"
-        ? "/pos/receipt/" + encodeURIComponent(String(saleId))
-        : "/pos/prebill/" + encodeURIComponent(String(saleId));
-    return base + "?autoprint=" + ap + "&embed=1";
+    var kind = docKind || "prebill";
+    if (kind === "prebill" || kind === "kitchen") {
+      return (
+        "/pos/prebill/" +
+        encodeURIComponent(String(saleId)) +
+        "?autoprint=" +
+        ap +
+        "&embed=1"
+      );
+    }
+    var q = financialDocQuery(kind);
+    return (
+      "/pos/receipt/" +
+      encodeURIComponent(String(saleId)) +
+      "?autoprint=" +
+      ap +
+      "&embed=1" +
+      (q ? "&" + q : "")
+    );
   }
 
   function previewPath(saleId, autoprint, docKind) {
     var ap = autoprint !== false ? "1" : "0";
-    var base =
-      docKind === "receipt"
-        ? "/pos/receipt/" + encodeURIComponent(String(saleId))
-        : "/pos/prebill/" + encodeURIComponent(String(saleId));
-    return base + "?autoprint=" + ap;
+    var kind = docKind || "prebill";
+    if (kind === "prebill" || kind === "kitchen") {
+      return (
+        "/pos/prebill/" +
+        encodeURIComponent(String(saleId)) +
+        "?autoprint=" +
+        ap
+      );
+    }
+    var q = financialDocQuery(kind);
+    return (
+      "/pos/receipt/" +
+      encodeURIComponent(String(saleId)) +
+      "?autoprint=" +
+      ap +
+      (q ? "&" + q : "")
+    );
   }
 
   function printViaIframe(path, saleId) {
@@ -82,7 +115,7 @@
 
   global.posReceiptPrint = async function (saleId, autoprint, docKind) {
     if (!saleId) return false;
-    var kind = docKind === "receipt" ? "receipt" : "prebill";
+    var kind = docKind || "prebill";
     toast("جاري تجهيز الطباعة…", "ok");
     var path = printPath(saleId, autoprint, kind);
     var out = await printViaIframe(path, saleId);
@@ -107,13 +140,9 @@
 
   global.posReceiptPreview = function (saleId, docKind) {
     if (!saleId) return;
-    var kind = docKind === "receipt" ? "receipt" : "prebill";
-    var base =
-      kind === "receipt"
-        ? "/pos/receipt/" + encodeURIComponent(String(saleId))
-        : "/pos/prebill/" + encodeURIComponent(String(saleId));
+    var kind = docKind || "prebill";
     window.open(
-      base + "?autoprint=0",
+      previewPath(saleId, false, kind),
       "pos_receipt_preview_" + saleId,
       "noopener,width=480,height=720"
     );

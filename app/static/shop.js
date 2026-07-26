@@ -39,6 +39,9 @@
   var shareProductId = null;
 
   var checkoutDraft = { name: "", phone: "", referral: "" };
+  var autofilledGuestName = "";
+  var lookupPhoneTimer = null;
+  var lastLookupPhone = "";
 
 
 
@@ -111,6 +114,12 @@
   function clearCheckoutDraft() {
 
     checkoutDraft = { name: "", phone: "", referral: "" };
+    autofilledGuestName = "";
+    lastLookupPhone = "";
+    if (lookupPhoneTimer) {
+      clearTimeout(lookupPhoneTimer);
+      lookupPhoneTimer = null;
+    }
 
   }
 
@@ -353,6 +362,8 @@
       if (state.order_phase === "submitted" || state.order_phase === "await_receipt") {
 
         checkoutStep = "done";
+        // بعد الإرسال لا نظهر عداد سلة قديم
+        updateBadge();
 
       }
 
@@ -505,24 +516,38 @@
 
 
 
-  function updateBadge() {
-
-    var n = state && state.cart_count ? state.cart_count : 0;
-
-    if (!cartBadge) return;
-
-    if (n > 0) {
-
-      cartBadge.textContent = String(n);
-
-      cartBadge.hidden = false;
-
-    } else {
-
-      cartBadge.hidden = true;
-
+  function cartQtyTotal() {
+    var cart = (state && state.cart) || [];
+    var n = 0;
+    for (var i = 0; i < cart.length; i++) {
+      var q = parseFloat(cart[i] && cart[i].qty);
+      if (!isNaN(q) && q > 0) n += q;
     }
+    return Math.round(n);
+  }
 
+  function updateBadge() {
+    if (!cartBadge) return;
+    var phase = state && state.order_phase;
+    var cart = (state && state.cart) || [];
+    var n = 0;
+    // بعد إرسال الطلب لا نعرض عداداً حتى يختار العميل «طلب جديد»
+    if (phase === "submitted" || phase === "await_receipt") {
+      n = 0;
+    } else if (cart.length) {
+      n = cartQtyTotal() || parseInt(state.cart_count, 10) || cart.length;
+    } else {
+      n = 0;
+    }
+    if (n > 0) {
+      cartBadge.textContent = String(n);
+      cartBadge.hidden = false;
+      cartBadge.removeAttribute("hidden");
+    } else {
+      cartBadge.textContent = "0";
+      cartBadge.hidden = true;
+      cartBadge.setAttribute("hidden", "");
+    }
   }
 
 
@@ -1106,18 +1131,29 @@
 
     if (checkoutStep === "done") {
 
+      var confParts = Array.isArray(state.confirmation_parts)
+        ? state.confirmation_parts.filter(function (p) {
+            return String(p || "").trim();
+          })
+        : [];
+      if (!confParts.length && state.confirmation_message) {
+        confParts = [state.confirmation_message];
+      }
+      if (!confParts.length) {
+        confParts = ["سيظهر الطلب في نقطة البيع قريباً."];
+      }
       drawerBody.innerHTML =
-
         '<div class="shop-success">' +
-
         "<p>✅ تم إرسال طلبك</p>" +
-
-        "<p>" +
-
-        esc(state.confirmation_message || "سيظهر الطلب في نقطة البيع قريباً.") +
-
-        "</p>" +
-
+        confParts
+          .map(function (p) {
+            return (
+              '<p class="shop-confirm-part" style="white-space:pre-wrap;text-align:right">' +
+              esc(String(p)) +
+              "</p>"
+            );
+          })
+          .join("") +
         "</div>";
 
       drawerFoot.innerHTML =
@@ -1153,6 +1189,10 @@
       drawerBody.innerHTML = "<p>السلة فارغة.</p>";
 
       drawerFoot.innerHTML = "";
+
+      if (state) state.cart_count = 0;
+
+      updateBadge();
 
       return;
 
@@ -1260,17 +1300,17 @@
 
     drawerBody.innerHTML =
 
-      '<div class="shop-field"><label>الاسم (اختياري)</label><input id="shop-name" value="' +
-
-      esc(guestName) +
-
-      '" maxlength="120" /></div>' +
-
       '<div class="shop-field"><label>الهاتف *</label><input id="shop-phone" type="tel" dir="ltr" value="' +
 
       esc(guestPhone) +
 
-      '" placeholder="09xxxxxxxx" required /></div>' +
+      '" placeholder="09xxxxxxxx" required autocomplete="tel" /></div>' +
+
+      '<div class="shop-field"><label>الاسم (اختياري)</label><input id="shop-name" value="' +
+
+      esc(guestName) +
+
+      '" maxlength="120" autocomplete="name" /></div>' +
 
       refField +
 
@@ -1344,6 +1384,61 @@
 
       '<button type="button" class="shop-btn-secondary" id="shop-back-cart">رجوع للسلة</button>';
 
+    wireGuestPhoneLookup();
+
+  }
+
+  function applyLookupGuestName(name) {
+    var nameEl = document.getElementById("shop-name");
+    if (!nameEl) return;
+    var current = (nameEl.value || "").trim();
+    var found = (name || "").trim();
+    if (!found) return;
+    // لا نستبدل اسماً كتبه الزبون يدوياً — فقط إن كان فارغاً أو من تعبئة سابقة
+    if (!current || current === autofilledGuestName) {
+      nameEl.value = found;
+      autofilledGuestName = found;
+      checkoutDraft.name = found;
+    }
+  }
+
+  function lookupGuestByPhoneNow() {
+    var phoneEl = document.getElementById("shop-phone");
+    if (!phoneEl || !token) return;
+    var phoneErr = validateCheckoutPhone(phoneEl.value || "");
+    if (phoneErr) return;
+    var phone = normalizePhoneInput(phoneEl.value || "");
+    if (!phone || phone === lastLookupPhone) return;
+    lastLookupPhone = phone;
+    api("POST", "/api/shop/checkout/lookup-guest", {
+      token: token,
+      phone: phone,
+      name: null,
+    })
+      .then(function (res) {
+        if (res && res.found && res.name) {
+          applyLookupGuestName(res.name);
+        }
+      })
+      .catch(function () {
+        /* تجاهل أخطاء البحث — لا تعطل الإتمام */
+      });
+  }
+
+  function wireGuestPhoneLookup() {
+    var phoneEl = document.getElementById("shop-phone");
+    if (!phoneEl || phoneEl.dataset.lookupBound === "1") return;
+    phoneEl.dataset.lookupBound = "1";
+    function schedule() {
+      if (lookupPhoneTimer) clearTimeout(lookupPhoneTimer);
+      lookupPhoneTimer = setTimeout(lookupGuestByPhoneNow, 350);
+    }
+    phoneEl.addEventListener("input", schedule);
+    phoneEl.addEventListener("blur", lookupGuestByPhoneNow);
+    phoneEl.addEventListener("change", lookupGuestByPhoneNow);
+    if ((phoneEl.value || "").trim()) {
+      lookupGuestByPhoneNow();
+    }
   }
 
 
@@ -1536,8 +1631,12 @@
       .then(function (res) {
 
         state = res.state;
-
+        if (state) {
+          state.cart = state.cart || [];
+          state.cart_count = state.cart_count || 0;
+        }
         checkoutStep = "done";
+        updateBadge();
         renderDrawer();
 
         if (window.WebAnalytics && state) {

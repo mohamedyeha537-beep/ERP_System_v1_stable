@@ -1,0 +1,37 @@
+{# شريط تنقل مجموعة العملاء والولاء — loyalty_nav_active: customers|restaurant|hotel|templates #}
+{% set _ln = loyalty_nav_active | default('') %}
+<nav class="loyalty-hub-nav" aria-label="العملاء والولاء" style="margin:0.75rem 0 1rem">
+  <div style="display:flex;flex-wrap:wrap;gap:0.45rem;align-items:stretch">
+    <a class="btn{% if _ln == 'customers' %} btn-primary{% endif %}"
+       href="/admin/customers"
+       style="min-width:8.5rem;text-align:center{% if _ln == 'customers' %}{% else %};background:#fff{% endif %}">
+      👥 العملاء
+    </a>
+    <a class="btn{% if _ln == 'restaurant' %} btn-primary{% endif %}"
+       href="/admin/loyalty"
+       style="min-width:8.5rem;text-align:center{% if _ln == 'restaurant' %}{% else %};background:#fff{% endif %}">
+      🍽️ ولاء المطعم
+    </a>
+    <a class="btn{% if _ln == 'hotel' %} btn-primary{% endif %}"
+       href="/admin/hotel/settings#hotel-loyalty"
+       style="min-width:8.5rem;text-align:center{% if _ln == 'hotel' %}{% else %};background:#fff{% endif %}">
+      🏨 ولاء الفندق
+    </a>
+    <a class="btn{% if _ln == 'templates' %} btn-primary{% endif %}"
+       href="/admin/notifications/templates"
+       style="min-width:8.5rem;text-align:center{% if _ln == 'templates' %}{% else %};background:#fff{% endif %}">
+      💬 قوالب واتساب
+    </a>
+  </div>
+  <p class="muted" style="font-size:0.8rem;margin:0.45rem 0 0;line-height:1.45">
+    {% if _ln == 'restaurant' %}
+      هنا: نقاط المطعم/الكاشير/المتجر + <strong>رسالة شرح الولاء (مرة واحدة)</strong>.
+    {% elif _ln == 'hotel' %}
+      هنا: نقاط الولاء والإحالة الخاصة بالفندق عند تسوية الحجز.
+    {% elif _ln == 'templates' %}
+      قوالب رسائل النقاط المكتسبة والمستبدلة وإشعارات الطلبات.
+    {% else %}
+      اختر المجموعة: عملاء · ولاء مطعم · ولاء فندق · قوالب الرسائل.
+    {% endif %}
+  </p>
+</nav>

@@ -27,11 +27,15 @@ from modules.settings.refund_auth import (
     set_refund_authorization_code,
 )
 from modules.settings.service import (
+    PAPER_ORIENTATIONS,
     PAPER_SIZES,
     get_bool,
     get_int,
+    get_public_base_url,
     get_setting,
+    normalize_orientation,
     normalize_paper,
+    public_base_url_from_env,
     set_setting,
 )
 
@@ -99,9 +103,13 @@ def settings_page(
         {
             "request": request,
             "paper_sizes": PAPER_SIZES,
+            "paper_orientations": PAPER_ORIENTATIONS,
             "current_paper": get_setting(db, "print_paper_size", "A5"),
+            "current_orientation": get_setting(db, "print_paper_orientation", "portrait"),
             "store_name": get_setting(db, "store_name", "نقطة البيع"),
             "public_base_url": get_setting(db, "public_base_url", ""),
+            "public_base_url_effective": get_public_base_url(db),
+            "public_base_url_env": public_base_url_from_env(),
             "shop_order_confirmation_text": get_setting(
                 db,
                 "shop_order_confirmation_text",
@@ -172,6 +180,7 @@ def settings_save(
     db: DBSession,
     _: User = Depends(_admin),
     print_paper_size: str = Form("A5"),
+    print_paper_orientation: str = Form("portrait"),
     store_name: str = Form(""),
     public_base_url: str = Form(""),
     shop_order_confirmation_text: str = Form(""),
@@ -207,6 +216,11 @@ def settings_save(
         return RedirectResponse("/admin/settings?refund_auth=1", status_code=302)
 
     set_setting(db, "print_paper_size", normalize_paper(print_paper_size, "A5"))
+    set_setting(
+        db,
+        "print_paper_orientation",
+        normalize_orientation(print_paper_orientation, "portrait"),
+    )
     set_setting(db, "store_name", store_name.strip() or "نقطة البيع")
     set_setting(db, "public_base_url", public_base_url.strip().rstrip("/"))
     set_setting(

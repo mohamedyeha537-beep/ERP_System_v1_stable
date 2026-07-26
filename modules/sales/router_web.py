@@ -125,6 +125,27 @@ def _pos_receipt_paper(
     return admin_paper
 
 
+def _safe_receipt_back_href(raw: str | None, *, default: str = "/pos") -> str:
+    """يقبل مساراً داخلياً فقط لزر الرجوع من صفحة الإيصال."""
+    path = (raw or "").strip()
+    if not path.startswith("/") or path.startswith("//"):
+        return default
+    if "://" in path or "\n" in path or "\r" in path or "\\" in path:
+        return default
+    return path[:500]
+
+
+def _receipt_back_label(back_href: str, *, pos_label: str) -> str:
+    href = (back_href or "").strip()
+    if href.startswith("/hotel/settle/room/"):
+        return "رجوع إلى تسوية الشقة"
+    if href.startswith("/hotel/settle"):
+        return "رجوع إلى التسويات"
+    if href.startswith("/admin/hotel/"):
+        return "رجوع إلى لوحة الشقق"
+    return f"رجوع إلى {pos_label}"
+
+
 def _room_receipt_context(db: DBSession, sale: Sale) -> dict:
     """سياق فاتورة النزيل/الشقة للطباعة النهائية."""
     if sale.context_type != SaleContext.ROOM:
@@ -704,16 +725,10 @@ def _active_tables(db) -> list[DiningTable]:
 
 
 def _active_rooms(db) -> list:
-    """قائمة الشقق/الغرف النشطة (للسياق ROOM في الـ POS)."""
-    from modules.hotel.models import HotelRoom
+    """شقق مسكونة فقط (CHECKED_IN / OCCUPIED) لسياق ROOM في الـ POS."""
+    from modules.hotel.service import list_occupied_rooms_for_pos
 
-    return list(
-        db.scalars(
-            select(HotelRoom)
-            .where(HotelRoom.is_active.is_(True))
-            .order_by(HotelRoom.number)
-        ).all()
-    )
+    return list_occupied_rooms_for_pos(db)
 
 
 def _get_current_draft(request: Request, db, user: User) -> Sale | None:
@@ -780,18 +795,39 @@ def _category_tree_ids(db, root_id: int) -> set[int]:
 def _root_product_counts(
     db, roots: list[ProductCategory], pos_crit: tuple
 ) -> dict[int, int]:
+    """عدد المنتجات تحت كل جذر — استعلامان بدل N+1 لكل تصنيف."""
+    if not roots:
+        return {}
+    cat_rows = db.execute(
+        select(ProductCategory.id, ProductCategory.parent_id)
+    ).all()
+    children_of: dict[int | None, list[int]] = {}
+    for cid, pid in cat_rows:
+        children_of.setdefault(pid, []).append(int(cid))
+
+    def _tree_ids(root_id: int) -> set[int]:
+        ids: set[int] = {root_id}
+        stack = [root_id]
+        while stack:
+            pid = stack.pop()
+            for cid in children_of.get(pid, ()):
+                if cid not in ids:
+                    ids.add(cid)
+                    stack.append(cid)
+        return ids
+
+    per_cat = {
+        int(cid): int(n or 0)
+        for cid, n in db.execute(
+            select(Product.category_id, func.count())
+            .where(*pos_crit, Product.category_id.is_not(None))
+            .group_by(Product.category_id)
+        ).all()
+        if cid is not None
+    }
     out: dict[int, int] = {}
     for r in roots:
-        tree = _category_tree_ids(db, r.id)
-        n = db.scalar(
-            select(func.count())
-            .select_from(Product)
-            .where(
-                *pos_crit,
-                Product.category_id.in_(tree),
-            )
-        )
-        out[r.id] = int(n or 0)
+        out[r.id] = sum(per_cat.get(cid, 0) for cid in _tree_ids(r.id))
     return out
 
 
@@ -2910,9 +2946,16 @@ def _silent_print_sale(
             cashier_name = _prebill_cashier_name(db, user)
             doc_title = "أمر تجهيز - غير مدفوع"
         else:
+            from modules.printing.doc_kind_resolve import restaurant_sale_doc_title
+
             cu = db.get(User, sale.created_by_id) if sale.created_by_id else None
             cashier_name = cu.username if cu else ""
-            doc_title = "فاتورة"
+            room_ctx_sp = _room_receipt_context(db, sale)
+            doc_title = restaurant_sale_doc_title(
+                sale,
+                room_hint=room_hint or room_ctx_sp.get("room_hint"),
+                is_room_receipt=bool(room_ctx_sp.get("is_room_receipt")),
+            )
         printer = get_receipt_printer(db)
         paper_w = printer.paper_width if printer else 80
         text = build_sale_receipt_text(
@@ -2998,8 +3041,23 @@ def print_receipt(
     user: User = Depends(require_permission(SALES_CREATE)),
     autoprint: int = Query(0, ge=0, le=1),
     paper: str | None = Query(None),
+    orientation: str | None = Query(None),
+    doc: str | None = Query(None),
     embed: int = Query(0, ge=0, le=1),
+    back: str | None = Query(None),
 ):
+    from modules.printing.doc_kind_resolve import (
+        assign_sale_doc_number,
+        resolve_sale_doc_kind,
+        restaurant_sale_doc_title,
+    )
+    from modules.settings.service import (
+        PAPER_ORIENTATIONS,
+        get_receipt_orientation,
+        normalize_orientation,
+    )
+    from modules.platform.business_domain import BusinessDomain
+
     sale = load_completed_sale_for_print(db, sale_id)
     if sale is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="الفاتورة غير موجودة أو غير مكتملة.")
@@ -3011,7 +3069,12 @@ def print_receipt(
         paper_param=paper,
         allow_admin_override=True,
     )
-    paper_css = get_paper_css(chosen_paper)
+    orient = normalize_orientation(
+        orientation, get_receipt_orientation(db, BusinessDomain.RESTAURANT)
+    )
+    if chosen_paper in ("80mm", "58mm"):
+        orient = "portrait"
+    paper_css = get_paper_css(chosen_paper, orient)
     store_name = get_setting(db, "store_name", "نقطة البيع")
     sale_payment = get_sale_payment(db, sale.id)
     delivery_ctx = _receipt_delivery_context(db, sale, sale_payment)
@@ -3020,7 +3083,64 @@ def print_receipt(
     cashier_name = cashier.username if cashier else ""
     from modules.receipt_whatsapp.service import sale_phone_hint, whatsapp_receipt_ctx
 
-    wa_phone = sale_phone_hint(db, sale)
+    from modules.printing.doc_numbers import DOC_KIND_PREFIX, next_doc_number
+
+    # أوراق المطعم = فاتورة دائماً (مقيدة على شقة أو عادية) — لا إيصال قبض
+    doc_kind = resolve_sale_doc_kind(sale, requested=doc, db=db)
+    doc_title = restaurant_sale_doc_title(
+        sale,
+        room_hint=room_ctx.get("room_hint"),
+        is_room_receipt=bool(room_ctx.get("is_room_receipt")),
+    )
+    try:
+        doc_number = assign_sale_doc_number(db, sale, doc_kind)
+        db.commit()
+    except Exception:  # noqa: BLE001
+        db.rollback()
+        try:
+            doc_number = next_doc_number(db, doc_kind, domain="restaurant")
+            db.commit()
+        except Exception:  # noqa: BLE001
+            db.rollback()
+            prefix = DOC_KIND_PREFIX.get(doc_kind, "DOC")
+            doc_number = f"{prefix}-{sale.id:06d}"
+
+    try:
+        wa_phone = sale_phone_hint(db, sale)
+    except Exception:  # noqa: BLE001
+        wa_phone = ""
+    back_href = _safe_receipt_back_href(back, default="/pos")
+    brand = getattr(request.state, "brand", None) or {}
+    pos_label = (
+        brand.get("pos_label") if isinstance(brand, dict) else None
+    ) or "نقطة البيع"
+    back_label = _receipt_back_label(back_href, pos_label=pos_label)
+    preserve = {"doc": getattr(doc_kind, "value", str(doc_kind))}
+    if embed:
+        preserve["embed"] = "1"
+    if autoprint:
+        preserve["autoprint"] = "1"
+    if request.query_params.get("popup") == "1":
+        preserve["popup"] = "1"
+    if back_href != "/pos":
+        preserve["back"] = back_href
+    try:
+        silent_ctx = _receipt_silent_print_ctx(db)
+    except Exception:  # noqa: BLE001
+        silent_ctx = {"silent_print_enabled": False, "receipt_printer_name": None}
+    try:
+        wa_ctx = whatsapp_receipt_ctx(
+            db,
+            domain="pos",
+            phone=wa_phone,
+            send_url=f"/pos/receipt/{sale.id}/send-whatsapp",
+        )
+    except Exception:  # noqa: BLE001
+        wa_ctx = {
+            "whatsapp_receipt_enabled": False,
+            "whatsapp_receipt_phone": "",
+            "whatsapp_send_url": "",
+        }
     return templates.TemplateResponse(
         "receipt_print.html",
         {
@@ -3030,23 +3150,27 @@ def print_receipt(
             "autoprint": autoprint,
             "embed": embed,
             "paper": chosen_paper,
+            "orientation": orient,
             "paper_css": paper_css,
             "paper_choices": PAPER_SIZES,
+            "orientation_choices": PAPER_ORIENTATIONS,
             "can_choose_paper": can_choose,
+            "print_form_action": f"/pos/receipt/{sale.id}",
+            "print_preserve_params": preserve,
+            "doc_kind": getattr(doc_kind, "value", str(doc_kind)),
+            "doc_title": doc_title,
+            "doc_number": doc_number,
             "store_name": store_name,
             "cashier_name": cashier_name,
             "show_paid_stamp": True,
             "silent_print_url": f"/pos/receipt/{sale.id}/silent-print",
             "can_edit_invoice": user_has_permission(user, SALES_EDIT_INVOICE),
+            "back_href": back_href,
+            "back_label": back_label,
             **delivery_ctx,
             **room_ctx,
-            **_receipt_silent_print_ctx(db),
-            **whatsapp_receipt_ctx(
-                db,
-                domain="pos",
-                phone=wa_phone,
-                send_url=f"/pos/receipt/{sale.id}/send-whatsapp",
-            ),
+            **silent_ctx,
+            **wa_ctx,
         },
     )
 
