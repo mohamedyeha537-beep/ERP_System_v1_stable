@@ -110,7 +110,7 @@
         <td>{{ p.supplier or '—' }}</td>
         <td>{{ p.lines|length }}</td>
         <td>{{ p.amount }} د.ل</td>
-        <td>{% if p.method %}{{ p.method.name_ar }}{% endif %}</td>
+        <td>{% if p.method %}{{ pos_wallet_label(p.method) }}{% endif %}</td>
         <td><a class="btn" href="/admin/assets/{{ p.id }}" style="padding: 0.2rem 0.5rem; font-size: 0.85rem">عرض</a></td>
       </tr>
       {% endfor %}

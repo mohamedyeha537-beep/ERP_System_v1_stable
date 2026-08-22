@@ -547,7 +547,7 @@
     <a class="qlink" href="/hotel/settle" style="--accent:#f59e0b">
       {{ dash_badge(badge_counts, 'hotel_settle') }}
       <div class="qicon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14"></path><circle cx="18" cy="17" r="3"></circle><path d="M16 17h.01M20 17h.01"></path></svg></div>
-      <div><div class="qtitle">تسوية حسابات الغرف</div><div class="qhint">للاستقبال — استلام النقد</div></div>
+      <div><div class="qtitle">تسوية حسابات الغرف</div><div class="qhint">فندق ↔ مطعم · للخزينة</div></div>
     </a>
     {% endif %}
     {% if perm('customers:view') and pos_ui_show(request, 'ui_customers') %}
@@ -788,68 +788,22 @@
 {# ====================== Treasury & receivables ====================== #}
 {% if pos_ui_show(request, 'ui_dash_treasury') %}
 <details class="dash-section">
-  <summary>الخزينة والذمم <span class="section-meta">{% if stats.treasury_source == 'gl' %}من شجرة الحسابات (GL){% else %}الرصيد الحالي والديون المستحقة{% endif %}</span></summary>
+  <summary>الخزينة والذمم <span class="section-meta">أرصدة الخزائن — نفس رقم التحويل</span></summary>
   <div class="dash-section-body">
-{% if stats.treasury_source == 'gl' and perm('gl:manage') %}
-<p class="muted" style="margin:0 0 0.75rem;font-size:0.85rem">
-  الأرصدة من <strong>دفتر GL</strong> — اختر الحسابات المعروضة من
-  <a href="/admin/gl/accounts">شجرة الحسابات</a> (عمود «لوحة التحكم»).
-</p>
-{% endif %}
-<div class="kpi-grid kpi-grid-treasury">
-  {% if stats.treasury_source == 'gl' %}
-  {% for card in stats.gl_treasury_cards %}
-  <div class="kpi kpi-{{ card.card_kind }}" title="{{ card.code }} — {{ card.name_ar }}">
-    {% if card.card_kind == 'ar' and (perm('reports:view') or perm('hotel:debts:view') or perm('hotel:debts:collect')) %}
-    <a class="kpi-link" href="{% if pos_reports_show_hotel_sections(request) and not pos_reports_show_pos_sections(request) %}/admin/hotel/debts{% else %}/reports/receivables?balance_only=1{% endif %}">
-    {% elif perm('gl:manage') %}
-    <a class="kpi-link" href="/admin/gl/accounts/{{ card.account_id }}">
-    {% elif card.wallet_pm_id and (perm('payments:manage') or perm('reports:view')) %}
-    <a class="kpi-link" href="/pos/treasury?pm={{ card.wallet_pm_id }}">
-    {% else %}
-    <div class="kpi-link" style="cursor:default">
-    {% endif %}
-      <div class="kpi-icon">
-        {% if card.card_kind == 'bank' %}
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M3 21h18"></path><path d="M5 21V7l7-4 7 4v14"></path><path d="M9 9h1"></path><path d="M14 9h1"></path>
-        </svg>
-        {% elif card.card_kind in ('ar', 'ap') %}
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-          <polyline points="14 2 14 8 20 8"></polyline>
-        </svg>
-        {% else %}
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <rect x="2" y="6" width="20" height="12" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line><circle cx="12" cy="14" r="2"></circle>
-        </svg>
-        {% endif %}
-      </div>
-      <div class="kpi-label"><span style="direction:ltr;font-variant-numeric:tabular-nums;font-size:0.78rem;color:var(--muted)">{{ card.code }}</span> — {{ card.name_ar }}</div>
-      <div class="kpi-value">{{ card.balance }} <span style="font-size:0.65em;color:var(--muted)">د.ل</span></div>
-      <div class="kpi-sub">
-        {% if card.card_kind == 'ar' %}
-        ذمم الزبائن — اضغط لعرض الديون والتحصيل (كامل / جزئي)
-        {% elif card.wallet_names %}
-        محافظ مربوطة: {{ card.wallet_names|join('، ') }} — رصيد GL
-        {% else %}
-        رصيد من دفتر الأستاذ — اضغط للحركة
-        {% endif %}
-      </div>
-    {% if card.card_kind == 'ar' and (perm('reports:view') or perm('hotel:debts:view') or perm('hotel:debts:collect')) %}
-    </a>
-    {% elif perm('gl:manage') or (card.wallet_pm_id and (perm('payments:manage') or perm('reports:view'))) %}
-    </a>
-    {% else %}
-    </div>
-    {% endif %}
-  </div>
+{% if stats.treasury_source == 'gl' %}
+  {% if stats.gl_treasury_cards %}
+  {% with cards=stats.gl_treasury_cards %}
+  {% include "_treasury_kpi_cards.html" %}
+  {% endwith %}
   {% else %}
+  <div class="kpi-grid kpi-grid-treasury">
   <div class="card" style="grid-column:1/-1">
     <p style="margin:0">لا حسابات GL معروضة — فعّل GL وحدّد الحسابات من <a href="/admin/gl/accounts">شجرة الحسابات</a>.</p>
   </div>
-  {% endfor %}
+  </div>
+  {% endif %}
   {% else %}
+  <div class="kpi-grid kpi-grid-treasury">
   {% for card in stats.treasury_cards %}
   <div class="kpi {% if card.kind == 'BANK' %}kpi-bank{% else %}kpi-cash{% endif %}" title="عرض حركة {{ card.name_ar }}">
     <a class="kpi-link" href="/pos/treasury?pm={{ card.method_id }}">
@@ -878,7 +832,7 @@
   {% if stats.cash_current is not none %}
   <div class="kpi kpi-cash">
     <a class="kpi-link" href="/pos/treasury?kind=cash">
-      <div class="kpi-label">خزينة الكاش — إجمالي</div>
+      <div class="kpi-label">خزينة الكاش — رئيسية (بعد اعتماد الجلسة)</div>
       <div class="kpi-value">{{ stats.cash_current }} <span style="font-size:0.65em;color:var(--muted)">د.ل</span></div>
     </a>
   </div>
@@ -886,14 +840,16 @@
   {% if stats.bank_current is not none %}
   <div class="kpi kpi-bank">
     <a class="kpi-link" href="/pos/treasury?kind=bank">
-      <div class="kpi-label">خزينة المصرف — إجمالي</div>
+      <div class="kpi-label">خزينة المصرف — رئيسية (بعد اعتماد الجلسة)</div>
       <div class="kpi-value">{{ stats.bank_current }} <span style="font-size:0.65em;color:var(--muted)">د.ل</span></div>
     </a>
   </div>
   {% endif %}
   {% endfor %}
+  </div>
   {% endif %}
 
+  <div class="kpi-grid kpi-grid-treasury">
   {% set gl_dash_codes = stats.gl_treasury_cards|map(attribute='code')|list if stats.treasury_source == 'gl' else [] %}
   {% set gl_has_ar = stats.treasury_source == 'gl' and (stats.gl_treasury_cards|selectattr('card_kind', 'equalto', 'ar')|list|length > 0) %}
   {% set show_pos_ar = pos_reports_show_pos_sections(request) %}
@@ -1176,7 +1132,7 @@
       {% for w in stats.wallets %}
       <div class="row-item">
         <div>
-          <div class="name">{{ w.method.name_ar }}{% if not w.method.is_active %} <span class="meta">(معطّل)</span>{% endif %}</div>
+          <div class="name">{{ pos_wallet_label(w.method) }}{% if not w.method.is_active %} <span class="meta">(معطّل)</span>{% endif %}</div>
           <div class="meta">
             وارد: <span style="color:#16a34a">+{{ w.sales_in }}</span>
             · مرتجع: <span style="color:#b91c1c">−{{ w.refunds_out }}</span>

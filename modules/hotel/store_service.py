@@ -197,14 +197,17 @@ def quote_stay(
         raise StoreError("تاريخ المغادرة يجب أن يكون بعد الوصول.")
     if not _room_available(db, room, check_in=check_in, check_out=check_out):
         raise StoreError("الشقة غير متاحة في التواريخ المختارة.")
-    nights = max(1, (check_out - check_in).days)
+    from modules.hotel.checkin_stay import booking_billing_start, booking_night_count
+
+    billing_in = booking_billing_start(db, check_in=check_in)
+    nights = booking_night_count(db, check_in=check_in, check_out=check_out)
     if room.nightly_price is not None and Decimal(str(room.nightly_price or 0)) > 0:
         nightly = Decimal(str(room.nightly_price)).quantize(Decimal("0.001"))
     else:
         nightly = nightly_rate_for_stay(
             db,
             room_type_id=room.room_type_id,
-            check_in=check_in,
+            check_in=billing_in,
             check_out=check_out,
         )
     total = (nightly * Decimal(nights)).quantize(Decimal("0.001"))

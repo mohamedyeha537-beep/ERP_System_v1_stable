@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from modules.hotel.availability import (
     UNAVAILABLE_ROOM_STATUSES,
+    open_booking_on_date,
     room_rentability_on_date,
 )
 from modules.hotel.booking_models import (
@@ -20,6 +21,113 @@ from modules.hotel.booking_models import (
     RoomPhysicalStatus,
 )
 from modules.hotel.models import HotelRoom
+
+
+def booking_occupants_count(
+    booking: HotelBooking | None,
+    *,
+    db: Session | None = None,
+) -> int:
+    """عدد النزلاء في الحجز (للإظهار على كرت الشقة).
+
+    الأولوية: صفوف نزلاء الحجز (`hotel_booking_guests`)، ثم بالغون + أطفال.
+    """
+    if booking is None:
+        return 0
+    # استعلام مباشر عند توفر db — أوثق من العلاقة إن لم تُحمَّل
+    if db is not None and getattr(booking, "id", None) is not None:
+        from modules.hotel.booking_models import HotelBookingGuest
+        from sqlalchemy import func
+
+        named = int(
+            db.scalar(
+                select(func.count())
+                .select_from(HotelBookingGuest)
+                .where(
+                    HotelBookingGuest.booking_id == int(booking.id),
+                    HotelBookingGuest.full_name.isnot(None),
+                    HotelBookingGuest.full_name != "",
+                )
+            )
+            or 0
+        )
+        if named > 0:
+            return named
+    guests = list(getattr(booking, "guests", None) or [])
+    named = sum(
+        1 for g in guests if (getattr(g, "full_name", None) or "").strip()
+    )
+    if named > 0:
+        return named
+    adults = max(0, int(getattr(booking, "adults", 0) or 0))
+    children = max(0, int(getattr(booking, "children", 0) or 0))
+    total = adults + children
+    if total > 0:
+        return total
+    if (getattr(booking, "guest_name", None) or "").strip():
+        return 1
+    return 0
+
+
+def first_resident_contact(
+    booking: HotelBooking | None,
+    *,
+    db: Session | None = None,
+) -> tuple[str, str]:
+    """(اسم النزيل الأول، الهاتف) من جداول الحجز — ثم guest_name المخزّن إن لم يُسجَّل نزيل."""
+    if booking is None:
+        return "", ""
+    name = ""
+    phone = ""
+    # استعلام مباشر لأوّل نزيل (is_primary ثم id)
+    if db is not None and getattr(booking, "id", None) is not None:
+        from modules.hotel.booking_models import HotelBookingGuest
+
+        row = db.scalar(
+            select(HotelBookingGuest)
+            .where(HotelBookingGuest.booking_id == int(booking.id))
+            .order_by(
+                HotelBookingGuest.is_primary.desc(),
+                HotelBookingGuest.id.asc(),
+            )
+            .limit(1)
+        )
+        if row is not None:
+            name = (getattr(row, "full_name", None) or "").strip()
+            phone = (getattr(row, "phone", None) or "").strip()
+    if not name or not phone:
+        try:
+            from modules.hotel.booking_service import primary_staying_guest_contact
+
+            g_name, g_phone = primary_staying_guest_contact(booking)
+            # primary_staying_guest_contact قد يُرجع guest_name (الحاجز) — لا نستخدمه إذا لم يكن من صف النزلاء
+            if not name and g_name:
+                # تحقّق أن الاسم موجود في صفوف النزلاء فقط
+                from modules.hotel.booking_models import HotelBookingGuest
+
+                if db is not None and getattr(booking, "id", None) is not None:
+                    match = db.scalar(
+                        select(HotelBookingGuest.id).where(
+                            HotelBookingGuest.booking_id == int(booking.id),
+                            HotelBookingGuest.full_name == g_name,
+                        ).limit(1)
+                    )
+                    if match is not None:
+                        name = g_name.strip()
+                else:
+                    guests = list(getattr(booking, "guests", None) or [])
+                    if any((getattr(g, "full_name", None) or "").strip() == g_name.strip() for g in guests):
+                        name = g_name.strip()
+            if not phone:
+                phone = (g_phone or "").strip()
+        except Exception:  # noqa: BLE001
+            pass
+    # إن لم يُسجَّل نزيل في الجدول: اسم الحجز من قاعدة البيانات (ليس اسم حساب الشركة)
+    if not name:
+        name = (getattr(booking, "guest_name", None) or "").strip()
+    if not phone:
+        phone = (getattr(booking, "guest_phone", None) or "").strip()
+    return name, phone
 
 
 @dataclass(frozen=True)
@@ -57,9 +165,19 @@ class RoomDashboardCard:
     pay_status: str = ""
     pay_label: str = ""
     checkout_today: bool = False
+    is_overstay: bool = False
+    #: تمديد إقامة (check_out بعد المخطط/المجدول)
+    is_extended: bool = False
     upcoming_booking_id: int | None = None
     upcoming_check_in: date | None = None
+    upcoming_check_out: date | None = None
     upcoming_guest_name: str | None = None
+    #: هاتف النزيل الأول
+    guest_phone: str | None = None
+    #: عدد النزلاء (من صفوف نزلاء الحجز)
+    guests_count: int = 0
+    adults: int = 0
+    children: int = 0
 
 
 @dataclass(frozen=True)
@@ -94,6 +212,9 @@ class FrontDeskSummary:
     arrivals_list: list
     online_list: list
     debt_alerts: list[DebtAlertRow]
+    #: إجمالي عدد النزلاء في الشقق المشغولة/المحجوزة
+    guests_total: int = 0
+    guests_rooms: int = 0
 
 
 _STATUS_LABELS: dict[RoomPhysicalStatus, str] = {
@@ -135,13 +256,29 @@ def maintenance_notes_for_rooms(db: Session, room_ids: list[int]) -> dict[int, s
 
 
 def room_display_name(room: HotelRoom) -> str:
+    """اسم عرض الشقة — العقار شقق فقط (لا نُظهر «غرفة»)."""
+    import re
+
+    num = (getattr(room, "number", None) or "").strip()
     name = (getattr(room, "name_ar", None) or "").strip()
     if name:
+        # «غرفة 104» / «شقة 104» = مجرد تكرار الرقم → نُهمل الاسم
+        m = re.match(r"^(?:غرفة|شقة)\s*(.+)$", name)
+        if m and m.group(1).strip() == num:
+            name = ""
+        elif name == num:
+            name = ""
+        elif name.startswith("غرفة"):
+            # وحدة بأسهم اسم مخصص بدأ بـ «غرفة» → أعرضه كشقة
+            rest = name[len("غرفة") :].strip()
+            name = f"شقة {rest}" if rest else ""
+    if name:
         return name
-    num = (room.number or "").strip()
-    if num.startswith("شقة") or num.startswith("VIP"):
-        return num
-    return f"شقة {num}"
+    if num:
+        if num.startswith("شقة") or num.upper().startswith("VIP"):
+            return num
+        return f"شقة {num}"
+    return "شقة"
 
 
 def _nightly_price_for_room(db: Session, room: HotelRoom, day: date) -> Decimal:
@@ -203,6 +340,7 @@ def build_room_dashboard(
         status_detail = None
         upcoming_booking_id = None
         upcoming_check_in = None
+        upcoming_check_out = None
         upcoming_guest_name = None
         if key == "maintenance":
             status_detail = maint_notes.get(room.id)
@@ -211,23 +349,64 @@ def build_room_dashboard(
         elif avail and upcoming is not None:
             upcoming_booking_id = upcoming.id
             upcoming_check_in = upcoming.check_in
+            upcoming_check_out = upcoming.check_out
             upcoming_guest_name = (upcoming.guest_name or "").strip() or None
             status_detail = (
                 f"حجز قادم {upcoming.check_in.strftime('%Y-%m-%d')}"
+                + (
+                    f" → {upcoming.check_out.strftime('%Y-%m-%d')}"
+                    if upcoming.check_out
+                    else ""
+                )
                 + (f" — {upcoming_guest_name}" if upcoming_guest_name else "")
             )
+
+        # اربط الكرت بالحجز الفعلي: معلّق اليوم، أو مسكن حتى يوم المغادرة
+        if booking is None and key not in (
+            "maintenance",
+            "blocked",
+            "dirty",
+            "cleaning",
+            "inactive",
+        ):
+            open_b = open_booking_on_date(db, room.id, day)
+            if open_b is None and upcoming is not None and upcoming.check_in == day:
+                open_b = upcoming
+            if open_b is not None:
+                booking = open_b
+                if open_b.booking_status == BookingStatus.CHECKED_IN:
+                    avail, label, key = False, "مشغولة", "occupied"
+                else:
+                    avail, label, key = False, "محجوزة", "reserved"
+                if upcoming is not None and upcoming.id == open_b.id:
+                    upcoming = None
+                    upcoming_booking_id = None
+                    upcoming_check_in = None
+                    upcoming_check_out = None
+                    upcoming_guest_name = None
+                    status_detail = None
         rt = room.room_type
         guest = None
+        guest_phone = None
         booking_id = None
         check_in = None
         check_out = None
+        guests_count = 0
+        adults_n = 0
+        children_n = 0
         if booking:
-            guest = (booking.guest_name or "").strip() or None
+            g_name, g_phone = first_resident_contact(booking, db=db)
+            guest = g_name or None
+            guest_phone = g_phone or None
             booking_id = booking.id
             check_in = booking.check_in
             check_out = booking.check_out
+            adults_n = max(0, int(getattr(booking, "adults", 0) or 0))
+            children_n = max(0, int(getattr(booking, "children", 0) or 0))
+            guests_count = booking_occupants_count(booking, db=db)
         elif room.physical_status == RoomPhysicalStatus.OCCUPIED and room.guest_name:
             guest = room.guest_name.strip()
+            guests_count = 1
 
         if not room.is_active:
             counts["inactive"] += 1
@@ -252,28 +431,64 @@ def build_room_dashboard(
         pay_status = ""
         pay_label = ""
         checkout_today = False
+        is_overstay = False
+        is_extended = False
 
         if booking is not None and booking.booking_status == BookingStatus.CHECKED_IN:
-            from modules.hotel.folio import build_folio, folio_debt_breakdown
-            from modules.hotel.service import room_open_total
+            from modules.hotel.folio import folio_debt_breakdown
+            from modules.hotel.late_checkout import is_booking_overstay
 
             br = folio_debt_breakdown(db, booking.id)
-            folio = build_folio(db, booking.id)
-            debt_stay = br.stay
-            debt_laundry = br.laundry
-            # فوليو يشمل POS المربوط/على الغرفة؛ نضمن أيضاً أي رصيد غرفة مفتوح
-            pos_due = room_open_total(db, room.id, include_hotel_breakfast=False)
-            debt_restaurant = max(
-                br.restaurant + br.other_services,
-                pos_due,
-            ).quantize(Decimal("0.001"))
-            balance_due = max(br.balance, debt_stay + debt_laundry + debt_restaurant).quantize(
+            # صافي مستحق النزيل فقط — لا تُظهر مطعم أحمر إن الرصيد/الدفع يغطي الطلب
+            balance_due = max(Decimal("0"), Decimal(str(br.balance or 0))).quantize(
                 Decimal("0.001")
             )
+            if balance_due > Decimal("0.001"):
+                debt_stay = br.stay
+                debt_laundry = br.laundry
+                debt_restaurant = (br.restaurant + br.other_services).quantize(
+                    Decimal("0.001")
+                )
+                # إن بقي متبقٍ صافٍ دون تقسيم كافٍ، انسبه للمطعم الظاهر في الفوليو
+                cat_sum = (debt_stay + debt_laundry + debt_restaurant).quantize(
+                    Decimal("0.001")
+                )
+                if cat_sum < balance_due:
+                    debt_restaurant = (
+                        debt_restaurant + (balance_due - cat_sum)
+                    ).quantize(Decimal("0.001"))
+            else:
+                debt_stay = Decimal("0")
+                debt_laundry = Decimal("0")
+                debt_restaurant = Decimal("0")
             checkout_today = booking.check_out == day
+            planned_out = getattr(booking, "planned_check_out", None) or getattr(
+                booking, "scheduled_check_out", None
+            )
+            if (
+                planned_out
+                and booking.check_out
+                and booking.check_out > planned_out
+            ):
+                is_extended = True
+            try:
+                is_overstay = is_booking_overstay(db, booking)
+            except Exception:  # noqa: BLE001
+                is_overstay = False
+            # أولوية الحالات المرئية (تصميم PMS الاستقبال):
+            # Overstay → بانتظار السداد → تمديد → مشغولة
+            if is_overstay:
+                label = "منتهي وقت المغادرة"
+                key = "overstay"
+            elif balance_due > Decimal("0.001"):
+                label = "بانتظار السداد"
+                key = "await_pay"
+            elif is_extended:
+                label = "تمديد إقامة"
+                key = "extended"
             debt_watch = bool(getattr(booking, "claim_wa_until_paid", False))
-            paid_amt = Decimal(str(folio.paid or 0))
-            total_amt = Decimal(str(folio.total or 0))
+            paid_amt = Decimal(str(booking.paid_amount or 0))
+            total_amt = (paid_amt + balance_due).quantize(Decimal("0.001"))
             if balance_due > Decimal("0.001"):
                 if paid_amt > Decimal("0.001"):
                     pay_status, pay_label = "partial", "مدفوعة جزئياً"
@@ -290,13 +505,9 @@ def build_room_dashboard(
                 elif ps == "UNPAID":
                     pay_status, pay_label = "unpaid", "غير مدفوعة"
         elif key == "occupied" and room.is_active:
-            from modules.hotel.service import room_open_total
-
-            pos_due = room_open_total(db, room.id, include_hotel_breakfast=False)
-            if pos_due > Decimal("0"):
-                debt_restaurant = pos_due
-                balance_due = pos_due
-                pay_status, pay_label = "unpaid", "غير مدفوعة"
+            # مشغولة بلا حجز مفتوح: لا تُحسب فواتير المطعم ديناً على الشقة هنا
+            # (تظهر في تسوية الحسابات حتى تُربط بحجز)
+            pass
 
         cards.append(
             RoomDashboardCard(
@@ -344,9 +555,16 @@ def build_room_dashboard(
                 pay_status=pay_status,
                 pay_label=pay_label,
                 checkout_today=checkout_today,
+                is_overstay=is_overstay,
+                is_extended=is_extended,
                 upcoming_booking_id=upcoming_booking_id,
                 upcoming_check_in=upcoming_check_in,
+                upcoming_check_out=upcoming_check_out,
                 upcoming_guest_name=upcoming_guest_name,
+                guest_phone=guest_phone,
+                guests_count=guests_count,
+                adults=adults_n,
+                children=children_n,
             )
         )
 
@@ -454,6 +672,24 @@ def build_front_desk_summary(
             )
     alerts.sort(key=lambda r: (r.amount, r.room_label), reverse=True)
 
+    breakfast_keys = {
+        "occupied",
+        "reserved",
+        "overstay",
+        "await_pay",
+        "extended",
+    }
+    guests_total = sum(
+        int(c.guests_count or 0)
+        for c in cards
+        if c.status_key in breakfast_keys and int(c.guests_count or 0) > 0
+    )
+    guests_rooms = sum(
+        1
+        for c in cards
+        if c.status_key in breakfast_keys and int(c.guests_count or 0) > 0
+    )
+
     return FrontDeskSummary(
         available=int(counts.get("available", 0)),
         occupied=int(counts.get("occupied", 0)),
@@ -474,6 +710,8 @@ def build_front_desk_summary(
         arrivals_list=arrivals_list,
         online_list=online_list,
         debt_alerts=alerts,
+        guests_total=int(guests_total),
+        guests_rooms=int(guests_rooms),
     )
 
 
@@ -521,7 +759,13 @@ def filter_dashboard_by_view(
         filtered = [c for c in cards if c.is_active and c.status_key == "available"]
         checkout_list, arrivals_list, online_list, debt_alerts = [], [], [], []
     elif view == "occupied":
-        filtered = [c for c in cards if c.is_active and c.status_key == "occupied"]
+        filtered = [
+            c
+            for c in cards
+            if c.is_active
+            and c.status_key
+            in ("occupied", "overstay", "await_pay", "extended")
+        ]
         checkout_list, arrivals_list, online_list = [], [], []
         debt_alerts = [a for a in debt_alerts if a.room_id in {c.room_id for c in filtered}]
     elif view == "checkout":
@@ -583,5 +827,7 @@ def filter_dashboard_by_view(
         arrivals_list=arrivals_list,
         online_list=online_list,
         debt_alerts=debt_alerts,
+        guests_total=summary.guests_total,
+        guests_rooms=summary.guests_rooms,
     )
     return filtered, focused, DASHBOARD_VIEW_LABELS.get(view)

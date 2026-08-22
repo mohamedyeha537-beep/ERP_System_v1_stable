@@ -16,7 +16,7 @@
   <p><strong>التاريخ:</strong> {{ pos_format_dt(purchase.created_at, '%Y-%m-%d %H:%M') }}</p>
   <p><strong>المورّد:</strong> {{ purchase.supplier or '—' }}</p>
   <p><strong>رقم فاتورة المورّد / المرجع:</strong> {{ purchase.supplier_invoice_ref or '—' }}</p>
-  <p><strong>المحفظة:</strong> {% if purchase.method %}{{ purchase.method.name_ar }}{% else %}—{% endif %}</p>
+  <p><strong>المحفظة:</strong> {% if purchase.method %}{{ pos_wallet_label(purchase.method) }}{% else %}—{% endif %}</p>
   {% if purchase.invoice_image_filename %}
   <p>
     <strong>صورة فاتورة المورّد:</strong>

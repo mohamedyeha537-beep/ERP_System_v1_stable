@@ -28,20 +28,51 @@ def normalize_whatsapp_group_id(raw: str) -> str:
 
 
 def normalize_whatsapp_phone(raw: str, *, country_code: str = "218") -> str:
-    """0919774743 → +218919774743 (أرقام أفراد فقط)."""
-    s = (raw or "").strip().replace(" ", "").replace("-", "")
+    """ينسّق رقم واتساب دولي بصيغة +E.164.
+
+    - ليبي يبدأ بـ 0: 0919774743 → +218919774743
+    - يبدأ بـ + أو 00: يُحافظ على الدولة
+    - رقم دولي بدون + (مثل 9665...): يُضاف +
+    - رقم محلي قصير بدون 0: يُفترض مفتاح الدولة الافتراضي
+    """
+    s = (raw or "").strip().replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
     if not s:
         return ""
     cc = (country_code or "218").lstrip("+")
     if s.startswith("+"):
-        return s
+        digits = re.sub(r"\D", "", s[1:])
+        return f"+{digits}" if digits else ""
     if s.startswith("00"):
-        return "+" + s[2:]
-    if s.startswith("0"):
-        return f"+{cc}{s[1:]}"
-    if s.startswith(cc):
-        return "+" + s
-    return f"+{cc}{s}"
+        digits = re.sub(r"\D", "", s[2:])
+        return f"+{digits}" if digits else ""
+    digits = re.sub(r"\D", "", s)
+    if not digits:
+        return ""
+    # محلي ليبي يبدأ بـ 0
+    if digits.startswith("0") and len(digits) in (9, 10):
+        return f"+{cc}{digits[1:]}"
+    # يبدأ بمفتاح الدولة الافتراضي
+    if digits.startswith(cc) and len(digits) >= len(cc) + 8:
+        return f"+{digits}"
+    # رقم دولي واضح (أكثر من 10 أرقام بدون 0 في البداية) — لا نفرض ليبيا
+    if len(digits) >= 11 and not digits.startswith("0"):
+        return f"+{digits}"
+    # رقم محلي بدون صفر: 9xxxxxxxx ليبي
+    if len(digits) == 9 and digits.startswith("9"):
+        return f"+{cc}{digits}"
+    return f"+{cc}{digits}"
+
+
+def require_whatsapp_phone(raw: str, *, country_code: str = "218") -> str:
+    """رقم واتساب صالح للإرسال (ليبي أو دولي)."""
+    n = normalize_whatsapp_phone(raw, country_code=country_code)
+    digits = re.sub(r"\D", "", n)
+    if not n.startswith("+") or len(digits) < 8 or len(digits) > 15:
+        raise ValueError(
+            "رقم واتساب غير صالح. استخدم صيغة دولية مثل +9665xxxxxxx "
+            "أو رقم ليبي 09xxxxxxxx."
+        )
+    return n
 
 
 def normalize_whatsapp_recipient(raw: str, *, country_code: str = "218") -> str:

@@ -28,6 +28,20 @@ def invalidate_hotel_nav_badges(property_id: int | None = None) -> None:
         _BADGE_CACHE.pop(int(property_id), None)
 
 
+def _refresh_hotel_debts_badge(db: Session, counts: dict[str, int]) -> None:
+    """شارة الذمم حساسة مالياً — تُحدَّث دائماً ولا تُترك من كاش قديم."""
+    try:
+        from modules.hotel.booking_debts import debts_nav_badge_count
+
+        debts_badge = int(debts_nav_badge_count(db) or 0)
+    except Exception:
+        return
+    if debts_badge:
+        counts["hotel_debts"] = debts_badge
+    else:
+        counts.pop("hotel_debts", None)
+
+
 def hotel_nav_badge_counts(db: Session, *, property_id: int = 1) -> dict[str, int]:
     """أعداد تظهر كشارة حمراء على كروت تنقل الفندق (واللوحة الرئيسية عند الربط)."""
     now = time.monotonic()
@@ -81,8 +95,63 @@ def hotel_nav_badge_counts(db: Session, *, property_id: int = 1) -> dict[str, in
         )
         or 0
     )
+    # دائماً لمحطة الاستقبال (حتى لو 0) — نفس أرقام لوحة الموظف
+    counts["hotel_occupied"] = occupied
     if occupied:
         counts["hotel_dashboard"] = occupied
+
+    # شقق متاحة حالياً (نشطة وليست مشغولة/محجوزة/صيانة/تنظيف)
+    active_rooms = int(
+        db.scalar(
+            select(func.count())
+            .select_from(HotelRoom)
+            .where(
+                HotelRoom.property_id == property_id,
+                HotelRoom.is_active.is_(True),
+            )
+        )
+        or 0
+    )
+    blocked_phys = int(
+        db.scalar(
+            select(func.count())
+            .select_from(HotelRoom)
+            .where(
+                HotelRoom.property_id == property_id,
+                HotelRoom.is_active.is_(True),
+                HotelRoom.physical_status.in_(
+                    [
+                        RoomPhysicalStatus.MAINTENANCE,
+                        RoomPhysicalStatus.OUT_OF_SERVICE,
+                        RoomPhysicalStatus.BLOCKED,
+                        RoomPhysicalStatus.DIRTY,
+                        RoomPhysicalStatus.CLEANING,
+                    ]
+                ),
+            )
+        )
+        or 0
+    )
+    reserved = int(
+        db.scalar(
+            select(func.count())
+            .select_from(HotelBooking)
+            .where(
+                HotelBooking.property_id == property_id,
+                HotelBooking.record_kind == RecordKind.BOOKING,
+                HotelBooking.booking_status.in_(
+                    [BookingStatus.CONFIRMED, BookingStatus.PENDING]
+                ),
+                HotelBooking.check_in <= today,
+                HotelBooking.check_out > today,
+            )
+        )
+        or 0
+    )
+    # تقدير متاحة ≈ نشطة − (مشغولة + محجوزة اليوم + معطّلة فيزيائياً) — غير سلبي
+    available_est = max(0, active_rooms - occupied - reserved - blocked_phys)
+    counts["hotel_available"] = available_est
+    counts["hotel_reserved"] = reserved
 
     open_quotations = int(
         db.scalar(
@@ -121,6 +190,20 @@ def hotel_nav_badge_counts(db: Session, *, property_id: int = 1) -> dict[str, in
         )
         or 0
     )
+    # مغادرة اليوم فقط (check_out اليوم) — نفس معنى بطاقة الاستقبال
+    departures_today = int(
+        db.scalar(
+            select(func.count())
+            .select_from(HotelBooking)
+            .where(
+                HotelBooking.property_id == property_id,
+                HotelBooking.record_kind == RecordKind.BOOKING,
+                HotelBooking.check_out == today,
+                HotelBooking.booking_status == BookingStatus.CHECKED_IN,
+            )
+        )
+        or 0
+    )
     departures = int(
         db.scalar(
             select(func.count())
@@ -134,12 +217,13 @@ def hotel_nav_badge_counts(db: Session, *, property_id: int = 1) -> dict[str, in
         )
         or 0
     )
+    counts["hotel_arrivals"] = arrivals
+    counts["hotel_checkout_due"] = departures_today
     calendar_n = arrivals + departures
     if calendar_n:
         counts["hotel_calendar"] = calendar_n
     if departures:
         counts["hotel_departures_soon"] = departures
-
     try:
         from modules.hotel.follow_up import follow_ups_due_count
 
@@ -183,6 +267,8 @@ def hotel_nav_badge_counts(db: Session, *, property_id: int = 1) -> dict[str, in
         counts["hotel_housekeeping"] = housekeeping
     if cleaning_pending:
         counts["hotel_cleaning"] = cleaning_pending
+    if maintenance_n:
+        counts["hotel_maintenance"] = maintenance_n
 
     try:
         from modules.dashboard_notify.pending import pending_hotel_settle_count
@@ -193,19 +279,18 @@ def hotel_nav_badge_counts(db: Session, *, property_id: int = 1) -> dict[str, in
     if settle:
         counts["hotel_settle"] = settle
 
-    try:
-        from modules.hotel.booking_debts import debts_nav_badge_count
-
-        debts_badge = int(debts_nav_badge_count(db) or 0)
-        if debts_badge:
-            counts["hotel_debts"] = debts_badge
-    except Exception:
-        pass
+    _refresh_hotel_debts_badge(db, counts)
 
     try:
-        from modules.hotel.shift_service import get_open_shift
+        # شارة فقط عند وجود جلسة مفتوحة متأخرة عن موعد الإقفال —
+        # عدم وجود جلسة ليس تنبيهاً أحمر (يفتح المستخدم الجلسة من الصفحة عند الحاجة).
+        from modules.hotel.shift_schedules import overdue_grace_minutes
+        from modules.hotel.shift_service import get_open_shift, shift_is_overdue
 
-        if get_open_shift(db, property_id=property_id) is None:
+        open_shift = get_open_shift(db, property_id=property_id)
+        if open_shift is not None and shift_is_overdue(
+            open_shift, grace_minutes=overdue_grace_minutes(db)
+        ):
             counts["hotel_shift"] = 1
     except Exception:
         pass

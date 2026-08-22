@@ -1,20 +1,34 @@
 {% extends "base.html" %}
 {% block title %}{{ ledger.account.code }} — {{ ledger.account.name_ar }}{% endblock %}
+{% block head_extra %}
+{% if pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}
+<link rel="stylesheet" href="/static/treasury_desk.css?v=1" />
+{% endif %}
+{% endblock %}
 {% block body %}
+{% if pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}
+{% include "treasury/_nav.html" %}
+{% endif %}
 <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem">
   <div>
     <p class="muted" style="margin:0 0 0.25rem;font-size:0.85rem">
+      {% if pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}
+      <a href="/pos/treasury/desk#vaults">← الخزائن والأرصدة</a>
+      {% else %}
       <a href="/admin/gl/accounts">← شجرة الحسابات</a>
+      {% endif %}
     </p>
     <h1 style="margin:0">
       <span style="direction:ltr;font-variant-numeric:tabular-nums">{{ ledger.account.code }}</span>
       — {{ ledger.account.name_ar }}
     </h1>
   </div>
+  {% if not (pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request)) %}
   <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
     <a class="btn" href="/admin/gl/journal">قيود اليومية</a>
     <a class="btn" href="/admin/gl">إعدادات GL</a>
   </div>
+  {% endif %}
 </div>
 
 {% if not gl_status.enabled %}
@@ -37,7 +51,7 @@
 <div class="card" style="border-color:#0ea5e9;background:linear-gradient(180deg,#e0f2fe 0%,#fff 60%)">
   <div style="display:flex;flex-wrap:wrap;gap:1.5rem;align-items:flex-end">
     <div>
-      <div class="muted" style="font-size:0.8rem">{% if ledger.is_header %}الرصيد التجميعي (GL){% else %}الرصيد الحالي (GL){% endif %}</div>
+      <div class="muted" style="font-size:0.8rem">{% if ledger.is_header %}الرصيد التجميعي{% else %}الرصيد الحالي{% endif %}</div>
       <div style="font-size:1.75rem;font-weight:700;direction:ltr;font-variant-numeric:tabular-nums;{% if ledger.balance < 0 %}color:#b45309{% else %}color:#15803d{% endif %}">
         {{ "%.3f"|format(ledger.balance) }} د.ل{% if ledger.is_header %} <span style="font-size:0.9rem;color:#0369a1">Σ</span>{% endif %}
       </div>
@@ -67,12 +81,12 @@
     <div style="display:flex;flex-wrap:wrap;gap:0.5rem">
       {% for name, op_bal in ledger.linked_wallets %}
       <span style="background:#fff;border:1px solid #bae6fd;border-radius:6px;padding:0.25rem 0.5rem;font-size:0.85rem">
-        {{ name }} — <span style="direction:ltr;font-variant-numeric:tabular-nums">{{ "%.3f"|format(op_bal) }}</span> د.ل (تشغيلي)
+        {{ name }} — <span style="direction:ltr;font-variant-numeric:tabular-nums">{{ "%.3f"|format(op_bal) }}</span> د.ل
       </span>
       {% endfor %}
     </div>
     <p class="muted" style="margin:0.5rem 0 0;font-size:0.78rem">
-      المبيعات والصرف تمر عبر المحافظ → تُرحَّل تلقائياً إلى هذا الحساب. ربط محافظ إضافية من <a href="/admin/gl">إعدادات GL</a>.
+      هذا هو رصيد الخزينة نفسه المعروض في التحويل واللوحة.
     </p>
   </div>
   {% elif not ledger.is_header %}
@@ -149,8 +163,12 @@
     <table style="width:100%;font-size:0.88rem;min-width:720px">
       <thead>
         <tr>
-          <th style="text-align:right;padding:0.45rem">التاريخ</th>
+          <th style="text-align:right;padding:0.45rem">التاريخ والوقت</th>
           <th style="text-align:right;padding:0.45rem">{% if ledger.session_view %}النوع{% else %}القيد{% endif %}</th>
+          {% if ledger.session_view %}
+          <th style="text-align:right;padding:0.45rem">رقم الجلسة</th>
+          <th style="text-align:right;padding:0.45rem">الموظف</th>
+          {% endif %}
           <th style="text-align:right;padding:0.45rem">الوصف / المصدر</th>
           <th style="text-align:left;padding:0.45rem;direction:ltr">قبض</th>
           <th style="text-align:left;padding:0.45rem;direction:ltr">صرف</th>
@@ -163,7 +181,10 @@
       <tbody>
         {% for row in ledger.rows %}
         <tr>
-          <td style="padding:0.4rem;white-space:nowrap">{{ row.entry_date }}</td>
+          <td style="padding:0.4rem;white-space:nowrap;direction:ltr;text-align:right;font-variant-numeric:tabular-nums">
+            {% if row.created_at %}{{ pos_format_dt(row.created_at, '%Y-%m-%d %H:%M:%S') }}
+            {% else %}{{ row.entry_date }}{% endif %}
+          </td>
           <td style="padding:0.4rem">
             {% if ledger.session_view and row.is_aggregate %}
               {% if row.source_type == 'pos_shift' %}جلسة كاشير
@@ -173,10 +194,18 @@
               <span class="muted" style="font-size:0.75rem"> · {{ row.item_count }}</span>
               {% endif %}
             {% else %}
+            {% if pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}
+            #{{ row.entry_id }}
+            {% else %}
             <a href="/admin/gl/journal?page=0">#{{ row.entry_id }}</a>
+            {% endif %}
             <span class="muted" style="font-size:0.78rem"> · {{ row.post_mode }}</span>
             {% endif %}
           </td>
+          {% if ledger.session_view %}
+          <td style="padding:0.4rem;font-weight:800;direction:ltr;text-align:right">{{ row.session_no or '—' }}</td>
+          <td style="padding:0.4rem;font-weight:700">{{ row.employee_name or '—' }}</td>
+          {% endif %}
           <td style="padding:0.4rem">
             {{ row.description_ar }}
             {% if row.memo %}<br><span class="muted" style="font-size:0.78rem">{{ row.memo }}</span>{% endif %}

@@ -84,6 +84,9 @@ class GlTreasuryDashboardCard:
     balance: Decimal
     wallet_pm_id: int | None = None
     wallet_names: list[str] = field(default_factory=list)
+    wallet_ops_total: Decimal | None = None
+    wallet_gl_diff: Decimal | None = None
+    gl_book_balance: Decimal | None = None
 
 
 @dataclass
@@ -530,27 +533,45 @@ def collect(db: Session, domain=None) -> DashboardStats:
 
     gl_cards = gl_dashboard_treasury_cards(db, domain=domain)
     if is_gl_enabled(db):
+        from modules.gl.vault_display import mapped_vault_wallet_totals
+
+        vault_totals = mapped_vault_wallet_totals(db)
         stats.gl_enabled = True
         stats.treasury_source = "gl"
-        stats.gl_treasury_cards = [
-            GlTreasuryDashboardCard(
-                account_id=c.account_id,
-                code=c.code,
-                name_ar=c.name_ar,
-                card_kind=c.card_kind,
-                balance=c.balance,
-                wallet_pm_id=c.wallet_pm_id,
-                wallet_names=c.wallet_names or [],
+        fixed_cards = []
+        for c in gl_cards:
+            bal = c.balance
+            if c.wallet_pm_id:
+                bal = bal_map.get(int(c.wallet_pm_id), bal)
+            elif c.card_kind in ("cash", "bank") and c.account_id:
+                mapped = vault_totals.get(int(c.account_id))
+                if mapped is not None:
+                    bal = mapped
+            fixed_cards.append(
+                GlTreasuryDashboardCard(
+                    account_id=c.account_id,
+                    code=c.code,
+                    name_ar=c.name_ar,
+                    card_kind=c.card_kind,
+                    balance=Decimal(str(bal)).quantize(Decimal("0.001")),
+                    wallet_pm_id=c.wallet_pm_id,
+                    wallet_names=c.wallet_names or [],
+                    wallet_ops_total=c.wallet_ops_total,
+                    wallet_gl_diff=None,
+                    gl_book_balance=None,
+                )
             )
-            for c in gl_cards
-        ]
+        stats.gl_treasury_cards = fixed_cards
         stats.treasury_cards = []
     else:
         stats.gl_enabled = False
+        from modules.gl.wallet_labels import label_from_info_map, wallet_gl_info_map
+
+        gl_info = wallet_gl_info_map(db)
         stats.treasury_cards = [
             TreasuryDashboardCard(
                 method_id=m.id,
-                name_ar=m.name_ar,
+                name_ar=label_from_info_map(gl_info, m),
                 kind=m.kind.value,
                 balance=bal_map.get(m.id, Decimal("0")).quantize(Decimal("0.001")),
             )

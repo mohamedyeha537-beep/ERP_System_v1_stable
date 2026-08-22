@@ -107,6 +107,8 @@ def admin_payment_methods(
     domain = _finance_domain_filter(request, user)
     methods = list_payment_methods(db, only_active=False, domain=domain)
     gl_enabled = is_gl_enabled(db)
+    from modules.gl.wallet_labels import wallet_gl_info_map
+
     return templates.TemplateResponse(
         "admin_payment_methods.html",
         {
@@ -119,6 +121,7 @@ def admin_payment_methods(
             "owner_equity_name": OWNER_EQUITY_PM_NAME,
             "error_message": None,
             "gl_enabled": gl_enabled,
+            "pm_gl_info": wallet_gl_info_map(db),
         },
     )
 
@@ -160,6 +163,8 @@ def _render_pm_page(request: Request, db, user: User, error: str, status_code: i
 
     domain = _finance_domain_filter(request, user)
     methods = list_payment_methods(db, only_active=False, domain=domain)
+    from modules.gl.wallet_labels import wallet_gl_info_map
+
     return templates.TemplateResponse(
         "admin_payment_methods.html",
         {
@@ -172,6 +177,7 @@ def _render_pm_page(request: Request, db, user: User, error: str, status_code: i
             "owner_equity_name": OWNER_EQUITY_PM_NAME,
             "error_message": error,
             "gl_enabled": is_gl_enabled(db),
+            "pm_gl_info": wallet_gl_info_map(db),
         },
         status_code=status_code,
     )
@@ -338,26 +344,31 @@ def _get_draft_for_checkout(request: Request, db, user: User) -> Sale | None:
 
 
 def _ensure_sale_referral_from_online(db, sale: Sale) -> None:
-    """يربط إحالة المتجر/الشات بالفاتورة قبل شاشة الدفع إن وُجدت في الجلسة."""
-    if sale.referrer_customer_id:
-        return
-    from modules.messaging.chat_order_service import (
-        is_online_guest_sale,
-        try_apply_session_referral_to_sale,
-        web_chat_session_for_sale,
-    )
-
-    if not is_online_guest_sale(sale):
-        return
-    sess = web_chat_session_for_sale(db, sale.id)
-    if sess is None:
-        return
-    try_apply_session_referral_to_sale(db, sess, sale)
+    """لا يُطبَّق كود الإحالة تلقائياً عند فتح الدفع من الكاشير — يُترك للكاشير إدخاله يدوياً."""
+    _ = (db, sale)
 
 
 def _sale_referral_checkout_info(db, sale: Sale) -> dict:
     from modules.customers.models import Customer
     from modules.customers.referral_service import find_customer_by_referral_code
+    from modules.messaging.chat_order_service import is_online_guest_sale
+
+    if is_online_guest_sale(sale):
+        code = ""
+        label = ""
+        if sale.referrer_customer_id:
+            code = (sale.referral_code_used or "").strip()
+            referrer = db.get(Customer, int(sale.referrer_customer_id))
+            if referrer is not None:
+                parts = [(referrer.name or "").strip(), (referrer.phone or "").strip()]
+                label = " — ".join(p for p in parts if p)
+        return {
+            "referral_code_prefill": code,
+            "referral_referrer_label": label,
+            "referral_on_sale": bool(sale.referrer_customer_id),
+            "referral_from_online": bool(sale.referrer_customer_id),
+        }
+
     from modules.messaging.chat_order_service import load_order_data, web_chat_session_for_sale
 
     code = (sale.referral_code_used or "").strip()
@@ -524,9 +535,9 @@ def _build_checkout_template_ctx(
     from modules.delivery.drivers_service import get_handoff, list_recent_drivers
     from modules.hr.meal_allowance import checkout_employee_options, current_period_label
     from modules.payments.service import list_pos_sale_payment_methods
-    from modules.sales.order_pipeline import sale_is_delivery
+    from modules.sales.order_pipeline import sale_allows_split_payment, sale_is_delivery
 
-    methods = list_pos_sale_payment_methods(db, only_active=True)
+    methods = list_pos_sale_payment_methods(db, only_active=True, user=user)
     meal_period = current_period_label()
     sorted_lines = sort_sale_lines_for_display(db, list(sale.lines))
     loyalty_ctx = _checkout_loyalty_context(db, sale, user)
@@ -540,6 +551,7 @@ def _build_checkout_template_ctx(
     ):
         delivery_cash_method = get_default_cash_method(db)
     show_delivery_driver_button = sale_is_delivery(sale) and bool(sale.lines)
+    allow_split_payment = sale_allows_split_payment(sale)
     op_name = None
     if open_pos_shift and getattr(open_pos_shift, "employee", None) is not None:
         op_name = open_pos_shift.employee.full_name_ar
@@ -560,6 +572,7 @@ def _build_checkout_template_ctx(
         "financial_preview": financial_preview,
         "delivery_cash_method": delivery_cash_method,
         "show_delivery_driver_button": show_delivery_driver_button,
+        "allow_split_payment": allow_split_payment,
         "delivery_handoff": (
             get_handoff(db, sale.id) if show_delivery_driver_button else None
         ),
@@ -833,6 +846,12 @@ async def pos_checkout_submit(
         pm = db.get(PaymentMethod, pm_id)
         if pm is None or not pm.is_active:
             return checkout_fail("أسلوب الدفع غير صالح.")
+        try:
+            from modules.authz.pos_wallet_access import assert_user_may_use_payment_method
+
+            assert_user_may_use_payment_method(user, pm)
+        except PaymentsError as exc:
+            return checkout_fail(str(exc))
 
     proof_fn: str | None = None
     proof_upload = form.get("bank_transfer_proof")
@@ -867,10 +886,18 @@ async def pos_checkout_submit(
             if customer_phone is None:
                 return checkout_fail("لا يوجد رقم هاتف للموظف لاحتساب نقاط الولاء.")
         cust = attach_customer_to_sale(db, sale, phone=customer_phone, name=customer_name)
+        from modules.messaging.chat_order_service import is_online_guest_sale
+
+        online_guest = is_online_guest_sale(sale)
         referral_code = str(form.get("referral_code") or "").strip()
-        if not referral_code:
+        if not referral_code and not online_guest:
             referral_code = (sale.referral_code_used or "").strip()
-        if referral_code and cust is not None and not sale.referrer_customer_id:
+        if (
+            referral_code
+            and cust is not None
+            and not sale.referrer_customer_id
+            and (not online_guest or str(form.get("referral_code") or "").strip())
+        ):
             from modules.customers.referral_service import (
                 ReferralError,
                 apply_referral_to_sale,
@@ -957,6 +984,12 @@ async def pos_checkout_submit(
 
         if amount_due > 0:
             if split_payment:
+                from modules.sales.order_pipeline import sale_allows_split_payment
+
+                if not sale_allows_split_payment(sale):
+                    raise PaymentsError(
+                        "طلبات التوصيل والأونلاين تُدفع بوسيلة واحدة فقط (كاش أو مصرف) — بدون دفع مقسّم."
+                    )
                 split_rows: list[tuple[int, Decimal]] = []
                 for key, value in form.multi_items():
                     sk = str(key)
@@ -984,7 +1017,15 @@ async def pos_checkout_submit(
                     raise PaymentsError(
                         f"مجموع الدفع المقسّم ({split_total}) يجب أن يساوي المبلغ المطلوب ({amount_due})."
                     )
+                from modules.authz.pos_wallet_access import (
+                    assert_user_may_use_payment_method,
+                )
+
                 for split_method_id, split_amount in split_rows:
+                    split_pm = db.get(PaymentMethod, split_method_id)
+                    if split_pm is None or not split_pm.is_active:
+                        raise PaymentsError("أحد أساليب الدفع المقسّم غير صالح.")
+                    assert_user_may_use_payment_method(user, split_pm)
                     record_sale_payment(
                         db,
                         sale.id,
@@ -1778,8 +1819,29 @@ def expenses_list(
     if e_user is not None:
         e = e_user
     domain = _finance_domain_filter(request, user)
-    methods = list_payment_methods_for_pay(db, only_active=True, domain=domain)
-    items = list_purchases(db, s, e, kind=PurchaseKind.EXPENSE, domain=domain)
+    from modules.authz.capability import is_treasury_clerk_user
+
+    clerk = is_treasury_clerk_user(user)
+    bals = None
+    if clerk:
+        from modules.payments.treasury_desk import (
+            load_treasury_balances,
+            treasury_pay_methods,
+        )
+
+        methods = treasury_pay_methods(db, domain=domain)
+        bals = load_treasury_balances(db, domain=domain)
+    else:
+        methods = list_payment_methods_for_pay(db, only_active=True, domain=domain)
+
+    items = list_purchases(
+        db,
+        s,
+        e,
+        kind=PurchaseKind.EXPENSE,
+        domain=domain,
+        exclude_loyalty=clerk,
+    )
     total = sum((p.amount for p in items), Decimal("0"))
     from modules.platform.business_domain import domain_label
 
@@ -1797,6 +1859,7 @@ def expenses_list(
             "finance_domain_filter": domain,
             "domain_label": domain_label(domain) if domain else "الكل",
             "domain_choices": _domain_choices(),
+            "bals": bals,
         },
     )
 
@@ -1847,8 +1910,29 @@ async def expenses_add(
             "/admin/expenses?error=" + quote("أسلوب الدفع غير صالح."),
             status_code=302,
         )
+    from modules.authz.capability import is_treasury_clerk_user
+
+    clerk = is_treasury_clerk_user(user)
     domain = _finance_domain_filter(request, user)
-    if domain is not None:
+    charge_domain = (form.get("business_domain") or "").strip() or None
+    if clerk:
+        from modules.payments.treasury_desk import treasury_pay_methods
+
+        if domain is None:
+            from modules.platform.business_domain import BusinessDomain
+
+            domain = BusinessDomain.RESTAURANT
+        charge_domain = domain.value
+        allowed_method_ids = {m.id for m in treasury_pay_methods(db, domain=domain)}
+        if pm_id not in allowed_method_ids:
+            if invoice_image_filename:
+                _unlink_static_relative(_PAYMENTS_WEB_STATIC, invoice_image_filename)
+            return RedirectResponse(
+                "/admin/expenses?error="
+                + quote("هذه الخزينة لا تخص الوضع الحالي. بدّل المطعم/الفندق من الأعلى."),
+                status_code=302,
+            )
+    elif domain is not None:
         allowed_method_ids = {
             m.id for m in list_payment_methods_for_pay(db, only_active=True, domain=domain)
         }
@@ -1874,7 +1958,7 @@ async def expenses_add(
             supplier_invoice_ref=supplier_invoice_ref or None,
             invoice_image_filename=invoice_image_filename,
             filter_domain=domain,
-            business_domain=(form.get("business_domain") or "").strip() or None,
+            business_domain=charge_domain,
         )
         db.commit()
     except PaymentsError as e:
@@ -1904,7 +1988,7 @@ def _disbursement_voucher_response(
     orientation: str | None = None,
     autoprint: int = 0,
 ):
-    from modules.platform.business_domain import BusinessDomain
+    from modules.platform.business_domain import BusinessDomain, domain_label
     from modules.printing.doc_numbers import PrintDocKind, doc_kind_label, next_doc_number
     from modules.settings.service import (
         PAPER_ORIENTATIONS,
@@ -1942,7 +2026,16 @@ def _disbursement_voucher_response(
         doc_number = next_doc_number(db, PrintDocKind.DISBURSEMENT, domain=dom)
         set_setting(db, meta_key, doc_number)
         db.commit()
-    method = purchase.payment_method
+    # العلاقة على Purchase اسمها method (وليس payment_method)
+    method = None
+    try:
+        method = purchase.method
+    except Exception:  # noqa: BLE001
+        method = None
+    if method is None and getattr(purchase, "payment_method_id", None):
+        from modules.payments.models import PaymentMethod
+
+        method = db.get(PaymentMethod, int(purchase.payment_method_id))
     emp = db.get(User, purchase.created_by_id) if purchase.created_by_id else None
     preserve = {}
     if autoprint:
@@ -1953,8 +2046,9 @@ def _disbursement_voucher_response(
             "request": request,
             "doc_title": doc_kind_label(PrintDocKind.DISBURSEMENT),
             "doc_number": doc_number,
-            "amount": purchase.amount,
+            "amount": float(purchase.amount or 0),
             "method_name": method.name_ar if method else "—",
+            "charge_domain_label": domain_label(dom),
             "category": purchase.expense_category or "",
             "party": purchase.supplier or "",
             "note": purchase.note or "",

@@ -1,0 +1,39 @@
+{# إعلان تحويل مصرفي — bank_declare_action + bank_declaration + bank_default #}
+{% set _decl = bank_declaration if bank_declaration is defined else none %}
+{% set _amt = bank_default if bank_default is defined else 0 %}
+{% if _decl %}
+<div class="card" style="margin:0.75rem 0;padding:0.75rem 0.9rem;border-color:#7dd3fc;background:#f0f9ff">
+  <p style="margin:0;font-weight:700;color:#0369a1">تحويل مصرفي معلن — بانتظار اعتماد الخزينة</p>
+  <p style="margin:0.35rem 0 0;font-size:0.88rem;line-height:1.55">
+    المصرف: <strong>{{ _decl.bank_name }}</strong>
+    · رقم العملية: <strong>{{ _decl.bank_ref }}</strong>
+    · المبلغ: <strong>{{ '%.3f'|format(_decl.claimed_bank) }}</strong> د.ل
+    {% if _decl.bank_transferred_at %}
+    · الوقت: {{ pos_format_dt(_decl.bank_transferred_at, '%Y-%m-%d %H:%M') if pos_format_dt is defined else _decl.bank_transferred_at }}
+    {% endif %}
+  </p>
+  <p class="muted" style="margin:0.3rem 0 0;font-size:0.8rem">هذا إعلان من الموظف — الاعتماد الفعلي يتم من أمين الخزينة.</p>
+</div>
+{% elif bank_declare_action is defined and _amt and _amt|float > 0 %}
+<form method="post" action="{{ bank_declare_action }}" class="card" style="margin:0.75rem 0;padding:0.85rem;border-color:#7dd3fc;background:#f0f9ff">
+  <p style="margin:0 0 0.5rem;font-weight:700;color:#0369a1">تم التحويل — بيانات العملية المصرفية</p>
+  <p class="muted" style="margin:0 0 0.65rem;font-size:0.82rem;line-height:1.5">
+    اختياري — فقط إن حوّل الكاشير مبلغاً بحوالة فعلية. مبيعات البطاقة/المحفظة المصرفية لا تحتاج إعلاناً، ويمكن اعتماد الخزينة مباشرة.
+  </p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.5rem;max-width:36rem">
+    <label>المبلغ
+      <input name="bank_amount" type="text" inputmode="decimal" required value="{{ '%.3f'|format(_amt) }}" dir="ltr" />
+    </label>
+    <label>اسم المصرف
+      <input name="bank_name" required placeholder="مثال: الجمهورية" />
+    </label>
+    <label>رقم العملية
+      <input name="bank_ref" required placeholder="رقم الحوالة" />
+    </label>
+    <label>وقت التحويل
+      <input name="bank_transferred_at" type="datetime-local" />
+    </label>
+  </div>
+  <button class="btn" type="submit" style="margin-top:0.65rem">حفظ إعلان التحويل</button>
+</form>
+{% endif %}

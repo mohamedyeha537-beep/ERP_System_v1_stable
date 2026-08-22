@@ -4,7 +4,7 @@
 {% block body %}
 <h1>سجل العمليات{% if domain_label %} — {{ domain_label }}{% endif %}</h1>
 <p class="muted" style="margin-top:-0.35rem">
-  مبيعات · مقبوضات · مشتريات · مصروفات معاً — الأحدث في الأعلى. ابحث بالتاريخ أو بالاسم، وصفّح النتائج، ثم صدّر Excel / CSV / PDF.
+  مبيعات · مقبوضات · مشتريات · مصروفات · تحويلات بين الحسابات — الأحدث في الأعلى. ملاحظة التحويل تظهر هنا حتى يعرف المراجع سبب البند.
 </p>
 {{ reports_nav('transactions') }}
 {{ period_filter(
@@ -58,26 +58,39 @@
     <div class="stat-card"><div class="label">مشتريات</div><div class="value">{{ summary.purchases_total }} د.ل</div></div>
     <div class="stat-card bad"><div class="label">مصروفات</div><div class="value">{{ summary.expenses_total }} د.ل</div></div>
     <div class="stat-card bad"><div class="label">مرتجعات</div><div class="value">{{ summary.refunds_total }} د.ل</div></div>
+    <div class="stat-card"><div class="label">تحويلات بين الحسابات</div><div class="value">{{ summary.transfers_total }} د.ل</div></div>
   </div>
 </div>
+
+{% if note_saved %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4;margin-bottom:0.75rem">
+  <p style="margin:0">تم حفظ البيان.</p>
+</div>
+{% endif %}
+{% if note_error %}
+<div class="card" style="border-color:#fecaca;background:#fef2f2;margin-bottom:0.75rem">
+  <p style="margin:0;color:#b91c1c">{{ note_error }}</p>
+</div>
+{% endif %}
 
 <div class="card">
   <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem">
     <h2 style="margin:0">العمليات <span class="muted" style="font-size:0.85rem;font-weight:400">({{ total }} — صفحة {{ page }} / {{ total_pages }})</span></h2>
     <span class="muted" style="font-size:0.82rem">الأحدث في الأعلى</span>
   </div>
-  {% if rows %}
+{% if rows %}
   <div class="table-scroll">
   <table class="recv-click-table">
     <thead>
       <tr>
         <th>النوع</th>
-        <th>التاريخ</th>
+        <th>التاريخ والوقت</th>
         <th>المرجع</th>
         <th>الاسم / الطرف</th>
+        <th>الموظف</th>
         <th>المبلغ</th>
         <th>طريقة الدفع</th>
-        <th>ملاحظة</th>
+        <th>البيان / الملاحظة</th>
         <th></th>
       </tr>
     </thead>
@@ -89,17 +102,34 @@
           {% elif r.kind == 'receipt' %}<span class="badge" style="background:#dcfce7;color:#15803d">{{ r.kind_label }}</span>
           {% elif r.kind == 'purchase' %}<span class="badge" style="background:#ffedd5;color:#c2410c">{{ r.kind_label }}</span>
           {% elif r.kind == 'expense' %}<span class="badge" style="background:#fee2e2;color:#b91c1c">{{ r.kind_label }}</span>
+          {% elif r.kind == 'transfer' %}<span class="badge" style="background:#e0e7ff;color:#3730a3">{{ r.kind_label }}</span>
           {% else %}<span class="badge" style="background:#fce7f3;color:#9d174d">{{ r.kind_label }}</span>
           {% endif %}
         </td>
-        <td>{{ pos_format_dt(r.created_at, '%Y-%m-%d %H:%M') if r.created_at else '—' }}</td>
+        <td dir="ltr" style="font-variant-numeric:tabular-nums;white-space:nowrap">{{ pos_format_dt(r.created_at, '%Y-%m-%d %H:%M:%S') if r.created_at else '—' }}</td>
         <td><strong>{{ r.ref }}</strong></td>
         <td>{{ r.party_name }}</td>
-        <td style="font-weight:800;{% if r.signed_amount < 0 %}color:#b91c1c{% else %}color:#15803d{% endif %}">
-          {% if r.signed_amount < 0 %}−{% else %}+{% endif %}{{ r.amount }} د.ل
+        <td>{{ r.employee_name or '—' }}</td>
+        <td style="font-weight:800;{% if r.kind == 'transfer' %}color:#3730a3{% elif r.signed_amount < 0 %}color:#b91c1c{% else %}color:#15803d{% endif %}">
+          {% if r.kind == 'transfer' %}{{ r.amount }} د.ل
+          {% elif r.signed_amount < 0 %}−{{ r.amount }} د.ل
+          {% else %}+{{ r.amount }} د.ل{% endif %}
         </td>
         <td>{{ r.method_name }}</td>
-        <td class="muted" style="font-size:0.85rem;max-width:12rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.note or '—' }}</td>
+        <td style="font-size:0.85rem;max-width:18rem;{% if r.kind == 'transfer' %}font-weight:600;color:#1e293b;white-space:normal{% else %}color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis{% endif %}">
+          {% if r.note %}{{ r.note }}
+          {% else %}<span style="color:#b45309">بدون بيان</span>{% endif %}
+          {% if can_edit_note and r.source_kind == 'transfer' %}
+          <form method="post" action="/reports/transactions/note" class="no-print" style="display:flex;gap:0.3rem;align-items:center;margin-top:0.35rem" onclick="event.stopPropagation()">
+            <input type="hidden" name="source_kind" value="transfer" />
+            <input type="hidden" name="source_id" value="{{ r.source_id }}" />
+            <input type="hidden" name="next" value="/reports/transactions?period={{ period }}&kind={{ kind }}&page={{ page }}{% if q %}&q={{ q|urlencode }}{% endif %}{% if period == 'custom' %}&start={{ start_str }}&end={{ end_str }}{% endif %}" />
+            <input name="statement" required minlength="2" maxlength="400" value="{{ r.note or '' }}"
+                   placeholder="أضف / عدّل البيان" style="width:12rem;padding:0.3rem" />
+            <button class="btn" type="submit" style="padding:0.25rem 0.5rem;font-size:0.8rem">حفظ</button>
+          </form>
+          {% endif %}
+        </td>
         <td><a class="btn" href="{{ r.detail_url }}" onclick="event.stopPropagation()">تفاصيل</a></td>
       </tr>
       {% endfor %}

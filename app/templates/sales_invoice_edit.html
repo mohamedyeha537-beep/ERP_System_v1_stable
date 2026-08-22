@@ -108,7 +108,7 @@
           <select name="payment_method_id" style="min-width:14rem">
             <option value="">— اختر وسيلة الدفع —</option>
             {% for m in payment_methods %}
-            <option value="{{ m.id }}" {% if modal.primary_payment_method_id == m.id %}selected{% endif %}>{{ m.name_ar }}</option>
+            <option value="{{ m.id }}" {% if modal.primary_payment_method_id == m.id %}selected{% endif %}>{{ pos_wallet_label(m) }}</option>
             {% endfor %}
           </select>
         </div>

@@ -56,7 +56,19 @@ def build_idempotency_key(
             "hotel.night_payment_due",
             "hotel.balance_claim",
         ):
-            parts = [event_key, str(source_id or payload.get("booking_id") or 0), date.today().isoformat()]
+            # مطالبة يدوية: claim_nonce يسمح بإعادة الإرسال؛ اليومية تبقى مرة/يوم
+            day = (
+                str(payload.get("claim_nonce") or "").strip()
+                or str(payload.get("checkout_date") or "").strip()
+                or date.today().isoformat()
+            )
+            parts = [event_key, str(source_id or payload.get("booking_id") or 0), day]
+        elif event_key == "hotel.late_checkout_charged":
+            parts = [
+                event_key,
+                str(source_id or payload.get("booking_id") or 0),
+                str(payload.get("old_check_out") or date.today().isoformat()),
+            ]
         elif event_key == "hotel.room_cleaning":
             parts = [
                 event_key,
@@ -83,6 +95,10 @@ def build_idempotency_key(
         ]
     elif event_key.startswith(("referral.", "kitchen.", "loyalty.account")):
         parts = [event_key, str(source_id or 0), recipient_type]
+    elif event_key == "treasury.handoff_pending":
+        # يسمح بالتذكير الدوري عبر reminder_slot (ساعة/إغلاق أولي)
+        slot = str(payload.get("reminder_slot") or "initial").strip() or "initial"
+        parts = [event_key, str(source_id or payload.get("shift_id") or 0), slot, recipient_type]
     if extra:
         parts.append(extra)
     return ":".join(parts)[:200]

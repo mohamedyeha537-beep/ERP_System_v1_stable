@@ -14,7 +14,7 @@ from modules.notifications.models import (
 
 
 _ACTION_RE = re.compile(
-    r"^(order_received|order_confirm|pos_approve|pos_reject|payroll_confirm|housekeeping_done):(\d+)$",
+    r"^(order_received|order_confirm|pos_approve|pos_reject|payroll_confirm|housekeeping_done|housekeeping_confirm|hotel_approve|hotel_reject):(\d+)$",
     re.I,
 )
 
@@ -55,6 +55,43 @@ def handle_incoming_action(
 
 def _match_by_button_label(db: Session, *, phone: str, label: str) -> dict[str, Any] | None:
     low = (label or "").strip()
+    confirm_labels = (
+        "نعم — انتهى التنظيف",
+        "نعم، انتهى التنظيف",
+        "متأكد — انتهى التنظيف",
+        "تأكيد انتهاء التنظيف",
+    )
+    if low in confirm_labels or (
+        "متأكد" in low and "تنظيف" in low
+    ) or (
+        low.startswith("نعم") and "تنظيف" in low
+    ):
+        from modules.hotel.booking_models import RoomPhysicalStatus
+        from modules.hotel.models import HotelRoom
+        from sqlalchemy import select
+
+        room = db.scalar(
+            select(HotelRoom)
+            .where(
+                HotelRoom.is_active.is_(True),
+                HotelRoom.physical_status == RoomPhysicalStatus.CLEANING,
+            )
+            .order_by(HotelRoom.id.desc())
+            .limit(1)
+        )
+        if room is None:
+            return {
+                "ok": False,
+                "action_key": "housekeeping_confirm",
+                "error": "لا توجد شقة قيد التنظيف حالياً.",
+            }
+        return _dispatch_action(
+            db,
+            phone=phone,
+            action_key="housekeeping_confirm",
+            ref_id=int(room.id),
+            raw=label,
+        )
     if "تم الانتهاء من التنظيف" in low or low in ("تم التنظيف", "انتهى التنظيف", "✓ تم الانتهاء من التنظيف"):
         # بدون رقم شقة في النص — نأخذ أحدث شقة قيد التنظيف
         from modules.hotel.booking_models import RoomPhysicalStatus
@@ -85,6 +122,40 @@ def _match_by_button_label(db: Session, *, phone: str, label: str) -> dict[str, 
         )
     if "استلمت" in label or "تأكيد الاستلام" in label:
         return None
+    hotel_approve = "موافقة" in low or low.startswith("✓")
+    hotel_reject = "رفض" in low or low.startswith("✗")
+    if hotel_approve or hotel_reject:
+        from modules.hotel.cancel_approval import cancel_admin_phone, phones_match
+        from modules.notifications.models import NotificationAction, NotificationActionStatus
+        from sqlalchemy import select
+
+        admin = cancel_admin_phone(db)
+        if admin and phones_match(admin, phone):
+            row = db.scalar(
+                select(NotificationAction)
+                .where(
+                    NotificationAction.handled_status
+                    == NotificationActionStatus.PENDING.value,
+                    NotificationAction.action_key.in_(
+                        (
+                            "cancel",
+                            "late_cancel",
+                            "no_show",
+                            "waive_auto_night",
+                            "waive_previous_night",
+                        )
+                    ),
+                )
+                .order_by(NotificationAction.id.desc())
+            )
+            if row is not None:
+                return _dispatch_action(
+                    db,
+                    phone=phone,
+                    action_key="hotel_approve" if hotel_approve else "hotel_reject",
+                    ref_id=int(row.id),
+                    raw=label,
+                )
     return None
 
 
@@ -102,7 +173,12 @@ def _dispatch_action(
         result["ok"] = False
         result["error"] = "طلب تأكيد غير موجود أو منتهي."
         return result
-    if act is None and action_key in ("pos_approve", "pos_reject"):
+    if act is None and action_key in (
+        "pos_approve",
+        "pos_reject",
+        "hotel_approve",
+        "hotel_reject",
+    ):
         act = NotificationAction(
             notification_log_id=None,
             action_key=f"{action_key}:{ref_id}",
@@ -143,14 +219,21 @@ def _dispatch_action(
             result["ok"] = True
         elif action_key == "pos_approve":
             result = _handle_pos_approve(db, act, ref_id=ref_id)
-        elif action_key == "pos_reject":
+        elif action_key == "hotel_approve":
+            result = _handle_hotel_cancel_approve(db, act, phone=phone)
+        elif action_key in ("pos_reject", "hotel_reject"):
             act.handled_status = NotificationActionStatus.HANDLED.value
             act.handled_at = datetime.now(timezone.utc)
             act.result_message = "تم رفض الطلب."
             result["ok"] = True
+            if action_key == "hotel_reject":
+                _ack_hotel_cancel(db, act, phone=phone, approved=False)
         elif action_key == "payroll_confirm":
             result = _handle_payroll_confirm(db, act, ref_id=ref_id, phone=phone)
         elif action_key == "housekeeping_done":
+            # الخطوة الأولى فقط: طلب تأكيد — لا تُحدَّث الشقة بعد
+            result = _handle_housekeeping_done_ask(db, act, ref_id=ref_id, phone=phone)
+        elif action_key == "housekeeping_confirm":
             result = _handle_housekeeping_done(db, act, ref_id=ref_id, phone=phone)
         else:
             act.handled_status = NotificationActionStatus.FAILED.value
@@ -166,10 +249,84 @@ def _dispatch_action(
     return result
 
 
+def _handle_housekeeping_done_ask(
+    db: Session, act: NotificationAction, *, ref_id: int, phone: str
+) -> dict[str, Any]:
+    """الزر الأول: اسأل للتأكيد — لا تُحدَّث حالة الشقة بعد."""
+    from modules.hotel.booking_models import RoomPhysicalStatus
+    from modules.hotel.dashboard import room_display_name
+    from modules.hotel.housekeeping_links import housekeeping_done_url
+    from modules.hotel.models import HotelRoom
+    from modules.messaging.models import MessageChannel
+    from modules.messaging.outbox import enqueue_message, send_outbox_item_now
+    from modules.settings.service import get_setting
+
+    room = db.get(HotelRoom, ref_id)
+    if room is None:
+        raise ValueError("الشقة غير موجودة.")
+    name = room_display_name(room)
+    if room.physical_status == RoomPhysicalStatus.AVAILABLE:
+        act.handled_status = NotificationActionStatus.HANDLED.value
+        act.handled_at = datetime.now(timezone.utc)
+        act.result_message = f"الشقة {name} جاهزة مسبقاً."
+        return {"ok": True, "action_id": act.id, "note": "already_clean", "room_id": room.id}
+
+    base_url = (get_setting(db, "public_base_url", "") or "").strip()
+    done_url = housekeeping_done_url(db, room.id, base_url=base_url)
+    # زر التأكيد الثاني: رابط صفحة السؤال إن وُجد، وإلا رد سريع housekeeping_confirm
+    confirm_id = done_url if done_url else f"housekeeping_confirm:{int(room.id)}"
+
+    act.handled_status = NotificationActionStatus.HANDLED.value
+    act.handled_at = datetime.now(timezone.utc)
+    act.received_from_phone = phone
+    act.result_message = f"طُلب تأكيد انتهاء تنظيف {name} (بانتظار موافقة الموظف)"
+    try:
+        db.commit()
+        db.refresh(act)
+    except Exception:  # noqa: BLE001
+        db.rollback()
+        raise
+
+    body = (
+        f"🧹 *هل انتهى التنظيف؟*\n"
+        f"الشقة: *{name}* (#{room.number})\n\n"
+        f"هل أنت متأكد من تأكيد انتهاء عملية التنظيف؟\n"
+        f"إذا ضغطت الزر السابق بالخطأ، تجاهل هذه الرسالة."
+    )
+    buttons = [{"text": "نعم — انتهى التنظيف", "id": confirm_id}]
+    try:
+        row = enqueue_message(
+            db,
+            body=body,
+            channel=MessageChannel.WHATSAPP.value,
+            phone=phone,
+            event_type="hotel.room_cleaning_confirm_ask",
+            meta={
+                "kind": "housekeeping_confirm_ask",
+                "room_id": room.id,
+                "buttons": buttons,
+            },
+        )
+        db.flush()
+        send_outbox_item_now(db, row)
+    except Exception:  # noqa: BLE001
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+    return {
+        "ok": True,
+        "action_id": act.id,
+        "room_id": room.id,
+        "note": "awaiting_confirm",
+        "confirm_url": done_url or "",
+    }
+
+
 def _handle_housekeeping_done(
     db: Session, act: NotificationAction, *, ref_id: int, phone: str
 ) -> dict[str, Any]:
-    """زر واتساب: تم الانتهاء من التنظيف → الشقة متاحة."""
+    """الزر الثاني / التأكيد الصريح: تم الانتهاء → الشقة متاحة."""
     from modules.hotel.booking_models import RoomPhysicalStatus
     from modules.hotel.booking_service import BookingError, mark_room_clean
     from modules.hotel.dashboard import room_display_name
@@ -331,3 +488,71 @@ def _handle_pos_approve(db: Session, act: NotificationAction, *, ref_id: int) ->
     act.handled_at = datetime.now(timezone.utc)
     act.result_message = "تمت الموافقة وتنفيذ الإجراء."
     return {"ok": True, "action_id": act.id}
+
+
+def _handle_hotel_cancel_approve(
+    db: Session, act: NotificationAction, *, phone: str
+) -> dict[str, Any]:
+    from modules.hotel.cancel_approval import (
+        cancel_admin_phone,
+        execute_approved_cancel,
+        phones_match,
+    )
+
+    if act.handled_status == NotificationActionStatus.HANDLED.value:
+        return {"ok": True, "action_id": act.id, "note": "already_handled"}
+    try:
+        payload = json.loads(act.action_payload_json or "{}")
+    except json.JSONDecodeError:
+        payload = {}
+    admin = cancel_admin_phone(db)
+    if admin and not phones_match(admin, phone):
+        raise ValueError("هذا الرقم غير مخوّل لاعتماد إلغاء الحجوزات.")
+    note = execute_approved_cancel(db, payload)
+    act.handled_status = NotificationActionStatus.HANDLED.value
+    act.handled_at = datetime.now(timezone.utc)
+    act.received_from_phone = phone
+    act.result_message = note
+    try:
+        db.commit()
+        db.refresh(act)
+    except Exception:
+        db.rollback()
+        raise
+    _ack_hotel_cancel(db, act, phone=phone, approved=True, note=note)
+    return {"ok": True, "action_id": act.id}
+
+
+def _ack_hotel_cancel(
+    db: Session,
+    act: NotificationAction,
+    *,
+    phone: str,
+    approved: bool,
+    note: str = "",
+) -> None:
+    from modules.messaging.models import MessageChannel
+    from modules.messaging.outbox import enqueue_message, send_outbox_item_now
+
+    body = (
+        f"✅ {note or 'تمت الموافقة وتنفيذ الإلغاء.'}"
+        if approved
+        else "✗ تم رفض طلب الإلغاء — لم يُغيَّر الحجز."
+    )
+    try:
+        row = enqueue_message(
+            db,
+            body=body,
+            channel=MessageChannel.WHATSAPP.value,
+            phone=phone,
+            event_type="hotel.cancel_approval_ack",
+            meta={"action_id": act.id, "approved": approved},
+        )
+        db.flush()
+        send_outbox_item_now(db, row)
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+

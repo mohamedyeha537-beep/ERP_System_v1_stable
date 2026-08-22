@@ -22,6 +22,22 @@
 <div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0">تمت إعادة تفعيل العميل.</p></div>
 {% elif saved == 'purged' or saved == 'deleted' %}
 <div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0">تم حذف العميل نهائياً.</p></div>
+{% elif saved == 'import' %}
+<div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0">
+  تم الاستيراد:
+  <strong>{{ request.query_params.get('created', '0') }}</strong> عميل جديد،
+  <strong>{{ request.query_params.get('updated', '0') }}</strong> محدّث
+  {% if request.query_params.get('points', '0') != '0' %} — نقاط: {{ request.query_params.get('points') }}{% endif %}
+  {% if request.query_params.get('wallet', '0') != '0' %} — محفظة: {{ request.query_params.get('wallet') }}{% endif %}
+  {% if request.query_params.get('referral', '0') != '0' %} — إحالة: {{ request.query_params.get('referral') }}{% endif %}
+  {% if request.query_params.get('skipped', '0') != '0' %} — تخطّي: {{ request.query_params.get('skipped') }}{% endif %}
+  {% if request.query_params.get('warn') %}
+  <br><span class="muted" style="font-size:0.9rem">تحذيرات: {{ request.query_params.get('warn') }}</span>
+  {% endif %}
+  {% if request.query_params.get('import_err') %}
+  <br><span style="color:#b45309;font-size:0.9rem">أخطاء جزئية: {{ request.query_params.get('import_err') }}</span>
+  {% endif %}
+</p></div>
 {% elif saved %}
 <div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0">تم الحفظ.</p></div>
 {% endif %}
@@ -29,21 +45,57 @@
 <div class="card" style="border-color:#fecaca; background:#fef2f2"><p style="margin:0; color:#b91c1c">{{ error }}</p></div>
 {% endif %}
 
-<div class="row" style="gap:0.5rem; margin:0.75rem 0">
+<div class="row" style="gap:0.5rem; margin:0.75rem 0; flex-wrap:wrap; align-items:center">
   <div class="card" style="flex:1; min-width:140px;text-align:center">
     <div style="color:var(--muted);font-size:0.85rem">عدد العملاء</div>
     <div style="font-size:1.5rem;font-weight:700">{{ customer_rows|length }}</div>
   </div>
   <div class="card" style="flex:1; min-width:140px;text-align:center">
     <div style="color:var(--muted);font-size:0.85rem">
-      إجمالي النقاط
+      إجمالي نقاط الأفراد
       {% if list_domain %}
       <span style="font-size:0.75rem">({% if list_domain.value == 'hotel' %}فندق{% elif list_domain.value == 'restaurant' %}مطعم{% else %}مشترك{% endif %})</span>
       {% endif %}
     </div>
     <div style="font-size:1.5rem;font-weight:700;color:#f59e0b">⭐ {{ '%.0f' % grand_points }}</div>
   </div>
+  <a class="btn btn-primary" href="/admin/export/customers?{% if search %}q={{ search | urlencode }}&{% endif %}{% if customer_type %}type={{ customer_type }}&{% endif %}{% if show_inactive %}show_inactive=1&{% endif %}domain={{ domain_filter if domain_filter and domain_filter != 'all' else (list_domain.value if list_domain else 'all') }}"
+     style="align-self:center;white-space:nowrap" title="تصدير CSV — يفتح في Excel">
+    ⬇ تصدير العملاء (نقاط + إحالة)
+  </a>
 </div>
+
+{% if p('customers:manage') %}
+<div class="card" style="background:#f0f9ff;border-color:#7dd3fc;margin-bottom:0.75rem">
+  <h2 style="margin-top:0;font-size:1.05rem">⬆ استيراد من CSV</h2>
+  <p class="muted" style="margin:0.35rem 0 0.65rem;line-height:1.6">
+    ارفع ملف التصدير (نفس الأعمدة) لاستعادة النقاط والمحفظة وأكواد الإحالة بعد «محو الحركات».
+    يُطابق العملاء برقم الهاتف.
+  </p>
+  <form method="post" action="/admin/customers/import" enctype="multipart/form-data">
+    <input type="hidden" name="return_to" value="/admin/customers" />
+    <div class="row" style="gap:0.5rem;align-items:center;flex-wrap:wrap">
+      <input type="file" name="file" accept=".csv,text/csv" required style="max-width:320px" />
+      <label style="display:flex;align-items:center;gap:0.25rem;font-size:0.9rem">
+        <input type="checkbox" name="update_existing" checked /> تحديث الموجودين
+      </label>
+      <label style="display:flex;align-items:center;gap:0.25rem;font-size:0.9rem">
+        <input type="checkbox" name="create_missing" checked /> إنشاء الجدد
+      </label>
+      <label style="display:flex;align-items:center;gap:0.25rem;font-size:0.9rem">
+        <input type="checkbox" name="restore_points" checked /> النقاط
+      </label>
+      <label style="display:flex;align-items:center;gap:0.25rem;font-size:0.9rem">
+        <input type="checkbox" name="restore_wallet" checked /> المحفظة
+      </label>
+      <label style="display:flex;align-items:center;gap:0.25rem;font-size:0.9rem">
+        <input type="checkbox" name="restore_referral" checked /> الإحالة
+      </label>
+      <button class="btn btn-primary" type="submit">استيراد</button>
+    </div>
+  </form>
+</div>
+{% endif %}
 
 <div class="card">
   <h2 style="margin-top:0">إضافة عميل جديد</h2>
@@ -63,8 +115,8 @@
                placeholder="0912345678" title="10 أرقام تبدأ بـ 09" />
       </div>
       <div style="flex:1; min-width:160px">
-        <label>الاسم</label>
-        <input name="name" placeholder="اختياري" />
+        <label>الاسم <span style="color:#dc2626">*</span></label>
+        <input name="name" required placeholder="اسم العميل" />
       </div>
       <div style="flex:1; min-width:160px">
         <label>اسم الشركة</label>
@@ -119,6 +171,8 @@
     {% endif %}
     {% if show_inactive %}<input type="hidden" name="show_inactive" value="1" />{% endif %}
     <button class="btn" type="submit">بحث / فلترة</button>
+    <a class="btn btn-primary" href="/admin/export/customers?{% if search %}q={{ search | urlencode }}&{% endif %}{% if customer_type %}type={{ customer_type }}&{% endif %}{% if show_inactive %}show_inactive=1&{% endif %}domain={{ domain_filter if domain_filter and domain_filter != 'all' else (list_domain.value if list_domain else 'all') }}"
+       title="تصدير CSV — نقاط وإحالة للمجال الحالي">⬇ تصدير</a>
     {% if search or customer_type or (can_pick_domain and domain_filter and domain_filter != 'all') %}
     <a class="btn" href="/admin/customers{% if show_inactive %}?show_inactive=1{% endif %}">إلغاء الفلتر</a>
     {% endif %}
@@ -168,7 +222,7 @@
         <td>{{ '%.3f' % st.amount_paid }} د.ل</td>
         <td style="color:#1d4ed8;font-weight:600">{{ '%.3f' % st.wallet_balance }} د.ل</td>
         <td style="color:{% if st.outstanding_debt > 0 %}#b45309{% else %}#6b7280{% endif %}">{{ '%.3f' % st.outstanding_debt }} د.ل</td>
-        <td><span style="color:#f59e0b">⭐ {{ '%.0f' % c.points_balance }}</span></td>
+        <td>{% if c.customer_type.value == 'COMPANY' %}—{% else %}<span style="color:#f59e0b">⭐ {{ '%.0f' % c.points_balance }}</span>{% endif %}</td>
         <td>{% if c.is_active %}<span style="color:#16a34a">نشط</span>{% else %}<span style="color:#92400e">مؤرشف</span>{% endif %}</td>
         <td class="muted" style="font-size:0.85rem">{{ pos_format_dt(c.last_visit_at, '%Y-%m-%d') if c.last_visit_at else '—' }}</td>
         <td>

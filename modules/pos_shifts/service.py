@@ -93,18 +93,26 @@ def clear_pos_operator_session(request) -> None:
 
 def authenticate_employee_pin(db: Session, user: User, pin: str) -> Employee:
     """يتحقق من الرقم السري ويعيد سجل الموظف."""
-    pin = (pin or "").strip()
-    if len(pin) != 4 or not pin.isdigit():
-        raise PosShiftError("الرقم السري يجب أن يكون 4 أرقام.")
+    from modules.hr.pos_pin import validate_pos_pin
+
+    try:
+        pin = validate_pos_pin(pin)
+    except ValueError as e:
+        raise PosShiftError(str(e)) from e
 
     linked = get_employee_by_user_id(db, user.id)
     if linked is not None:
         if not linked.is_pos_cashier or not linked.pos_pin_hash:
-            raise PosShiftError("حسابك غير مفعّل ككاشير. راجع المدير.")
+            raise PosShiftError(
+                "حسابك غير مفعّل ككاشير أو بلا رقم سري. "
+                "من «الموظفون» فعّل «كاشير نقطة بيع» وعيّن 4 أرقام."
+            )
         if linked.status != EmployeeStatus.ACTIVE:
             raise PosShiftError("حساب الموظف غير نشط.")
         if not verify_pos_pin(pin, linked.pos_pin_hash):
-            raise PosShiftError("الرقم السري غير صحيح.")
+            raise PosShiftError(
+                "الرقم السري غير صحيح. أعد تعيينه من «الموظفون» على نفس الموظف المرتبط ثم احفظ."
+            )
         return linked
 
     active = list(
@@ -121,6 +129,8 @@ def authenticate_employee_pin(db: Session, user: User, pin: str) -> Employee:
         return matches[0]
     if len(matches) > 1:
         raise PosShiftError("رقم سري مكرر لأكثر من موظف — راجع المدير.")
+    if not active:
+        raise PosShiftError("لا يوجد كاشير برقم سري. من «الموظفون» عيّن رقم سري لكاشير.")
     raise PosShiftError("الرقم السري غير صحيح.")
 
 
@@ -215,6 +225,160 @@ def shift_opening_cash(db: Session, shift_id: int) -> Decimal:
     return Decimal(str(raw or 0)).quantize(Decimal("0.001"))
 
 
+def shift_opening_bank(db: Session, shift_id: int) -> Decimal:
+    raw = db.scalar(select(PosShift.opening_bank).where(PosShift.id == shift_id))
+    return Decimal(str(raw or 0)).quantize(Decimal("0.001"))
+
+
+def _pos_carry_label(sh: PosShift) -> str:
+    if getattr(sh, "employee", None) is not None and (sh.employee.full_name_ar or "").strip():
+        return sh.employee.full_name_ar.strip()
+    if getattr(sh, "user", None) is not None and (sh.user.username or "").strip():
+        return sh.user.username.strip()
+    return f"جلسة مطعم #{sh.id}"
+
+
+def get_pending_pos_carry(db: Session, *, employee_id: int | None = None) -> PosShift | None:
+    from modules.payments.shift_carry import CLOSE_DEST_NEXT_SHIFT
+    from sqlalchemy import or_
+
+    stmt = (
+        select(PosShift)
+        .options(selectinload(PosShift.employee), selectinload(PosShift.user))
+        .where(
+            PosShift.status == PosShiftStatus.CLOSED,
+            PosShift.close_destination == CLOSE_DEST_NEXT_SHIFT,
+            PosShift.carried_to_shift_id.is_(None),
+        )
+        .order_by(PosShift.id.asc())
+    )
+    if employee_id:
+        stmt = stmt.where(
+            or_(
+                PosShift.carried_to_employee_id == int(employee_id),
+                PosShift.carried_to_employee_id.is_(None),
+            )
+        )
+    return db.execute(stmt.limit(1)).scalar_one_or_none()
+
+
+def list_active_pos_cashiers(
+    db: Session, *, exclude_employee_id: int | None = None
+) -> list[dict]:
+    from modules.authz.models import User
+    from modules.platform.business_domain import BusinessDomain
+
+    rows = list(
+        db.scalars(
+            select(Employee)
+            .options(selectinload(Employee.department))
+            .join(User, User.id == Employee.user_id)
+            .where(
+                Employee.status == EmployeeStatus.ACTIVE,
+                Employee.user_id.is_not(None),
+                User.is_active.is_(True),
+                Employee.business_domain.in_(
+                    (BusinessDomain.RESTAURANT.value, BusinessDomain.SHARED.value)
+                ),
+            )
+            .order_by(Employee.full_name_ar)
+        ).all()
+    )
+    cashiers = [
+        emp
+        for emp in rows
+        if getattr(emp, "is_pos_cashier", False)
+        or str(getattr(getattr(emp, "department", None), "code", "") or "").upper()
+        in ("POS", "REST", "KITCHEN", "CASHIER")
+    ]
+    chosen = cashiers or rows
+    skip = int(exclude_employee_id) if exclude_employee_id else None
+    out: list[dict] = []
+    for emp in chosen:
+        if skip is not None and int(emp.id) == skip:
+            continue
+        out.append(
+            {
+                "id": int(emp.id),
+                "name": (emp.full_name_ar or "").strip() or f"موظف #{emp.id}",
+            }
+        )
+    return out
+
+
+def peek_pending_pos_carry_offer(db: Session, *, employee_id: int | None = None):
+    from modules.payments.shift_carry import ShiftCarryOffer, money3
+
+    src = get_pending_pos_carry(db, employee_id=employee_id)
+    if src is None:
+        return None
+    recipient = ""
+    if getattr(src, "carried_to_employee_id", None):
+        emp = db.get(Employee, int(src.carried_to_employee_id))
+        if emp is not None:
+            recipient = (emp.full_name_ar or "").strip()
+    return ShiftCarryOffer(
+        shift_id=src.id,
+        cash=money3(src.counted_cash),
+        bank=money3(src.counted_bank),
+        cashier_label=_pos_carry_label(src),
+        closed_at=src.closed_at,
+        recipient_label=recipient,
+        remainder_needs_count=True,
+    )
+
+
+def consume_pending_pos_carry(
+    db: Session,
+    shift: PosShift,
+    *,
+    received_cash=None,
+    received_bank=None,
+) -> PosShift | None:
+    from modules.payments.shift_carry import money3
+    from modules.payments.shift_variance_models import ShiftVarianceSource
+    from modules.payments.shift_variances import record_pair_variances
+
+    src = get_pending_pos_carry(db, employee_id=shift.employee_id)
+    if src is None:
+        return None
+    if received_cash is None or received_bank is None:
+        raise PosShiftError(
+            "يوجد رصيد مرحّل من الجلسة السابقة. أدخل المبلغ الذي استلمته وعددته فعلياً."
+        )
+    claimed_cash = money3(src.counted_cash)
+    claimed_bank = money3(src.counted_bank)
+    rec_cash = money3(received_cash)
+    rec_bank = money3(received_bank)
+    if rec_cash < 0 or rec_bank < 0:
+        raise PosShiftError("مبلغ الاستلام غير صالح.")
+    shift.opening_cash = rec_cash
+    shift.opening_bank = rec_bank
+    shift.received_from_shift_id = src.id
+    src.carried_to_shift_id = shift.id
+    auto = (
+        f"استلام من الجلسة #{src.id} "
+        f"(المسلِّم: كاش {claimed_cash} / مصرف {claimed_bank} — "
+        f"المستلم: كاش {rec_cash} / مصرف {rec_bank})"
+    )
+    prev = (shift.opening_note or "").strip()
+    shift.opening_note = f"{prev} — {auto}".strip(" —") if prev else auto
+    record_pair_variances(
+        db,
+        source_type=ShiftVarianceSource.POS_CARRY,
+        claimed_cash=claimed_cash,
+        received_cash=rec_cash,
+        claimed_bank=claimed_bank,
+        received_bank=rec_bank,
+        pos_shift_id=src.id,
+        from_employee_id=src.employee_id,
+        to_employee_id=shift.employee_id,
+        note=f"تسليم عهدة من جلسة مطعم #{src.id} إلى جلسة #{shift.id}",
+    )
+    db.flush()
+    return src
+
+
 def open_shift(
     db: Session,
     user_id: int,
@@ -223,6 +387,8 @@ def open_shift(
     opening_note: str | None = None,
     opening_cash: Decimal | str | None = None,
     warehouse_id: int | None = None,
+    received_cash: Decimal | str | None = None,
+    received_bank: Decimal | str | None = None,
 ) -> PosShift:
     if get_open_shift_for_user(db, user_id) is not None:
         raise PosShiftError("لديك جلسة مفتوحة بالفعل. أغلقها قبل فتح جلسة جديدة.")
@@ -245,6 +411,9 @@ def open_shift(
     )
     db.add(sh)
     db.flush()
+    consume_pending_pos_carry(
+        db, sh, received_cash=received_cash, received_bank=received_bank
+    )
     try:
         from modules.authz.models import User
         from modules.notifications.marketing_hooks import emit_pos_shift_opened
@@ -341,6 +510,7 @@ def compute_shift_financial_summary(db: Session, shift_id: int) -> ShiftFinancia
     shift_cash_expenses = sum_shift_cash_expenses(db, shift_id)
     shift_bank_expenses = sum_shift_bank_expenses(db, shift_id)
     opening_cash = shift_opening_cash(db, shift_id)
+    opening_bank = shift_opening_bank(db, shift_id)
 
     expected_cash = (
         opening_cash
@@ -349,9 +519,9 @@ def compute_shift_financial_summary(db: Session, shift_id: int) -> ShiftFinancia
         - shift_cash_expenses
         - cash_refunds
     ).quantize(Decimal("0.001"))
-    expected_bank = (bank_sales - shift_bank_expenses - bank_refunds).quantize(
-        Decimal("0.001")
-    )
+    expected_bank = (
+        opening_bank + bank_sales - shift_bank_expenses - bank_refunds
+    ).quantize(Decimal("0.001"))
 
     invoice_sales_total_raw = db.execute(
         select(func.coalesce(func.sum(Sale.total), 0)).where(
@@ -407,7 +577,19 @@ def _finalize_shift_close(
     counted_bank: Decimal | None,
     counted_room: Decimal | None = None,
     closing_note: str | None,
+    responsible_employee_id: int | None = None,
+    close_destination: str | None = None,
+    carried_to_employee_id: int | None = None,
+    enforce_close_policy: bool = True,
 ) -> PosShift:
+    # ربط الموظف المسؤول قبل تسجيل العجز (مهم عند إغلاق الأدمن بدون PIN)
+    if responsible_employee_id is not None and int(responsible_employee_id) > 0:
+        from modules.hr.models import Employee
+
+        emp = db.get(Employee, int(responsible_employee_id))
+        if emp is None:
+            raise PosShiftError("الموظف المسؤول عن الصندوق غير موجود.")
+        sh.employee_id = int(emp.id)
     shift_id = sh.id
     expected_c = compute_expected_cash(db, shift_id)
     cash_diff = (counted_cash - expected_c).quantize(Decimal("0.001"))
@@ -431,6 +613,41 @@ def _finalize_shift_close(
     sh.expected_room = expected_room
     sh.room_difference = (cr - expected_room).quantize(Decimal("0.001"))
     sh.closing_note = (closing_note or "").strip() or None
+    from modules.payments.shift_carry import (
+        CLOSE_DEST_NEXT_SHIFT,
+        CLOSE_DEST_TREASURY,
+        ShiftCarryError,
+        load_pos_shift_close_policy,
+        resolve_close_destination,
+    )
+
+    try:
+        dest = resolve_close_destination(
+            db,
+            close_destination,
+            enforce_policy=enforce_close_policy,
+            policy=load_pos_shift_close_policy(db),
+        )
+    except ShiftCarryError as exc:
+        raise PosShiftError(str(exc)) from exc
+    if dest == CLOSE_DEST_NEXT_SHIFT:
+        emp_id = int(carried_to_employee_id) if carried_to_employee_id else 0
+        allowed = {
+            int(e["id"])
+            for e in list_active_pos_cashiers(db, exclude_employee_id=sh.employee_id)
+        }
+        if emp_id <= 0 or emp_id not in allowed:
+            raise PosShiftError("اختر الكاشير المستلم للعهدة.")
+        pending = get_pending_pos_carry(db, employee_id=emp_id)
+        if pending is not None:
+            raise PosShiftError(
+                f"يوجد رصيد مرحّل للموظف من الجلسة #{pending.id} لم يُستلم بعد."
+            )
+        sh.carried_to_employee_id = emp_id
+    else:
+        sh.carried_to_employee_id = None
+        dest = CLOSE_DEST_TREASURY
+    sh.close_destination = dest
     db.flush()
     from modules.pos_shifts.loyalty_settlement import settle_loyalty_on_shift_close
     from modules.pos_shifts.shortages import record_shortages_for_closed_shift
@@ -501,6 +718,22 @@ def _finalize_shift_close(
             expected_bank=sh.expected_bank or Decimal("0"),
             bank_difference=sh.bank_difference or Decimal("0"),
         )
+        from modules.payments.shift_carry import is_next_shift_destination
+
+        if not is_next_shift_destination(getattr(sh, "close_destination", None)):
+            from modules.notifications.treasury_hooks import emit_treasury_handoff_pending
+            from app.datetime_local import format_local_dt
+
+            emit_treasury_handoff_pending(
+                db,
+                shift_id=shift_id,
+                cashier_name=employee_name or cashier_name,
+                counted_cash=sh.counted_cash or Decimal("0"),
+                counted_bank=sh.counted_bank or Decimal("0"),
+                closed_at=format_local_dt(sh.closed_at, "%Y-%m-%d %H:%M") if sh.closed_at else "",
+                reminder_slot="initial",
+                shift_kind="restaurant",
+            )
     except Exception:  # noqa: BLE001
         pass
     return sh
@@ -515,6 +748,10 @@ def close_shift(
     counted_bank: Decimal,
     counted_room: Decimal,
     closing_note: str | None = None,
+    responsible_employee_id: int | None = None,
+    close_destination: str | None = None,
+    carried_to_employee_id: int | None = None,
+    enforce_close_policy: bool = True,
 ) -> PosShift:
     sh = db.get(PosShift, shift_id)
     if sh is None or sh.user_id != user_id:
@@ -539,6 +776,14 @@ def close_shift(
         raise PosShiftError(
             "أدخل إجماليل فواتير الشقق (قيد على حساب الشقة) بعد مراجعتها."
         )
+    # بدون موظف مرتبط (إغلاق بأدمن): يجب اختيار المسؤول عن الصندوق لربط أي عجز بالراتب
+    if sh.employee_id is None and not (
+        responsible_employee_id and int(responsible_employee_id) > 0
+    ):
+        raise PosShiftError(
+            "اختر الموظف المسؤول عن الصندوق قبل الإغلاق — "
+            "حتى يُربط أي عجز بخصم الراتب في صفحة الخصومات."
+        )
     return _finalize_shift_close(
         db,
         sh,
@@ -546,6 +791,10 @@ def close_shift(
         counted_bank=counted_bank,
         counted_room=counted_room,
         closing_note=closing_note,
+        close_destination=close_destination,
+        carried_to_employee_id=carried_to_employee_id,
+        enforce_close_policy=enforce_close_policy,
+        responsible_employee_id=responsible_employee_id,
     )
 
 
@@ -561,6 +810,7 @@ def admin_close_shift(
     closing_note: str | None = None,
     cancel_safe_drafts: bool = True,
     force_ignore_pending: bool = False,
+    responsible_employee_id: int | None = None,
 ) -> PosShift:
     """إغلاق إداري لجلسة عالقة — لا يتطلب تسجيل دخول الكاشير الأصلي."""
     sh = db.get(PosShift, shift_id)
@@ -597,18 +847,12 @@ def admin_close_shift(
             "أكملها من الكاشير، أو فعّل «تجاهل الطلبات العالقة» عند الإغلاق الإداري."
         )
 
-    expected_c = compute_expected_cash(db, shift_id)
-    expected_b = compute_expected_bank(db, shift_id)
-    cc = (
-        counted_cash.quantize(Decimal("0.001"))
-        if counted_cash is not None
-        else expected_c
-    )
-    cb = (
-        counted_bank.quantize(Decimal("0.001"))
-        if counted_bank is not None
-        else expected_b
-    )
+    if counted_cash is None:
+        raise PosShiftError("أدخل المبلغ المعدود للكاش — لا يُقفَل تلقائياً بالمتوقع.")
+    if counted_bank is None:
+        raise PosShiftError("أدخل المبلغ المعدود للمصرف — لا يُقفَل تلقائياً بالمتوقع.")
+    cc = counted_cash.quantize(Decimal("0.001"))
+    cb = counted_bank.quantize(Decimal("0.001"))
     cr = (
         counted_room.quantize(Decimal("0.001"))
         if counted_room is not None
@@ -623,6 +867,13 @@ def admin_close_shift(
         parts.append(extra)
     note = " ".join(parts)
 
+    emp_id = responsible_employee_id
+    if sh.employee_id is None and not (emp_id and int(emp_id) > 0):
+        raise PosShiftError(
+            "اختر الموظف المسؤول عن الصندوق قبل الإغلاق الإداري — "
+            "حتى يُربط أي عجز بخصم الراتب."
+        )
+
     return _finalize_shift_close(
         db,
         sh,
@@ -630,6 +881,7 @@ def admin_close_shift(
         counted_bank=cb,
         counted_room=cr,
         closing_note=note,
+        responsible_employee_id=emp_id,
     )
 
 
@@ -724,3 +976,100 @@ def build_shift_sale_rows(
             )
         )
     return rows
+
+
+def reopen_closed_shift_to_draft(
+    db: Session,
+    *,
+    shift_id: int,
+    user_id: int,
+    admin_username: str,
+    reason: str = "",
+) -> PosShift:
+    """يعيد جلسة مغلقة إلى مفتوحة لتعديل المعدود ثم إعادة الإقفال."""
+    sh = db.get(PosShift, shift_id)
+    if sh is None or sh.status != PosShiftStatus.CLOSED:
+        raise PosShiftError("الجلسة غير موجودة أو ليست مغلقة.")
+    other = get_open_shift_for_user(db, int(sh.user_id))
+    if other is not None:
+        raise PosShiftError(
+            f"لا يمكن إعادة الجلسة لمسودة: للكاشير جلسة مفتوحة #{other.id}. أغلقها أولاً."
+        )
+    if getattr(sh, "carried_to_shift_id", None):
+        raise PosShiftError(
+            "الرصيد رُحِّل لجلسة لاحقة. لا يمكن إعادة هذه الجلسة لمسودة."
+        )
+    from modules.pos_shifts.models import PosShiftShortage
+    from modules.pos_shifts.shortages import _shortage_is_resolved
+
+    shortage_rows = list(
+        db.scalars(
+            select(PosShiftShortage).where(PosShiftShortage.shift_id == int(shift_id))
+        ).all()
+    )
+    resolved = [r for r in shortage_rows if _shortage_is_resolved(r)]
+    if resolved:
+        raise PosShiftError(
+            "لا يمكن إعادة المسودة: عجز هذه الجلسة مُعالَج (خصم راتب أو عفو). "
+            "أزل المعالجة أولاً إن أردت تصحيح العدّ."
+        )
+    try:
+        from modules.payments.shift_variances import ShiftVariance, ShiftVarianceStatus
+
+        decided = list(
+            db.scalars(
+                select(ShiftVariance).where(
+                    ShiftVariance.pos_shift_id == int(shift_id),
+                    ShiftVariance.status != ShiftVarianceStatus.PENDING_REVIEW,
+                )
+            ).all()
+        )
+        if decided:
+            raise PosShiftError(
+                "لا يمكن إعادة المسودة: يوجد عجز/زيادة معتمد على هذه الجلسة."
+            )
+        for row in db.scalars(
+            select(ShiftVariance).where(ShiftVariance.pos_shift_id == int(shift_id))
+        ).all():
+            db.delete(row)
+    except PosShiftError:
+        raise
+    except Exception:  # noqa: BLE001
+        pass
+    why = (reason or "").strip() or "تصحيح أرقام المعدود بعد الإقفال"
+    if sh.treasury_handoff_at is not None:
+        from modules.payments.shift_handoff_service import (
+            ShiftHandoffError,
+            revoke_shift_handoff,
+        )
+
+        try:
+            revoke_shift_handoff(
+                db,
+                shift_id=int(shift_id),
+                user_id=user_id,
+                admin_username=admin_username,
+                reason=why,
+            )
+        except ShiftHandoffError as exc:
+            raise PosShiftError(str(exc)) from exc
+    for row in shortage_rows:
+        db.delete(row)
+    sh.status = PosShiftStatus.OPEN
+    sh.closed_at = None
+    sh.counted_cash = None
+    sh.counted_bank = None
+    sh.counted_room = None
+    sh.cash_difference = None
+    sh.bank_difference = None
+    sh.room_difference = None
+    sh.expected_cash = None
+    sh.expected_bank = None
+    sh.expected_room = None
+    sh.close_destination = None
+    sh.carried_to_employee_id = None
+    line = f"[إعادة لمسودة — {admin_username}: {why}]"
+    prev = (sh.closing_note or "").strip()
+    sh.closing_note = (prev + " | " + line).strip(" | ") if prev else line
+    db.flush()
+    return sh

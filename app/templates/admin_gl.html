@@ -133,7 +133,7 @@
     <tbody>
       {% for m in wallet_maps %}
       <tr style="border-bottom:1px dashed var(--border)">
-        <td style="padding:0.35rem">{{ m.payment_method.name_ar if m.payment_method else m.payment_method_id }}</td>
+        <td style="padding:0.35rem">{{ pos_wallet_label(m.payment_method) if m.payment_method else m.payment_method_id }}</td>
         <td style="padding:0.35rem">
           <form method="post" action="/admin/gl/wallet-maps" class="row" style="gap:0.4rem;align-items:center;flex-wrap:wrap;margin:0">
             <input type="hidden" name="payment_method_id" value="{{ m.payment_method_id }}" />
@@ -163,7 +163,7 @@
       <label class="muted" style="font-size:0.8rem;display:block">المحفظة</label>
       <select name="payment_method_id" required>
         {% for pm in unmapped_methods %}
-        <option value="{{ pm.id }}">{{ pm.name_ar }}</option>
+        <option value="{{ pm.id }}">{{ pos_wallet_label(pm) }}</option>
         {% endfor %}
       </select>
     </div>

@@ -76,9 +76,7 @@
         <td style="color:#16a34a">{{ r.paid_total }} د.ل</td>
         <td style="font-weight:700;{% if r.outstanding > 0 %}color:#b91c1c{% endif %}">{{ r.outstanding }} د.ل</td>
         <td>
-          {% if r.pay_status.value == 'unpaid' %}<span class="badge bad">غير مدفوعة</span>
-          {% elif r.pay_status.value == 'partial' %}<span class="badge warn">جزئية</span>
-          {% else %}<span class="badge good">مدفوعة</span>{% endif %}
+          {{ pos_pay_status_badge(r.pay_status) }}
         </td>
         <td>
           {% if r.outstanding > 0 %}

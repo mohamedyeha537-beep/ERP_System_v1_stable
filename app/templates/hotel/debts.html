@@ -52,11 +52,18 @@
 {% include "_hotel_nav.html" %}
 
 <div class="hotel-debts-page" id="hotel-debts-root">
+  {% if claim_total is not defined %}
+  {% set claim_total = (open_total or 0) + (stay_balance_total or 0) + (closed_balance_total or 0) %}
+  {% endif %}
+  {% if claim_count is not defined %}
+  {% set claim_count = (counts.open or 0) + (stay_balance_count or 0) + ((closed_balances or [])|length) %}
+  {% endif %}
+
   <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:0.75rem;flex-wrap:wrap;margin:0.75rem 0">
     <div>
-      <h1>ذمم الحجوزات (حساب الديون)</h1>
-      <p class="muted" style="margin:0;font-size:0.88rem;line-height:1.5;max-width:42rem">
-        تتبّع المتبقي <strong>أثناء الإقامة</strong> وبعد المغادرة. سجّل «تتبّع كدين» عند وعد الزبون بالسداد لاحقاً — يبقى التنبيه أمام الاستقبال حتى التحصيل.
+      <h1>ذمم الحجوزات</h1>
+      <p class="muted" style="margin:0;font-size:0.88rem;line-height:1.45;max-width:36rem">
+        ما يُطالب به الاستقبال للتحصيل — صف واضح لكل مطالبة مع المبلغ المطلوب فقط.
       </p>
     </div>
     <div style="display:flex;gap:0.4rem;flex-wrap:wrap">
@@ -88,85 +95,78 @@
   </div>
   {% endif %}
 
-  <div class="hotel-debts-stats">
-    <div class="hotel-debts-stat hotel-debts-stat--bad">
-      <div class="label">ديون مغادرة مفتوحة</div>
-      <div class="value">{{ counts.open|default(0) }} · {{ '%.3f'|format(open_total|default(0)) }} د.ل</div>
+  {# رقم واحد فقط في أعلى الصفحة — مجموع كل ما يُطالب به #}
+  <div class="hotel-debts-hero" style="margin:0 0 1rem;padding:1rem 1.15rem;border-radius:14px;border:1px solid #fecaca;background:linear-gradient(135deg,#fef2f2,#fff7ed)">
+    <div style="font-size:0.85rem;color:#7f1d1d;font-weight:700;margin-bottom:0.15rem">إجمالي المطلوب تحصيله</div>
+    <div style="font-size:1.85rem;font-weight:900;color:#b91c1c;letter-spacing:-0.02em;line-height:1.15">
+      {{ '%.3f'|format(claim_total) }} <span style="font-size:1rem;font-weight:700">د.ل</span>
     </div>
-    <div class="hotel-debts-stat hotel-debts-stat--warn">
-      <div class="label">مستحق للمتابعة الآن</div>
-      <div class="value">{{ counts.due_today|default(0) }}</div>
-    </div>
-    <div class="hotel-debts-stat">
-      <div class="label">بلا موعد تذكير</div>
-      <div class="value">{{ counts.no_reminder|default(0) }}</div>
-    </div>
-    <div class="hotel-debts-stat hotel-debts-stat--warn">
-      <div class="label">أرصدة قيد الإقامة</div>
-      <div class="value">{{ stay_balance_count|default(0) }} · {{ '%.3f'|format(stay_balance_total|default(0)) }} د.ل</div>
-    </div>
+    {% if claim_count %}
+    <div class="muted" style="margin-top:0.35rem;font-size:0.86rem">{{ claim_count }} مطالبة — القائمة أدناه</div>
+    {% else %}
+    <div class="muted" style="margin-top:0.35rem;font-size:0.86rem">لا توجد مبالغ للمطالبة حالياً</div>
+    {% endif %}
   </div>
 
+  {% if stay_balances %}
   <div class="card" style="margin-bottom:1rem;border-color:#fdba74;background:#fff7ed">
-    <h2 style="margin:0 0 0.45rem;font-size:1.05rem;color:#9a3412">أرصدة قيد الإقامة — تتبّع ومطالبة قبل المغادرة</h2>
-    <p class="muted" style="margin:0 0 0.75rem;font-size:0.86rem;line-height:1.5">
-      أي شقة عليها متبقٍ أثناء الإقامة تظهر هنا تلقائياً. سجّل «تتبّع كدين» من تفاصيل الحجز ليبقى التنبيه أمام الاستقبال حتى التحصيل
-      (حتى لو قال الزبون: سأسدّد لاحقاً ولن أغادر الآن).
-    </p>
-    {% if stay_balances %}
+    <h2 style="margin:0 0 0.65rem;font-size:1.05rem;color:#9a3412">قيد الإقامة</h2>
     {% for r in stay_balances %}
     {% set watched = stay_watch.get(r.booking_id) if stay_watch is defined else false %}
     {% set note = stay_notes.get(r.booking_id, '') if stay_notes is defined else '' %}
+    {% set bal = r.balance %}
     <div class="hotel-debt-card{% if watched %} hotel-debt-card--due{% endif %}" style="margin-bottom:0.75rem">
-      <div style="display:flex;justify-content:space-between;gap:0.65rem;flex-wrap:wrap;align-items:flex-start">
-        <div>
-          <div style="font-weight:800;font-size:1.05rem">
+      <div style="display:flex;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;align-items:center">
+        <div style="min-width:0;flex:1">
+          <div style="font-weight:800;font-size:1.02rem">
             <a href="/admin/hotel/bookings/{{ r.booking_id }}"><strong>{{ r.reference }}</strong></a>
             — {{ r.guest_name }}
+            <span class="muted" style="font-weight:600;font-size:0.88rem">· {{ r.room_label or '—' }}</span>
             {% if watched %}
-            <span class="booking-debt-bell" style="margin-inline-start:0.35rem" title="تتبّع نشط حتى التحصيل"><span class="booking-debt-bell__ico">🔔</span> قيد المطالبة</span>
+            <span class="booking-debt-bell" style="margin-inline-start:0.35rem" title="تتبّع نشط"><span class="booking-debt-bell__ico">🔔</span></span>
             {% endif %}
           </div>
-          <div class="muted" style="font-size:0.88rem;margin-top:0.2rem">
-            الشقة: {{ r.room_label or '—' }}
-            · الحالة: {{ r.booking_status_label }}
-            · مغادرة: <span dir="ltr">{{ r.check_out }}</span>
-            · متبقي: <strong style="color:#b91c1c">{{ '%.3f'|format(r.balance) }} د.ل</strong>
+          <div class="muted" style="font-size:0.84rem;margin-top:0.15rem">
+            مغادرة <span dir="ltr">{{ r.check_out }}</span>
+            {% if note %} · {{ note }}{% endif %}
           </div>
-          {% if note %}<div style="margin-top:0.35rem;font-size:0.86rem;color:#9a3412">{{ note }}</div>{% endif %}
         </div>
-        <div style="display:flex;gap:0.35rem;flex-wrap:wrap">
-          <a class="btn" href="/admin/hotel/bookings/{{ r.booking_id }}#booking-follow-up-card">تفاصيل / واتساب</a>
-          {% if not watched %}
-          <form method="post" action="/admin/hotel/bookings/{{ r.booking_id }}/debt-watch" style="margin:0">
-            <input type="hidden" name="next" value="/admin/hotel/debts" />
-            <input type="hidden" name="note" value="دين أثناء الإقامة — مطالبة حتى التحصيل" />
-            <button class="btn btn-primary" type="submit" style="background:#ea580c;border-color:#c2410c">🔔 تتبّع كدين</button>
-          </form>
-          {% else %}
-          <form method="post" action="/admin/hotel/bookings/{{ r.booking_id }}/debt-watch" style="margin:0">
-            <input type="hidden" name="next" value="/admin/hotel/debts" />
-            <input type="hidden" name="clear" value="1" />
-            <button class="btn" type="submit">إيقاف التتبّع</button>
-          </form>
-          {% endif %}
+        <div style="text-align:end;flex-shrink:0">
+          <div style="font-size:0.75rem;color:#64748b;font-weight:600">المطلوب</div>
+          <div style="font-size:1.45rem;font-weight:900;color:#b91c1c;line-height:1.1">{{ '%.3f'|format(bal) }} <span style="font-size:0.85rem">د.ل</span></div>
         </div>
       </div>
+      <div style="display:flex;gap:0.35rem;flex-wrap:wrap;margin-top:0.55rem">
+        <a class="btn" href="/admin/hotel/bookings/{{ r.booking_id }}#booking-follow-up-card">تفاصيل / واتساب</a>
+        {% if not watched %}
+        <form method="post" action="/admin/hotel/bookings/{{ r.booking_id }}/debt-watch" style="margin:0">
+          <input type="hidden" name="next" value="/admin/hotel/debts" />
+          <input type="hidden" name="note" value="دين أثناء الإقامة — مطالبة حتى التحصيل" />
+          <button class="btn" type="submit" style="background:#ea580c;border-color:#c2410c;color:#fff">🔔 تتبّع</button>
+        </form>
+        {% else %}
+        <form method="post" action="/admin/hotel/bookings/{{ r.booking_id }}/debt-watch" style="margin:0">
+          <input type="hidden" name="next" value="/admin/hotel/debts" />
+          <input type="hidden" name="clear" value="1" />
+          <button class="btn" type="submit">إيقاف التتبّع</button>
+        </form>
+        {% endif %}
+      </div>
       {% if can_collect and methods %}
-      <form method="post" action="/admin/hotel/bookings/{{ r.booking_id }}/payment" class="debt-collect-form" style="margin-top:0.75rem;background:#ecfdf5;border:1px solid #86efac;border-radius:8px;padding:0.65rem;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.55rem;align-items:end">
+      <form method="post" action="/admin/hotel/bookings/{{ r.booking_id }}/payment" class="debt-collect-form" style="margin-top:0.65rem;background:#ecfdf5;border:1px solid #86efac;border-radius:8px;padding:0.65rem;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.55rem;align-items:end">
         <input type="hidden" name="next" value="/admin/hotel/debts" />
         <label style="display:block;font-size:0.82rem">
-          المبلغ
-          <input name="amount" class="debt-amount" type="number" step="0.001" min="0.001" max="{{ '%.3f'|format(r.balance) }}" value="{{ '%.3f'|format(r.balance) }}" required style="width:100%" data-full="{{ '%.3f'|format(r.balance) }}" />
+          تحصيل
+          <input name="amount" class="debt-amount" type="number" step="0.001" min="0.001" max="{{ '%.3f'|format(bal) }}" value="{{ '%.3f'|format(bal) }}" required style="width:100%;font-weight:800;font-size:1.05rem" data-full="{{ '%.3f'|format(bal) }}" />
         </label>
         <label style="display:block;font-size:0.82rem">
           وسيلة الدفع
           <select name="payment_method_id" required style="width:100%">
-            {% for m in methods %}<option value="{{ m.id }}">{{ m.name_ar }}</option>{% endfor %}
+            {% for m in methods %}<option value="{{ m.id }}">{{ pos_wallet_label(m) }}</option>{% endfor %}
           </select>
         </label>
         <div style="display:flex;gap:0.35rem;flex-wrap:wrap">
-          <button class="btn btn-primary debt-pay-full" type="submit">تحصيل كامل</button>
+          <button class="btn btn-primary debt-pay-full" type="submit">تحصيل {{ '%.3f'|format(bal) }}</button>
           <button class="btn debt-pay-partial" type="button">جزئي…</button>
         </div>
       </form>
@@ -175,103 +175,127 @@
       {% endif %}
     </div>
     {% endfor %}
-    {% else %}
-    <p class="muted" style="margin:0">لا توجد أرصدة مفتوحة على حجوزات قيد الإقامة حالياً.</p>
-    {% endif %}
-  </div>
-
-  {% if due_debts %}
-  <div class="card" style="border-color:#fca5a5;background:#fef2f2;margin-bottom:1rem">
-    <h2 style="margin:0 0 0.55rem;font-size:1.05rem;color:#991b1b">تذكير هذه الوردية — ديون مغادرة للمتابعة</h2>
-    <table style="width:100%;font-size:0.9rem">
-      <thead>
-        <tr>
-          <th>الحجز</th>
-          <th>النزيل</th>
-          <th>هاتف</th>
-          <th>المتبقي</th>
-          <th>موعد التذكير</th>
-          <th>ملاحظات</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for d in due_debts %}
-        <tr>
-          <td><a href="/admin/hotel/bookings/{{ d.booking_id }}">{{ d.booking.reference if d.booking else ('#' ~ d.booking_id) }}</a></td>
-          <td>{{ d.booking.guest_name if d.booking else '—' }}</td>
-          <td dir="ltr">{{ d.booking.guest_phone if d.booking and d.booking.guest_phone else '—' }}</td>
-          <td style="font-weight:800;color:#b91c1c">{{ '%.3f'|format(debt_remaining(d)) }} د.ل</td>
-          <td>{% if d.reminder_at %}{{ d.reminder_at }}{% else %}<span class="muted">كل وردية</span>{% endif %}</td>
-          <td style="font-size:0.82rem;max-width:220px;white-space:pre-wrap">{{ (d.follow_up_notes or d.reason or '—')[-180:] }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
   </div>
   {% endif %}
 
+  {% if closed_balances is defined and closed_balances %}
+  <div class="card" style="margin-bottom:1rem;border-color:#fca5a5;background:#fef2f2">
+    <h2 style="margin:0 0 0.65rem;font-size:1.05rem;color:#991b1b">مغادر — متبقٍ للتحصيل</h2>
+    {% for r in closed_balances %}
+    {% set bal = r.balance %}
+    <div class="hotel-debt-card hotel-debt-card--due" style="margin-bottom:0.75rem">
+      <div style="display:flex;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;align-items:center">
+        <div style="min-width:0;flex:1">
+          <div style="font-weight:800;font-size:1.02rem">
+            <a href="/admin/hotel/bookings/{{ r.booking_id }}"><strong>{{ r.reference }}</strong></a>
+            — {{ r.guest_name }}
+            <span class="muted" style="font-weight:600;font-size:0.88rem">· {{ r.room_label or '—' }} · مغادر</span>
+          </div>
+          <div class="muted" style="font-size:0.84rem;margin-top:0.15rem">
+            مغادرة <span dir="ltr">{{ r.check_out }}</span>
+          </div>
+        </div>
+        <div style="text-align:end;flex-shrink:0">
+          <div style="font-size:0.75rem;color:#64748b;font-weight:600">المطلوب</div>
+          <div style="font-size:1.45rem;font-weight:900;color:#b91c1c;line-height:1.1">{{ '%.3f'|format(bal) }} <span style="font-size:0.85rem">د.ل</span></div>
+        </div>
+      </div>
+      <div style="display:flex;gap:0.35rem;flex-wrap:wrap;margin-top:0.55rem">
+        <a class="btn" href="/admin/hotel/bookings/{{ r.booking_id }}">تفاصيل الحجز</a>
+      </div>
+      {% if can_collect and methods %}
+      <form method="post" action="/admin/hotel/bookings/{{ r.booking_id }}/payment" class="debt-collect-form" style="margin-top:0.65rem;background:#ecfdf5;border:1px solid #86efac;border-radius:8px;padding:0.65rem;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.55rem;align-items:end">
+        <input type="hidden" name="next" value="/admin/hotel/debts" />
+        <label style="display:block;font-size:0.82rem">
+          تحصيل
+          <input name="amount" class="debt-amount" type="number" step="0.001" min="0.001" max="{{ '%.3f'|format(bal) }}" value="{{ '%.3f'|format(bal) }}" required style="width:100%;font-weight:800;font-size:1.05rem" data-full="{{ '%.3f'|format(bal) }}" />
+        </label>
+        <label style="display:block;font-size:0.82rem">
+          وسيلة الدفع
+          <select name="payment_method_id" required style="width:100%">
+            {% for m in methods %}<option value="{{ m.id }}">{{ pos_wallet_label(m) }}</option>{% endfor %}
+          </select>
+        </label>
+        <div style="display:flex;gap:0.35rem;flex-wrap:wrap">
+          <button class="btn btn-primary debt-pay-full" type="submit">تحصيل {{ '%.3f'|format(bal) }}</button>
+          <button class="btn debt-pay-partial" type="button">جزئي…</button>
+        </div>
+      </form>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if open_debts %}
   <div class="card">
-    <h2 style="margin:0 0 0.55rem;font-size:1.05rem">ديون المغادرة الرسمية — تحصيل ومتابعة</h2>
-    <p class="muted" style="margin:0 0 0.75rem;font-size:0.86rem">
-      تُنشأ عند تسجيل المغادرة مع خيار «ترحيل المتبقي إلى ذمم الحجوزات».
-    </p>
-    {% if open_debts %}
+    <h2 style="margin:0 0 0.65rem;font-size:1.05rem">بعد المغادرة / ذمم مسجّلة</h2>
     {% for d in open_debts %}
     {% set rem = debt_remaining(d) %}
-    <div class="hotel-debt-card{% if d.reminder_at is none or (today and d.reminder_at and d.reminder_at <= today) %} hotel-debt-card--due{% endif %}">
-      <div style="font-weight:800;font-size:1.05rem">
-        <a href="/admin/hotel/bookings/{{ d.booking_id }}">{{ d.booking.reference if d.booking else ('حجز #' ~ d.booking_id) }}</a>
-        — {{ d.booking.guest_name if d.booking else '—' }}
+    {% set is_partial = rem < (d.amount or rem) %}
+    <div class="hotel-debt-card{% if debt_reminder_is_due is defined and debt_reminder_is_due(d) %} hotel-debt-card--due{% elif d.reminder_at is none %} hotel-debt-card--due{% endif %}">
+      <div style="display:flex;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;align-items:center">
+        <div style="min-width:0;flex:1">
+          <div style="font-weight:800;font-size:1.02rem">
+            <a href="/admin/hotel/bookings/{{ d.booking_id }}">{{ d.booking.reference if d.booking else ('حجز #' ~ d.booking_id) }}</a>
+            — {{ d.booking.guest_name if d.booking else '—' }}
+          </div>
+          <div class="muted" style="font-size:0.84rem;margin-top:0.15rem">
+            {% if d.booking and d.booking.guest_phone %}<span dir="ltr">{{ d.booking.guest_phone }}</span> · {% endif %}
+            تذكير: {% if d.reminder_at %}<span dir="ltr">{{ d.reminder_at }}{% if d.reminder_time %} {{ d.reminder_time }}{% endif %}</span>{% else %}كل وردية{% endif %}
+            {% if d.reason or d.follow_up_notes %} · {{ (d.follow_up_notes or d.reason)[:120] }}{% endif %}
+          </div>
+          {% if is_partial %}
+          <div class="muted" style="font-size:0.8rem;margin-top:0.2rem">سُدّد جزء سابقاً — الأصل كان {{ '%.3f'|format(d.amount) }} د.ل</div>
+          {% endif %}
+        </div>
+        <div style="text-align:end;flex-shrink:0">
+          <div style="font-size:0.75rem;color:#64748b;font-weight:600">المطلوب</div>
+          <div style="font-size:1.45rem;font-weight:900;color:#b91c1c;line-height:1.1">{{ '%.3f'|format(rem) }} <span style="font-size:0.85rem">د.ل</span></div>
+        </div>
       </div>
-      <div class="muted" style="font-size:0.88rem;margin-top:0.2rem">
-        هاتف: <span dir="ltr">{{ d.booking.guest_phone if d.booking and d.booking.guest_phone else '—' }}</span>
-        · أصل الدين: {{ '%.3f'|format(d.amount) }} د.ل
-        · متبقي: <strong style="color:#b91c1c">{{ '%.3f'|format(rem) }} د.ل</strong>
-        · تذكير: {% if d.reminder_at %}<strong>{{ d.reminder_at }}</strong>{% else %}<em>كل وردية</em>{% endif %}
-      </div>
-      {% if d.reason %}<div style="margin-top:0.35rem;font-size:0.88rem">سبب الترحيل: {{ d.reason }}</div>{% endif %}
-      {% if d.follow_up_notes %}
-      <pre style="margin:0.45rem 0 0;white-space:pre-wrap;font-size:0.82rem;background:#f8fafc;padding:0.5rem;border-radius:8px;border:1px solid #e2e8f0">{{ d.follow_up_notes }}</pre>
-      {% endif %}
 
       {% if can_collect and methods %}
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:0.75rem;margin-top:0.75rem">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:0.75rem;margin-top:0.75rem">
         <form method="post" action="/admin/hotel/debts/{{ d.id }}/collect" class="debt-collect-form" style="background:#ecfdf5;border:1px solid #86efac;border-radius:8px;padding:0.65rem">
           <input type="hidden" name="next" value="/admin/hotel/debts" />
-          <div style="font-weight:700;margin-bottom:0.4rem;color:#065f46">تسديد الدين (كامل أو جزئي)</div>
           <label style="display:block;font-size:0.82rem;margin-bottom:0.35rem">
-            المبلغ
-            <input name="amount" class="debt-amount" type="number" step="0.001" min="0.001" max="{{ '%.3f'|format(rem) }}" value="{{ '%.3f'|format(rem) }}" required style="width:100%" data-full="{{ '%.3f'|format(rem) }}" />
+            تحصيل
+            <input name="amount" class="debt-amount" type="number" step="0.001" min="0.001" max="{{ '%.3f'|format(rem) }}" value="{{ '%.3f'|format(rem) }}" required style="width:100%;font-weight:800;font-size:1.05rem" data-full="{{ '%.3f'|format(rem) }}" />
           </label>
           <label style="display:block;font-size:0.82rem;margin-bottom:0.35rem">
             وسيلة الدفع
             <select name="payment_method_id" required style="width:100%">
-              {% for m in methods %}<option value="{{ m.id }}">{{ m.name_ar }}</option>{% endfor %}
+              {% for m in methods %}<option value="{{ m.id }}">{{ pos_wallet_label(m) }}</option>{% endfor %}
             </select>
           </label>
           <label style="display:block;font-size:0.82rem;margin-bottom:0.45rem">
             ملاحظة (اختياري)
-            <input name="note" style="width:100%" placeholder="مثال: دفعة جزئية" />
+            <input name="note" style="width:100%" placeholder="دفعة جزئية…" />
           </label>
           <div style="display:flex;gap:0.4rem;flex-wrap:wrap">
-            <button class="btn btn-primary debt-pay-full" type="submit">تسديد كامل</button>
-            <button class="btn debt-pay-partial" type="button">تسديد جزئي…</button>
+            <button class="btn btn-primary debt-pay-full" type="submit">تحصيل {{ '%.3f'|format(rem) }}</button>
+            <button class="btn debt-pay-partial" type="button">جزئي…</button>
           </div>
         </form>
 
         <form method="post" action="/admin/hotel/debts/{{ d.id }}/followup" style="background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;padding:0.65rem">
           <input type="hidden" name="next" value="/admin/hotel/debts" />
-          <div style="font-weight:700;margin-bottom:0.4rem;color:#1e40af">متابعة / تذكير للوردية القادمة</div>
+          <div style="font-weight:700;margin-bottom:0.4rem;color:#1e40af;font-size:0.9rem">متابعة لاحقاً</div>
           <label style="display:block;font-size:0.82rem;margin-bottom:0.35rem">
-            ملاحظة للمتابعة
-            <input name="note" style="width:100%" placeholder="مثال: وعد بالدفع يوم الخميس" />
+            ملاحظة
+            <input name="note" style="width:100%" placeholder="وعد بالدفع…" />
           </label>
           <label style="display:block;font-size:0.82rem;margin-bottom:0.35rem">
-            موعد التذكير (من الزبون)
+            موعد التذكير
             <input name="reminder_at" type="date" min="{{ today }}" value="{{ d.reminder_at or '' }}" style="width:100%" />
           </label>
+          <label style="display:block;font-size:0.82rem;margin-bottom:0.35rem">
+            الوقت
+            <input name="reminder_time" type="time" step="60" value="{{ d.reminder_time or '' }}" style="width:100%" />
+          </label>
           <label style="display:flex;align-items:center;gap:0.35rem;font-size:0.82rem;margin-bottom:0.45rem">
-            <input type="checkbox" name="clear_reminder" value="on" /> بدون موعد — تذكير كل وردية
+            <input type="checkbox" name="clear_reminder" value="on" /> تذكير كل وردية
           </label>
           <button class="btn" type="submit">حفظ المتابعة</button>
         </form>
@@ -281,10 +305,12 @@
       {% endif %}
     </div>
     {% endfor %}
-    {% else %}
-    <p class="muted" style="margin:0">لا توجد ديون مغادرة مفتوحة حالياً. إن وُجد متبقٍ على نزيل مقيم فسيظهر أعلاه تحت «أرصدة قيد الإقامة».</p>
-    {% endif %}
   </div>
+  {% elif not stay_balances and not (closed_balances is defined and closed_balances) %}
+  <div class="card">
+    <p class="muted" style="margin:0">لا توجد مبالغ للمطالبة حالياً.</p>
+  </div>
+  {% endif %}
 </div>
 
 <script>

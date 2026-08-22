@@ -62,12 +62,13 @@
 {% set view_labels = {
   'cash': 'تفاصيل الكاش',
   'bank': 'تفاصيل المصرف',
-  'restaurant': 'تفاصيل طلبات المطعم',
-  'laundry': 'تفاصيل طلبات المغسلة'
+  'expenses': 'مصروفات الجلسة'
 } %}
 <div class="no-print" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.75rem">
   <a class="btn" href="/admin/shifts?kind=hotel">← كل الورديات</a>
+  {% if not (pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request)) %}
   <a class="btn" href="/admin/hotel/shift">فتح / إقفال وردية</a>
+  {% endif %}
   <button type="button" class="btn btn-primary" onclick="window.print()" style="margin-inline-start:auto">طباعة / PDF</button>
 </div>
 
@@ -80,10 +81,91 @@
   {% if shift.employee %}
   <p><strong>موظف الاستقبال:</strong> {{ shift.employee.full_name_ar }}</p>
   {% endif %}
+  {% if shift.opening_cash or shift.opening_bank or shift.received_from_shift_id %}
+  <p><strong>افتتاح:</strong>
+    كاش {{ '%.3f'|format(shift.opening_cash or 0) }}
+    {% if shift.opening_bank %} · مصرف {{ '%.3f'|format(shift.opening_bank or 0) }}{% endif %}
+    {% if shift.received_from_shift_id %} · من الجلسة #{{ shift.received_from_shift_id }}{% endif %}
+  </p>
+  {% endif %}
+
+  {% if error %}
+  <div class="alert no-print" style="margin:0.75rem 0">{{ error }}</div>
+  {% endif %}
+  {% if can_reopen_shift|default(false) %}
+  <div class="card no-print" style="margin:0.75rem 0;border-color:#93c5fd;background:#eff6ff;padding:0.85rem 1rem">
+    <h3 style="margin:0 0 0.4rem;color:#1d4ed8">إعادة لمسودة — تعديل المعدود</h3>
+    <p class="muted" style="margin:0 0 0.55rem;font-size:0.86rem;line-height:1.5">تُفتح الوردية لإدخال المعدود وإعادة الإقفال. للأدمن أو من مُنحت له الصلاحية.</p>
+    <form method="post" action="/admin/hotel/shift/{{ shift.id }}/reopen-draft"
+          onsubmit="return confirm('إعادة الوردية #{{ shift.id }} إلى مسودة؟');">
+      <input name="reason" maxlength="300" placeholder="سبب الإعادة (اختياري)" style="max-width:22rem;margin-inline-end:0.4rem" />
+      <button type="submit" class="btn btn-primary">↩ إعادة لمسودة</button>
+    </form>
+  </div>
+  {% endif %}
+  {% if handoff == '1' %}
+  <div class="card no-print" style="border-color:#86efac;background:#f0fdf4;margin:0.75rem 0;padding:0.75rem">
+    <p style="margin:0;font-weight:600;color:#166534">✓ تم اعتماد الجلسة وتحويل المبالغ إلى خزينة الفندق</p>
+  </div>
+  {% elif handoff == 'revoked' %}
+  <div class="card no-print" style="border-color:#fdba74;background:#fff7ed;margin:0.75rem 0;padding:0.75rem">
+    <p style="margin:0;font-weight:600;color:#9a3412">تم إلغاء الاعتماد — المبالغ عادت لمحفظة الاستقبال</p>
+  </div>
+  {% endif %}
+
+  {% if shift.closed_at %}
+  <div class="card no-print" style="margin:0.85rem 0;padding:0.85rem 1rem;{% if shift.close_destination == 'NEXT_SHIFT' %}border-color:#67e8f9;background:#ecfeff{% elif shift.treasury_handoff_at %}border-color:#86efac;background:#f0fdf4{% else %}border-color:#fcd34d;background:#fffbeb{% endif %}">
+    {% if shift.close_destination == 'NEXT_SHIFT' %}
+    <p style="margin:0;font-weight:700;color:#0e7490">🔁 رُحّل الرصيد للوردية التالية</p>
+    <p class="muted" style="margin:0.35rem 0 0;font-size:0.88rem;line-height:1.5">
+      لا يظهر لأمين الخزينة.
+      {% if shift.carried_to_shift_id %}استُلم في الجلسة <a href="/admin/hotel/shift/{{ shift.carried_to_shift_id }}/report">#{{ shift.carried_to_shift_id }}</a>.{% else %}بانتظار افتتاح الجلسة التالية.{% endif %}
+    </p>
+    {% elif shift.treasury_handoff_at %}
+    <p style="margin:0;font-weight:700;color:#166534">✓ معتمدة في خزينة الفندق</p>
+    <p class="muted" style="margin:0.35rem 0 0;font-size:0.88rem">
+      بتاريخ {{ pos_format_dt(shift.treasury_handoff_at, '%Y-%m-%d %H:%M') }}
+      {% if shift.treasury_handoff_by_id %} · مستخدم #{{ shift.treasury_handoff_by_id }}{% endif %}
+    </p>
+    {% if can_revoke_handoff|default(false) %}
+    <form method="post" action="/admin/hotel/shift/{{ shift.id }}/handoff-revoke" style="margin-top:0.65rem"
+          onsubmit="return confirm('إلغاء الاعتماد وإعادة المبالغ لمحفظة الاستقبال؟');">
+      <input name="revoke_reason" placeholder="سبب الإلغاء (اختياري)" style="max-width:16rem;margin-inline-end:0.4rem" />
+      <button type="submit" class="btn" style="color:#b91c1c">إلغاء الاعتماد</button>
+    </form>
+    {% endif %}
+    {% else %}
+    <p style="margin:0;font-weight:700;color:#92400e">⏳ بانتظار اعتماد أمين الخزينة</p>
+    <p class="muted" style="margin:0.35rem 0 0;font-size:0.88rem;line-height:1.5">
+      التحصيل على <strong>استقبال الفندق</strong>. بعد الاعتماد يُحوَّل النقد إلى
+      <strong>خزينة الفندق — كاش/مصرف</strong> (نفس آلية جلسات المطعم).
+    </p>
+    {% include "_shift_bank_declare.html" %}
+    {% if can_approve_handoff|default(false) %}
+    {% with
+      form_action="/admin/hotel/shift/" ~ shift.id ~ "/handoff",
+      shift_id=shift.id,
+      expected_cash=shift.expected_cash or 0,
+      expected_bank=shift.expected_bank or 0,
+      cash_default=handoff_cash_default if handoff_cash_default is defined else (shift.counted_cash if shift.counted_cash is not none else (shift.expected_cash or 0)),
+      bank_default=handoff_bank_default if handoff_bank_default is defined else (shift.counted_bank if shift.counted_bank is not none else (shift.expected_bank or 0)),
+      reception_cash_balance=reception_cash_balance|default(0),
+      reception_bank_balance=reception_bank_balance|default(0)
+    %}
+    {% include "_shift_handoff_form.html" %}
+    {% endwith %}
+    {% elif next_handoff_shift_id and next_handoff_shift_id != shift.id %}
+    <p class="muted" style="margin:0.55rem 0 0;font-size:0.85rem">
+      يجب اعتماد الجلسات بالترتيب — التالية: <a href="/admin/hotel/shift/{{ next_handoff_shift_id }}/report">جلسة #{{ next_handoff_shift_id }}</a>
+    </p>
+    {% endif %}
+    {% endif %}
+  </div>
+  {% endif %}
 
   <h3 style="margin:1rem 0 0.35rem" class="no-print">تفصيل الجلسة</h3>
   <p class="muted no-print" style="margin:0 0 0.35rem;font-size:0.85rem">اضغط على أي بطاقة لعرض التفاصيل</p>
-  <div class="hs-break-grid no-print" aria-label="تفصيل كاش ومصرف وطلبات">
+  <div class="hs-break-grid no-print" style="grid-template-columns:repeat(3, minmax(0, 1fr))" aria-label="تفصيل كاش ومصرف ومصروفات">
     <a class="hs-break-card{% if detail_view == 'cash' %} is-active{% endif %}" href="{{ report_base }}?view=cash" style="--accent:#16a34a">
       <div class="label">كاش</div>
       <div class="value" style="color:#15803d">{{ '%.3f'|format(card_cash_total) }} د.ل</div>
@@ -94,15 +176,10 @@
       <div class="value" style="color:#0369a1">{{ '%.3f'|format(card_bank_total) }} د.ل</div>
       <div class="hint">صافي قبض − صرف · اضغط للتفاصيل</div>
     </a>
-    <a class="hs-break-card{% if detail_view == 'restaurant' %} is-active{% endif %}" href="{{ report_base }}?view=restaurant" style="--accent:#ea580c">
-      <div class="label">طلبات مطعم</div>
-      <div class="value" style="color:#c2410c">{{ card_restaurant_count }}</div>
-      <div class="hint">{{ '%.3f'|format(card_restaurant_total) }} د.ل · وجبات مُسوّاة</div>
-    </a>
-    <a class="hs-break-card{% if detail_view == 'laundry' %} is-active{% endif %}" href="{{ report_base }}?view=laundry" style="--accent:#7c3aed">
-      <div class="label">طلبات مغسلة</div>
-      <div class="value" style="color:#6d28d9">{{ card_laundry_count }}</div>
-      <div class="hint">{{ '%.3f'|format(card_laundry_total) }} د.ل · اضغط للتفاصيل</div>
+    <a class="hs-break-card{% if detail_view == 'expenses' %} is-active{% endif %}" href="{{ report_base }}?view=expenses" style="--accent:#dc2626">
+      <div class="label">مصروفات الجلسة</div>
+      <div class="value" style="color:#b91c1c">{{ '%.3f'|format(summary.total_expenses) }} د.ل</div>
+      <div class="hint">{{ summary.expense_count }} حركة · اضغط للتفاصيل</div>
     </a>
   </div>
 
@@ -160,70 +237,29 @@
       </tbody>
     </table>
   </div>
-  {% elif detail_view == 'restaurant' %}
-  <div class="sticky-table-wrap">
-    <table style="width:100%;font-size:0.88rem">
-      <thead>
-        <tr>
-          <th>وقت التسوية</th>
-          <th>الغرفة</th>
-          <th>النزيل</th>
-          <th>المبلغ</th>
-          <th>الوسيلة</th>
-          <th class="no-print"></th>
-        </tr>
-      </thead>
-      <tbody>
-      {% for r in restaurant_orders %}
-      <tr>
-        <td>{% if r.settled_at %}{{ pos_format_dt(r.settled_at, '%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
-        <td>{{ r.room_number }}</td>
-        <td>{{ r.guest_name }}</td>
-        <td>{{ '%.3f'|format(r.amount) }} د.ل</td>
-        <td>{{ r.payment_method }}</td>
-        <td class="no-print">
-          {% if r.booking_id %}
-          <a class="btn" style="padding:0.2rem 0.45rem;font-size:0.78rem" href="/admin/hotel/bookings/{{ r.booking_id }}">الحجز</a>
-          {% else %}
-          <span class="muted">فاتورة #{{ r.sale_id }}</span>
-          {% endif %}
-        </td>
-      </tr>
-      {% else %}
-      <tr><td colspan="6" class="muted">لا توجد وجبات مُسوّاة في هذه الجلسة.</td></tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% elif detail_view == 'laundry' %}
+  {% elif detail_view == 'expenses' %}
   <div class="sticky-table-wrap">
     <table style="width:100%;font-size:0.88rem">
       <thead>
         <tr>
           <th>الوقت</th>
-          <th>الحجز</th>
-          <th>النزيل</th>
           <th>البند</th>
-          <th>الكمية</th>
+          <th>الوسيلة</th>
           <th>المبلغ</th>
-          <th class="no-print"></th>
+          <th>ملاحظة</th>
         </tr>
       </thead>
       <tbody>
-      {% for r in laundry_orders %}
+      {% for e in expenses %}
       <tr>
-        <td>{% if r.created_at %}{{ pos_format_dt(r.created_at, '%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
-        <td>{{ r.booking_ref }}</td>
-        <td>{{ r.guest_name }}</td>
-        <td>{{ r.name_ar }}</td>
-        <td>{{ pos_qty(r.quantity) }}</td>
-        <td>{{ '%.3f'|format(r.amount) }} د.ل</td>
-        <td class="no-print">
-          <a class="btn" style="padding:0.2rem 0.45rem;font-size:0.78rem" href="/admin/hotel/bookings/{{ r.booking_id }}">الحجز</a>
-        </td>
+        <td>{{ pos_format_dt(e.created_at, '%Y-%m-%d %H:%M') }}</td>
+        <td>{{ e.expense_category or '—' }}</td>
+        <td>{% if e.method %}{{ pos_wallet_label(e.method) }}{% else %}—{% endif %}</td>
+        <td style="color:#b91c1c;font-weight:700">− {{ '%.3f'|format(e.amount) }} د.ل</td>
+        <td>{{ e.notes or e.note or '—' }}</td>
       </tr>
       {% else %}
-      <tr><td colspan="7" class="muted">لا توجد طلبات مغسلة في هذه الجلسة.</td></tr>
+      <tr><td colspan="5" class="muted">لا مصروفات مسجّلة لهذه الجلسة.</td></tr>
       {% endfor %}
       </tbody>
     </table>
@@ -269,35 +305,23 @@
   </p>
 
   {% if shift.counted_cash is not none %}
-  <h3 style="margin:1.25rem 0 0.5rem">مطابقة الإقفال</h3>
+  <h3 style="margin:1.25rem 0 0.5rem">مطابقة الإقفال (كاش / مصرف)</h3>
   <table style="width:100%;max-width:640px;font-size:0.92rem">
     <thead><tr><th>البند</th><th>متوقع</th><th>معدود</th><th>فرق</th></tr></thead>
     <tbody>
       <tr>
-        <td>كاش</td>
+        <td>رصيد الكاش</td>
         <td>{{ '%.3f'|format(shift.expected_cash or 0) }}</td>
         <td>{{ '%.3f'|format(shift.counted_cash or 0) }}</td>
         <td style="color:{% if (shift.cash_difference or 0) < 0 %}#b91c1c{% else %}#15803d{% endif %}">{{ '%.3f'|format(shift.cash_difference or 0) }}</td>
       </tr>
       <tr>
-        <td>مصرف</td>
+        <td>رصيد المصرف</td>
         <td>{{ '%.3f'|format(shift.expected_bank or 0) }}</td>
         <td>{{ '%.3f'|format(shift.counted_bank or 0) }}</td>
         <td style="color:{% if (shift.bank_difference or 0) < 0 %}#b91c1c{% else %}#15803d{% endif %}">{{ '%.3f'|format(shift.bank_difference or 0) }}</td>
       </tr>
     </tbody>
-  </table>
-  {% endif %}
-
-  {% if activity %}
-  <h3 style="margin:1.25rem 0 0.5rem">ملخص النشاط</h3>
-  <table style="width:100%;max-width:520px;font-size:0.9rem">
-    <tr><td>حجوزات جديدة</td><td>{{ activity.bookings_created or 0 }}</td></tr>
-    <tr><td>تسكين (وصول)</td><td>{{ activity.checkins or 0 }}</td></tr>
-    <tr><td>مغادرة</td><td>{{ activity.checkouts or 0 }}</td></tr>
-    <tr><td>وجبات مُسوّاة</td><td>{{ activity.meals_settled_count or 0 }} — {{ activity.meals_settled_total or 0 }} د.ل</td></tr>
-    <tr><td>طلبات مغسلة</td><td>{{ activity.laundry_count or 0 }} — {{ activity.laundry_total or 0 }} د.ل</td></tr>
-    <tr><td>خدمات إضافية</td><td>{{ activity.services_count or 0 }} — {{ activity.services_total or 0 }} د.ل</td></tr>
   </table>
   {% endif %}
 
@@ -358,19 +382,35 @@
 
 {% if expenses %}
 <div class="card">
-  <h2 style="margin-top:0">مصروفات الجلسة</h2>
+  <h2 style="margin-top:0">مصروفات الجلسة ({{ expenses|length }})</h2>
+  <p class="muted" style="margin:0 0 0.65rem;font-size:0.85rem">تُخصم من المتوقع عند الإقفال وتظهر في مطابقة الكاش/المصرف.</p>
   <table style="width:100%;font-size:0.88rem">
-    <thead><tr><th>الوقت</th><th>البند</th><th>المبلغ</th><th>ملاحظة</th></tr></thead>
+    <thead>
+      <tr>
+        <th>الوقت</th>
+        <th>البند</th>
+        <th>الوسيلة</th>
+        <th>المبلغ</th>
+        <th>ملاحظة</th>
+      </tr>
+    </thead>
     <tbody>
     {% for e in expenses %}
     <tr>
       <td>{{ pos_format_dt(e.created_at, '%Y-%m-%d %H:%M') }}</td>
       <td>{{ e.expense_category or '—' }}</td>
-      <td style="color:#b91c1c">− {{ '%.3f'|format(e.amount) }} د.ل</td>
+      <td>{% if e.method %}{{ pos_wallet_label(e.method) }}{% else %}—{% endif %}</td>
+      <td style="color:#b91c1c;font-weight:700">− {{ '%.3f'|format(e.amount) }} د.ل</td>
       <td>{{ e.notes or e.note or '—' }}</td>
     </tr>
     {% endfor %}
     </tbody>
+    <tfoot>
+      <tr style="background:#fef2f2">
+        <td colspan="3"><strong>إجمالي المصروفات</strong></td>
+        <td colspan="2"><strong style="color:#b91c1c">− {{ '%.3f'|format(summary.total_expenses) }} د.ل</strong></td>
+      </tr>
+    </tfoot>
   </table>
 </div>
 {% endif %}

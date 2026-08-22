@@ -3,8 +3,12 @@
 {% set is_maint = c.status_key == 'maintenance' %}
 {% set needs_clean = c.status_key in ('dirty', 'cleaning') %}
 {% set is_reserved = c.status_key == 'reserved' %}
-{% set is_occupied = c.status_key == 'occupied' %}
-{% set accent = '#22c55e' if avail else ('#f97316' if is_maint else ('#14b8a6' if needs_clean else ('#f59e0b' if is_reserved else '#ef4444'))) %}
+{% set is_overstay = c.status_key == 'overstay' or (c.is_overstay is defined and c.is_overstay) %}
+{% set is_await_pay = c.status_key == 'await_pay' %}
+{% set is_extended = c.status_key == 'extended' or (c.is_extended is defined and c.is_extended) %}
+{% set is_occupied = c.status_key == 'occupied' or is_overstay or is_await_pay or is_extended %}
+{# ألوان الهوية: متاحة أخضر · محجوزة برتقالي · مشغولة أحمر · صيانة أصفر #}
+{% set accent = '#16a34a' if avail else ('#eab308' if is_maint else ('#14b8a6' if needs_clean else ('#b45309' if is_overstay else ('#ea580c' if is_await_pay else ('#0ea5e9' if is_extended else ('#f97316' if is_reserved else '#dc2626')))))) %}
 {% set rooms_n = c.rooms_count if c.rooms_count is defined else 1 %}
 {% set double_n = c.double_beds_count if c.double_beds_count is defined else (c.beds_count if c.beds_count is defined else 1) %}
 {% set single_n = c.single_beds_count if c.single_beds_count is defined else 0 %}
@@ -12,11 +16,20 @@
 {% if avail %}
   {% set status_text = 'متاحة' %}
   {% set status_mod = 'ok' %}
+{% elif is_overstay %}
+  {% set status_text = 'منتهي وقت المغادرة' %}
+  {% set status_mod = 'overstay' %}
+{% elif is_await_pay %}
+  {% set status_text = 'بانتظار السداد' %}
+  {% set status_mod = 'await-pay' %}
+{% elif is_extended %}
+  {% set status_text = 'تمديد إقامة' %}
+  {% set status_mod = 'extended' %}
 {% elif c.checkout_today %}
   {% set status_text = 'مغادرة اليوم' %}
   {% set status_mod = 'out' %}
 {% elif is_maint %}
-  {% set status_text = 'صيانة' %}
+  {% set status_text = 'خارج الخدمة' %}
   {% set status_mod = 'maint' %}
 {% elif needs_clean %}
   {% set status_text = c.status_label or 'للتنظيف' %}
@@ -26,7 +39,7 @@
   {% set status_mod = 'reserved' %}
 {% elif is_occupied %}
   {% set status_text = 'مشغولة' %}
-  {% set status_mod = 'no' %}
+  {% set status_mod = 'occupied' %}
 {% else %}
   {% set status_text = c.status_label or 'غير متاحة' %}
   {% set status_mod = 'no' %}
@@ -58,22 +71,26 @@
 {% set _emoji = (_ic.emoji if _ic and _ic.emoji else ({'available':'🏠','occupied':'🛏','dirty':'🧹','maint':'🔧'}[_ikey])) %}
 {% set _img = (_ic.image_url if _ic and _ic.image_url else '') %}
 
+{% set _d_in = c.check_in if c.check_in is defined and c.check_in else none %}
+{% set _d_out = c.check_out if c.check_out is defined and c.check_out else none %}
+{% set _u_in = c.upcoming_check_in if c.upcoming_check_in is defined and c.upcoming_check_in else none %}
+{% set _u_out = c.upcoming_check_out if c.upcoming_check_out is defined and c.upcoming_check_out else none %}
 {% if tile_mode == 'setup' %}
-<div class="apt-tile apt-tile--static apt-tile--lg apt-tile--wide" style="--accent: {{ accent }}">
+<div class="apt-tile apt-tile--static apt-tile--lg apt-tile--wide apt-tile--{{ status_mod }}" style="--accent: {{ accent }}">
   <div class="apt-tile__row">
     <div class="apt-tile__lead">
       <div class="apt-tile__icon apt-tile__icon--xl" aria-hidden="true">
         {% if _img %}<img class="apt-tile__icon-img" src="{{ _img }}" alt="" />{% else %}{{ _emoji }}{% endif %}
       </div>
-      <div class="apt-tile__body">
-        <div class="apt-tile__title">{{ c.display_name }}</div>
-        <div class="apt-tile__price">{{ '%.3f'|format(c.nightly_price) }} د.ل / ليلة</div>
+        <div class="apt-tile__body">
+          <div class="apt-tile__title" title="{{ c.display_name }}">{{ c.display_name }}</div>
+          <div class="apt-tile__price">{{ '%.3f'|format(c.nightly_price) }} د.ل / ليلة</div>
+        </div>
       </div>
     </div>
-    <div class="apt-tile__aside">
+    <div class="apt-tile__flags">
       <span class="apt-tile__status-pill apt-tile__status-pill--{{ status_mod }}">{{ status_text }}</span>
     </div>
-  </div>
   <div class="apt-tile__amenities" aria-label="مواصفات الشقة">
     <span class="apt-tile__amenity" title="عدد الغرف">{% if img_rooms %}<img class="apt-tile__amenity-ico" src="{{ img_rooms }}" alt="" />{% else %}<span class="apt-tile__amenity-emoji">{{ ic_rooms }}</span>{% endif %} {{ rooms_n }}</span>
     {% if double_n %}<span class="apt-tile__amenity" title="أسرة زوجية">{% if img_double %}<img class="apt-tile__amenity-ico" src="{{ img_double }}" alt="" />{% else %}<span class="apt-tile__amenity-emoji">{{ ic_double }}</span>{% endif %} {{ double_n }}</span>{% endif %}
@@ -126,8 +143,28 @@
 </div>
 
 {% else %}
-<div class="apt-tile apt-tile--card apt-tile--lg apt-tile--wide{% if needs_clean %} apt-tile--needs-clean{% endif %}" style="--accent: {{ accent }}">
-  <a class="apt-tile__link" href="{% if needs_clean %}/admin/hotel/housekeeping{% elif avail %}/admin/hotel/bookings/new?room_id={{ c.room_id }}{% elif c.booking_id %}/admin/hotel/bookings/{{ c.booking_id }}{% else %}/admin/hotel/bookings?room_id={{ c.room_id }}{% endif %}" title="{% if needs_clean %}عيّن موظفاً لتنظيف {{ c.display_name }}{% elif avail %}احجز {{ c.display_name }}{% else %}{{ status_text }}{% endif %}">
+{% set tile_booking_id = c.booking_id or (
+  c.upcoming_booking_id if (
+    c.upcoming_booking_id is defined and c.upcoming_booking_id
+    and (
+      is_reserved or is_occupied
+      or (today is defined and c.upcoming_check_in is defined and c.upcoming_check_in == today)
+    )
+  ) else none
+) %}
+{% set tile_nav = namespace(href='/admin/hotel/bookings?room_id=' ~ c.room_id, title=status_text) %}
+{% if needs_clean %}
+  {% set tile_nav.href = '/admin/hotel/housekeeping' %}
+  {% set tile_nav.title = 'عيّن موظفاً لتنظيف ' ~ c.display_name %}
+{% elif tile_booking_id %}
+  {% set tile_nav.href = '/admin/hotel/bookings/' ~ tile_booking_id %}
+  {% set tile_nav.title = status_text ~ ' — تفاصيل الحجز' %}
+{% elif avail %}
+  {% set tile_nav.href = '/admin/hotel/bookings/new?room_id=' ~ c.room_id %}
+  {% set tile_nav.title = 'احجز ' ~ c.display_name %}
+{% endif %}
+<div class="apt-tile apt-tile--card apt-tile--lg apt-tile--wide apt-tile--{{ status_mod }}{% if needs_clean %} apt-tile--needs-clean{% endif %}" style="--accent: {{ accent }}">
+  <a class="apt-tile__link" href="{{ tile_nav.href }}" title="{{ tile_nav.title }}">
     <div class="apt-tile__row">
       <div class="apt-tile__lead">
         <div class="apt-tile__icon apt-tile__icon--xl" aria-hidden="true">
@@ -135,40 +172,89 @@
           {% if needs_clean %}<span class="apt-tile__clean-bell" title="بانتظار التنظيف — عيّن موظفاً">🔔</span>{% endif %}
         </div>
         <div class="apt-tile__body">
-          <div class="apt-tile__title">{{ c.display_name }}</div>
+          <div class="apt-tile__title" title="{{ c.display_name }}">{{ c.display_name }}</div>
           <div class="apt-tile__price">{{ '%.3f'|format(c.nightly_price) }} د.ل / ليلة</div>
         </div>
       </div>
-      <div class="apt-tile__aside">
-        <span class="apt-tile__status-pill apt-tile__status-pill--{{ status_mod }}">{{ status_text }}</span>
-        {% if c.pay_status is defined and c.pay_status %}
-        <span class="apt-tile__pay-pill apt-tile__pay-pill--{{ c.pay_status }}" title="حالة سداد حساب الشقة">{{ c.pay_label }}</span>
-        {% endif %}
-        <div class="apt-tile__dates apt-tile__dates--stack" title="فترة الإقامة">
-          {% if c.check_in or c.check_out %}
-          <span class="apt-tile__date apt-tile__date--in">دخول {% if c.check_in %}{{ c.check_in.strftime('%d-%m-%Y') }}{% else %}—{% endif %}</span>
-          <span class="apt-tile__date apt-tile__date--out">مغادرة {% if c.check_out %}{{ c.check_out.strftime('%d-%m-%Y') }}{% else %}—{% endif %}</span>
-          {% elif c.upcoming_check_in %}
-          <span class="apt-tile__date apt-tile__date--in">دخول قادم {{ c.upcoming_check_in.strftime('%d-%m-%Y') }}</span>
-          {% else %}
-          <span class="apt-tile__date apt-tile__date--muted">دخول —</span>
-          <span class="apt-tile__date apt-tile__date--muted">مغادرة —</span>
-          {% endif %}
-        </div>
+    </div>
+    <div class="apt-tile__flags">
+      <span class="apt-tile__status-pill apt-tile__status-pill--{{ status_mod }}">{{ status_text }}</span>
+      {% if c.pay_status is defined and c.pay_status %}
+      <span class="apt-tile__pay-pill apt-tile__pay-pill--{{ c.pay_status }}" title="حالة سداد حساب الشقة">{{ c.pay_label }}</span>
+      {% endif %}
+    </div>
+    {# تواريخ الوصول/المغادرة — شريط كامل واضح لكل حجز (مشغولة / محجوزة / قادم) #}
+    {% if _d_in or _d_out or _u_in %}
+    <div class="apt-tile__stay" title="فترة الإقامة">
+      {% if _d_in or _d_out %}
+      <span class="apt-tile__stay-item apt-tile__stay-item--in">
+        <span class="apt-tile__stay-lbl">وصول</span>
+        <span class="apt-tile__stay-val" dir="ltr">{% if _d_in %}{% if _d_in.strftime is defined %}{{ _d_in.strftime('%Y-%m-%d') }}{% else %}{{ _d_in }}{% endif %}{% else %}—{% endif %}</span>
+      </span>
+      <span class="apt-tile__stay-arrow" aria-hidden="true">←</span>
+      <span class="apt-tile__stay-item apt-tile__stay-item--out">
+        <span class="apt-tile__stay-lbl">مغادرة</span>
+        <span class="apt-tile__stay-val" dir="ltr">{% if _d_out %}{% if _d_out.strftime is defined %}{{ _d_out.strftime('%Y-%m-%d') }}{% else %}{{ _d_out }}{% endif %}{% else %}—{% endif %}</span>
+      </span>
+      {% else %}
+      <span class="apt-tile__stay-item apt-tile__stay-item--in">
+        <span class="apt-tile__stay-lbl">وصول قادم</span>
+        <span class="apt-tile__stay-val" dir="ltr">{% if _u_in.strftime is defined %}{{ _u_in.strftime('%Y-%m-%d') }}{% else %}{{ _u_in }}{% endif %}</span>
+      </span>
+      {% if _u_out %}
+      <span class="apt-tile__stay-arrow" aria-hidden="true">←</span>
+      <span class="apt-tile__stay-item apt-tile__stay-item--out">
+        <span class="apt-tile__stay-lbl">مغادرة</span>
+        <span class="apt-tile__stay-val" dir="ltr">{% if _u_out.strftime is defined %}{{ _u_out.strftime('%Y-%m-%d') }}{% else %}{{ _u_out }}{% endif %}</span>
+      </span>
+      {% endif %}
+      {% endif %}
+    </div>
+    {% endif %}
+    {# بيانات النزيل — محجوزة/مشغولة: اسم النزيل الأول + الهاتف + العدد #}
+    {% if (is_occupied or is_reserved) and (c.guest_name or c.booking_id) %}
+    {% set _gc = (c.guests_count|default(0))|int %}
+    <div class="apt-tile__guest" aria-label="بيانات النزيل">
+      {% if c.guest_name %}
+      <div class="apt-tile__guest-name" title="النزيل الأول">
+        <span class="apt-tile__guest-ico" aria-hidden="true">👤</span>
+        <span>{{ c.guest_name }}</span>
+      </div>
+      {% endif %}
+      {% if c.guest_phone is defined and c.guest_phone %}
+      <div class="apt-tile__guest-phone" title="هاتف" dir="ltr">
+        <span class="apt-tile__guest-ico" aria-hidden="true">📞</span>
+        <span>{{ c.guest_phone }}</span>
+      </div>
+      {% endif %}
+      <div class="apt-tile__guest-meta">
+        <span class="apt-tile__guest-chip apt-tile__guest-chip--pax" title="عدد النزلاء المسجّلين على الحجز">
+          <span class="apt-tile__guest-ico" aria-hidden="true">👥</span>
+          عدد النزلاء: {{ _gc if _gc > 0 else '—' }}
+        </span>
       </div>
     </div>
+    {% elif avail and c.upcoming_guest_name is defined and c.upcoming_guest_name %}
+    <div class="apt-tile__guest apt-tile__guest--upcoming" aria-label="نزيل الحجز القادم">
+      <div class="apt-tile__guest-name" title="حجز قادم">
+        <span class="apt-tile__guest-ico" aria-hidden="true">📅</span>
+        <span>{{ c.upcoming_guest_name }}</span>
+      </div>
+    </div>
+    {% endif %}
+    {# مواصفات الشقة (أسرة/غرف) — للشقق المتاحة فقط #}
+    {% if avail %}
     <div class="apt-tile__amenities" aria-label="مواصفات الشقة">
       <span class="apt-tile__amenity" title="عدد الغرف">{% if img_rooms %}<img class="apt-tile__amenity-ico" src="{{ img_rooms }}" alt="" />{% else %}<span class="apt-tile__amenity-emoji">{{ ic_rooms }}</span>{% endif %} {{ rooms_n }}</span>
       {% if double_n %}<span class="apt-tile__amenity" title="أسرة زوجية">{% if img_double %}<img class="apt-tile__amenity-ico" src="{{ img_double }}" alt="" />{% else %}<span class="apt-tile__amenity-emoji">{{ ic_double }}</span>{% endif %} {{ double_n }}</span>{% endif %}
       {% if single_n %}<span class="apt-tile__amenity" title="أسرة فردية">{% if img_single %}<img class="apt-tile__amenity-ico" src="{{ img_single }}" alt="" />{% else %}<span class="apt-tile__amenity-emoji">{{ ic_single }}</span>{% endif %} {{ single_n }}</span>{% endif %}
       {% if infant_ok %}<span class="apt-tile__amenity apt-tile__amenity--infant" title="مناسب لرضيع">{% if img_infant %}<img class="apt-tile__amenity-ico" src="{{ img_infant }}" alt="" />{% else %}<span class="apt-tile__amenity-emoji">{{ ic_infant }}</span>{% endif %}</span>{% endif %}
     </div>
+    {% endif %}
     {% if is_maint and c.status_detail %}
     <div class="apt-tile__hint apt-tile__hint--maint">{{ c.status_detail }}</div>
     {% elif avail and c.status_detail %}
     <div class="apt-tile__hint apt-tile__hint--upcoming">{{ c.status_detail }}</div>
-    {% elif not avail and c.guest_name %}
-    <div class="apt-tile__hint">{{ c.guest_name }}</div>
     {% endif %}
     {% if c.balance_due > 0 or c.debt_restaurant > 0 or c.debt_stay > 0 or c.debt_laundry > 0 or (c.debt_watch is defined and c.debt_watch) %}
     <div class="apt-tile__debt" title="مبلغ غير مدفوع — إقامة ومطعم معاً">
@@ -180,9 +266,12 @@
     </div>
     {% endif %}
   </a>
-  {% if c.is_active and (needs_clean or (can_maintain and (avail or is_maint))) %}
+  {% if c.is_active and (needs_clean or is_reserved or (can_maintain and (avail or is_maint))) %}
   <div class="apt-tile__maint-bar">
     <span class="apt-tile__maint-label">إجراء:</span>
+    {% if is_reserved and tile_booking_id %}
+    <a class="apt-tile__maint-btn apt-tile__maint-btn--checkin" href="/admin/hotel/bookings/{{ tile_booking_id }}#booking-checkin-actions">تسكين</a>
+    {% endif %}
     {% if needs_clean %}
     <a class="apt-tile__maint-btn" href="/admin/hotel/housekeeping" style="text-decoration:none;background:#fee2e2;color:#b91c1c;border-color:#fecaca">🔔 تعيين تنظيف</a>
     {% elif avail and can_maintain %}

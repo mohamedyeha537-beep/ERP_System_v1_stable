@@ -323,7 +323,7 @@
 
       <tr>
 
-        <td><strong>{{ w.method.name_ar }}</strong>{% if not w.method.is_active %} <span class="muted">(معطّل)</span>{% endif %}</td>
+        <td><strong>{{ pos_wallet_label(w.method) }}</strong>{% if not w.method.is_active %} <span class="muted">(معطّل)</span>{% endif %}</td>
 
         <td style="color: #16a34a">+{{ w.sales_in }}</td>
 

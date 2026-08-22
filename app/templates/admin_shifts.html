@@ -15,10 +15,14 @@
   {% endif %}
   {% if kind == 'hotel' %}
   <a class="btn" href="/reports/hotel-shifts" style="margin-inline-start:auto">جلسات الفندق (تقرير كامل)</a>
+  {% if not (pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request)) %}
   <a class="btn" href="/admin/hotel/shift">فتح / إقفال جلسة</a>
+  {% endif %}
   {% elif kind == 'pos' %}
   <a class="btn" href="/reports/shifts" style="margin-inline-start:auto">جلسات الكاشير (تقرير كامل)</a>
+  {% if not (pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request)) %}
   <a class="btn" href="/pos/shift">إدارة جلسة الكاشير</a>
+  {% endif %}
   {% endif %}
 </div>
 

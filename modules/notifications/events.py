@@ -42,11 +42,19 @@ POS_ITEM_VOID_APPROVED = "pos.item_void_approved"
 TREASURY_SHIFT_CLOSED = "treasury.shift_closed"
 TREASURY_MOVEMENT = "treasury.movement"
 TREASURY_BALANCE_UPDATE = "treasury.balance_update"
+TREASURY_HANDOFF_PENDING = "treasury.handoff_pending"
+TREASURY_HANDOFF_APPROVED = "treasury.handoff_approved"
+SHIFT_HANDOVER_SENT = "shift.handover_sent"
+SHIFT_HANDOVER_CONFIRMED = "shift.handover_confirmed"
+SHIFT_VARIANCE_OPENED = "shift.variance_opened"
+SHIFT_BANK_TRANSFER_DECLARED = "shift.bank_transfer_declared"
 
 HOTEL_BOOKING_CREATED = "hotel.booking_created"
 HOTEL_BOOKING_CONFIRMED = "hotel.booking_confirmed"
+HOTEL_CHECK_IN_WELCOME = "hotel.check_in_welcome"
 HOTEL_ONLINE_BOOKING_REQUEST = "hotel.online_booking_request"
 HOTEL_CHECKOUT_REMINDER = "hotel.checkout_reminder"
+HOTEL_LATE_CHECKOUT_CHARGED = "hotel.late_checkout_charged"
 HOTEL_NIGHT_PAYMENT_DUE = "hotel.night_payment_due"
 HOTEL_BALANCE_CLAIM = "hotel.balance_claim"
 HOTEL_UNPAID_SERVICE_ADDED = "hotel.unpaid_service_added"
@@ -115,10 +123,18 @@ ALL_EVENT_KEYS: list[tuple[str, str]] = [
     (TREASURY_SHIFT_CLOSED, "إغلاق جلسة وخزينة"),
     (TREASURY_MOVEMENT, "حركة خزينة"),
     (TREASURY_BALANCE_UPDATE, "تحديث رصيد خزينة"),
+    (TREASURY_HANDOFF_PENDING, "جلسة بانتظار اعتماد الخزينة"),
+    (TREASURY_HANDOFF_APPROVED, "اعتماد أمين الخزينة"),
+    (SHIFT_HANDOVER_SENT, "تسليم عهدة — بانتظار التأكيد"),
+    (SHIFT_HANDOVER_CONFIRMED, "تأكيد استلام عهدة"),
+    (SHIFT_VARIANCE_OPENED, "فرق عهدة / تحويل"),
+    (SHIFT_BANK_TRANSFER_DECLARED, "تحويل مصرفي بانتظار الاعتماد"),
     (HOTEL_BOOKING_CREATED, "إنشاء حجز فندقي"),
     (HOTEL_BOOKING_CONFIRMED, "تأكيد حجز فندقي"),
+    (HOTEL_CHECK_IN_WELCOME, "رسالة ترحيب بعد التسكين"),
     (HOTEL_ONLINE_BOOKING_REQUEST, "طلب حجز أونلاين — تنبيه الموظف"),
     (HOTEL_CHECKOUT_REMINDER, "تذكير مغادرة فندقية"),
+    (HOTEL_LATE_CHECKOUT_CHARGED, "احتساب ليلة متأخرة تلقائياً"),
     (HOTEL_NIGHT_PAYMENT_DUE, "ليلة فندقية مستحقة"),
     (HOTEL_BALANCE_CLAIM, "مطالبة رصيد حجز فندقي"),
     (HOTEL_UNPAID_SERVICE_ADDED, "خدمة فندقية غير مدفوعة"),
@@ -225,6 +241,12 @@ PHASE6_EVENT_KEYS: frozenset[str] = frozenset(
         TREASURY_SHIFT_CLOSED,
         TREASURY_MOVEMENT,
         TREASURY_BALANCE_UPDATE,
+        TREASURY_HANDOFF_PENDING,
+        TREASURY_HANDOFF_APPROVED,
+        SHIFT_HANDOVER_SENT,
+        SHIFT_HANDOVER_CONFIRMED,
+        SHIFT_VARIANCE_OPENED,
+        SHIFT_BANK_TRANSFER_DECLARED,
     }
 )
 
@@ -232,8 +254,10 @@ PHASE7_EVENT_KEYS: frozenset[str] = frozenset(
     {
         HOTEL_BOOKING_CREATED,
         HOTEL_BOOKING_CONFIRMED,
+        HOTEL_CHECK_IN_WELCOME,
         HOTEL_ONLINE_BOOKING_REQUEST,
         HOTEL_CHECKOUT_REMINDER,
+        HOTEL_LATE_CHECKOUT_CHARGED,
         HOTEL_NIGHT_PAYMENT_DUE,
         HOTEL_BALANCE_CLAIM,
         HOTEL_UNPAID_SERVICE_ADDED,
@@ -266,6 +290,7 @@ DEFAULT_THROTTLE_MINUTES: dict[str, int] = {
     INVENTORY_RECIPE_COST_CHANGED: 360,
     REFERRAL_LINK_CREATED: 1440,
     HOTEL_CHECKOUT_REMINDER: 1440,
+    HOTEL_LATE_CHECKOUT_CHARGED: 0,
     HOTEL_NIGHT_PAYMENT_DUE: 1440,
     HOTEL_BALANCE_CLAIM: 1440,
     KITCHEN_TICKET_CREATED: 60,
@@ -274,4 +299,5 @@ DEFAULT_THROTTLE_MINUTES: dict[str, int] = {
     HR_PAYROLL_PAID: 1440,
     HR_ADVANCE_GIVEN: 1440,
     HR_DEDUCTION_CREATED: 1440,
+    TREASURY_HANDOFF_PENDING: 60,
 }

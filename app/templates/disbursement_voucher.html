@@ -35,6 +35,7 @@
       <section class="receipt-section">
         <table class="receipt-table">
           <tr><th>المبلغ المصروف</th><td class="num"><strong>{{ '%.3f'|format(amount) }}</strong> د.ل</td></tr>
+          {% if charge_domain_label %}<tr><th>الوضعية (لصالح)</th><td>{{ charge_domain_label }}</td></tr>{% endif %}
           <tr><th>من الخزينة / الوسيلة</th><td>{{ method_name }}</td></tr>
           {% if category %}<tr><th>التصنيف</th><td>{{ category }}</td></tr>{% endif %}
           {% if party %}<tr><th>الجهة / المورد</th><td>{{ party }}</td></tr>{% endif %}

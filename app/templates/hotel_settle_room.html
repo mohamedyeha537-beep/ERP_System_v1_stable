@@ -20,7 +20,16 @@
 {% if pickup_ok %}
 <div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0;color:#065f46">تم تحويل الطلب إلى <strong>استلام من المطعم</strong> وتحصيله — لم يعد على حساب الشقة.</p></div>
 {% endif %}
+{% if settle_view_only|default(false) %}
+<div class="card" style="border-color:#93c5fd;background:#eff6ff">
+  <p style="margin:0;color:#1e3a8a;line-height:1.55">
+    وضع المطعم <strong>للعرض فقط</strong>: هذا هو الدين المطلوب من الفندق.
+    التحويل إلى خزينة المطعم يتم من <strong>وضع الفندق</strong> فقط.
+  </p>
+</div>
+{% endif %}
 {% if not linked_booking and open_charges %}
+{% if can_settle_transfer %}
 <div class="card" style="border-color:#86efac;background:#ecfdf5">
   <h2 style="margin-top:0;color:#065f46">تخليص سريع: تحويل إلى استلام من المطعم</h2>
   <p style="margin:0 0 0.75rem;color:#14532d;font-size:0.92rem;line-height:1.55">
@@ -36,7 +45,7 @@
       <select name="payment_method_id" required style="width:100%">
         <option value="">— اختر —</option>
         {% for m in pickup_payment_methods %}
-        <option value="{{ m.id }}">{{ m.name_ar }}</option>
+        <option value="{{ m.id }}">{{ pos_wallet_label(m) }}</option>
         {% endfor %}
       </select>
     </label>
@@ -72,6 +81,7 @@
   <a class="btn" href="/admin/hotel/bookings/new?room_id={{ room.id }}">إنشاء حجز لهذه الشقة</a>
   {% endif %}
 </div>
+{% endif %}
 {% endif %}
 {% if paid_msg == 'partial' %}
 <div class="card" style="border-color:#93c5fd; background:#eff6ff"><p style="margin:0;color:#1e40af">تم تسجيل الدفعة. ما زال هناك رصيد مفتوح على الغرفة — يمكنك دفع الباقي لاحقاً.</p></div>
@@ -114,6 +124,21 @@
     </div>
   </div>
 </div>
+{% if can_settle_transfer and breakfast_included_enabled and linked_booking %}
+{% set ns_bf = namespace(n=0) %}
+{% for c in open_charges %}
+  {% if charge_is_breakfast.get(c.id, false) %}{% set ns_bf.n = ns_bf.n + 1 %}{% endif %}
+{% endfor %}
+{% if ns_bf.n > 0 %}
+<form method="post" action="/hotel/settle/room/{{ room.id }}/pay" style="margin:0.75rem 0 0"
+      onsubmit="return confirm('تسوية كل وجبات الإفطار على هذه الشقة ({{ ns_bf.n }} فاتورة) كتكلفة فندق؟');">
+  <input type="hidden" name="settle_mode" value="breakfast" />
+  <button class="btn" type="submit" style="background:#ea580c;color:#fff;border-color:#c2410c">
+    🥐 تسوية كل وجبات الإفطار ({{ ns_bf.n }})
+  </button>
+</form>
+{% endif %}
+{% endif %}
 
 <div class="card">
   <h2 style="margin-top:0">الفواتير المفتوحة</h2>
@@ -177,28 +202,6 @@
     </table>
     </div>
 
-    <div style="margin-top:0.75rem;padding:0.85rem 1rem;background:#eff6ff;border:1px solid #93c5fd;border-radius:10px;font-size:0.92rem;line-height:1.55">
-      <strong style="color:#1e3a8a">آلية التسوية فندق → مطعم</strong>
-      <ol style="margin:0.4rem 0 0;padding-inline-start:1.2rem;color:#1e40af">
-        <li>يُحوَّل المبلغ من خزينة/خزائن الفندق التي تختارها إلى خزينة/خزائن المطعم (يمكن تقسيم كاش + مصرف).</li>
-        <li>تُقفَل فاتورة المطعم تجاه الفندق — <strong>هذا ليس سداداً من النزيل</strong>.</li>
-        <li><strong>وجبات عادية</strong>: يبقى المبلغ ديناً على حساب الحجز ويظهر في تفاصيل الحجز حتى التحصيل.</li>
-        {% if breakfast_included_enabled %}
-        <li><strong>إفطار مشمول</strong>: تكلفة فندق فقط على حساب هذه الشقة — تُحوَّل للمطعم ولا تُضاف لمستحق النزيل ولا تظهر في تفاصيل الحجز.</li>
-        {% else %}
-        <li><strong>وضع الإفطار المشمول معطّل</strong> من إعدادات الحجز — كل الوجبات على حساب النزيل.</li>
-        {% endif %}
-      </ol>
-      {% if breakfast_included_enabled %}
-      <p style="margin:0.5rem 0 0;color:#9a3412;font-size:0.88rem">
-        لا تخلط فواتير الإفطار مع فواتير النزيل في نفس العملية — سوِّ كل نوع بزرّه.
-      </p>
-      {% endif %}
-      <p style="margin:0.45rem 0 0;font-size:0.85rem">
-        <a href="/admin/hotel/reports/breakfast">تقرير تكلفة الإفطار ←</a>
-        · <a href="/admin/hotel/settings#hotel-breakfast">إعداد الإفطار</a>
-      </p>
-    </div>
     {% if linked_booking %}
     <div style="margin-top:0.75rem;padding:0.65rem 0.85rem;background:#ecfdf5;border:1px solid #86efac;border-radius:8px;font-size:0.92rem">
       الحجز المرتبط: <strong>{{ linked_booking.reference }}</strong>
@@ -215,9 +218,20 @@
     {% endif %}
     <div style="margin-top:1rem;padding:0.85rem 1rem;background:#fff;border:1px solid var(--border);border-radius:10px">
       <h3 style="margin:0 0 0.35rem">تسوية (تحويل فندق → مطعم)</h3>
+      {% if settle_view_only|default(false) %}
+      <div class="alert" style="margin:0">
+        وضع المطعم للعرض فقط. تنفيذ التحويل يتم من وضع الفندق.
+      </div>
+      {% elif not can_settle_transfer %}
+      <div class="alert" style="margin:0">
+        لديك صلاحية عرض التسوية فقط. لتنفيذ التحويل (كاش/مصرف) يلزم الأدمن منحك
+        «تنفيذ تحويل التسوية فندق↔مطعم» أو «إدارة أساليب الدفع والخزينة».
+      </div>
+      {% else %}
       <p class="muted" style="margin:0 0 0.75rem;font-size:0.85rem;line-height:1.55">
-        اختر <strong>من أي خزينة فندق</strong> وإلى <strong>أي خزينة مطعم</strong>، ويمكن تقسيم المبلغ (جزء كاش + جزء مصرف).
-        التحويل هنا يسدّد المطعم فقط — <strong>يبقى المبلغ ديناً على النزيل</strong> في تفاصيل الحجز حتى يُحصَّل لاحقاً.
+        نفّذ التحويل أولاً في <strong>حساب توا / المصرف</strong> ثم أدخل <strong>رقم المرجع</strong> هنا.
+        المصدر الافتراضي: خزينة الفندق المصرفية (توا). التحويل يسدّد المطعم فقط —
+        <strong>يبقى المبلغ ديناً على النزيل</strong>.
       </p>
       {% if methods and to_methods %}
       <div style="margin:0 0 0.75rem;padding:0.65rem 0.85rem;background:#f8fafc;border-radius:8px;font-size:0.92rem">
@@ -231,9 +245,10 @@
         <table style="width:100%;font-size:0.88rem" id="xfer-table" class="no-sticky-head">
           <thead>
             <tr>
-              <th>من (خزينة الفندق)</th>
+              <th>من (فندق{% if can_pay_from_main %} / الرئيسية{% endif %})</th>
               <th>إلى (خزينة المطعم)</th>
               <th style="width:8rem">المبلغ</th>
+              <th style="width:12rem">رقم المرجع (توا)</th>
               <th style="width:3rem"></th>
             </tr>
           </thead>
@@ -246,19 +261,22 @@
           <td>
             <select name="xfer_from_id" class="input xfer-from" required style="width:100%;min-width:10rem">
               {% for m in methods %}
-              <option value="{{ m.id }}">{{ m.name_ar }} ({{ {'CASH': 'كاش', 'BANK': 'مصرف', 'OTHER': 'أخرى'}.get(m.kind.value, '') }})</option>
+              <option value="{{ m.id }}" {% if loop.first %}selected{% endif %} data-needs-ref="1">{{ pos_wallet_label(m) }} ({{ {'CASH': 'كاش', 'BANK': 'مصرف', 'OTHER': 'أخرى'}.get(m.kind.value, '') }})</option>
               {% endfor %}
             </select>
           </td>
           <td>
             <select name="xfer_to_id" class="input xfer-to" required style="width:100%;min-width:10rem">
               {% for m in to_methods %}
-              <option value="{{ m.id }}">{{ m.name_ar }} ({{ {'CASH': 'كاش', 'BANK': 'مصرف', 'OTHER': 'أخرى'}.get(m.kind.value, '') }})</option>
+              <option value="{{ m.id }}" {% if loop.first %}selected{% endif %} data-needs-ref="1">{{ pos_wallet_label(m) }} ({{ {'CASH': 'كاش', 'BANK': 'مصرف', 'OTHER': 'أخرى'}.get(m.kind.value, '') }})</option>
               {% endfor %}
             </select>
           </td>
           <td>
             <input name="xfer_amount" type="number" step="0.001" min="0.001" class="input xfer-amt" required style="width:100%" />
+          </td>
+          <td>
+            <input name="xfer_bank_ref" class="input xfer-ref" required placeholder="رقم العملية في توا" style="width:100%;min-width:9rem" />
           </td>
           <td>
             <button type="button" class="btn xfer-del" title="حذف السطر" style="padding:0.25rem 0.45rem">×</button>
@@ -274,7 +292,7 @@
         <button class="btn" type="submit" name="settle_mode" value="breakfast" id="submit-breakfast-btn"
                 style="background:#ea580c;color:#fff;border-color:#c2410c"
                 {% if not linked_booking %}disabled title="يلزم نزيل مقيم (Check-in) على هذه الشقة"{% endif %}>
-          🥐 تسوية إفطار (تكلفة فندق)
+          🥐 تسوية كل وجبات الإفطار
         </button>
         {% endif %}
         <a class="btn" href="/hotel/settle">رجوع</a>
@@ -284,6 +302,7 @@
         لا توجد خزائن فندق أو مطعم مفعّلة. على الأدمن ضبطها من
         <a href="/admin/payment-methods">إدارة أساليب الدفع</a>.
       </div>
+      {% endif %}
       {% endif %}
     </div>
   </form>
@@ -341,10 +360,25 @@
           }
         }
       }
+      function optNeedsRef(sel) {
+        if (!sel || sel.selectedIndex < 0) return false;
+        var opt = sel.options[sel.selectedIndex];
+        return !!(opt && opt.getAttribute('data-needs-ref') === '1');
+      }
+      function syncRowRef(row) {
+        var refInp = row.querySelector('.xfer-ref');
+        if (!refInp) return;
+        refInp.required = true;
+        refInp.placeholder = 'رقم المرجع بعد التنفيذ في توا';
+      }
       function bindRow(row) {
         row.querySelectorAll('.xfer-amt').forEach(function (inp) {
           inp.addEventListener('input', recalc);
         });
+        row.querySelectorAll('.xfer-from, .xfer-to').forEach(function (sel) {
+          sel.addEventListener('change', function () { syncRowRef(row); });
+        });
+        syncRowRef(row);
         var del = row.querySelector('.xfer-del');
         if (del) {
           del.addEventListener('click', function () {
@@ -374,18 +408,24 @@
           if (!fromSel || !toSel) return;
           var fromOpt = fromSel.options[fromSel.selectedIndex];
           var label = (fromOpt && fromOpt.textContent) || '';
-          var wantBank = label.indexOf('مصرف') >= 0 || label.toLowerCase().indexOf('bank') >= 0;
+          var wantTawa = label.indexOf('توا') >= 0 || label.toLowerCase().indexOf('tawa') >= 0;
+          var wantBank = wantTawa || label.indexOf('مصرف') >= 0 || label.toLowerCase().indexOf('bank') >= 0;
+          var pick = -1;
           for (var i = 0; i < toSel.options.length; i++) {
             var t = toSel.options[i].textContent || '';
-            var isBank = t.indexOf('مصرف') >= 0 || t.toLowerCase().indexOf('bank') >= 0;
-            if (wantBank === isBank) {
-              toSel.selectedIndex = i;
-              break;
-            }
+            var isTawa = t.indexOf('توا') >= 0 || t.toLowerCase().indexOf('tawa') >= 0;
+            var isBank = isTawa || t.indexOf('مصرف') >= 0 || t.toLowerCase().indexOf('bank') >= 0;
+            if (wantTawa && isTawa) { pick = i; break; }
+            if (wantBank === isBank && pick < 0) pick = i;
           }
+          if (pick >= 0) toSel.selectedIndex = pick;
         }
-        if (fromSel) fromSel.addEventListener('change', syncKind);
+        if (fromSel) fromSel.addEventListener('change', function () {
+          syncKind();
+          syncRowRef(row);
+        });
         syncKind();
+        syncRowRef(row);
         recalc();
       }
       var addBtn = document.getElementById('xfer-add-btn');
@@ -413,6 +453,24 @@
       var form = document.getElementById('settle-form');
       if (form) {
         form.addEventListener('submit', function (e) {
+          var mode = (e.submitter && e.submitter.name === 'settle_mode')
+            ? String(e.submitter.value || '')
+            : 'transfer';
+          if (mode === 'breakfast' || mode === 'hotel_cost') {
+            var bf = document.querySelectorAll('.charge-check[data-breakfast="1"]');
+            if (!bf.length) {
+              e.preventDefault();
+              alert('لا توجد وجبات إفطار معلّقة على هذه الشقة.');
+              return;
+            }
+            document.querySelectorAll('.charge-check').forEach(function (cb) {
+              cb.checked = cb.getAttribute('data-breakfast') === '1';
+            });
+            if (!confirm('تسوية كل وجبات الإفطار على هذه الشقة كتكلفة فندق؟\n' + bf.length + ' فاتورة')) {
+              e.preventDefault();
+            }
+            return;
+          }
           var due = selectedDue();
           if (due <= 0.0005) {
             e.preventDefault();
@@ -423,6 +481,18 @@
           if (Math.abs(sum - due) > 0.001) {
             e.preventDefault();
             alert('مجموع أسطر التحويل (' + fmt(sum) + ') يجب أن يساوي المستحق المختار (' + fmt(due) + ').');
+            return;
+          }
+          var missingRef = false;
+          document.querySelectorAll('.xfer-row').forEach(function (row) {
+            var refInp = row.querySelector('.xfer-ref');
+            if (refInp && refInp.required && !String(refInp.value || '').trim()) {
+              missingRef = true;
+            }
+          });
+          if (missingRef) {
+            e.preventDefault();
+            alert('أدخل رقم المرجع من توا بعد تنفيذ التحويل خارج النظام.');
           }
         });
       }

@@ -113,3 +113,40 @@ def save_guest_id_document(upload: UploadFile, static_root: Path) -> str:
     path = dest_dir / fname
     path.write_bytes(data)
     return f"hotel/guest_documents/{fname}"
+
+
+_AGR_REQ_EXT = {".jpg", ".jpeg", ".png", ".webp", ".pdf"}
+_AGR_REQ_MAX = 8 * 1024 * 1024
+_AGR_REQ_DIR = Path("hotel") / "agreement_requests"
+
+
+def agreement_request_public_url(filename: str | None) -> str | None:
+    raw = (filename or "").strip().replace("\\", "/")
+    if not raw:
+        return None
+    if raw.startswith(("http://", "https://")):
+        return raw
+    if raw.startswith("/uploads/"):
+        return raw
+    if raw.startswith("/static/"):
+        return raw
+    if raw.startswith("hotel/"):
+        return f"/uploads/{raw}"
+    return f"/uploads/hotel/agreement_requests/{raw}"
+
+
+def save_agreement_request_file(upload: UploadFile, static_root: Path) -> str:
+    if not upload or not upload.filename:
+        raise ValueError("ارفع صورة أو ملف PDF لطلب الشركة الكتابي.")
+    ext = Path(upload.filename).suffix.lower()
+    if ext not in _AGR_REQ_EXT:
+        raise ValueError("صيغة المرفق غير مدعومة (jpg, png, webp, pdf).")
+    data = upload.file.read()
+    if len(data) > _AGR_REQ_MAX:
+        raise ValueError("حجم المرفق أكبر من 8 ميغابايت.")
+    dest_dir = static_root / "uploads" / _AGR_REQ_DIR
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    fname = f"{uuid.uuid4().hex}{ext}"
+    path = dest_dir / fname
+    path.write_bytes(data)
+    return f"hotel/agreement_requests/{fname}"

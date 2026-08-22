@@ -45,7 +45,7 @@
       type="text"
       name="customer_name"
       id="{{ name_id }}"
-      placeholder="الاسم (اختياري للعملاء المسجّلين)"
+      placeholder="الاسم (مطلوب للعملاء الجدد)"
       value="{% if customer and customer.name %}{{ customer.name }}{% elif draft_customer_name is defined %}{{ draft_customer_name }}{% endif %}"
       autocomplete="name"
       hx-post="/pos/lookup-phone"

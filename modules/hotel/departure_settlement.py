@@ -61,6 +61,7 @@ def preview_departure_settlement(
     """
     الرصيد الرسمي دائماً من build_guest_account (نفس المتغير في أعلى الصفحة).
     أرقام المغادرة المبكرة تُحسب كتقدير منفصل ولا تستبدل الرصيد الرسمي.
+    المغادرة بعد الموعد المجدول (Overstay) مسموحة — لا تُرفض؛ الإقامة المسجّلة تبقى كما هي.
     """
     if booking.booking_status not in (
         BookingStatus.CHECKED_IN,
@@ -71,8 +72,15 @@ def preview_departure_settlement(
     departure = actual_departure or booking.check_out
     if departure < booking.check_in:
         raise BookingError("تاريخ المغادرة لا يمكن أن يكون قبل تاريخ الوصول.")
-    if departure > booking.check_out:
-        raise BookingError("تاريخ المغادرة لا يمكن أن يتجاوز الموعد المجدول الحالي.")
+
+    try:
+        from modules.hotel.late_checkout import ensure_overstay_nights_caught_up
+
+        if booking.booking_status == BookingStatus.CHECKED_IN:
+            ensure_overstay_nights_caught_up(db, booking, notify=False)
+            db.refresh(booking)
+    except Exception:  # noqa: BLE001
+        pass
 
     folio = build_folio(db, booking.id)
     guest = build_guest_account(db, booking.id)
@@ -82,10 +90,11 @@ def preview_departure_settlement(
     bill_nights = max(0, (booking.check_out - booking.check_in).days) or booked_nights
     raw_stayed = max(0, (departure - booking.check_in).days)
     same_day_use = departure == booking.check_in
+    # ليالي الإقامة المعروضة: لا تقل عن المسجّل في الفاتورة عند التأخير
     stayed_nights = 1 if same_day_use else raw_stayed
-    if bill_nights > 0:
+    if bill_nights > 0 and departure <= booking.check_out:
         stayed_nights = min(stayed_nights, bill_nights)
-    cancelled_nights = max(0, (booked_nights or bill_nights) - stayed_nights)
+    cancelled_nights = max(0, (booked_nights or bill_nights) - min(stayed_nights, bill_nights or stayed_nights))
 
     discount = Decimal(str(booking.discount_amount or 0)).quantize(Q)
     acc_booked = Decimal(str(booking.accommodation_total or 0)).quantize(Q)
@@ -95,9 +104,12 @@ def preview_departure_settlement(
     folio_total = Decimal(str(guest.total_charges or 0)).quantize(Q)
 
     is_early = departure < booking.check_out or same_day_use
-    if not is_early or departure >= booking.check_out:
+    is_late = departure > booking.check_out
+    if is_late or not is_early or departure >= booking.check_out:
+        # في الموعد أو بعده (أو Overstay): بدون تخفيض إقامة
         acc_actual = acc_booked
         projected_total = folio_total
+        is_early = False if is_late else (is_early and departure < booking.check_out)
     else:
         denom = bill_nights if bill_nights > 0 else 1
         stayed_for_money = 1 if same_day_use else stayed_nights
@@ -127,7 +139,7 @@ def preview_departure_settlement(
         paid_amount=paid,
         refund_due=guest.amount_credit,
         balance_due=guest.amount_due,
-        is_early_departure=is_early and departure < booking.check_out,
+        is_early_departure=bool(is_early and departure < booking.check_out and not is_late),
         projected_folio_total=projected_total,
         projected_refund_due=projected_refund,
         projected_balance_due=projected_due,

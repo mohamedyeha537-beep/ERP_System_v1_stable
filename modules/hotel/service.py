@@ -33,8 +33,11 @@ def list_rooms(db: Session, *, only_active: bool = False) -> list[HotelRoom]:
 
 
 def list_occupied_rooms_for_pos(db: Session) -> list[HotelRoom]:
-    """شقق مسكونة فقط لنقطة البيع — حجوزات CHECKED_IN (أو حالة OCCUPIED)."""
+    """شقق مسكونة فقط لنقطة البيع — مع اسم/هاتف نزيل رقم 1 للعرض وواتساب."""
+    from sqlalchemy.orm import joinedload
+
     from modules.hotel.booking_models import BookingStatus, HotelBooking, RoomPhysicalStatus
+    from modules.hotel.booking_service import primary_staying_guest_contact
 
     occupied_ids = {
         int(rid)
@@ -46,7 +49,6 @@ def list_occupied_rooms_for_pos(db: Session) -> list[HotelRoom]:
         ).all()
         if rid is not None
     }
-    # احتياط: حالة فيزيائية مشغولة بدون حجز مربوط (بيانات قديمة)
     physical_ids = {
         int(rid)
         for (rid,) in db.execute(
@@ -59,13 +61,42 @@ def list_occupied_rooms_for_pos(db: Session) -> list[HotelRoom]:
     ids = occupied_ids | physical_ids
     if not ids:
         return []
-    return list(
+    rooms = list(
         db.scalars(
             select(HotelRoom)
             .where(HotelRoom.id.in_(ids), HotelRoom.is_active.is_(True))
             .order_by(HotelRoom.number)
         ).all()
     )
+    bookings = list(
+        db.scalars(
+            select(HotelBooking)
+            .options(joinedload(HotelBooking.guests))
+            .where(
+                HotelBooking.booking_status == BookingStatus.CHECKED_IN,
+                HotelBooking.room_id.in_(ids),
+            )
+            .order_by(HotelBooking.id.desc())
+        )
+        .unique()
+        .all()
+    )
+    by_room: dict[int, HotelBooking] = {}
+    for b in bookings:
+        rid = int(b.room_id) if b.room_id else 0
+        if rid and rid not in by_room:
+            by_room[rid] = b
+    for room in rooms:
+        booking = by_room.get(int(room.id))
+        name, phone = primary_staying_guest_contact(booking)
+        if not name:
+            name = (room.guest_name or "").strip()
+        # للقالب: يظهر نزيل 1 بجانب رقم الشقة
+        room.guest_name = name or None
+        setattr(room, "pos_guest_name", name or "")
+        setattr(room, "pos_guest_phone", phone or "")
+        setattr(room, "pos_booking_id", int(booking.id) if booking else None)
+    return rooms
 
 
 def get_room(db: Session, room_id: int) -> HotelRoom | None:
@@ -352,6 +383,53 @@ def open_room_charge(
     if booking_id is not None:
         sale.booking_id = booking_id
 
+    # حد دين الشركة عند تحميل خدمات على حساب الشركة
+    if booking_id is not None:
+        from modules.customers.company_credit import (
+            CompanyCreditError,
+            assert_company_can_accept_debt,
+        )
+        from modules.customers.models import Customer
+        from modules.hotel.booking_service import get_booking
+        from modules.hotel.company_agreement_service import (
+            allocate_charge,
+            infer_service_code,
+        )
+        from modules.hotel.folio import is_laundry_service
+        from modules.hotel.breakfast_settle import sale_is_hotel_breakfast
+
+        booking_pre = get_booking(db, int(booking_id))
+        sale_total = Decimal(str(sale.total or 0)).quantize(Decimal("0.001"))
+        code = infer_service_code(
+            name_ar=note or "",
+            is_pos=True,
+            is_laundry=is_laundry_service(note or ""),
+            is_breakfast=sale_is_hotel_breakfast(db, sale),
+        )
+        split = allocate_charge(
+            db,
+            int(booking_id),
+            amount=sale_total,
+            service_code=code,
+            name_ar=f"فاتورة #{sale_id}",
+            consume_limit=True,
+        )
+        if split.company_amount > Decimal("0.0005"):
+            cid = getattr(booking_pre, "company_customer_id", None) if booking_pre else None
+            if cid:
+                try:
+                    assert_company_can_accept_debt(
+                        db,
+                        db.get(Customer, int(cid)),
+                        split.company_amount,
+                        exclude_booking_id=int(booking_id),
+                    )
+                except CompanyCreditError as exc:
+                    raise HotelError(str(exc)) from exc
+    else:
+        split = None
+        code = None
+
     rc = RoomCharge(
         sale_id=sale_id,
         room_id=room_id,
@@ -360,16 +438,25 @@ def open_room_charge(
         note=(note or "").strip() or None,
         created_by_id=user_id,
         is_settled=False,
+        service_code=split.service_code if split else code,
+        folio_side=split.folio_side if split else None,
+        company_amount=split.company_amount if split else None,
+        guest_amount=split.guest_amount if split else None,
     )
     db.add(rc)
     db.flush()
     if booking_id is not None:
         try:
-            from modules.hotel.booking_service import get_booking
+            from modules.hotel.booking_service import (
+                _recalc_payment_status,
+                get_booking,
+            )
             from modules.notifications.hotel_hooks import emit_hotel_unpaid_service_added
 
             booking = get_booking(db, int(booking_id))
             if booking is not None:
+                _recalc_payment_status(db, booking)
+                # إشعار فقط إن كان جزء على النزيل أو إعلام الشركة
                 emit_hotel_unpaid_service_added(
                     db,
                     booking,
@@ -441,6 +528,15 @@ def ensure_room_charge_for_sale(
         rc.settled_at = datetime.now(timezone.utc)
         rc.settled_by_id = user_id
     db.flush()
+    if booking_id is not None:
+        try:
+            from modules.hotel.booking_service import _recalc_payment_status, get_booking
+
+            booking = get_booking(db, int(booking_id))
+            if booking is not None:
+                _recalc_payment_status(db, booking)
+        except Exception:  # noqa: BLE001
+            pass
     return rc
 
 
@@ -592,6 +688,7 @@ class TreasuryTransferSplit:
     from_payment_method_id: int
     to_payment_method_id: int
     amount: Decimal
+    bank_ref: str = ""
 
 
 def _booking_prepaid_credit_for_charges(
@@ -1021,6 +1118,12 @@ def link_open_charges_to_booking(
             sale.booking_id = int(booking.id)
         n += 1
     db.flush()
+    try:
+        from modules.hotel.booking_service import _recalc_payment_status
+
+        _recalc_payment_status(db, booking)
+    except Exception:  # noqa: BLE001
+        pass
     return n
 
 
@@ -1272,12 +1375,17 @@ def _normalize_settle_transfers(
     total_due: Decimal,
     from_payment_method_id: int | None,
     transfers: list[TreasuryTransferSplit] | None,
+    require_operation_ref: bool = True,
 ) -> list[TreasuryTransferSplit]:
     """يبني أسطر التحويل ويتحقق من المجموع والرصيد."""
-    from modules.payments.service import PaymentsError, method_current_balance
+    from modules.payments.service import (
+        PaymentsError,
+        assert_bank_operation_ref,
+        method_current_balance,
+    )
     from modules.hotel.restaurant_settle import (
-        is_hotel_settle_wallet,
         is_restaurant_settle_wallet,
+        is_settle_source_wallet,
         pick_hotel_treasury_with_balance,
         restaurant_settle_target_pm,
     )
@@ -1288,17 +1396,26 @@ def _normalize_settle_transfers(
             amt = Decimal(str(t.amount or 0)).quantize(Decimal("0.001"))
             if amt <= Decimal("0.0005"):
                 continue
+            ref = (getattr(t, "bank_ref", "") or "").strip()
+            if not ref:
+                raise HotelError(
+                    "أدخل رقم المرجع من حساب توا بعد تنفيذ التحويل خارج النظام، "
+                    "ثم سجّله هنا. لا يُحفظ التحويل بدون مرجع يؤكد التنفيذ الفعلي."
+                )
             rows.append(
                 TreasuryTransferSplit(
                     from_payment_method_id=int(t.from_payment_method_id),
                     to_payment_method_id=int(t.to_payment_method_id),
                     amount=amt,
+                    bank_ref=ref,
                 )
             )
     elif from_payment_method_id:
         src = db.get(PaymentMethod, int(from_payment_method_id))
-        if src is None or not is_hotel_settle_wallet(src):
-            raise HotelError("اختر خزينة فندق (كاش أو مصرف) كمصدر للتحويل.")
+        if src is None or not is_settle_source_wallet(src, allow_main=True):
+            raise HotelError(
+                "اختر خزينة فندق أو الخزينة الرئيسية (كاش أو مصرف) كمصدر للتحويل."
+            )
         kind = (
             src.kind
             if src.kind in (PaymentMethodKind.CASH, PaymentMethodKind.BANK)
@@ -1314,7 +1431,7 @@ def _normalize_settle_transfers(
         ]
     else:
         try:
-            src = pick_hotel_treasury_with_balance(db, total_due)
+            src = pick_hotel_treasury_with_balance(db, total_due, allow_main=True)
         except PaymentsError as exc:
             raise HotelError(str(exc)) from exc
         kind = (
@@ -1345,10 +1462,22 @@ def _normalize_settle_transfers(
     for r in rows:
         from_pm = db.get(PaymentMethod, r.from_payment_method_id)
         to_pm = db.get(PaymentMethod, r.to_payment_method_id)
-        if from_pm is None or not is_hotel_settle_wallet(from_pm):
-            raise HotelError("مصدر التحويل يجب أن يكون خزينة فندق.")
+        if from_pm is None or not is_settle_source_wallet(from_pm, allow_main=True):
+            raise HotelError(
+                "مصدر التحويل يجب أن يكون خزينة فندق أو الخزينة الرئيسية."
+            )
         if to_pm is None or not is_restaurant_settle_wallet(to_pm):
             raise HotelError("وجهة التحويل يجب أن تكون خزينة مطعم.")
+        if require_operation_ref and not (r.bank_ref or "").strip():
+            raise HotelError(
+                "أدخل رقم المرجع من حساب توا بعد تنفيذ التحويل خارج النظام، "
+                "ثم سجّله هنا. لا يُحفظ التحويل بدون مرجع يؤكد التنفيذ الفعلي."
+            )
+        if require_operation_ref:
+            try:
+                assert_bank_operation_ref(from_pm, to_pm, r.bank_ref)
+            except PaymentsError as exc:
+                raise HotelError(str(exc)) from exc
         by_from[r.from_payment_method_id] = (
             by_from.get(r.from_payment_method_id, Decimal("0")) + r.amount
         )
@@ -1394,10 +1523,18 @@ def _settle_charges_hotel_to_restaurant(
         total_due=total_due,
         from_payment_method_id=from_payment_method_id,
         transfers=transfers,
+        require_operation_ref=not (
+            hotel_breakfast_only is True and not transfers and not from_payment_method_id
+        ),
     )
 
     room_id_hint = dues[0][0].room_id if dues else None
     try:
+        auto_breakfast = (
+            hotel_breakfast_only is True
+            and not transfers
+            and not from_payment_method_id
+        )
         for row in xfer_rows:
             transfer_hotel_to_restaurant_for_meal(
                 db,
@@ -1407,6 +1544,8 @@ def _settle_charges_hotel_to_restaurant(
                 user_id=user_id,
                 sale_id=None,
                 room_id=room_id_hint,
+                bank_ref=row.bank_ref,
+                require_operation_ref=False if auto_breakfast else None,
             )
     except PaymentsError as exc:
         raise HotelError(

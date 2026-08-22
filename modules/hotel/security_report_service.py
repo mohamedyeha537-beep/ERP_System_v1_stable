@@ -292,7 +292,7 @@ def fetch_security_report_bookings(
                 HotelBooking.check_in <= end,
                 HotelBooking.check_out >= start,
                 HotelBooking.booking_status.notin_(
-                    (BookingStatus.CANCELLED, BookingStatus.NO_SHOW)
+                    (BookingStatus.CANCELLED, BookingStatus.NO_SHOW, BookingStatus.LATE_CANCELLATION)
                 ),
             )
             .order_by(

@@ -77,6 +77,27 @@ class HotelShift(Base):
         DateTime(timezone=True), nullable=True
     )
 
+    #: اعتماد أمين الخزينة وتحويل إيراد الجلسة من محفظة الاستقبال → خزينة الفندق
+    treasury_handoff_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    treasury_handoff_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+    #: TREASURY = اعتماد أمين الخزينة · NEXT_SHIFT = تسليم الدرج للوردية التالية
+    close_destination: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+    opening_bank: Mapped[Decimal | None] = mapped_column(Numeric(14, 3), nullable=True)
+    received_from_shift_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    carried_to_shift_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    carried_to_employee_id: Mapped[int | None] = mapped_column(
+        ForeignKey("hr_employees.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
     user = relationship("User", foreign_keys=[user_id])
     closed_by = relationship("User", foreign_keys=[closed_by_id])
     employee = relationship("Employee", foreign_keys=[employee_id])
+    carried_to_employee = relationship("Employee", foreign_keys=[carried_to_employee_id])
+    treasury_handoff_by = relationship(
+        "User", foreign_keys=[treasury_handoff_by_id]
+    )

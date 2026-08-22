@@ -259,7 +259,7 @@ def post_sale_completed_shadow(db: Session, sale: Sale) -> None:
         description_ar=f"إيراد فاتورة #{sale.id}",
         entry_date=_entry_date_from_dt(sale.created_at),
         lines=[
-            _LineSpec(CODE_AR, amount, _ZERO, "ذمم مدينة"),
+            _LineSpec(CODE_AR, amount, _ZERO, "مستحقات عملاء/غرف"),
             _LineSpec(CODE_REVENUE, _ZERO, amount, "إيراد مبيعات"),
         ],
     )
@@ -714,24 +714,47 @@ def post_payroll_payment_shadow(
 
 
 def post_sale_completed_shadow_safe(db: Session, sale: Sale) -> None:
+    # مبيعات مربوطة بجلسة كاشير: الترحيل عند إقفال الجلسة (لا كل فاتورة)
+    if getattr(sale, "pos_shift_id", None):
+        return
     _safe("sale_completed", post_sale_completed_shadow, db, sale)
     _safe("sale_cogs", post_sale_cogs_shadow, db, sale)
 
 
 def post_sale_cogs_shadow_safe(db: Session, sale: Sale) -> None:
+    if getattr(sale, "pos_shift_id", None):
+        return
     _safe("sale_cogs", post_sale_cogs_shadow, db, sale)
 
 
 def post_sale_payment_shadow_safe(db: Session, sp: SalePayment) -> None:
+    sale = db.get(Sale, int(sp.sale_id)) if sp.sale_id else None
+    if sale is not None and getattr(sale, "pos_shift_id", None):
+        return
     _safe("sale_payment", post_sale_payment_shadow, db, sp)
 
 
 def post_sale_return_shadow_safe(db: Session, sale_return: SaleReturn) -> None:
+    sale = (
+        db.get(Sale, int(sale_return.original_sale_id))
+        if sale_return.original_sale_id
+        else None
+    )
+    if sale is not None and getattr(sale, "pos_shift_id", None):
+        return
     _safe("sale_return", post_sale_return_shadow, db, sale_return)
     _safe("sale_return_cogs", post_sale_return_cogs_shadow, db, sale_return)
 
 
 def post_refund_payment_shadow_safe(db: Session, rp: RefundPayment) -> None:
+    if rp.sale_return_id:
+        from modules.refunds.models import SaleReturn
+
+        sr = db.get(SaleReturn, int(rp.sale_return_id))
+        if sr is not None and sr.original_sale_id:
+            sale = db.get(Sale, int(sr.original_sale_id))
+            if sale is not None and getattr(sale, "pos_shift_id", None):
+                return
     _safe("refund_payment", post_refund_payment_shadow, db, rp)
 
 

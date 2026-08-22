@@ -30,9 +30,14 @@
     {% if operator_name %}
     مرحباً <strong>{{ operator_name }}</strong> —
     {% endif %}
+    {% if carry_offer %}
+    عدّ العهدة المستلمة من الوردية السابقة وأكد المبلغ الفعلي قبل الافتتاح.
+    {% else %}
     أدخل مبلغ الفكة التي تُسلَّم للدرج. يُخصم تلقائياً من <strong>الخزينة الرئيسية — كاش</strong>
     ويُحوَّل إلى محفظة الكاشير — وليس إيراداً ولا يُحسب عجزاً إذا كان العدد عند الإغلاق = فكة + مبيعات كاش.
+    {% endif %}
   </p>
+  {% include "_shift_start_carry.html" %}
 
   {% if error %}
   <div class="alert" style="background:#fef2f2;border-color:#fecaca;margin:1rem 0">{{ error }}</div>
@@ -40,6 +45,19 @@
 
   <div class="shift-start-card">
     <form method="post" action="/pos/shift/start" id="shift-start-form">
+      {% if carry_offer %}
+      <label for="received_cash" style="display:block;font-weight:700;margin-bottom:0.45rem;font-size:1.05rem">
+        الكاش الذي عددته فعلياً (د.ل)
+      </label>
+      <input id="received_cash" name="received_cash" class="shift-start-cash" type="text"
+        inputmode="decimal" autocomplete="off" required placeholder="0.000" />
+      <label for="received_bank" style="display:block;font-weight:700;margin:0.85rem 0 0.45rem;font-size:1.05rem">
+        المصرف الذي عددته فعلياً (د.ل)
+      </label>
+      <input id="received_bank" name="received_bank" class="shift-start-cash" type="text"
+        inputmode="decimal" autocomplete="off" required placeholder="0.000" />
+      <input type="hidden" name="opening_cash" value="0" />
+      {% else %}
       <label for="opening_cash" style="display:block;font-weight:700;margin-bottom:0.45rem;font-size:1.05rem">
         💵 رصيد افتتاحي في الدرج (د.ل)
       </label>
@@ -52,6 +70,7 @@
           {% if no_float_checked %}checked{% endif %} />
         لا يوجد فكة — الدرج فارغ (0 د.ل)
       </label>
+      {% endif %}
       <label for="opening_note" style="display:block;font-weight:600;margin:0.5rem 0 0.35rem">ملاحظة (اختياري)</label>
       <textarea id="opening_note" name="opening_note" rows="2"
         style="width:100%;padding:0.5rem;border-radius:8px;border:1px solid #e2e8f0;box-sizing:border-box">{{ opening_note_value or '' }}</textarea>

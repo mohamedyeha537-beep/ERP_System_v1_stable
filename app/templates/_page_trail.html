@@ -12,8 +12,9 @@
     >
       ← السابق
     </button>
-    {% if trail.back_url != "/" %}
-    <a class="btn page-trail__home" href="/">🏠 الرئيسية</a>
+    {% set home_url = pos_home_url(request) if pos_home_url is defined else '/' %}
+    {% if trail.back_url != home_url %}
+    <a class="btn page-trail__home" href="{{ home_url }}">🏠 الرئيسية</a>
     {% endif %}
   </div>
   {% if trail.breadcrumbs|length > 1 %}

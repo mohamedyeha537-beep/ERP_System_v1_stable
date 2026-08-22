@@ -7,10 +7,10 @@ from fastapi import APIRouter, Depends, Form, Path, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 
-from app.deps import DBSession, require_permission
+from app.deps import DBSession, require_any_permission, require_permission
 from app.jinja_env import templates
 from modules.authz.models import User
-from modules.authz.permissions import GL_MANAGE
+from modules.authz.permissions import GL_MANAGE, PAYMENTS_MANAGE, REPORTS_VIEW
 from modules.gl.models import AccountOpeningBalance, GlAccountType, GlPaymentMethodMap
 from modules.gl.seed import account_type_label
 from modules.gl.reconciliation import build_reconciliation
@@ -57,6 +57,7 @@ from modules.settings.service import set_setting
 
 router = APIRouter(prefix="/admin/gl", tags=["gl"])
 _perm = require_permission(GL_MANAGE)
+_ledger_view = require_any_permission(GL_MANAGE, PAYMENTS_MANAGE, REPORTS_VIEW)
 
 
 def _finance_domain_filter(request: Request, user: User):
@@ -136,14 +137,16 @@ def gl_admin_page(request: Request, db: DBSession, user: User = Depends(_perm)):
 
 @router.get("/accounts", response_class=HTMLResponse)
 def gl_accounts_page(request: Request, db: DBSession, user: User = Depends(_perm)):
-    from modules.gl.hierarchy import account_tree_depth, display_balances_map, header_account_ids
+    from modules.gl.hierarchy import account_tree_depth, header_account_ids
     from modules.platform.business_domain import domain_label
 
     domain = _finance_domain_filter(request, user)
     grouped = accounts_by_type(db, domain=domain)
     parent_options = list_accounts(db, active_only=False, domain=domain)
-    raw_balances = account_balances_map(db, domain=domain)
-    balances = display_balances_map(db, raw_balances)
+    from modules.gl.vault_display import overlay_vault_wallet_balances
+
+    raw_balances = account_balances_map(db, domain=None)
+    balances = overlay_vault_wallet_balances(db, raw_balances)
     header_ids = header_account_ids(db)
     depths = {acc.id: account_tree_depth(db, acc) for _, _, rows in grouped for acc in rows}
     status = gl_status_summary(db)
@@ -179,7 +182,7 @@ def gl_account_ledger_page(
     account_id: int,
     request: Request,
     db: DBSession,
-    user: User = Depends(_perm),
+    user: User = Depends(_ledger_view),
 ):
     from modules.platform.business_domain import domain_label
 

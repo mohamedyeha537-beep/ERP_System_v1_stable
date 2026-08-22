@@ -33,7 +33,10 @@ class HotelRoom(Base):
     online_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     floor: Mapped[str | None] = mapped_column(String(20), nullable=True)
     # رقم القفل لنظام البطاقات (8 خانات كما في SDK — مثال: 01020399)
-    lock_no: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
+    # deferred: لا يفشل تحميل الشقة إن لم يُرقَّع العمود بعد
+    lock_no: Mapped[str | None] = mapped_column(
+        String(16), nullable=True, index=True, deferred=True
+    )
     #: عدد الغرف داخل الوحدة (يظهر كرمز على كرت الشقة)
     rooms_count: Mapped[int] = mapped_column(Integer, default=1)
     #: إجمالي الأسرة (زوجية + فردية) — للتوافق مع التقارير القديمة
@@ -125,6 +128,11 @@ class RoomCharge(Base):
     settlement_payment_method_id: Mapped[int | None] = mapped_column(
         ForeignKey("payment_methods.id", ondelete="SET NULL"), nullable=True
     )
+    #: توجيه فاتورة المطعم/الخدمات: COMPANY | GUEST | SHARED
+    service_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    folio_side: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    company_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 3), nullable=True)
+    guest_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 3), nullable=True)
 
     room: Mapped[HotelRoom] = relationship("HotelRoom", lazy="selectin")
     sale = relationship("Sale", lazy="selectin")

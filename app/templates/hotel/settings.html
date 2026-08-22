@@ -10,11 +10,18 @@
 
 <nav class="hotel-settings-jump" aria-label="أقسام إعدادات الحجز" style="display:flex;flex-wrap:wrap;gap:0.4rem;margin:0.85rem 0 0.35rem">
   <a class="btn" href="#hotel-store" style="background:#fff;font-size:0.88rem">المتجر الأونلاين</a>
+  <a class="btn" href="#hotel-welcome" style="background:#fff;font-size:0.88rem">ترحيب بعد التسكين</a>
   <a class="btn" href="#hotel-id-types" style="background:#fff;font-size:0.88rem">وثائق النزلاء</a>
   <a class="btn" href="#hotel-prepay" style="background:#fff;font-size:0.88rem">الدفع عند الحجز</a>
   <a class="btn" href="#hotel-print" style="background:#fff;font-size:0.88rem">الطباعة</a>
   <a class="btn" href="#hotel-lock-cards" style="background:#fff;font-size:0.88rem">أقفال البطاقات</a>
   <a class="btn" href="#hotel-loyalty" style="background:#fff;font-size:0.88rem">الولاء والإحالة</a>
+  <a class="btn" href="#hotel-checkin-stay" style="background:#fff;font-size:0.88rem">تسكين واحتساب الإقامة</a>
+  <a class="btn" href="#hotel-late-checkout" style="background:#fff;font-size:0.88rem">مغادرة وليلة متأخرة</a>
+  <a class="btn" href="#hotel-cancel-no-show" style="background:#fff;font-size:0.88rem">No Show وإلغاء</a>
+  <a class="btn" href="#hotel-supervisor-otp" style="background:#fff;font-size:0.88rem">رموز OTP</a>
+  <a class="btn" href="/admin/hotel/tourism-agencies" style="background:#fff;font-size:0.88rem">وكالات السياحة</a>
+  <a class="btn" href="#hotel-debt-claim" style="background:#fff;font-size:0.88rem">مطالبة المديونية</a>
   <a class="btn" href="#hotel-breakfast" style="background:#fff;font-size:0.88rem">إفطار مشمول</a>
   <a class="btn" href="#hotel-apt-icons" style="background:#fff;font-size:0.88rem">أيقونات الشقق</a>
   <a class="btn" href="#hotel-amenity-icons" style="background:#fff;font-size:0.88rem">رموز المحتويات</a>
@@ -32,6 +39,18 @@
 <div class="alert" style="background:#ecfdf5;margin:0.75rem 0">تم حفظ إعدادات الطباعة للفندق ✓</div>
 {% elif saved == 'locks' %}
 <div class="alert" style="background:#ecfdf5;margin:0.75rem 0">تم حفظ إعدادات أقفال البطاقات ✓</div>
+{% elif saved == 'checkin_stay' %}
+<div class="alert" style="background:#ecfdf5;margin:0.75rem 0">تم حفظ إعدادات التسكين واحتساب الإقامة ✓</div>
+{% elif saved == 'late_checkout' %}
+<div class="alert" style="background:#ecfdf5;margin:0.75rem 0">تم حفظ إعدادات المغادرة واحتساب الليلة ✓</div>
+{% elif saved == 'cancel_no_show' %}
+<div class="alert" style="background:#ecfdf5;margin:0.75rem 0">تم حفظ سياسة الإلغاء و No Show ✓</div>
+{% elif saved == 'supervisor_otp' %}
+<div class="alert" style="background:#ecfdf5;margin:0.75rem 0">تم حفظ سياسة رموز اعتماد المشرف (OTP) ✓</div>
+{% elif saved == 'debt_claim' %}
+<div class="alert" style="background:#ecfdf5;margin:0.75rem 0">تم حفظ إعدادات مطالبة المديونية ✓</div>
+{% elif saved == 'welcome' %}
+<div class="alert" style="background:#ecfdf5;margin:0.75rem 0">تم حفظ رسالة الترحيب بعد التسكين ✓</div>
 {% elif saved == 'breakfast' %}
 <div class="alert" style="background:#ecfdf5;margin:0.75rem 0">تم حفظ إعدادات الإفطار ✓</div>
 {% elif saved == 'apt_icons' %}
@@ -131,6 +150,387 @@
   });
   </script>
 
+  <div class="card" id="hotel-checkin-stay" style="border-color:#93c5fd;background:linear-gradient(180deg,#eff6ff 0%,#fff 42%)">
+    <h2 style="margin-top:0;font-size:1.05rem">تسكين ويوم التشغيل الفندقي</h2>
+    <p class="muted" style="font-size:0.9rem;margin:0 0 0.85rem;line-height:1.55">
+      للأدمن: <strong>نهاية يوم التشغيل</strong> (افتراضياً 12:00 ظهراً) تفصل «ليلة العمل» عن منتصف الليل التقويمي.
+      وصول بعد منتصف الليل وقبل هذا الوقت يُحتسب <strong>ليلة الأمس كاملة</strong> (كأن النزيل جاء أمس).
+      من وقت الإغلاق إلى نفس الساعة في اليوم التالي = ليلة واحدة. يُطبَّق أيضاً عند إنشاء الحجز وليس فقط عند التسكين.
+    </p>
+    <form method="post" action="/admin/hotel/settings">
+      <input type="hidden" name="section" value="checkin_stay" />
+      <label style="display:flex;align-items:flex-start;gap:0.55rem;font-weight:600;line-height:1.45;margin-bottom:0.85rem">
+        <input
+          type="checkbox"
+          name="hotel_checkin_stay_policy_enabled"
+          value="on"
+          {% if hotel_checkin_stay_policy_enabled %}checked{% endif %}
+          style="margin-top:0.25rem"
+        />
+        <span>
+          تفعيل سياسة يوم التشغيل واحتساب الإقامة
+          <span class="muted" style="display:block;font-weight:400;font-size:0.85rem;margin-top:0.2rem">
+            عند الإلغاء: الليالي = مغادرة − وصول تقويمياً فقط (بدون نصف ليلة وبدون ليلة بعد منتصف الليل).
+          </span>
+        </span>
+      </label>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.75rem">
+        <label style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.88rem">
+          نهاية يوم التشغيل
+          <input
+            type="time"
+            name="hotel_business_day_cutoff"
+            value="{{ hotel_business_day_cutoff|default('12:00') }}"
+            required
+            dir="ltr"
+            style="max-width:140px"
+          />
+          <span class="muted" style="font-size:0.78rem">من 00:00 حتى هذا الوقت = ليلة الأمس. للظهيرة ضع 12:00</span>
+        </label>
+        <label style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.88rem">
+          وقت بدء التسكين الرسمي
+          <input
+            type="time"
+            name="hotel_default_check_in_time"
+            value="{{ hotel_default_check_in_time }}"
+            required
+            dir="ltr"
+            style="max-width:140px"
+          />
+        </label>
+        <label style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.88rem">
+          ساعات ليلة كاملة
+          <input
+            type="number"
+            name="hotel_full_night_hours"
+            value="{{ hotel_full_night_hours }}"
+            min="1"
+            max="48"
+            required
+            dir="ltr"
+            style="max-width:100px"
+          />
+          <span class="muted" style="font-size:0.78rem">تُستخدم في نموذج الحجز عند حساب المدة بالساعات</span>
+        </label>
+        <label style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.88rem">
+          ساعات نصف ليلة
+          <input
+            type="number"
+            name="hotel_half_night_hours"
+            value="{{ hotel_half_night_hours }}"
+            min="0"
+            max="48"
+            required
+            dir="ltr"
+            style="max-width:100px"
+          />
+          <span class="muted" style="font-size:0.78rem">إقامة نفس اليوم بعد نهاية يوم التشغيل: إن بلغت المدة هذا الحد = نصف ليلة</span>
+        </label>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:0.75rem;margin-top:0.85rem">
+        <label style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.88rem">
+          سياسة الدخول المبكر (نفس اليوم قبل وقت التسكين)
+          <select name="hotel_early_checkin_policy" style="max-width:220px">
+            {% set ep = hotel_early_checkin_policy|default('FREE') %}
+            <option value="FREE" {% if ep == 'FREE' %}selected{% endif %}>مجاني (بدون رسوم)</option>
+            <option value="FULL_NIGHT" {% if ep == 'FULL_NIGHT' %}selected{% endif %}>ليلة كاملة إضافية</option>
+            <option value="HALF" {% if ep == 'HALF' %}selected{% endif %}>نصف ليلة (رسوم)</option>
+            <option value="FIXED" {% if ep == 'FIXED' %}selected{% endif %}>مبلغ ثابت</option>
+            <option value="PERCENT" {% if ep == 'PERCENT' %}selected{% endif %}>نسبة من سعر الليلة</option>
+            <option value="BLOCK" {% if ep == 'BLOCK' %}selected{% endif %}>منع (يلزم مدير)</option>
+          </select>
+        </label>
+        <label style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.88rem">
+          مبلغ ثابت للدخول المبكر
+          <input
+            type="number"
+            name="hotel_early_checkin_fixed_amount"
+            value="{{ hotel_early_checkin_fixed_amount|default('0') }}"
+            min="0"
+            step="0.001"
+            dir="ltr"
+            style="max-width:120px"
+          />
+        </label>
+        <label style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.88rem">
+          نسبة الدخول المبكر %
+          <input
+            type="number"
+            name="hotel_early_checkin_percent"
+            value="{{ hotel_early_checkin_percent|default('50') }}"
+            min="0"
+            max="100"
+            step="0.001"
+            dir="ltr"
+            style="max-width:100px"
+          />
+        </label>
+      </div>
+      <p class="muted" style="font-size:0.82rem;margin:0.75rem 0 0;line-height:1.5">
+        مثال: نهاية يوم التشغيل 12:00 — وصول 14 الساعة 02:00 ومغادرة 15 الساعة 12:00 = ليلتان.
+        وصول 14 الساعة 15:00 ومغادرة 14 الساعة 21:00 (6 ساعات) = نصف ليلة إذا كان إعداد النصف 6.
+        وصول 14 الساعة 15:00 ومغادرة 15 الساعة 12:00 = ليلة واحدة. غيّر الساعات أعلاه ثم احفظ ليظهر الأثر فوراً في نموذج الحجز.
+      </p>
+      <button class="btn btn-primary" type="submit" style="margin-top:0.85rem">حفظ إعدادات التسكين</button>
+    </form>
+  </div>
+
+  <div class="card" id="hotel-late-checkout">
+    <h2 style="margin-top:0;font-size:1.05rem">مغادرة واحتساب ليلة متأخرة</h2>
+    <p class="muted" style="font-size:0.9rem;margin:0 0 0.85rem;line-height:1.55">
+      تسلسل PMS: الساعة المحددة → حالة <strong>منتهي وقت المغادرة (Overstay)</strong> دون رسوم ←
+      فترة سماح (سياسة رسوم عند المغادرة) → بعد السماح يُضيف النظام
+      <strong>ليلة تلقائية</strong> (Automatic Overstay Charge) عبر الجدولة.
+      إلغاء الليلة التلقائية للمدير فقط مع سبب إلزامي (يبقى السجل في التدقيق).
+    </p>
+    <form method="post" action="/admin/hotel/settings">
+      <input type="hidden" name="section" value="late_checkout" />
+      <label style="display:flex;align-items:flex-start;gap:0.55rem;font-weight:600;line-height:1.45;margin-bottom:0.85rem">
+        <input
+          type="checkbox"
+          name="hotel_late_checkout_enabled"
+          value="on"
+          {% if hotel_late_checkout_enabled %}checked{% endif %}
+          style="margin-top:0.25rem"
+        />
+        <span>
+          تفعيل سياسة المغادرة المتأخرة
+          <span class="muted" style="display:block;font-weight:400;font-size:0.85rem;margin-top:0.2rem">
+            عند الإلغاء يبقى التذكير اليومي العام فقط دون احتساب ليلة تلقائي.
+          </span>
+        </span>
+      </label>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.75rem">
+        <label style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.88rem">
+          ساعة المغادرة
+          <input
+            type="time"
+            name="hotel_default_check_out_time"
+            value="{{ hotel_default_check_out_time }}"
+            required
+            dir="ltr"
+            style="max-width:140px"
+          />
+        </label>
+        <label style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.88rem">
+          ساعات السماح بعد المغادرة
+          <input
+            type="number"
+            name="hotel_late_checkout_grace_hours"
+            value="{{ hotel_late_checkout_grace_hours }}"
+            min="0"
+            max="24"
+            required
+            dir="ltr"
+            style="max-width:100px"
+          />
+        </label>
+        <label style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.88rem">
+          التنبيه قبل ساعة المغادرة (ساعات)
+          <input
+            type="number"
+            name="hotel_checkout_reminder_lead_hours"
+            value="{{ hotel_checkout_reminder_lead_hours }}"
+            min="0"
+            max="48"
+            required
+            dir="ltr"
+            style="max-width:100px"
+          />
+        </label>
+        <label style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.88rem">
+          رسوم المغادرة أثناء السماح
+          <select name="hotel_late_checkout_grace_fee" style="max-width:12rem">
+            <option value="FREE" {% if hotel_late_checkout_grace_fee == 'FREE' %}selected{% endif %}>مجاني</option>
+            <option value="HALF" {% if hotel_late_checkout_grace_fee == 'HALF' %}selected{% endif %}>نصف ليلة</option>
+            <option value="FULL" {% if hotel_late_checkout_grace_fee == 'FULL' %}selected{% endif %}>ليلة كاملة</option>
+            <option value="FIXED" {% if hotel_late_checkout_grace_fee == 'FIXED' %}selected{% endif %}>مبلغ ثابت</option>
+          </select>
+        </label>
+        <label style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.88rem">
+          المبلغ الثابت (د.ل) — عند اختيار «ثابت»
+          <input
+            type="number"
+            name="hotel_late_checkout_grace_fee_fixed"
+            value="{{ hotel_late_checkout_grace_fee_fixed }}"
+            min="0"
+            step="0.001"
+            dir="ltr"
+            style="max-width:120px"
+          />
+        </label>
+      </div>
+      <p class="muted" style="font-size:0.82rem;margin:0.75rem 0 0;line-height:1.5">
+        مثال: مغادرة 12:00 وسماح 4 ساعات → Overstay أصفر من 12:00، واحتساب ليلة جديدة من 16:00
+        إن لم يغادر. رسوم السماح تُطبَّق عند تسجيل المغادرة قبل انتهاء السماح فقط.
+        الجدولة تفحص كل ~5 دقائق (لا عند الدقيقة مباشرة). إلغاء الليلة التلقائية = مدير + سبب؛ السجل يبقى (Cancelled by Admin).
+      </p>
+      <button class="btn btn-primary" type="submit" style="margin-top:0.85rem">حفظ إعدادات المغادرة</button>
+    </form>
+  </div>
+
+  <div class="card" id="hotel-cancel-no-show">
+    <h2 style="margin-top:0;font-size:1.05rem">No Show وإلغاء الحجوزات</h2>
+    <p class="muted" style="font-size:0.9rem;margin:0 0 0.85rem;line-height:1.55">
+      الحجز <strong>لا يُحذف أبداً</strong> — تتغيّر حالته مع أثر مالي وتدقيق:
+      <strong>ملغى</strong> · <strong>إلغاء متأخر (Late Cancellation)</strong> · <strong>No Show</strong>.
+      لا تسمح لمفتاح الاستقبال بتسجيل No Show أو الإعفاء إلا بصلاحية إدارة الحجوزات.
+    </p>
+    <form method="post" action="/admin/hotel/settings">
+      <input type="hidden" name="section" value="cancel_no_show" />
+      <label style="display:flex;align-items:flex-start;gap:0.55rem;font-weight:600;line-height:1.45;margin-bottom:0.85rem">
+        <input
+          type="checkbox"
+          name="hotel_auto_no_show_enabled"
+          value="on"
+          {% if hotel_auto_no_show_enabled %}checked{% endif %}
+          style="margin-top:0.25rem"
+        />
+        <span>
+          تحويل تلقائي إلى No Show إذا لم يحضر حتى وقت الإغلاق
+          <span class="muted" style="display:block;font-weight:400;font-size:0.85rem;margin-top:0.2rem">
+            الجدولة كل ~5 دقائق — الشقة تُحرَّر للبيع ويُحتسب الرسم حسب السياسة.
+          </span>
+        </span>
+      </label>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:0.75rem">
+        <label style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.88rem">
+          وقت No Show (نهاية يوم الوصول)
+          <input
+            type="time"
+            name="hotel_no_show_cutoff_time"
+            value="{{ hotel_no_show_cutoff_time }}"
+            required
+            dir="ltr"
+            style="max-width:140px"
+          />
+        </label>
+        <label style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.88rem">
+          رسوم No Show
+          <select name="hotel_no_show_fee" style="max-width:14rem">
+            {% for m in cancel_fee_modes %}
+            <option value="{{ m.value }}" {% if hotel_no_show_fee == m.value %}selected{% endif %}>{{ m.label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.88rem">
+          إلغاء قبل موعد الدخول
+          <select name="hotel_cancel_before_arrival_fee" style="max-width:14rem">
+            {% for m in cancel_fee_modes %}
+            <option value="{{ m.value }}" {% if hotel_cancel_before_arrival_fee == m.value %}selected{% endif %}>{{ m.label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.88rem">
+          إلغاء بعد موعد الدخول (Late)
+          <select name="hotel_cancel_after_checkin_fee" style="max-width:14rem">
+            {% for m in cancel_fee_modes %}
+            <option value="{{ m.value }}" {% if hotel_cancel_after_checkin_fee == m.value %}selected{% endif %}>{{ m.label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.88rem">
+          مبلغ ثابت (د.ل) عند اختيار «ثابت»
+          <input
+            type="number"
+            name="hotel_no_show_fee_fixed"
+            value="{{ hotel_no_show_fee_fixed }}"
+            min="0"
+            step="0.001"
+            dir="ltr"
+            style="max-width:120px"
+          />
+        </label>
+      </div>
+      <p class="muted" style="font-size:0.82rem;margin:0.75rem 0 0;line-height:1.5">
+        مثال PDF: إلغاء قبل الدخول = استرجاع كامل · بعد ساعة الدخول أو No Show عند 23:59 =
+        خصم أول ليلة فقط (لا تُحسب الليالي التالية) · الغرفة متاحة للبيع. الاسترداد النقدي يُنفَّذ من
+        «إيصال صرف» إن زاد المدفوع عن الرسوم المحتسبة.
+      </p>
+      <button class="btn btn-primary" type="submit" style="margin-top:0.85rem">حفظ سياسة الإلغاء / No Show</button>
+    </form>
+  </div>
+
+  <div class="card" id="hotel-supervisor-otp" style="border-color:#fcd34d;background:linear-gradient(180deg,#fffbeb 0%,#fff 48%)">
+    <h2 style="margin-top:0;font-size:1.05rem">اعتماد الأدمن — إلغاء الحجز والليلة</h2>
+    <p class="muted" style="font-size:0.9rem;margin:0 0 0.85rem;line-height:1.55;max-width:48rem">
+      إلغاء الحجز أو إلغاء ليلة من الموظف <strong>لا يُنفَّذ فوراً</strong> —
+      يُرسل واتساب للأدمن بزرّي <strong>موافقة</strong> و<strong>رفض</strong>.
+      مدير النظام ينفّذ مباشرة من الشاشة.
+    </p>
+    <form method="post" action="/admin/hotel/settings">
+      <input type="hidden" name="section" value="supervisor_otp" />
+      <label style="display:block;font-weight:700;margin-bottom:0.35rem">واتساب الأدمن لاعتماد الإلغاء</label>
+      <input name="hotel_cancel_admin_phone" dir="ltr" value="{{ hotel_cancel_admin_phone|default('') }}"
+             placeholder="0912345678" style="max-width:240px;display:block;margin:0 0 0.85rem" />
+      <p class="muted" style="font-size:0.82rem;margin:-0.55rem 0 0.85rem;line-height:1.45">
+        يُرسل إليه طلب إلغاء الحجز / الليلة مع زر موافقة وزر رفض.
+      </p>
+      <p style="margin:0 0 0.85rem;padding:0.55rem 0.7rem;border-radius:8px;background:#ecfdf5;border:1px solid #86efac;color:#14532d;font-size:0.88rem;line-height:1.5">
+        <strong>ترجيع مبلغ النزيل</strong> (مغادرة أو إيصال صرف) لا يطلب رمز مشرف — اختر وسيلة الصرف ونفّذ.
+      </p>
+      <label style="display:flex;align-items:flex-start;gap:0.55rem;font-weight:600;line-height:1.45;margin-bottom:0.75rem">
+        <input type="checkbox" name="otp_require_pos_refund" value="on"
+          {% if otp_require_pos_refund|default(true) %}checked{% endif %} style="margin-top:0.25rem" />
+        <span>
+          ترجيع وجبات المطعم
+          <span class="muted" style="display:block;font-weight:400;font-size:0.85rem;margin-top:0.2rem">
+            كاشير نقطة البيع + صفحة المرتجعات. افتراضياً مفعّل.
+          </span>
+        </span>
+      </label>
+      <label style="display:flex;align-items:flex-start;gap:0.55rem;font-weight:600;line-height:1.45;margin-bottom:0.35rem">
+        <input type="checkbox" name="otp_require_hotel_cancel" value="on"
+          {% if otp_require_hotel_cancel|default(true) %}checked{% endif %} style="margin-top:0.25rem" />
+        <span>
+          رمز OTP لإلغاء الحجز (قديم)
+          <span class="muted" style="display:block;font-weight:400;font-size:0.85rem;margin-top:0.2rem">
+            إلغاء الموظف يتم الآن بزرّي واتساب الأدمن أعلاه. هذا الخيار للرمز السداسي إن لزم لاحقاً.
+          </span>
+        </span>
+      </label>
+      <button class="btn btn-primary" type="submit" style="margin-top:0.85rem">حفظ سياسة رموز OTP</button>
+    </form>
+  </div>
+
+  <div class="card" id="hotel-debt-claim" style="border-color:#fca5a5;background:linear-gradient(180deg,#fef2f2 0%,#fff 45%)">
+    <h2 style="margin-top:0;font-size:1.05rem">مطالبة المديونية يومياً</h2>
+    <p class="muted" style="font-size:0.9rem;margin:0 0 0.85rem;line-height:1.55;max-width:46rem">
+      لمنع تراكم الدين: كل نزيل (أو مغادر) عليه <strong>متبقٍ &gt; 0</strong> ولا يملك رصيداً دائناً
+      يستلم مطالبة واتساب <strong>مرة كل يوم</strong> حتى السداد.
+      بعد التمديد التلقائي لليلة المتأخرة تُرسل مطالبة فورية بالرصيد الجديد.
+    </p>
+    <form method="post" action="/admin/hotel/settings">
+      <input type="hidden" name="section" value="debt_claim" />
+      <label style="display:flex;align-items:flex-start;gap:0.55rem;font-weight:600;line-height:1.45;margin-bottom:0.65rem">
+        <input type="checkbox" name="hotel_guest_reminders_enabled" value="on"
+               {% if hotel_guest_reminders_enabled %}checked{% endif %} style="margin-top:0.25rem" />
+        <span>
+          تفعيل التذكيرات اليومية للنزلاء
+          <span class="muted" style="display:block;font-weight:400;font-size:0.85rem;margin-top:0.2rem">
+            يشمل تذكير المغادرة + دورة المطالبات.
+          </span>
+        </span>
+      </label>
+      <label style="display:flex;align-items:flex-start;gap:0.55rem;font-weight:600;line-height:1.45;margin-bottom:0.85rem">
+        <input type="checkbox" name="hotel_daily_balance_claim_enabled" value="on"
+               {% if hotel_daily_balance_claim_enabled %}checked{% endif %} style="margin-top:0.25rem" />
+        <span>
+          مطالبة يومية تلقائية لكل من عليه متبقٍ
+          <span class="muted" style="display:block;font-weight:400;font-size:0.85rem;margin-top:0.2rem">
+            بدون انتظار تفعيل «تتبّع الدين» يدوياً على كل حجز. يُوقف عند تصفير الرصيد.
+          </span>
+        </span>
+      </label>
+      <p class="muted" style="font-size:0.82rem;margin:0 0 0.75rem;line-height:1.5">
+        قالب الرسالة من
+        <a href="/admin/notifications?tab=events">مركز الإشعارات ← مطالبة رصيد حجز فندقي</a>.
+        رقم الاستقبال لرسالة الترحيب من قسم «ترحيب بعد التسكين».
+      </p>
+      <button class="btn btn-primary" type="submit">حفظ إعدادات المطالبة</button>
+    </form>
+  </div>
+
   <div class="card" id="hotel-breakfast">
     <h2 style="margin-top:0;font-size:1.05rem">إفطار مشمول / تكلفة فندق</h2>
     <p class="muted" style="font-size:0.9rem;margin:0 0 0.85rem">
@@ -174,6 +574,51 @@
       <input name="hotel_online_staff_phone" dir="ltr" value="{{ hotel_online_staff_phone }}" placeholder="0912345678" style="max-width:240px;display:block;margin:0.35rem 0 0.75rem" />
       <p class="muted" style="font-size:0.82rem;margin:0 0 0.65rem">يُرسل إشعار فوري عند طلب حجز من المتجر — للتواصل مع الزبون قبل التأكيد.</p>
       <button class="btn btn-primary" type="submit">حفظ إعدادات المتجر</button>
+    </form>
+  </div>
+
+  <div class="card" id="hotel-welcome" style="grid-column:1 / -1;border-color:#a7f3d0;background:linear-gradient(180deg,#ecfdf5 0%,#fff 42%)">
+    <h2 style="margin-top:0;font-size:1.05rem">رسالة ترحيب بعد التسكين</h2>
+    <p class="muted" style="font-size:0.9rem;margin:0 0 0.85rem;line-height:1.55;max-width:46rem">
+      تُرسل تلقائياً عبر واتساب للنزيل <strong>مرة واحدة فقط</strong> عند التسكين.
+      يظهر الحدث في لوحة التحكم باسم العنوان أدناه:
+      <a href="/admin/notifications?tab=events">مركز الإشعارات ← الأحداث</a>.
+    </p>
+    <form method="post" action="/admin/hotel/settings">
+      <input type="hidden" name="section" value="welcome" />
+      <label style="display:flex;align-items:flex-start;gap:0.55rem;margin-bottom:0.85rem;cursor:pointer">
+        <input type="checkbox" name="hotel_checkin_welcome_enabled" {% if hotel_checkin_welcome_enabled %}checked{% endif %} style="margin-top:0.2rem" />
+        <span>
+          <strong>تفعيل رسالة الترحيب</strong>
+          <span class="muted" style="display:block;font-size:0.85rem;margin-top:0.2rem">
+            عند إيقافها لن تُرسل الرسالة حتى لو اكتمل التسكين.
+          </span>
+        </span>
+      </label>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:0.85rem;margin-bottom:0.85rem">
+        <div>
+          <label for="hotel_reception_phone">رقم واتساب الاستقبال</label>
+          <input id="hotel_reception_phone" name="hotel_reception_phone" dir="ltr"
+                 value="{{ hotel_reception_phone }}" placeholder="0912345678"
+                 style="width:100%;margin-top:0.3rem" />
+          <p class="muted" style="font-size:0.8rem;margin:0.3rem 0 0">يُدرج في الرسالة مكان {reception_phone}</p>
+        </div>
+        <div>
+          <label for="hotel_checkin_welcome_title">عنوان الحدث (لوحة التحكم)</label>
+          <input id="hotel_checkin_welcome_title" name="hotel_checkin_welcome_title"
+                 value="{{ hotel_checkin_welcome_title }}" maxlength="160"
+                 style="width:100%;margin-top:0.3rem" />
+          <p class="muted" style="font-size:0.8rem;margin:0.3rem 0 0">مثال: رسالة ترحيب بعد التسكين</p>
+        </div>
+      </div>
+      <label for="hotel_checkin_welcome_body">نص الرسالة</label>
+      <textarea id="hotel_checkin_welcome_body" name="hotel_checkin_welcome_body" rows="12"
+                style="width:100%;font-family:inherit;margin-top:0.3rem;line-height:1.55">{{ hotel_checkin_welcome_body }}</textarea>
+      <p class="muted" style="font-size:0.82rem;margin:0.4rem 0 0.85rem">
+        متغيّرات يمكن استخدامها:
+        <code style="font-size:0.78rem">{{ hotel_checkin_welcome_placeholders }}</code>
+      </p>
+      <button class="btn btn-primary" type="submit">حفظ رسالة الترحيب</button>
     </form>
   </div>
 

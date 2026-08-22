@@ -356,7 +356,10 @@ def product_to_dict(product: Product, *, rating: dict[str, Any] | None = None) -
 
 
 def catalog_payload(db: Session, *, category_id: int | None = None) -> dict[str, Any]:
+    from modules.shop.hours import shop_hours_public_dict
+
     full = _build_full_catalog(db)
+    hours = shop_hours_public_dict(db)
     if category_id is None:
         return {
             "sections": full["sections"],
@@ -364,6 +367,7 @@ def catalog_payload(db: Session, *, category_id: int | None = None) -> dict[str,
             "referral_enabled": full["referral_enabled"],
             "filter_map": full.get("filter_map") or {},
             "products": full["products"],
+            "hours": hours,
         }
     key = str(int(category_id))
     allowed = set((full.get("filter_map") or {}).get(key, [int(category_id)]))
@@ -378,6 +382,7 @@ def catalog_payload(db: Session, *, category_id: int | None = None) -> dict[str,
         "referral_enabled": full["referral_enabled"],
         "filter_map": full.get("filter_map") or {},
         "products": products,
+        "hours": hours,
     }
 
 
@@ -588,7 +593,7 @@ def build_product_share_payload(
     code = ""
     url = f"{base}/shop?product={int(product.id)}"
     from modules.customers.referral_service import ensure_referral_code, referral_settings
-    from modules.customers.service import get_or_create_by_phone
+    from modules.customers.service import get_by_phone
 
     ref = referral_settings(db)
     consent_new = False
@@ -596,14 +601,16 @@ def build_product_share_payload(
     if (phone or "").strip():
         try:
             phone_clean = require_valid_phone((phone or "").strip())
-            cust = get_or_create_by_phone(db, phone=phone_clean, name=None)
-            customer_id = int(cust.id)
-            from modules.messaging.service import grant_shop_share_consent
+            # لا ننشئ عميلاً بلا اسم من مشاركة المتجر — الربط للمسجّلين فقط
+            cust = get_by_phone(db, phone_clean)
+            if cust is not None:
+                customer_id = int(cust.id)
+                from modules.messaging.service import grant_shop_share_consent
 
-            consent_new = grant_shop_share_consent(db, customer_id)
-            if ref.get("referral_enabled"):
-                code = ensure_referral_code(db, cust)
-                url = f"{base}/shop?ref={code}&product={int(product.id)}"
+                consent_new = grant_shop_share_consent(db, customer_id)
+                if ref.get("referral_enabled"):
+                    code = ensure_referral_code(db, cust)
+                    url = f"{base}/shop?ref={code}&product={int(product.id)}"
         except Exception:
             pass
     name = (product.name_ar or "").strip()
@@ -668,6 +675,9 @@ def finalize_shop_order(
     proof_filename: str | None = None,
 ) -> tuple[Sale | None, str]:
     """إتمام الطلب — يُرسل لنقطة البيع كطلب أونلاين."""
+    from modules.shop.hours import assert_shop_accepting_orders
+
+    assert_shop_accepting_orders(db)
     if not cart_lines(session):
         raise ShopError("السلة فارغة.")
     if not (session.guest_phone or "").strip():
@@ -736,6 +746,7 @@ def session_state(db: Session, session: WebChatSession) -> dict[str, Any]:
                 )
             confirmation = "\n\n".join(confirmation_parts)
     from modules.customers.referral_service import referral_settings
+    from modules.shop.hours import shop_hours_public_dict
 
     ref = referral_settings(db)
     return {
@@ -745,6 +756,7 @@ def session_state(db: Session, session: WebChatSession) -> dict[str, Any]:
         "guest_phone": session.guest_phone,
         "referral_code": (data.get("referral_code") or "").strip() or None,
         "referral_enabled": bool(ref.get("referral_enabled")),
+        "hours": shop_hours_public_dict(db),
         "cart": cart_lines(session),
         "cart_count": cart_count(session),
         "cart_total": str(cart_total(session)),

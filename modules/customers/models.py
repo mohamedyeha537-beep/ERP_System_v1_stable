@@ -52,6 +52,37 @@ class Customer(Base):
         Enum(CustomerType), default=CustomerType.INDIVIDUAL, index=True
     )
     company_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    #: فرد تابع لحساب شركة (محفظة الشركة منفصلة)
+    parent_company_id: Mapped[int | None] = mapped_column(
+        ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    #: نسبة خصم تلقائية لحجوزات الشركة (0–100)
+    company_discount_percent: Mapped[Decimal] = mapped_column(
+        Numeric(7, 3), default=Decimal("0"), server_default="0"
+    )
+    #: أقصى مديونية مسموحة على محفظة الشركة (بالسالب حتى هذا الحد)
+    company_credit_limit: Mapped[Decimal] = mapped_column(
+        Numeric(14, 3), default=Decimal("0"), server_default="0"
+    )
+    #: السماح بنزول محفظة الشركة للأحمر (دين) ضمن حد الائتمان
+    allow_company_credit: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0"
+    )
+    #: تكرار إشعارات/مطالبات الشركة: DAILY|WEEKLY|MONTHLY|SUMMARY_*
+    company_notify_frequency: Mapped[str] = mapped_column(
+        String(32), default="DAILY", server_default="DAILY"
+    )
+    #: مستلم الإشعار الافتراضي: COMPANY | GUEST1
+    company_default_notify_to: Mapped[str] = mapped_column(
+        String(16), default="COMPANY", server_default="COMPANY"
+    )
+    #: آخر فترة أُرسل فيها ملخص شركة (مفتاح W2026-31 / M2026-08 / D…)
+    company_notify_last_period: Mapped[str | None] = mapped_column(
+        String(32), nullable=True
+    )
+    company_notify_last_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     business_domain: Mapped[CustomerBusinessDomain] = mapped_column(
         Enum(
             CustomerBusinessDomain,

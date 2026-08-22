@@ -1,0 +1,22 @@
+<div id="hotel-shift-close-policy" style="margin-top:1rem;padding:0.85rem;border:1px solid #a5f3fc;border-radius:10px;background:#ecfeff">
+  <h3 style="margin:0 0 0.45rem;color:#0e7490">إقفال جلسة الفندق — الترحيل والإقفال العادي</h3>
+  <p class="muted" style="margin:0 0 0.65rem;font-size:0.85rem;line-height:1.55">
+    تحكّم بما يظهر لموظف الاستقبال عند إنهاء الجلسة.
+    يمكن إتاحة الاثنين فيختار الموظف، أو إيقاف أي منهما.
+    إن أُوقفا معاً فلن يُقفل أحد الجلسة حتى يُفعَّل خيار.
+  </p>
+  <label style="display:flex;align-items:flex-start;gap:0.5rem;margin:0.45rem 0">
+    <input type="checkbox" name="hotel_shift_allow_next_shift_carry" value="1" {% if hotel_shift_allow_next_shift_carry %}checked{% endif %} style="margin-top:0.2rem" />
+    <span>
+      <strong>إتاحة ترحيل الرصيد للجلسة التالية</strong>
+      <span class="muted" style="display:block;font-size:0.82rem;margin-top:0.15rem">الموظف يسلّم الدرج للكاشير التالي بنفس المبلغ — بدون تسليم للخزينة.</span>
+    </span>
+  </label>
+  <label style="display:flex;align-items:flex-start;gap:0.5rem;margin:0.45rem 0">
+    <input type="checkbox" name="hotel_shift_allow_treasury_close" value="1" {% if hotel_shift_allow_treasury_close %}checked{% endif %} style="margin-top:0.2rem" />
+    <span>
+      <strong>إتاحة الإقفال العادي (تسليم الخزينة)</strong>
+      <span class="muted" style="display:block;font-size:0.82rem;margin-top:0.15rem">الموظف يدخل معدود الكاش والمصرف ويُعلَّق المبلغ لاعتماد أمين الخزينة — كما كان من قبل.</span>
+    </span>
+  </label>
+</div>

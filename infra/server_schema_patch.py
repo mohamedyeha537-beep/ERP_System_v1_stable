@@ -594,6 +594,60 @@ def patch_server_schema(engine: Engine) -> None:
                 "ix_hr_zk_processed_punches_employee_id",
             )
 
+        tables = set(inspect(conn).get_table_names())
+        if "hr_employee_bonuses" not in tables and "hr_employees" in tables:
+            _safe_exec(
+                conn,
+                """
+                CREATE TABLE hr_employee_bonuses (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    employee_id INT NOT NULL,
+                    amount DECIMAL(14,3) NOT NULL DEFAULT 0,
+                    status VARCHAR(30) NOT NULL DEFAULT 'OUTSTANDING',
+                    note TEXT NULL,
+                    created_at DATETIME NOT NULL,
+                    settled_at DATETIME NULL,
+                    settled_by_id INT NULL,
+                    payroll_entry_id INT NULL,
+                    created_by_id INT NULL,
+                    FOREIGN KEY (employee_id) REFERENCES hr_employees(id) ON DELETE RESTRICT,
+                    FOREIGN KEY (settled_by_id) REFERENCES users(id) ON DELETE SET NULL,
+                    FOREIGN KEY (created_by_id) REFERENCES users(id) ON DELETE SET NULL
+                )
+                """
+                if dialect == "mysql"
+                else """
+                CREATE TABLE hr_employee_bonuses (
+                    id SERIAL PRIMARY KEY,
+                    employee_id INTEGER NOT NULL REFERENCES hr_employees(id) ON DELETE RESTRICT,
+                    amount NUMERIC(14,3) NOT NULL DEFAULT 0,
+                    status VARCHAR(30) NOT NULL DEFAULT 'OUTSTANDING',
+                    note TEXT,
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                    settled_at TIMESTAMP WITH TIME ZONE,
+                    settled_by_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                    payroll_entry_id INTEGER,
+                    created_by_id INTEGER REFERENCES users(id) ON DELETE SET NULL
+                )
+                """,
+                added,
+                "hr_employee_bonuses (table)",
+            )
+            _safe_exec(
+                conn,
+                "CREATE INDEX ix_hr_employee_bonuses_employee_id "
+                "ON hr_employee_bonuses (employee_id)",
+                added,
+                "ix_hr_employee_bonuses_employee_id",
+            )
+            _safe_exec(
+                conn,
+                "CREATE INDEX ix_hr_employee_bonuses_status "
+                "ON hr_employee_bonuses (status)",
+                added,
+                "ix_hr_employee_bonuses_status",
+            )
+
         if _table_columns(conn, "hr_attendance"):
             att_cols: list[tuple[str, str]] = [
                 ("work_shift_id", "INT NULL"),
@@ -693,6 +747,14 @@ def patch_server_schema(engine: Engine) -> None:
                     )
                 )
                 added.append("ix_hotel_room_charges_booking_id")
+            for col, ddl in (
+                ("service_code", "VARCHAR(40) NULL"),
+                ("folio_side", "VARCHAR(16) NULL"),
+                ("company_amount", "DECIMAL(14,3) NULL"),
+                ("guest_amount", "DECIMAL(14,3) NULL"),
+            ):
+                if _add_column(conn, "hotel_room_charges", col, ddl):
+                    added.append(f"hotel_room_charges.{col}")
 
         if _table_columns(conn, "hotel_bookings"):
             hotel_booking_cols: list[tuple[str, str]] = [
@@ -984,6 +1046,44 @@ def patch_server_schema(engine: Engine) -> None:
                 )
             if _add_column(conn, "users", "ui_hidden", "VARCHAR(4000) NOT NULL DEFAULT '[]'"):
                 added.append("users.ui_hidden")
+            if _add_column(conn, "users", "pos_show_cash", bool_t):
+                added.append("users.pos_show_cash")
+            if _add_column(conn, "users", "pos_show_bank", bool_t):
+                added.append("users.pos_show_bank")
+            if "user_permission_grants" not in tables:
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE user_permission_grants (
+                            user_id INT NOT NULL,
+                            permission_id INT NOT NULL,
+                            PRIMARY KEY (user_id, permission_id),
+                            CONSTRAINT fk_upg_user FOREIGN KEY (user_id)
+                                REFERENCES users(id) ON DELETE CASCADE,
+                            CONSTRAINT fk_upg_perm FOREIGN KEY (permission_id)
+                                REFERENCES permissions(id) ON DELETE CASCADE
+                        )
+                        """
+                    )
+                )
+                added.append("user_permission_grants")
+            if "user_permission_denies" not in tables:
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE user_permission_denies (
+                            user_id INT NOT NULL,
+                            permission_id INT NOT NULL,
+                            PRIMARY KEY (user_id, permission_id),
+                            CONSTRAINT fk_upd_user FOREIGN KEY (user_id)
+                                REFERENCES users(id) ON DELETE CASCADE,
+                            CONSTRAINT fk_upd_perm FOREIGN KEY (permission_id)
+                                REFERENCES permissions(id) ON DELETE CASCADE
+                        )
+                        """
+                    )
+                )
+                added.append("user_permission_denies")
             if _add_column(
                 conn,
                 "warehouses",
@@ -1071,6 +1171,22 @@ def patch_server_schema(engine: Engine) -> None:
                 except Exception:  # noqa: BLE001
                     pass
 
+        if _table_columns(conn, "hr_payroll_entries"):
+            if _add_column(
+                conn,
+                "hr_payroll_entries",
+                "salary_receipt_confirmed_at",
+                "DATETIME NULL",
+            ):
+                added.append("hr_payroll_entries.salary_receipt_confirmed_at")
+            if _add_column(
+                conn,
+                "hr_payroll_entries",
+                "salary_receipt_confirmed_via",
+                "VARCHAR(32) NULL",
+            ):
+                added.append("hr_payroll_entries.salary_receipt_confirmed_via")
+
         if _table_columns(conn, "hotel_daily_closings"):
             num14 = "DECIMAL(14,3) NULL"
             hdc_cols: list[tuple[str, str]] = [
@@ -1091,6 +1207,11 @@ def patch_server_schema(engine: Engine) -> None:
                 ("gl_operational_net", num14),
                 ("gl_revenue_net", num14),
                 ("gl_gap", num14),
+                ("close_destination", "VARCHAR(20) NULL"),
+                ("opening_bank", num14),
+                ("received_from_shift_id", "INT NULL"),
+                ("carried_to_shift_id", "INT NULL"),
+                ("carried_to_employee_id", "INT NULL"),
             ]
             for col, ddl in ps_cols:
                 if _add_column(conn, "pos_shifts", col, ddl):
@@ -1296,6 +1417,7 @@ def patch_server_schema(engine: Engine) -> None:
                     f"hotel_shifts.{col}_idx",
                 )
         if _table_columns(conn, "hotel_shifts"):
+            hotel_handoff_col_added = False
             for col, ddl in (
                 ("opening_cash", num14),
                 ("counted_cash", num14),
@@ -1313,9 +1435,39 @@ def patch_server_schema(engine: Engine) -> None:
                 ("expected_services_count", "INT NULL"),
                 ("counted_services_count", "INT NULL"),
                 ("close_snapshot_json", "TEXT NULL"),
+                ("treasury_handoff_at", "DATETIME NULL"),
+                ("treasury_handoff_by_id", "INT NULL"),
+                ("close_destination", "VARCHAR(20) NULL"),
+                ("opening_bank", num14),
+                ("received_from_shift_id", "INT NULL"),
+                ("carried_to_shift_id", "INT NULL"),
+                ("carried_to_employee_id", "INT NULL"),
             ):
                 if _add_column(conn, "hotel_shifts", col, ddl):
                     added.append(f"hotel_shifts.{col}")
+                    if col == "treasury_handoff_at":
+                        hotel_handoff_col_added = True
+            # مرة واحدة عند إضافة العمود — لا تُلغَى جلسات معلّقة لاحقاً عند كل ترقية
+            if hotel_handoff_col_added:
+                try:
+                    conn.execute(
+                        text(
+                            "UPDATE hotel_shifts SET treasury_handoff_at = closed_at "
+                            "WHERE status = 'CLOSED' AND closed_at IS NOT NULL "
+                            "AND treasury_handoff_at IS NULL"
+                        )
+                    )
+                except Exception:
+                    pass
+            try:
+                conn.execute(
+                    text(
+                        "CREATE INDEX ix_hotel_shifts_treasury_handoff_at "
+                        "ON hotel_shifts (treasury_handoff_at)"
+                    )
+                )
+            except Exception:
+                pass
         if _table_columns(conn, "hotel_booking_payment_refunds"):
             if _add_column(
                 conn,
@@ -1439,6 +1591,9 @@ def patch_server_schema(engine: Engine) -> None:
                     )
                 except Exception:
                     pass
+            if "reminder_time" not in debt_cols:
+                if _add_column(conn, "hotel_booking_debts", "reminder_time", "VARCHAR(8) NULL"):
+                    added.append("hotel_booking_debts.reminder_time")
 
         tables = set(inspect(conn).get_table_names())
         if "hotel_invoices" not in tables and "hotel_bookings" in tables:
@@ -1554,6 +1709,70 @@ def patch_server_schema(engine: Engine) -> None:
                 added.append("customers.business_domain")
             if _add_column(conn, "customers", "loyalty_intro_sent_at", "DATETIME NULL"):
                 added.append("customers.loyalty_intro_sent_at")
+            if _add_column(conn, "customers", "parent_company_id", "INT NULL"):
+                added.append("customers.parent_company_id")
+            if _add_column(
+                conn, "customers", "company_discount_percent", "DECIMAL(7,3) NOT NULL DEFAULT 0"
+            ):
+                added.append("customers.company_discount_percent")
+            if _add_column(
+                conn, "customers", "company_credit_limit", "DECIMAL(14,3) NOT NULL DEFAULT 0"
+            ):
+                added.append("customers.company_credit_limit")
+            if _add_column(
+                conn, "customers", "allow_company_credit", "TINYINT(1) NOT NULL DEFAULT 0"
+            ):
+                added.append("customers.allow_company_credit")
+            if _add_column(
+                conn,
+                "customers",
+                "company_notify_frequency",
+                "VARCHAR(32) NOT NULL DEFAULT 'DAILY'",
+            ):
+                added.append("customers.company_notify_frequency")
+            if _add_column(
+                conn,
+                "customers",
+                "company_default_notify_to",
+                "VARCHAR(16) NOT NULL DEFAULT 'COMPANY'",
+            ):
+                added.append("customers.company_default_notify_to")
+            if _add_column(
+                conn, "customers", "company_notify_last_period", "VARCHAR(32) NULL"
+            ):
+                added.append("customers.company_notify_last_period")
+            if _add_column(
+                conn, "customers", "company_notify_last_sent_at", "DATETIME NULL"
+            ):
+                added.append("customers.company_notify_last_sent_at")
+        if _table_columns(conn, "hotel_bookings"):
+            if _add_column(conn, "hotel_bookings", "company_customer_id", "INT NULL"):
+                added.append("hotel_bookings.company_customer_id")
+            if _add_column(conn, "hotel_bookings", "company_agreement_id", "INT NULL"):
+                added.append("hotel_bookings.company_agreement_id")
+            if _add_column(conn, "hotel_bookings", "booking_payer", "VARCHAR(20) NULL"):
+                added.append("hotel_bookings.booking_payer")
+            if _add_column(conn, "hotel_bookings", "stay_payer", "VARCHAR(20) NULL"):
+                added.append("hotel_bookings.stay_payer")
+            if _add_column(conn, "hotel_bookings", "extras_payer", "VARCHAR(20) NULL"):
+                added.append("hotel_bookings.extras_payer")
+            if _add_column(conn, "hotel_bookings", "notify_to", "VARCHAR(16) NULL"):
+                added.append("hotel_bookings.notify_to")
+            if _add_column(
+                conn, "hotel_bookings", "notify_claim_last_period", "VARCHAR(32) NULL"
+            ):
+                added.append("hotel_bookings.notify_claim_last_period")
+            if _add_column(
+                conn, "hotel_bookings", "is_tourism_agency", "TINYINT(1) NOT NULL DEFAULT 0"
+            ):
+                added.append("hotel_bookings.is_tourism_agency")
+            if _add_column(
+                conn,
+                "hotel_bookings",
+                "tourism_commission_percent",
+                "DECIMAL(7,3) NOT NULL DEFAULT 0",
+            ):
+                added.append("hotel_bookings.tourism_commission_percent")
             # تخمين/تصحيح من الحجوزات والمبيعات المرتبطة بغرف (آمن لإعادة التشغيل)
             if "business_domain" in _table_columns(conn, "customers"):
                 try:
@@ -1749,6 +1968,8 @@ def patch_server_schema(engine: Engine) -> None:
                 ("follow_up_at", "DATE NULL"),
                 ("follow_up_note", "TEXT NULL"),
                 ("claim_wa_until_paid", bool_fu),
+                ("planned_check_in", "DATE NULL"),
+                ("first_chargeable_night", "DATE NULL"),
             ):
                 if _add_column(conn, "hotel_bookings", col, ddl):
                     added.append(f"hotel_bookings.{col}")
@@ -1828,6 +2049,30 @@ def patch_server_schema(engine: Engine) -> None:
                 conn, "hotel_booking_services", "charged_to_guest", bool_true
             ):
                 added.append("hotel_booking_services.charged_to_guest")
+            if _add_column(
+                conn,
+                "hotel_booking_services",
+                "sale_id",
+                "INT NULL" if dialect == "mysql" else "INTEGER",
+            ):
+                added.append("hotel_booking_services.sale_id")
+                try:
+                    conn.execute(
+                        text(
+                            "CREATE INDEX ix_hotel_booking_services_sale_id "
+                            "ON hotel_booking_services (sale_id)"
+                        )
+                    )
+                except Exception:
+                    pass
+            for col, ddl in (
+                ("service_code", "VARCHAR(40) NULL"),
+                ("folio_side", "VARCHAR(16) NULL"),
+                ("company_amount", "DECIMAL(14,3) NULL"),
+                ("guest_amount", "DECIMAL(14,3) NULL"),
+            ):
+                if _add_column(conn, "hotel_booking_services", col, ddl):
+                    added.append(f"hotel_booking_services.{col}")
         if _table_columns(conn, "products"):
             if _add_column(conn, "products", "is_hotel_breakfast", bool_false):
                 added.append("products.is_hotel_breakfast")
@@ -1862,6 +2107,396 @@ def patch_server_schema(engine: Engine) -> None:
             for col, ddl in seo_cols:
                 if _add_column(conn, table, col, ddl):
                     added.append(f"{table}.{col}")
+
+        # OTP اعتماد الاسترداد (مشرف واتساب)
+        if not _table_columns(conn, "supervisor_otp_challenges"):
+            if dialect == "mysql":
+                _safe_exec(
+                    conn,
+                    """
+                    CREATE TABLE supervisor_otp_challenges (
+                      id INT AUTO_INCREMENT PRIMARY KEY,
+                      purpose VARCHAR(40) NOT NULL,
+                      domain VARCHAR(20) NOT NULL,
+                      ref_type VARCHAR(20) NOT NULL,
+                      ref_id INT NOT NULL,
+                      code_hash VARCHAR(128) NOT NULL,
+                      expires_at DATETIME NOT NULL,
+                      consumed_at DATETIME NULL,
+                      attempts INT NOT NULL DEFAULT 0,
+                      requested_by_user_id INT NULL,
+                      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                      INDEX ix_supervisor_otp_purpose (purpose),
+                      INDEX ix_supervisor_otp_domain (domain),
+                      INDEX ix_supervisor_otp_ref (ref_type, ref_id),
+                      INDEX ix_supervisor_otp_expires (expires_at)
+                    )
+                    """,
+                    added,
+                    "supervisor_otp_challenges",
+                )
+            else:
+                _safe_exec(
+                    conn,
+                    """
+                    CREATE TABLE supervisor_otp_challenges (
+                      id SERIAL PRIMARY KEY,
+                      purpose VARCHAR(40) NOT NULL,
+                      domain VARCHAR(20) NOT NULL,
+                      ref_type VARCHAR(20) NOT NULL,
+                      ref_id INTEGER NOT NULL,
+                      code_hash VARCHAR(128) NOT NULL,
+                      expires_at TIMESTAMPTZ NOT NULL,
+                      consumed_at TIMESTAMPTZ NULL,
+                      attempts INTEGER NOT NULL DEFAULT 0,
+                      requested_by_user_id INTEGER NULL,
+                      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    )
+                    """,
+                    added,
+                    "supervisor_otp_challenges",
+                )
+
+        if not _table_columns(conn, "hotel_company_agreement_change_requests"):
+            if dialect == "mysql":
+                _safe_exec(
+                    conn,
+                    """
+                    CREATE TABLE hotel_company_agreement_change_requests (
+                      id INT AUTO_INCREMENT PRIMARY KEY,
+                      company_customer_id INT NOT NULL,
+                      agreement_id INT NULL,
+                      booking_id INT NULL,
+                      requested_by_user_id INT NULL,
+                      status VARCHAR(16) NOT NULL DEFAULT 'PENDING',
+                      note TEXT NULL,
+                      attachment_path VARCHAR(260) NULL,
+                      attachment_name VARCHAR(180) NULL,
+                      items_json TEXT NOT NULL,
+                      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                      reviewed_at DATETIME NULL,
+                      reviewed_by_user_id INT NULL,
+                      review_note TEXT NULL,
+                      INDEX ix_agr_chg_req_company (company_customer_id),
+                      INDEX ix_agr_chg_req_status (status),
+                      INDEX ix_agr_chg_req_booking (booking_id)
+                    )
+                    """,
+                    added,
+                    "hotel_company_agreement_change_requests",
+                )
+            else:
+                _safe_exec(
+                    conn,
+                    """
+                    CREATE TABLE hotel_company_agreement_change_requests (
+                      id SERIAL PRIMARY KEY,
+                      company_customer_id INTEGER NOT NULL,
+                      agreement_id INTEGER NULL,
+                      booking_id INTEGER NULL,
+                      requested_by_user_id INTEGER NULL,
+                      status VARCHAR(16) NOT NULL DEFAULT 'PENDING',
+                      note TEXT NULL,
+                      attachment_path VARCHAR(260) NULL,
+                      attachment_name VARCHAR(180) NULL,
+                      items_json TEXT NOT NULL DEFAULT '[]',
+                      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                      reviewed_at TIMESTAMPTZ NULL,
+                      reviewed_by_user_id INTEGER NULL,
+                      review_note TEXT NULL
+                    )
+                    """,
+                    added,
+                    "hotel_company_agreement_change_requests",
+                )
+
+        if not _table_columns(conn, "shift_variances"):
+            if dialect == "mysql":
+                _safe_exec(
+                    conn,
+                    """
+                    CREATE TABLE shift_variances (
+                      id INT AUTO_INCREMENT PRIMARY KEY,
+                      ref VARCHAR(20) NOT NULL,
+                      source_type VARCHAR(24) NOT NULL,
+                      kind VARCHAR(8) NOT NULL,
+                      status VARCHAR(24) NOT NULL DEFAULT 'PENDING_REVIEW',
+                      hotel_shift_id INT NULL,
+                      pos_shift_id INT NULL,
+                      from_employee_id INT NULL,
+                      to_employee_id INT NULL,
+                      claimed_amount DECIMAL(14,3) NOT NULL,
+                      received_amount DECIMAL(14,3) NOT NULL,
+                      difference DECIMAL(14,3) NOT NULL,
+                      note TEXT NULL,
+                      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                      resolved_at DATETIME NULL,
+                      resolved_by_id INT NULL,
+                      resolved_note TEXT NULL,
+                      payroll_deduction_id INT NULL,
+                      UNIQUE KEY uq_shift_variances_ref (ref),
+                      INDEX ix_shift_variances_status (status),
+                      INDEX ix_shift_variances_source (source_type),
+                      INDEX ix_shift_variances_hotel (hotel_shift_id),
+                      INDEX ix_shift_variances_pos (pos_shift_id)
+                    )
+                    """,
+                    added,
+                    "shift_variances",
+                )
+            else:
+                _safe_exec(
+                    conn,
+                    """
+                    CREATE TABLE shift_variances (
+                      id SERIAL PRIMARY KEY,
+                      ref VARCHAR(20) NOT NULL UNIQUE,
+                      source_type VARCHAR(24) NOT NULL,
+                      kind VARCHAR(8) NOT NULL,
+                      status VARCHAR(24) NOT NULL DEFAULT 'PENDING_REVIEW',
+                      hotel_shift_id INTEGER NULL,
+                      pos_shift_id INTEGER NULL,
+                      from_employee_id INTEGER NULL,
+                      to_employee_id INTEGER NULL,
+                      claimed_amount NUMERIC(14,3) NOT NULL,
+                      received_amount NUMERIC(14,3) NOT NULL,
+                      difference NUMERIC(14,3) NOT NULL,
+                      note TEXT NULL,
+                      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                      resolved_at TIMESTAMPTZ NULL,
+                      resolved_by_id INTEGER NULL,
+                      resolved_note TEXT NULL,
+                      payroll_deduction_id INTEGER NULL
+                    )
+                    """,
+                    added,
+                    "shift_variances",
+                )
+
+        if not _table_columns(conn, "shift_handovers"):
+            if dialect == "mysql":
+                _safe_exec(
+                    conn,
+                    """
+                    CREATE TABLE shift_handovers (
+                      id INT AUTO_INCREMENT PRIMARY KEY,
+                      ref VARCHAR(20) NOT NULL,
+                      kind VARCHAR(20) NOT NULL,
+                      status VARCHAR(16) NOT NULL DEFAULT 'SENT',
+                      domain VARCHAR(16) NOT NULL,
+                      hotel_shift_id INT NULL,
+                      pos_shift_id INT NULL,
+                      from_employee_id INT NULL,
+                      to_employee_id INT NULL,
+                      claimed_cash DECIMAL(14,3) NOT NULL DEFAULT 0,
+                      claimed_bank DECIMAL(14,3) NOT NULL DEFAULT 0,
+                      received_cash DECIMAL(14,3) NULL,
+                      received_bank DECIMAL(14,3) NULL,
+                      handover_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                      confirmed_at DATETIME NULL,
+                      bank_name VARCHAR(80) NULL,
+                      bank_ref VARCHAR(80) NULL,
+                      bank_transferred_at DATETIME NULL,
+                      note TEXT NULL,
+                      created_by_id INT NULL,
+                      confirmed_by_id INT NULL,
+                      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                      UNIQUE KEY uq_shift_handovers_ref (ref),
+                      INDEX ix_shift_handovers_hotel (hotel_shift_id),
+                      INDEX ix_shift_handovers_pos (pos_shift_id),
+                      INDEX ix_shift_handovers_status (status)
+                    )
+                    """,
+                    added,
+                    "shift_handovers",
+                )
+            else:
+                _safe_exec(
+                    conn,
+                    """
+                    CREATE TABLE shift_handovers (
+                      id SERIAL PRIMARY KEY,
+                      ref VARCHAR(20) NOT NULL UNIQUE,
+                      kind VARCHAR(20) NOT NULL,
+                      status VARCHAR(16) NOT NULL DEFAULT 'SENT',
+                      domain VARCHAR(16) NOT NULL,
+                      hotel_shift_id INTEGER NULL,
+                      pos_shift_id INTEGER NULL,
+                      from_employee_id INTEGER NULL,
+                      to_employee_id INTEGER NULL,
+                      claimed_cash NUMERIC(14,3) NOT NULL DEFAULT 0,
+                      claimed_bank NUMERIC(14,3) NOT NULL DEFAULT 0,
+                      received_cash NUMERIC(14,3) NULL,
+                      received_bank NUMERIC(14,3) NULL,
+                      handover_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                      confirmed_at TIMESTAMPTZ NULL,
+                      bank_name VARCHAR(80) NULL,
+                      bank_ref VARCHAR(80) NULL,
+                      bank_transferred_at TIMESTAMPTZ NULL,
+                      note TEXT NULL,
+                      created_by_id INTEGER NULL,
+                      confirmed_by_id INTEGER NULL,
+                      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    )
+                    """,
+                    added,
+                    "shift_handovers",
+                )
+
+        if not _table_columns(conn, "treasury_sessions"):
+            if dialect == "mysql":
+                _safe_exec(
+                    conn,
+                    """
+                    CREATE TABLE treasury_sessions (
+                      id INT AUTO_INCREMENT PRIMARY KEY,
+                      status VARCHAR(12) NOT NULL DEFAULT 'OPEN',
+                      opened_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                      opened_by_id INT NULL,
+                      opening_cash DECIMAL(14,3) NOT NULL DEFAULT 0,
+                      opening_bank DECIMAL(14,3) NOT NULL DEFAULT 0,
+                      closed_at DATETIME NULL,
+                      closed_by_id INT NULL,
+                      counted_cash DECIMAL(14,3) NULL,
+                      counted_bank DECIMAL(14,3) NULL,
+                      expected_cash DECIMAL(14,3) NULL,
+                      expected_bank DECIMAL(14,3) NULL,
+                      cash_in DECIMAL(14,3) NOT NULL DEFAULT 0,
+                      cash_out DECIMAL(14,3) NOT NULL DEFAULT 0,
+                      bank_in DECIMAL(14,3) NOT NULL DEFAULT 0,
+                      bank_out DECIMAL(14,3) NOT NULL DEFAULT 0,
+                      advances_out DECIMAL(14,3) NOT NULL DEFAULT 0,
+                      close_note TEXT NULL,
+                      INDEX ix_treasury_sessions_status (status)
+                    )
+                    """,
+                    added,
+                    "treasury_sessions",
+                )
+            else:
+                _safe_exec(
+                    conn,
+                    """
+                    CREATE TABLE treasury_sessions (
+                      id SERIAL PRIMARY KEY,
+                      status VARCHAR(12) NOT NULL DEFAULT 'OPEN',
+                      opened_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                      opened_by_id INTEGER NULL,
+                      opening_cash NUMERIC(14,3) NOT NULL DEFAULT 0,
+                      opening_bank NUMERIC(14,3) NOT NULL DEFAULT 0,
+                      closed_at TIMESTAMPTZ NULL,
+                      closed_by_id INTEGER NULL,
+                      counted_cash NUMERIC(14,3) NULL,
+                      counted_bank NUMERIC(14,3) NULL,
+                      expected_cash NUMERIC(14,3) NULL,
+                      expected_bank NUMERIC(14,3) NULL,
+                      cash_in NUMERIC(14,3) NOT NULL DEFAULT 0,
+                      cash_out NUMERIC(14,3) NOT NULL DEFAULT 0,
+                      bank_in NUMERIC(14,3) NOT NULL DEFAULT 0,
+                      bank_out NUMERIC(14,3) NOT NULL DEFAULT 0,
+                      advances_out NUMERIC(14,3) NOT NULL DEFAULT 0,
+                      close_note TEXT NULL
+                    )
+                    """,
+                    added,
+                    "treasury_sessions",
+                )
+
+        if not _table_columns(conn, "purchase_advances"):
+            if dialect == "mysql":
+                _safe_exec(
+                    conn,
+                    """
+                    CREATE TABLE purchase_advances (
+                      id INT AUTO_INCREMENT PRIMARY KEY,
+                      ref VARCHAR(24) NOT NULL,
+                      status VARCHAR(12) NOT NULL DEFAULT 'OPEN',
+                      employee_id INT NOT NULL,
+                      amount DECIMAL(14,3) NOT NULL,
+                      returned_amount DECIMAL(14,3) NOT NULL DEFAULT 0,
+                      source_pm_id INT NOT NULL,
+                      custody_pm_id INT NOT NULL,
+                      purpose VARCHAR(200) NULL,
+                      domain VARCHAR(16) NOT NULL DEFAULT 'restaurant',
+                      transfer_id INT NULL,
+                      return_transfer_id INT NULL,
+                      created_by_id INT NULL,
+                      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                      closed_at DATETIME NULL,
+                      closed_by_id INT NULL,
+                      note TEXT NULL,
+                      UNIQUE KEY uq_purchase_advances_ref (ref),
+                      INDEX ix_purchase_advances_status (status),
+                      INDEX ix_purchase_advances_employee (employee_id)
+                    )
+                    """,
+                    added,
+                    "purchase_advances",
+                )
+            else:
+                _safe_exec(
+                    conn,
+                    """
+                    CREATE TABLE purchase_advances (
+                      id SERIAL PRIMARY KEY,
+                      ref VARCHAR(24) NOT NULL UNIQUE,
+                      status VARCHAR(12) NOT NULL DEFAULT 'OPEN',
+                      employee_id INTEGER NOT NULL,
+                      amount NUMERIC(14,3) NOT NULL,
+                      returned_amount NUMERIC(14,3) NOT NULL DEFAULT 0,
+                      source_pm_id INTEGER NOT NULL,
+                      custody_pm_id INTEGER NOT NULL,
+                      purpose VARCHAR(200) NULL,
+                      domain VARCHAR(16) NOT NULL DEFAULT 'restaurant',
+                      transfer_id INTEGER NULL,
+                      return_transfer_id INTEGER NULL,
+                      created_by_id INTEGER NULL,
+                      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                      closed_at TIMESTAMPTZ NULL,
+                      closed_by_id INTEGER NULL,
+                      note TEXT NULL
+                    )
+                    """,
+                    added,
+                    "purchase_advances",
+                )
+
+        tables = set(inspect(conn).get_table_names())
+        if "user_wallet_access" not in tables:
+            if dialect == "mysql":
+                _safe_exec(
+                    conn,
+                    """
+                    CREATE TABLE user_wallet_access (
+                      user_id INT NOT NULL,
+                      payment_method_id INT NOT NULL,
+                      can_send TINYINT(1) NOT NULL DEFAULT 0,
+                      can_receive TINYINT(1) NOT NULL DEFAULT 0,
+                      PRIMARY KEY (user_id, payment_method_id),
+                      CONSTRAINT fk_uwa_user FOREIGN KEY (user_id)
+                          REFERENCES users(id) ON DELETE CASCADE,
+                      CONSTRAINT fk_uwa_pm FOREIGN KEY (payment_method_id)
+                          REFERENCES payment_methods(id) ON DELETE CASCADE
+                    )
+                    """,
+                    added,
+                    "user_wallet_access",
+                )
+            else:
+                _safe_exec(
+                    conn,
+                    """
+                    CREATE TABLE user_wallet_access (
+                      user_id INTEGER NOT NULL,
+                      payment_method_id INTEGER NOT NULL,
+                      can_send BOOLEAN NOT NULL DEFAULT FALSE,
+                      can_receive BOOLEAN NOT NULL DEFAULT FALSE,
+                      PRIMARY KEY (user_id, payment_method_id)
+                    )
+                    """,
+                    added,
+                    "user_wallet_access",
+                )
 
     if added:
         log.info("server schema patch applied: %s", ", ".join(added))

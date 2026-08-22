@@ -14,6 +14,19 @@ from modules.pos_shifts.models import PosShift, PosShiftShortage, PosShiftStatus
 
 LOYALTY_OPERATING_EXPENSE_CATEGORY = "نقاط ولاء — تكاليف تشغيل"
 LOYALTY_SHIFT_EXPENSE_REF_PREFIX = "pos-shift-loyalty-"
+LOYALTY_OPERATING_EXPENSE_SUPPLIER = "برنامج الولاء"
+
+
+def is_loyalty_operating_expense(purchase: Purchase) -> bool:
+    """مصروف استحقاق محاسبي — ليس صرفاً نقدياً من أمين الخزينة."""
+    cat = (getattr(purchase, "expense_category", None) or "").strip()
+    if cat == LOYALTY_OPERATING_EXPENSE_CATEGORY:
+        return True
+    ref = (getattr(purchase, "supplier_invoice_ref", None) or "").strip()
+    if ref.startswith(LOYALTY_SHIFT_EXPENSE_REF_PREFIX):
+        return True
+    supplier = (getattr(purchase, "supplier", None) or "").strip()
+    return supplier == LOYALTY_OPERATING_EXPENSE_SUPPLIER
 
 
 def loyalty_cash_shortage_absorption(
@@ -68,7 +81,7 @@ def ensure_loyalty_operating_expense_for_shift(
         db,
         amount=amt,
         expense_category=LOYALTY_OPERATING_EXPENSE_CATEGORY,
-        supplier="برنامج الولاء",
+        supplier=LOYALTY_OPERATING_EXPENSE_SUPPLIER,
         note=_loyalty_expense_note(sh, amt),
         user_id=user_id,
         supplier_invoice_ref=_loyalty_expense_ref(sh.id),

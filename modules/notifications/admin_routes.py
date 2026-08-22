@@ -80,6 +80,7 @@ def notifications_hub(request: Request, db: DBSession, _: User = Depends(_perm))
             "inventory_phones": get_setting(db, "notification_inventory_phones", ""),
             "hr_phones": get_setting(db, "notification_hr_phones", ""),
             "supervisor_phones": get_setting(db, "notification_supervisor_phones", ""),
+            "treasury_phones": get_setting(db, "notification_treasury_phones", ""),
             "modules": NOTIFICATION_MODULES,
             "module_enabled": module_enabled_map(db),
             "events": ALL_EVENT_KEYS,
@@ -106,12 +107,14 @@ def save_settings(
     notification_inventory_phones: str = Form(""),
     notification_hr_phones: str = Form(""),
     notification_supervisor_phones: str = Form(""),
+    notification_treasury_phones: str = Form(""),
 ):
     set_setting(db, "notifications_enabled", "1" if notifications_enabled == "on" else "0")
     set_setting(db, "messaging_enabled", "1" if messaging_enabled == "on" else "0")
     set_setting(db, "notification_inventory_phones", notification_inventory_phones.strip())
     set_setting(db, "notification_hr_phones", notification_hr_phones.strip())
     set_setting(db, "notification_supervisor_phones", notification_supervisor_phones.strip())
+    set_setting(db, "notification_treasury_phones", notification_treasury_phones.strip())
     db.commit()
     return RedirectResponse("/admin/notifications?saved=1", status_code=302)
 

@@ -1,0 +1,22 @@
+{# خصم يدوي من محفظة الشركة — يُعرض حيث يحصّل الاستقبال #}
+{% if party_accounts and party_accounts.has_company and (party_accounts.company.due|default(0))|float > 0.0005 %}
+<div class="company-wallet-pay" style="margin:0 0 0.85rem;padding:0.7rem 0.8rem;background:#eff6ff;border:1px solid #93c5fd;border-radius:8px">
+  <div style="font-weight:800;color:#1e40af;margin-bottom:0.25rem">خصم من رصيد الشركة</div>
+  <p class="muted" style="margin:0 0 0.45rem;font-size:0.84rem;line-height:1.5">
+    متبقي على الشركة: <strong>{{ '%.3f'|format(party_accounts.company.due|float) }}</strong> د.ل
+    · رصيد المحفظة: <strong>{{ '%.3f'|format((company_wallet_balance|default(0))|float) }}</strong> د.ل
+  </p>
+  {% if (company_wallet_balance|default(0))|float > 0.0005 %}
+  <form method="post" action="/admin/hotel/bookings/{{ booking.id }}/apply-company-wallet" class="row" style="gap:0.5rem;flex-wrap:wrap;align-items:flex-end;margin:0">
+    <label style="display:flex;flex-direction:column;gap:0.15rem;font-size:0.82rem">
+      المبلغ
+      <input name="amount" type="number" step="0.001" min="0.001"
+             value="{{ '%.3f'|format(party_accounts.company.due|float) }}" />
+    </label>
+    <button class="btn btn-primary" type="submit" style="background:#1d4ed8;border-color:#1d4ed8">خصم من رصيد الشركة</button>
+  </form>
+  {% else %}
+  <p style="margin:0;font-size:0.84rem;color:#9a3412">المحفظة فارغة — حصّل بإيصال قبض أو رحّل المتبقي إلى الذمم عند المغادرة.</p>
+  {% endif %}
+</div>
+{% endif %}

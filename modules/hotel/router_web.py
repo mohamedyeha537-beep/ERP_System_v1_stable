@@ -36,6 +36,13 @@ from app.deps import DBSession, LoggedInUser, require_any_permission, require_pe
 
 from app.jinja_env import templates
 
+from modules.authz.capability import (
+    can_hotel_settle_transfer_now,
+    can_settle_from_main_treasury,
+    can_settle_without_hotel_shift,
+    is_restaurant_finance_view,
+)
+
 from modules.authz.models import User
 
 from modules.authz.permissions import (
@@ -110,10 +117,6 @@ from modules.hotel.service import (
 )
 
 from modules.hotel.uploads import save_room_image, save_room_media
-
-from modules.payments.service import list_hotel_settle_payment_methods
-
-
 
 STATIC_ROOT = Path(__file__).resolve().parents[2] / "app" / "static"
 
@@ -722,7 +725,9 @@ def admin_room_media_delete(
 
 
 def _settle_shift_dep(request: Request, db: DBSession, user: LoggedInUser) -> None:
-    """تسوية الغرف تتطلب جلسة استقبال مفتوحة لموظف الفندق."""
+    """تسوية الغرف تتطلب جلسة استقبال — إلا لأدمن النظام وأمين الخزينة."""
+    if can_settle_without_hotel_shift(user):
+        return None
     enforce_hotel_shift_session(request, db, user)
     return None
 
@@ -736,6 +741,12 @@ settle_router = APIRouter(
 _settle = require_permission(HOTEL_SETTLE)
 
 
+def _require_settle_transfer(user: User, request: Request | None = None) -> str | None:
+    """None إن مسموح؛ وإلا رسالة خطأ عربية."""
+    from modules.authz.capability import hotel_settle_transfer_blocked_reason
+
+    session = request.session if request is not None else None
+    return hotel_settle_transfer_blocked_reason(user, session)
 
 
 
@@ -778,11 +789,12 @@ def hotel_settle_index(
     unlinked_total = unlinked_room_receivables_total(db)
 
     from modules.hotel.breakfast_settle import hotel_breakfast_included_enabled
-    from modules.hotel.restaurant_settle import list_restaurant_settle_targets
-
-    methods = list_hotel_settle_payment_methods(
-        db, only_active=True, include_restaurant=False, user=user
+    from modules.hotel.restaurant_settle import (
+        list_restaurant_settle_targets,
+        list_settle_source_methods,
     )
+
+    methods = list_settle_source_methods(db, user=user)
     to_methods = list_restaurant_settle_targets(db)
     breakfast_included_enabled = hotel_breakfast_included_enabled(db)
 
@@ -809,6 +821,10 @@ def hotel_settle_index(
             "to_methods": to_methods,
 
             "breakfast_included_enabled": breakfast_included_enabled,
+
+            "can_settle_transfer": can_hotel_settle_transfer_now(user, request.session),
+            "settle_view_only": is_restaurant_finance_view(user, request.session),
+            "can_pay_from_main": can_settle_from_main_treasury(user),
 
             "grand_total": linked_total,
 
@@ -847,8 +863,9 @@ def _parse_treasury_transfers_from_form(form) -> tuple[list, int | None]:
     xfer_from = form.getlist("xfer_from_id")
     xfer_to = form.getlist("xfer_to_id")
     xfer_amt = form.getlist("xfer_amount")
+    xfer_ref = form.getlist("xfer_bank_ref")
     transfers: list[TreasuryTransferSplit] = []
-    for mid_f, mid_t, amt_s in zip(xfer_from, xfer_to, xfer_amt):
+    for i, (mid_f, mid_t, amt_s) in enumerate(zip(xfer_from, xfer_to, xfer_amt)):
         fs = str(mid_f or "").strip()
         ts = str(mid_t or "").strip()
         if not fs.isdigit() or not ts.isdigit():
@@ -857,12 +874,14 @@ def _parse_treasury_transfers_from_form(form) -> tuple[list, int | None]:
             amt = Decimal(str(amt_s or "0").strip() or "0")
         except (InvalidOperation, ValueError):
             continue
+        ref = str(xfer_ref[i] if i < len(xfer_ref) else "").strip()
         if amt > 0:
             transfers.append(
                 TreasuryTransferSplit(
                     from_payment_method_id=int(fs),
                     to_payment_method_id=int(ts),
                     amount=amt,
+                    bank_ref=ref,
                 )
             )
     method_ids = form.getlist("pay_method_id")
@@ -881,6 +900,7 @@ def _apply_transfer_settle(
     user_id: int,
     transfers: list,
     from_pm_id: int | None,
+    room_id: int | None = None,
 ) -> list:
     """يشغّل تسوية التحويل (دين نزيل أو إفطار)."""
     from modules.hotel.service import (
@@ -889,19 +909,25 @@ def _apply_transfer_settle(
     )
 
     if settle_mode in ("breakfast", "hotel_cost"):
-        from modules.hotel.breakfast_settle import hotel_breakfast_included_enabled
+        from modules.hotel.breakfast_settle import (
+            hotel_breakfast_included_enabled,
+            list_open_breakfast_charge_ids,
+        )
 
         if not hotel_breakfast_included_enabled(db):
             raise HotelError(
                 "وضع الإفطار المشمول معطّل من إعدادات الحجز — "
                 "سوِّ الفاتورة كوجبة عادية (دين على النزيل)."
             )
+        breakfast_ids = list_open_breakfast_charge_ids(db, room_id=room_id)
+        if not breakfast_ids:
+            raise HotelError("لا توجد وجبات إفطار معلّقة قابلة للتسوية.")
         return settle_charges_as_hotel_breakfast_cost(
             db,
-            charge_ids=charge_ids,
+            charge_ids=breakfast_ids,
             user_id=user_id,
-            from_payment_method_id=from_pm_id if not transfers else None,
-            transfers=transfers or None,
+            from_payment_method_id=None,
+            transfers=None,
         )
     return settle_charges_to_room_account(
         db,
@@ -922,15 +948,21 @@ async def hotel_settle_bulk_pay(
     from urllib.parse import quote
 
     form = await request.form()
+    settle_mode = str(form.get("settle_mode") or "transfer").strip().lower()
+    if settle_mode not in ("transfer", "settle", "room", "breakfast", "hotel_cost"):
+        settle_mode = "transfer"
     selected = form.getlist("charge_ids")
-    if not selected:
+    if not selected and settle_mode not in ("breakfast", "hotel_cost"):
         return RedirectResponse(
             "/hotel/settle?error=" + quote("لم تختر أي فواتير."),
             status_code=302,
         )
-    settle_mode = str(form.get("settle_mode") or "transfer").strip().lower()
-    if settle_mode not in ("transfer", "settle", "room", "breakfast", "hotel_cost"):
-        settle_mode = "transfer"
+    denied = _require_settle_transfer(user, request)
+    if denied:
+        return RedirectResponse(
+            "/hotel/settle?error=" + quote(denied),
+            status_code=302,
+        )
     transfers, from_pm_id = _parse_treasury_transfers_from_form(form)
     try:
         settled = _apply_transfer_settle(
@@ -977,6 +1009,8 @@ async def hotel_settle_bulk_pay(
 
 def hotel_link_orphan_sale(
 
+    request: Request,
+
     db: DBSession,
 
     user: User = Depends(_settle),
@@ -990,6 +1024,15 @@ def hotel_link_orphan_sale(
 ):
 
     """ربط فاتورة شقة «غير مربوطة» برقم غرفة لتظهر في تسوية الغرف."""
+
+    denied = _require_settle_transfer(user, request)
+    if denied:
+        from urllib.parse import quote
+
+        return RedirectResponse(
+            "/hotel/settle?error=" + quote(denied),
+            status_code=302,
+        )
 
     try:
 
@@ -1093,16 +1136,16 @@ def hotel_settle_room_page(
 
     history = list_charges(db, room_id=room_id, settled=True, limit=50)
 
-    methods = list_hotel_settle_payment_methods(
-        db, only_active=True, include_restaurant=False, user=user
-    )
+    from modules.hotel.restaurant_settle import list_settle_source_methods
+
+    methods = list_settle_source_methods(db, user=user)
     from modules.hotel.restaurant_settle import list_restaurant_settle_targets
     from modules.payments.service import list_pos_sale_payment_methods
     from modules.platform.business_domain import BusinessDomain
 
     to_methods = list_restaurant_settle_targets(db)
     pickup_payment_methods = list_pos_sale_payment_methods(
-        db, only_active=True, domain=BusinessDomain.RESTAURANT
+        db, only_active=True, domain=BusinessDomain.RESTAURANT, user=user
     )
     linked_booking = None
     for c in open_list:
@@ -1227,6 +1270,10 @@ def hotel_settle_room_page(
             "linked_ok": request.query_params.get("linked"),
             "pickup_ok": request.query_params.get("pickup"),
 
+            "can_settle_transfer": can_hotel_settle_transfer_now(user, request.session),
+            "settle_view_only": is_restaurant_finance_view(user, request.session),
+            "can_pay_from_main": can_settle_from_main_treasury(user),
+
             "error": request.query_params.get("error"),
 
             "customer": customer,
@@ -1254,9 +1301,15 @@ async def hotel_settle_link_booking(
     request: Request,
     room_id: int,
     db: DBSession,
-    _: User = Depends(_settle),
+    user: User = Depends(_settle),
 ):
     """يربط الفواتير المفتوحة على الشقة بحجز مؤكد/مقيم ثم يعيد لصفحة التسوية."""
+    denied = _require_settle_transfer(user, request)
+    if denied:
+        return RedirectResponse(
+            f"/hotel/settle/room/{room_id}?error={quote(denied)}",
+            status_code=302,
+        )
     form = await request.form()
     raw_bid = str(form.get("booking_id") or "").strip()
     if not raw_bid.isdigit():
@@ -1299,6 +1352,12 @@ async def hotel_settle_to_pickup(
     user: User = Depends(_settle),
 ):
     """يحوّل فواتير الشقة العالقة إلى استلام من المطعم مع تحصيل فوري."""
+    denied = _require_settle_transfer(user, request)
+    if denied:
+        return RedirectResponse(
+            f"/hotel/settle/room/{room_id}?error={quote(denied)}",
+            status_code=302,
+        )
     form = await request.form()
     raw_pm = str(form.get("payment_method_id") or "").strip()
     if not raw_pm.isdigit():
@@ -1370,18 +1429,12 @@ async def hotel_settle_room_pay(
     form = await request.form()
 
     selected = form.getlist("charge_ids")
-
-    if not selected:
-
-        return RedirectResponse(
-
-            f"/hotel/settle/room/{room_id}?error=لم تختر أي فواتير.",
-
-            status_code=302,
-
-        )
-
     settle_mode = str(form.get("settle_mode") or "transfer").strip().lower()
+    if not selected and settle_mode not in ("breakfast", "hotel_cost"):
+        return RedirectResponse(
+            f"/hotel/settle/room/{room_id}?error=لم تختر أي فواتير.",
+            status_code=302,
+        )
     guest_phone = str(form.get("guest_phone") or "").strip()
 
     guest_name = str(form.get("guest_name") or "").strip()
@@ -1429,6 +1482,12 @@ async def hotel_settle_room_pay(
     try:
 
         if settle_mode in ("transfer", "settle", "room", "breakfast", "hotel_cost"):
+            denied = _require_settle_transfer(user, request)
+            if denied:
+                return RedirectResponse(
+                    f"/hotel/settle/room/{room_id}?error={quote(denied)}",
+                    status_code=302,
+                )
             transfers, from_pm_id = _parse_treasury_transfers_from_form(form)
             settled = _apply_transfer_settle(
                 db,
@@ -1437,8 +1496,15 @@ async def hotel_settle_room_pay(
                 user_id=user.id,
                 transfers=transfers,
                 from_pm_id=from_pm_id,
+                room_id=room_id,
             )
         else:
+            denied = _require_settle_transfer(user, request)
+            if denied:
+                return RedirectResponse(
+                    f"/hotel/settle/room/{room_id}?error={quote(denied)}",
+                    status_code=302,
+                )
             settled = settle_charges_with_splits(
 
                 db,

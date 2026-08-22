@@ -14,7 +14,7 @@
 {% endif %}
 {% endblock %}
 {% block head_extra %}
-<link rel="stylesheet" href="/static/shift_summary.css" />
+<link rel="stylesheet" href="/static/shift_summary.css?v=carry1" />
 <style>
   .shift-close-confirm {
     position: fixed; inset: 0; z-index: 2000;
@@ -233,9 +233,25 @@
     {% endif %}
 
     <div class="shift-close-note">
-      <label for="closing_note">ملاحظة الإغلاق (اختياري)</label>
-      <textarea id="closing_note" name="closing_note" rows="2" placeholder="أي ملاحظة عن العد أو الفروقات…"></textarea>
+      {% if open_shift and not open_shift.employee_id %}
+      <label for="responsible_employee_id" style="display:block;margin-bottom:0.25rem">
+        الموظف المسؤول عن الصندوق *
+      </label>
+      <select id="responsible_employee_id" name="responsible_employee_id" required
+        style="width:100%;max-width:28rem;margin-bottom:0.65rem;padding:0.45rem 0.5rem;border-radius:8px;border:1px solid var(--border)">
+        <option value="">— اختر الموظف (إلزامي عند الإغلاق بحساب أدمن) —</option>
+        {% for e in close_employees|default([]) %}
+        <option value="{{ e.id }}">{{ e.full_name_ar }}{% if e.job_title %} — {{ e.job_title }}{% endif %}</option>
+        {% endfor %}
+      </select>
+      <p class="muted" style="margin:0 0 0.65rem;font-size:0.82rem;color:#9a3412">
+        الجلسة بدون موظف مرتبط — أي عجز لن يظهر في خصومات الموظفين إلا بعد اختيار المسؤول عن الصندوق.
+      </p>
+      {% endif %}
+      <label for="closing_note">بيان الإغلاق (إلزامي)</label>
+      <textarea id="closing_note" name="closing_note" rows="2" required minlength="2" maxlength="400" placeholder="اكتب بياناً يوضح نتيجة العد أو سبب أي فرق…"></textarea>
     </div>
+    {% include "_shift_close_destination.html" %}
 
     <div class="shift-close-footer">
       <p class="shift-close-footer__hint">
@@ -257,6 +273,7 @@
     </p>
     {% endif %}
   </form>
+  {% include "_shift_bank_declare.html" %}
 
   <div id="shift-close-confirm-modal" class="shift-close-confirm" hidden aria-hidden="true">
     <div class="shift-close-confirm__backdrop" data-shift-close-confirm-cancel tabindex="-1"></div>
@@ -513,19 +530,28 @@ function posPrintShiftSummary() {
   wrap.querySelectorAll(".shift-counted-input").forEach(function (inp) {
     inp.addEventListener("input", update);
   });
+  update();
 
   function validateCloseFields() {
     update();
+    var hasCashRow = !!wrap.querySelector('.shift-close-wallet-row[data-kind="CASH"]');
+    var hasBankRow = !!wrap.querySelector('.shift-close-wallet-row[data-kind="BANK"]');
+    if (!hasCashRow && cashHidden) {
+      cashHidden.value = fmt(parseFloat(wrap.getAttribute("data-expected-cash")) || 0);
+    }
+    if (!hasBankRow && bankHidden) {
+      bankHidden.value = fmt(parseFloat(wrap.getAttribute("data-expected-bank")) || 0);
+    }
     var cashVal = (cashHidden.value || "").trim();
     var bankVal = (bankHidden.value || "").trim();
     var roomVal = (roomHidden.value || "").trim();
-    if (!cashVal) {
+    if (hasCashRow && !cashVal) {
       window.alert("أدخل المبلغ المعدود لخزينة الكاش.");
       var firstCash = wrap.querySelector('.shift-close-wallet-row[data-kind="CASH"] .shift-counted-input');
       if (firstCash) firstCash.focus();
       return false;
     }
-    if (!bankVal) {
+    if (hasBankRow && !bankVal) {
       window.alert("أدخل المبلغ المعدود لخزينة المصرف بعد مراجعة فواتير المصرف.");
       var firstBank = wrap.querySelector('.shift-close-wallet-row[data-kind="BANK"] .shift-counted-input');
       if (firstBank) firstBank.focus();

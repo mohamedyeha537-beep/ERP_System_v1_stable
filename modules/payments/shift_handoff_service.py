@@ -5,8 +5,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
+
+from modules.payments.shift_carry import CLOSE_DEST_NEXT_SHIFT, is_next_shift_destination
 
 from modules.payments.models import (
     MAIN_TREASURY_BANK_PM_NAME,
@@ -115,15 +117,30 @@ def ensure_main_treasury_payment_methods(db: Session) -> dict[str, PaymentMethod
 
 
 def list_cashier_wallet_methods(
-    db: Session, kind: PaymentMethodKind, *, only_active: bool = True
+    db: Session,
+    kind: PaymentMethodKind,
+    *,
+    only_active: bool = True,
+    user=None,
 ) -> list[PaymentMethod]:
+    """محافظ كاشير المطعم فقط (كاش/مصرف قابلة للاستلام) — بدون خزن الفندق."""
+    from modules.authz.pos_wallet_access import user_may_use_payment_method_kind
+    from modules.payments.service import is_hotel_treasury_payment_method
+    from modules.platform.business_domain import BusinessDomain
+
+    if not user_may_use_payment_method_kind(user, kind):
+        return []
     out: list[PaymentMethod] = []
-    for m in list_payment_methods(db, only_active=only_active):
+    for m in list_payment_methods(
+        db, only_active=only_active, domain=BusinessDomain.RESTAURANT
+    ):
         if not payment_method_kind_matches(m, kind):
             continue
         if not m.can_receive:
             continue
         if is_main_treasury_payment_method(m):
+            continue
+        if is_hotel_treasury_payment_method(m):
             continue
         if is_supplier_credit_payment_method(m) or is_owner_equity_payment_method(m):
             continue
@@ -180,6 +197,17 @@ def get_last_closed_shift(db: Session) -> PosShift | None:
     ).scalar_one_or_none()
 
 
+def _pos_treasury_pending_clause():
+    return (
+        PosShift.status == PosShiftStatus.CLOSED,
+        PosShift.treasury_handoff_at.is_(None),
+        or_(
+            PosShift.close_destination.is_(None),
+            PosShift.close_destination != CLOSE_DEST_NEXT_SHIFT,
+        ),
+    )
+
+
 def get_next_shift_pending_handoff(db: Session) -> PosShift | None:
     """أقدم جلسة مغلقة لم يُعتمد إيرادها بعد (FIFO)."""
     return db.execute(
@@ -188,10 +216,7 @@ def get_next_shift_pending_handoff(db: Session) -> PosShift | None:
             selectinload(PosShift.employee),
             selectinload(PosShift.user),
         )
-        .where(
-            PosShift.status == PosShiftStatus.CLOSED,
-            PosShift.treasury_handoff_at.is_(None),
-        )
+        .where(*_pos_treasury_pending_clause())
         .order_by(PosShift.id.asc())
         .limit(1)
     ).scalar_one_or_none()
@@ -202,12 +227,27 @@ def count_shifts_pending_handoff(db: Session) -> int:
         db.execute(
             select(func.count())
             .select_from(PosShift)
-            .where(
-                PosShift.status == PosShiftStatus.CLOSED,
-                PosShift.treasury_handoff_at.is_(None),
-            )
+            .where(*_pos_treasury_pending_clause())
         ).scalar_one()
         or 0
+    )
+
+
+def list_shifts_pending_handoff(db: Session, *, limit: int = 50) -> list[PosShift]:
+    """جلسات مغلقة بانتظار اعتماد الخزينة (الأقدم أولاً)."""
+    return list(
+        db.execute(
+            select(PosShift)
+            .options(
+                selectinload(PosShift.employee),
+                selectinload(PosShift.user),
+            )
+            .where(*_pos_treasury_pending_clause())
+            .order_by(PosShift.id.asc())
+            .limit(max(1, min(int(limit), 200)))
+        )
+        .scalars()
+        .all()
     )
 
 
@@ -344,6 +384,8 @@ def approve_shift_handoff(
         raise ShiftHandoffError("الجلسة غير موجودة أو لم تُغلَق بعد.")
     if sh.treasury_handoff_at is not None:
         raise ShiftHandoffError("تم اعتماد وتحويل هذه الجلسة مسبقاً.")
+    if is_next_shift_destination(getattr(sh, "close_destination", None)):
+        raise ShiftHandoffError("هذه الجلسة رُحّلت للوردية التالية وليس للخزينة.")
     next_pending = get_next_shift_pending_handoff(db)
     if next_pending is None or next_pending.id != sh.id:
         if next_pending is not None:
@@ -365,7 +407,21 @@ def approve_shift_handoff(
         if handoff_bank is not None
         else Decimal(str(default_bank or 0)).quantize(Decimal("0.001"))
     )
+    from modules.payments.shift_handovers import mark_bank_declaration_confirmed
+    from modules.payments.shift_variance_models import ShiftVarianceSource
+    from modules.payments.shift_variances import record_pair_variances
 
+    record_pair_variances(
+        db,
+        source_type=ShiftVarianceSource.POS_TREASURY,
+        claimed_cash=sh.counted_cash if sh.counted_cash is not None else default_cash,
+        received_cash=cash_amt,
+        claimed_bank=sh.counted_bank if sh.counted_bank is not None else default_bank,
+        received_bank=bank_amt,
+        pos_shift_id=sh.id,
+        from_employee_id=sh.employee_id,
+        note=f"اعتماد خزينة جلسة مطعم #{sh.id}",
+    )
     _apply_treasury_handoff_amounts(
         sh,
         fin=fin,
@@ -403,7 +459,26 @@ def approve_shift_handoff(
     )
     sh.treasury_handoff_at = datetime.now(timezone.utc)
     sh.treasury_handoff_by_id = user_id
+    mark_bank_declaration_confirmed(
+        db, pos_shift_id=sh.id, received_bank=bank_amt, user_id=user_id
+    )
     db.flush()
+    try:
+        from modules.notifications.treasury_hooks import emit_treasury_handoff_approved
+
+        cashier = ""
+        if getattr(sh, "employee", None) is not None:
+            cashier = (sh.employee.full_name_ar or "").strip()
+        emit_treasury_handoff_approved(
+            db,
+            shift_id=int(sh.id),
+            cashier_name=cashier or admin_username,
+            claimed_cash=cash_amt,
+            claimed_bank=bank_amt,
+            shift_kind="restaurant",
+        )
+    except Exception:  # noqa: BLE001
+        pass
     # قد لا توجد جلسة تالية بانتظار الاعتماد — هذا نجاح وليس خطأ
     return build_shift_handoff_panel(db)
 

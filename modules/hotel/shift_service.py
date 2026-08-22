@@ -45,6 +45,191 @@ def get_open_shift(db: Session, *, property_id: int = 1) -> HotelShift | None:
     )
 
 
+def _hotel_carry_label(sh: HotelShift) -> str:
+    if getattr(sh, "employee", None) is not None and (sh.employee.full_name_ar or "").strip():
+        return sh.employee.full_name_ar.strip()
+    if getattr(sh, "user", None) is not None and (sh.user.username or "").strip():
+        return sh.user.username.strip()
+    return f"جلسة فندق #{sh.id}"
+
+
+def get_pending_hotel_carry(db: Session) -> HotelShift | None:
+    from modules.payments.shift_carry import CLOSE_DEST_NEXT_SHIFT
+
+    return db.execute(
+        select(HotelShift)
+        .options(selectinload(HotelShift.employee), selectinload(HotelShift.user))
+        .where(
+            HotelShift.status == HotelShiftStatus.CLOSED,
+            HotelShift.close_destination == CLOSE_DEST_NEXT_SHIFT,
+            HotelShift.carried_to_shift_id.is_(None),
+        )
+        .order_by(HotelShift.id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+
+def list_active_reception_employees(
+    db: Session, *, exclude_employee_id: int | None = None
+) -> list[dict]:
+    """موظفو استقبال نشطون وحساباتهم مفعّلة — لاختيار مستلم الترحيل."""
+    from modules.authz.models import User
+    from modules.hr.models import Employee, EmployeeStatus, HrDepartment
+    from modules.platform.business_domain import BusinessDomain
+
+    rows = list(
+        db.scalars(
+            select(Employee)
+            .options(selectinload(Employee.department))
+            .join(User, User.id == Employee.user_id)
+            .where(
+                Employee.status == EmployeeStatus.ACTIVE,
+                Employee.user_id.is_not(None),
+                User.is_active.is_(True),
+                Employee.business_domain.in_(
+                    (BusinessDomain.HOTEL.value, BusinessDomain.SHARED.value)
+                ),
+            )
+            .order_by(Employee.full_name_ar)
+        ).all()
+    )
+    reception: list[Employee] = []
+    for emp in rows:
+        dept_code = str(getattr(getattr(emp, "department", None), "code", "") or "").upper()
+        if emp.is_hotel_front or dept_code == "RECEP":
+            reception.append(emp)
+    chosen = reception or rows
+    out: list[dict] = []
+    skip = int(exclude_employee_id) if exclude_employee_id else None
+    for emp in chosen:
+        if skip is not None and int(emp.id) == skip:
+            continue
+        out.append(
+            {
+                "id": int(emp.id),
+                "name": (emp.full_name_ar or "").strip() or f"موظف #{emp.id}",
+            }
+        )
+    if not out:
+        for emp in chosen:
+            out.append(
+                {
+                    "id": int(emp.id),
+                    "name": (emp.full_name_ar or "").strip() or f"موظف #{emp.id}",
+                }
+            )
+    return out
+
+
+def peek_pending_hotel_carry_offer(db: Session):
+    from modules.payments.shift_carry import ShiftCarryOffer, money3
+    from modules.payments.shift_handovers import (
+        confirmed_received_totals,
+        handed_claimed_totals,
+    )
+
+    src = get_pending_hotel_carry(db)
+    if src is None:
+        return None
+    recipient = ""
+    if getattr(src, "carried_to_employee_id", None):
+        from modules.hr.models import Employee
+
+        emp = db.get(Employee, int(src.carried_to_employee_id))
+        if emp is not None:
+            recipient = (emp.full_name_ar or "").strip()
+    handed_c, handed_b = handed_claimed_totals(db, hotel_shift_id=src.id)
+    conf_c, conf_b = confirmed_received_totals(db, hotel_shift_id=src.id)
+    rem_c = max(money3(src.counted_cash) - handed_c, money3(0))
+    rem_b = max(money3(src.counted_bank) - handed_b, money3(0))
+    needs = rem_c > money3("0.001") or rem_b > money3("0.001")
+    return ShiftCarryOffer(
+        shift_id=src.id,
+        cash=rem_c if needs else money3(src.counted_cash),
+        bank=rem_b if needs else money3(src.counted_bank),
+        cashier_label=_hotel_carry_label(src),
+        closed_at=src.closed_at,
+        recipient_label=recipient,
+        already_confirmed_cash=conf_c,
+        already_confirmed_bank=conf_b,
+        remainder_needs_count=needs or (handed_c == 0 and handed_b == 0),
+    )
+
+
+def consume_pending_hotel_carry(
+    db: Session,
+    shift: HotelShift,
+    *,
+    received_cash=None,
+    received_bank=None,
+) -> HotelShift | None:
+    from modules.payments.shift_carry import money3
+    from modules.payments.shift_variance_models import ShiftVarianceSource
+    from modules.payments.shift_variances import record_pair_variances
+
+    src = get_pending_hotel_carry(db)
+    if src is None:
+        return None
+    from modules.payments.shift_handovers import (
+        confirmed_received_totals,
+        handed_claimed_totals,
+        list_unconfirmed_cash_handovers,
+    )
+
+    pending_sent = list_unconfirmed_cash_handovers(db, hotel_shift_id=src.id)
+    if pending_sent:
+        raise HotelShiftError(
+            "أكد استلام التسليمات المعلقة أولاً من صفحة «استلام العهدة» قبل افتتاح الجلسة."
+        )
+    handed_c, handed_b = handed_claimed_totals(db, hotel_shift_id=src.id)
+    conf_c, conf_b = confirmed_received_totals(db, hotel_shift_id=src.id)
+    rem_claimed_c = max(money3(src.counted_cash) - handed_c, money3(0))
+    rem_claimed_b = max(money3(src.counted_bank) - handed_b, money3(0))
+    needs_remainder = rem_claimed_c > money3("0.001") or rem_claimed_b > money3("0.001")
+    if needs_remainder or (handed_c == 0 and handed_b == 0):
+        if received_cash is None or received_bank is None:
+            raise HotelShiftError(
+                "يوجد رصيد مرحّل من الجلسة السابقة. أدخل المبلغ الذي استلمته وعددته فعلياً."
+            )
+        rec_cash = money3(received_cash)
+        rec_bank = money3(received_bank)
+        if rec_cash < 0 or rec_bank < 0:
+            raise HotelShiftError("مبلغ الاستلام غير صالح.")
+        claimed_cash = rem_claimed_c if handed_c or handed_b else money3(src.counted_cash)
+        claimed_bank = rem_claimed_b if handed_c or handed_b else money3(src.counted_bank)
+        record_pair_variances(
+            db,
+            source_type=ShiftVarianceSource.HOTEL_CARRY,
+            claimed_cash=claimed_cash,
+            received_cash=rec_cash,
+            claimed_bank=claimed_bank,
+            received_bank=rec_bank,
+            hotel_shift_id=src.id,
+            from_employee_id=src.employee_id,
+            to_employee_id=shift.employee_id,
+            note=f"تسليم عهدة من جلسة #{src.id} إلى جلسة #{shift.id}",
+        )
+    else:
+        rec_cash = money3(0)
+        rec_bank = money3(0)
+        claimed_cash = money3(src.counted_cash)
+        claimed_bank = money3(src.counted_bank)
+    # أحمد يرث ما عده فقط — لا نعدّل مبلغ محمد
+    shift.opening_cash = money3(conf_c + rec_cash)
+    shift.opening_bank = money3(conf_b + rec_bank)
+    shift.received_from_shift_id = src.id
+    src.carried_to_shift_id = shift.id
+    auto = (
+        f"استلام من الجلسة #{src.id} "
+        f"(المسلِّم: كاش {claimed_cash} / مصرف {claimed_bank} — "
+        f"المستلم: كاش {shift.opening_cash} / مصرف {shift.opening_bank})"
+    )
+    prev = (shift.opening_note or "").strip()
+    shift.opening_note = f"{prev} — {auto}".strip(" —") if prev else auto
+    db.flush()
+    return src
+
+
 @dataclass
 class HotelShiftIndexRow:
     shift_id: int
@@ -226,6 +411,8 @@ def admin_close_hotel_shift(
         counted_laundry=activity.laundry_count,
         counted_services=activity.services_count,
         require_counts=False,
+        close_destination="TREASURY",
+        enforce_close_policy=False,
     )
 
 
@@ -290,6 +477,8 @@ def open_shift(
     property_id: int = 1,
     shift_number: int | None = None,
     opening_cash: Decimal | str | None = None,
+    received_cash: Decimal | str | None = None,
+    received_bank: Decimal | str | None = None,
 ) -> HotelShift:
     if get_open_shift(db, property_id=property_id) is not None:
         raise HotelShiftError("يوجد جلسة مفتوحة — أقفلها أولاً قبل افتتاح جلسة جديدة.")
@@ -305,6 +494,13 @@ def open_shift(
     start_utc = slot.scheduled_start.astimezone(timezone.utc)
     end_utc = slot.scheduled_end.astimezone(timezone.utc)
 
+    if employee_id is None:
+        from modules.hr.service import get_employee_by_user_id
+
+        linked = get_employee_by_user_id(db, user_id)
+        if linked is not None:
+            employee_id = linked.id
+
     shift = HotelShift(
         property_id=property_id,
         shift_number=num,
@@ -316,9 +512,28 @@ def open_shift(
         scheduled_end=end_utc,
         opening_note=(opening_note or "").strip() or None,
         opening_cash=Decimal(str(opening_cash or "0")).quantize(Decimal("0.001")),
+        opening_bank=Decimal("0"),
     )
     db.add(shift)
     db.flush()
+    carried = consume_pending_hotel_carry(
+        db, shift, received_cash=received_cash, received_bank=received_bank
+    )
+    # رصيد مرحّل من الجلسة السابقة يبقى في الدرج — لا يُخصم من الخزينة مرة ثانية
+    if carried is None:
+        oc = Decimal(str(shift.opening_cash or 0)).quantize(Decimal("0.001"))
+        if oc > 0:
+            from modules.hotel.shift_handoff import (
+                HotelShiftHandoffError,
+                issue_hotel_opening_float_transfer,
+            )
+
+            try:
+                issue_hotel_opening_float_transfer(
+                    db, shift_id=shift.id, amount=oc, user_id=user_id
+                )
+            except HotelShiftHandoffError as exc:
+                raise HotelShiftError(str(exc)) from exc
     from modules.authz.models import User
 
     user = db.get(User, user_id)
@@ -345,6 +560,9 @@ def close_shift(
     counted_laundry: int | str | None = None,
     counted_services: int | str | None = None,
     require_counts: bool = True,
+    close_destination: str | None = None,
+    enforce_close_policy: bool = True,
+    carried_to_employee_id: int | None = None,
 ) -> HotelShift:
     import json
 
@@ -360,20 +578,12 @@ def close_shift(
     if require_counts:
         if counted_cash is None or str(counted_cash).strip() == "":
             raise HotelShiftError(
-                "أدخل المبلغ المعدود للكاش بعد عدّ الدرج — مثل إقفال جلسة المطعم."
+                "أدخل المبلغ المعدود للكاش بعد عدّ الدرج."
             )
         if counted_bank is None or str(counted_bank).strip() == "":
             raise HotelShiftError(
                 "أدخل المبلغ المعدود للمصرف/التحويل بعد مراجعة الإيصالات."
             )
-        for label, raw in (
-            ("عمليات الحجز", counted_bookings),
-            ("الوجبات", counted_meals),
-            ("المغسلة", counted_laundry),
-            ("الخدمات", counted_services),
-        ):
-            if raw is None or str(raw).strip() == "":
-                raise HotelShiftError(f"أدخل العدد المعدود لبند: {label}.")
 
     now = datetime.now(timezone.utc)
     summary = compute_shift_summary(db, shift, end_at=now)
@@ -394,6 +604,7 @@ def close_shift(
         except (TypeError, ValueError):
             return default
 
+    # بنود العدد لم تعد تُطلب عند الإقفال — نُسجّل المتوقع كمرجع للتقرير فقط
     cnt_book = _int_val(counted_bookings, activity.expected_booking_ops)
     cnt_meals = _int_val(counted_meals, activity.meals_settled_count)
     cnt_laundry = _int_val(counted_laundry, activity.laundry_count)
@@ -429,8 +640,89 @@ def close_shift(
     snap["opening_cash"] = str(
         Decimal(str(shift.opening_cash or 0)).quantize(Decimal("0.001"))
     )
+    snap["opening_bank"] = str(
+        Decimal(str(shift.opening_bank or 0)).quantize(Decimal("0.001"))
+    )
     shift.close_snapshot_json = json.dumps(snap, ensure_ascii=False)
+    from modules.payments.shift_carry import (
+        CLOSE_DEST_NEXT_SHIFT,
+        CLOSE_DEST_TREASURY,
+        ShiftCarryError,
+        money3,
+        resolve_close_destination,
+    )
+
+    from modules.payments.shift_handovers import (
+        hotel_handover_progress,
+        last_cash_handover_recipient,
+        propose_cash_carry,
+        ShiftHandoverError,
+    )
+
+    progress = hotel_handover_progress(
+        db, shift, expected_cash=exp_cash, expected_bank=exp_bank
+    )
+    has_handovers = bool(progress.rows)
+    if has_handovers:
+        # المعدود هنا = المتبقي بعد التسليمات السابقة
+        shift.counted_cash = money3(progress.handed_cash + cnt_cash)
+        shift.counted_bank = money3(progress.handed_bank + cnt_bank)
+        shift.cash_difference = money3(cnt_cash - progress.remainder_cash)
+        shift.bank_difference = money3(cnt_bank - progress.remainder_bank)
+    try:
+        dest = resolve_close_destination(
+            db, close_destination, enforce_policy=enforce_close_policy
+        )
+    except ShiftCarryError as exc:
+        raise HotelShiftError(str(exc)) from exc
+    if dest == CLOSE_DEST_NEXT_SHIFT:
+        pending = get_pending_hotel_carry(db)
+        if pending is not None:
+            raise HotelShiftError(
+                f"يوجد رصيد مرحّل من الجلسة #{pending.id} لم يُستلم بعد. "
+                "افتح الجلسة التالية أولاً، أو رحّل هذه الجلسة إلى الخزينة."
+            )
+        last_to = last_cash_handover_recipient(db, hotel_shift_id=shift.id)
+        emp_id = int(carried_to_employee_id) if carried_to_employee_id else (last_to or 0)
+        allowed = {
+            int(e["id"])
+            for e in list_active_reception_employees(
+                db, exclude_employee_id=shift.employee_id
+            )
+        }
+        rem_left = progress.remainder_cash > money3("0.001") or progress.remainder_bank > money3(
+            "0.001"
+        )
+        if emp_id <= 0 or emp_id not in allowed:
+            if rem_left or not last_to:
+                raise HotelShiftError("اختر موظف الاستقبال المستلم للعهدة.")
+            emp_id = int(last_to)
+        shift.carried_to_employee_id = emp_id
+        if rem_left and (cnt_cash > 0 or cnt_bank > 0):
+            try:
+                propose_cash_carry(
+                    db,
+                    domain="hotel",
+                    hotel_shift_id=shift.id,
+                    from_employee_id=shift.employee_id,
+                    to_employee_id=emp_id,
+                    claimed_cash=cnt_cash,
+                    claimed_bank=cnt_bank,
+                    user_id=user_id,
+                    note="متبقي عند الإقفال",
+                )
+            except ShiftHandoverError as exc:
+                raise HotelShiftError(str(exc)) from exc
+    else:
+        shift.carried_to_employee_id = None
+    shift.close_destination = dest
     db.flush()
+
+    # فرق العد يُعلَّق للمراجعة — لا خصم راتب تلقائي
+    try:
+        _record_hotel_shift_close_variances(db, shift)
+    except Exception:  # noqa: BLE001
+        pass
 
     operator = ""
     from modules.authz.models import User
@@ -450,7 +742,55 @@ def close_shift(
         )
     except Exception:  # noqa: BLE001
         pass
+
+    if dest == CLOSE_DEST_TREASURY:
+        try:
+            from app.datetime_local import format_local_dt
+            from modules.hotel.shift_handoff import count_hotel_shifts_pending_handoff
+            from modules.notifications.treasury_hooks import emit_treasury_handoff_pending
+
+            emp_name = ""
+            if shift.employee_id:
+                from modules.hr.models import Employee
+
+                emp = db.get(Employee, shift.employee_id)
+                if emp:
+                    emp_name = (emp.full_name_ar or "").strip()
+            emit_treasury_handoff_pending(
+                db,
+                shift_id=int(shift.id),
+                cashier_name=emp_name or operator or f"#{user_id}",
+                counted_cash=shift.counted_cash,
+                counted_bank=shift.counted_bank,
+                closed_at=format_local_dt(shift.closed_at, "%Y-%m-%d %H:%M")
+                if shift.closed_at
+                else "—",
+                pending_count=count_hotel_shifts_pending_handoff(db),
+                reminder_slot="initial",
+                shift_kind="hotel",
+            )
+        except Exception:  # noqa: BLE001
+            pass
     return shift
+
+
+def _record_hotel_shift_close_variances(db: Session, shift: HotelShift) -> int:
+    """يسجّل عجز/زيادة العد عند الإقفال كمعلّق للمراجعة — بلا خصم راتب."""
+    from modules.payments.shift_variance_models import ShiftVarianceSource
+    from modules.payments.shift_variances import record_pair_variances
+
+    rows = record_pair_variances(
+        db,
+        source_type=ShiftVarianceSource.HOTEL_CLOSE,
+        claimed_cash=shift.expected_cash,
+        received_cash=shift.counted_cash,
+        claimed_bank=shift.expected_bank,
+        received_bank=shift.counted_bank,
+        hotel_shift_id=shift.id,
+        from_employee_id=shift.employee_id,
+        note=f"عدّ إقفال جلسة فندق #{shift.id}",
+    )
+    return len(rows)
 
 
 def shift_is_overdue(shift: HotelShift, *, grace_minutes: int = 30) -> bool:
@@ -472,3 +812,82 @@ def format_shift_window(shift: HotelShift) -> str:
         f"{format_local_dt(shift.scheduled_start, '%H:%M')} — "
         f"{format_local_dt(shift.scheduled_end, '%H:%M')}"
     )
+
+
+def reopen_hotel_shift_to_draft(
+    db: Session,
+    *,
+    shift_id: int,
+    user_id: int,
+    admin_username: str,
+    reason: str = "",
+) -> HotelShift:
+    """يعيد وردية فندق مغلقة إلى مفتوحة لتعديل المعدود ثم إعادة الإقفال."""
+    shift = db.get(HotelShift, shift_id)
+    if shift is None or shift.status != HotelShiftStatus.CLOSED:
+        raise HotelShiftError("الوردية غير موجودة أو ليست مغلقة.")
+    other = get_open_shift(db, property_id=int(shift.property_id or 1))
+    if other is not None:
+        raise HotelShiftError(
+            f"لا يمكن إعادة الوردية لمسودة: توجد وردية مفتوحة #{other.id}. أغلقها أولاً."
+        )
+    if getattr(shift, "carried_to_shift_id", None):
+        raise HotelShiftError(
+            "الرصيد رُحِّل لوردية لاحقة. لا يمكن إعادة هذه الوردية لمسودة."
+        )
+    try:
+        from modules.payments.shift_variances import ShiftVariance, ShiftVarianceStatus
+
+        decided = list(
+            db.scalars(
+                select(ShiftVariance).where(
+                    ShiftVariance.hotel_shift_id == int(shift_id),
+                    ShiftVariance.status != ShiftVarianceStatus.PENDING_REVIEW,
+                )
+            ).all()
+        )
+        if decided:
+            raise HotelShiftError(
+                "لا يمكن إعادة المسودة: يوجد عجز/زيادة معتمد على هذه الوردية."
+            )
+        for row in db.scalars(
+            select(ShiftVariance).where(ShiftVariance.hotel_shift_id == int(shift_id))
+        ).all():
+            db.delete(row)
+    except HotelShiftError:
+        raise
+    except Exception:  # noqa: BLE001
+        pass
+    why = (reason or "").strip() or "تصحيح أرقام المعدود بعد الإقفال"
+    if shift.treasury_handoff_at is not None:
+        from modules.hotel.shift_handoff import (
+            HotelShiftHandoffError,
+            revoke_hotel_shift_handoff,
+        )
+
+        try:
+            revoke_hotel_shift_handoff(
+                db,
+                shift_id=int(shift_id),
+                user_id=user_id,
+                reason=why,
+            )
+        except HotelShiftHandoffError as exc:
+            raise HotelShiftError(str(exc)) from exc
+    shift.status = HotelShiftStatus.OPEN
+    shift.closed_at = None
+    shift.closed_by_id = None
+    shift.counted_cash = None
+    shift.counted_bank = None
+    shift.cash_difference = None
+    shift.bank_difference = None
+    shift.expected_cash = None
+    shift.expected_bank = None
+    shift.close_destination = None
+    shift.carried_to_employee_id = None
+    shift.close_snapshot_json = None
+    line = f"[إعادة لمسودة — {admin_username}: {why}]"
+    prev = (shift.closing_note or "").strip()
+    shift.closing_note = (prev + " | " + line).strip(" | ") if prev else line
+    db.flush()
+    return shift

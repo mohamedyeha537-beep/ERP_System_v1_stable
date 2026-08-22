@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}استلام عهدة{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/hotel_dashboard.css?v=12" />
+{% endblock %}
+{% block body %}
+<div class="apt-page-header">
+  <div>
+    <h1 style="margin:0">استلام العهدة</h1>
+    <p class="muted" style="margin:0.2rem 0 0">أكد المبلغ الذي عددته قبل افتتاح جلستك.</p>
+  </div>
+  <div class="apt-page-header__actions">
+    <a class="btn" href="/admin/hotel/dashboard">لوحة الشقق</a>
+    <a class="btn" href="/admin/hotel/shift/start">افتتاح الجلسة</a>
+  </div>
+</div>
+{% set active = 'shift' %}
+{% include "_hotel_nav.html" %}
+{% if error %}
+<div class="card" style="border-color:#fecaca;background:#fef2f2;margin-bottom:0.75rem"><p style="margin:0;color:#b91c1c">{{ error }}</p></div>
+{% endif %}
+{% if saved %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4;margin-bottom:0.75rem"><p style="margin:0">تم تأكيد الاستلام ✓</p></div>
+{% endif %}
+{% if other_shift_open %}
+<div class="card" style="border-color:#fdba74;background:#fff7ed;margin-bottom:0.75rem">
+  <p style="margin:0;color:#9a3412">الجلسة الحالية ما زالت مفتوحة لموظف آخر. أكد الاستلام الآن، ثم افتح جلستك بعد إقفالها.</p>
+</div>
+{% endif %}
+{% include "_shift_incoming_handovers.html" %}
+{% if not incoming_handovers %}
+<div class="card">
+  <p style="margin:0">لا توجد تسليمات بانتظارك الآن.</p>
+  {% if not other_shift_open %}
+  <p style="margin:0.65rem 0 0"><a class="btn btn-primary" href="/admin/hotel/shift/start">متابعة افتتاح الجلسة</a></p>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

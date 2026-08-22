@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 {% from "_admin_ui_visibility_fields.html" import ui_visibility_fields with context %}
+{% from "_admin_pos_wallet_fields.html" import pos_wallet_fields, transfer_wallet_fields with context %}
+{% from "_admin_user_permissions_fields.html" import user_permissions_fields with context %}
 {% block title %}المستخدمون{% endblock %}
 {% block body %}
 {% set _default_scope_opts = [
@@ -30,6 +32,8 @@
     </select>
     <p class="muted" style="font-size:0.88rem;margin-top:0.35rem">
       يحدّد ما يراه المستخدم: <strong>مطعم فقط</strong>، <strong>فندق فقط</strong>، أو <strong>المطعم والفندق</strong>.
+      دور <strong>أمين خزينة</strong> يُضبط تلقائياً على المطعم والفندق حتى يستلم من الطرفين.
+      بعد الحفظ يمكن <strong>منح أو منع</strong> أي وظيفة من لوحة الصلاحيات أسفل الأدوار.
     </p>
 
     <div class="js-kds-scope-wrap">
@@ -43,11 +47,14 @@
     </div>
 
     {{ ui_visibility_fields() }}
+    {{ pos_wallet_fields() }}
+    {{ transfer_wallet_fields(None, transfer_wallets|default([]), {}, default_send_ids|default([])) }}
+    {{ user_permissions_fields(None, perms, [], [], []) }}
 
     <h3 style="margin-bottom: 0.25rem">الأدوار</h3>
     {% for r in roles %}
     <label style="display: flex; gap: 0.5rem; align-items: center; max-width: none">
-      <input type="checkbox" name="role_ids" value="{{ r.id }}" />
+      <input type="checkbox" name="role_ids" value="{{ r.id }}" class="js-user-role" data-role-name="{{ r.name_ar }}" />
       <span>{{ r.name_ar }}</span>
     </label>
     {% endfor %}
@@ -89,6 +96,15 @@
       </div>
 
       {{ ui_visibility_fields(u) }}
+      {{ pos_wallet_fields(u) }}
+      {{ transfer_wallet_fields(u, transfer_wallets|default([]), user_wallet_access.get(u.id, {}), default_send_ids|default([])) }}
+      {{ user_permissions_fields(
+            u,
+            perms,
+            user_grant_ids.get(u.id, []),
+            user_deny_ids.get(u.id, []),
+            user_role_codes.get(u.id, [])
+         ) }}
 
       {% for r in roles %}
       <label style="display: inline-flex; gap: 0.35rem; margin-inline-end: 0.75rem">
@@ -96,6 +112,8 @@
           type="checkbox"
           name="role_ids"
           value="{{ r.id }}"
+          class="js-user-role"
+          data-role-name="{{ r.name_ar }}"
           {% for ur in u.roles %}{% if ur.id == r.id %}checked{% endif %}{% endfor %}
         />
         {{ r.name_ar }}
@@ -127,11 +145,25 @@
       sel.disabled = hotelOnly;
     });
   }
+  function syncSharedRole(form) {
+    var viewSel = form.querySelector(".js-view-scope-select");
+    if (!viewSel) return;
+    var shared = false;
+    form.querySelectorAll(".js-user-role").forEach(function (c) {
+      var name = (c.getAttribute("data-role-name") || "");
+      if (c.checked && name.indexOf("أمين") !== -1 && name.indexOf("خزين") !== -1) shared = true;
+    });
+    if (shared) viewSel.value = "both";
+    syncKdsScope(form);
+  }
   document.querySelectorAll(".js-user-scope-form").forEach(function (form) {
     var viewSel = form.querySelector(".js-view-scope-select");
     if (!viewSel) return;
     viewSel.addEventListener("change", function () { syncKdsScope(form); });
-    syncKdsScope(form);
+    form.querySelectorAll(".js-user-role").forEach(function (c) {
+      c.addEventListener("change", function () { syncSharedRole(form); });
+    });
+    syncSharedRole(form);
   });
   document.querySelectorAll(".js-ui-vis-all").forEach(function (btn) {
     btn.addEventListener("click", function () {
@@ -145,6 +177,33 @@
       var panel = btn.closest(".ui-vis-panel");
       if (!panel) return;
       panel.querySelectorAll(".js-ui-vis-chk").forEach(function (c) { c.checked = false; });
+    });
+  });
+  document.querySelectorAll(".js-xfer-defaults").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var panel = btn.closest(".xfer-wallet-panel");
+      if (!panel) return;
+      panel.querySelectorAll(".js-xfer-send").forEach(function (c) {
+        c.checked = c.getAttribute("data-default-send") === "1";
+      });
+    });
+  });
+  document.querySelectorAll(".js-xfer-clear").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var panel = btn.closest(".xfer-wallet-panel");
+      if (!panel) return;
+      panel.querySelectorAll(".js-xfer-send, .js-xfer-recv").forEach(function (c) {
+        c.checked = false;
+      });
+    });
+  });
+  document.querySelectorAll(".js-user-perm-inherit-all").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var panel = btn.closest(".user-perm-panel");
+      if (!panel) return;
+      panel.querySelectorAll(".js-user-perm-mode").forEach(function (sel) {
+        sel.value = "inherit";
+      });
     });
   });
 })();

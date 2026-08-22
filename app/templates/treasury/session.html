@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}افتتاح وإقفال الخزينة{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/treasury_desk.css?v=1" />
+{% endblock %}
+{% block body %}
+<div class="tdesk">
+  <h1 style="margin:0">إقفال الخزينة</h1>
+  {% include "treasury/_nav.html" %}
+  {% if err %}<div class="tdesk-banner err">{{ err }}</div>{% endif %}
+
+  {% if session %}
+  <div class="tdesk-card">
+    <h2>يوم مفتوح</h2>
+    <p>افتتاح: {{ pos_format_dt(session.opened_at) }}</p>
+    <div class="tdesk-mov">
+      <div><div class="lbl">افتتاح كاش</div><div class="val">{{ pos_money(session.opening_cash) }}</div></div>
+      <div><div class="lbl">افتتاح مصرف</div><div class="val">{{ pos_money(session.opening_bank) }}</div></div>
+      <div><div class="lbl">استلامات كاش</div><div class="val">{{ pos_money(movement.cash_in) }}</div></div>
+      <div><div class="lbl">استلامات مصرف</div><div class="val">{{ pos_money(movement.bank_in) }}</div></div>
+      <div><div class="lbl">مدفوعات</div><div class="val">{{ pos_money(movement.payments_out) }}</div></div>
+      <div><div class="lbl">عهد مصروفة</div><div class="val">{{ pos_money(movement.advances_out) }}</div></div>
+    </div>
+    <p style="margin:0.85rem 0 0.4rem;font-weight:700">
+      المتوقع الآن — كاش {{ pos_money(bals.cash_total) }} · مصرف {{ pos_money(bals.bank_total) }}
+    </p>
+    <p class="muted" style="font-size:0.82rem">
+      افتتاح {{ pos_money(session.opening_cash) }} + استلامات {{ pos_money(movement.cash_in) }}
+      − مدفوعات/عهد تُطابق رصيد النظام الحالي. عدّ الموجود فعلياً. أي فرق يُربط بجلستك أنت.
+    </p>
+    <form method="post" action="/pos/treasury/session/close" class="tdesk-receive" style="margin-top:0.75rem">
+      <div class="row" style="gap:0.6rem;flex-wrap:wrap;align-items:flex-end">
+        <label>المعدود كاش
+          <input name="counted_cash" type="number" step="0.001" min="0" value="{{ bals.cash_total }}" required />
+        </label>
+        <label>المعدود مصرف
+          <input name="counted_bank" type="number" step="0.001" min="0" value="{{ bals.bank_total }}" required />
+        </label>
+        <label>بيان الإقفال
+          <input name="close_note" required minlength="2" maxlength="200" placeholder="وصف إلزامي" />
+        </label>
+        <button class="btn btn-primary" type="submit">إقفال الخزينة</button>
+      </div>
+    </form>
+  </div>
+  {% else %}
+  <div class="tdesk-card">
+    <h2>لا يوجد يوم مفتوح</h2>
+    <p>الرصيد الحالي في النظام: كاش {{ pos_money(bals.cash_total) }} · مصرف {{ pos_money(bals.bank_total) }}</p>
+    <form method="post" action="/pos/treasury/session/open">
+      <button class="btn btn-primary" type="submit">افتتاح يوم الخزينة</button>
+    </form>
+  </div>
+  {% endif %}
+
+  {% if last_session %}
+  <div class="tdesk-card">
+    <h2>آخر إقفال</h2>
+    <p class="muted" style="margin:0">
+      #{{ last_session.id }} · {{ pos_format_dt(last_session.closed_at) }}
+      · متوقع كاش {{ pos_money(last_session.expected_cash) }} / معدود {{ pos_money(last_session.counted_cash) }}
+      · متوقع مصرف {{ pos_money(last_session.expected_bank) }} / معدود {{ pos_money(last_session.counted_bank) }}
+    </p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -15,6 +15,7 @@ KIND_RECEIPT = "receipt"
 KIND_PURCHASE = "purchase"
 KIND_EXPENSE = "expense"
 KIND_REFUND = "refund"
+KIND_TRANSFER = "transfer"
 
 KIND_LABELS = {
     KIND_SALE: "مبيعات",
@@ -22,6 +23,7 @@ KIND_LABELS = {
     KIND_PURCHASE: "مشتريات",
     KIND_EXPENSE: "مصروفات",
     KIND_REFUND: "مرتجع",
+    KIND_TRANSFER: "تحويل",
 }
 
 KIND_OPTIONS = [
@@ -31,6 +33,7 @@ KIND_OPTIONS = [
     (KIND_PURCHASE, "مشتريات"),
     (KIND_EXPENSE, "مصروفات"),
     (KIND_REFUND, "مرتجعات"),
+    (KIND_TRANSFER, "تحويلات"),
 ]
 
 _PAGE_SIZE = 40
@@ -50,6 +53,9 @@ class UnifiedTxRow:
     note: str
     detail_url: str
     sort_id: int
+    employee_name: str = ""
+    source_kind: str = ""
+    source_id: int = 0
 
 
 @dataclass
@@ -60,6 +66,29 @@ class UnifiedTxSummary:
     purchases_total: Decimal
     expenses_total: Decimal
     refunds_total: Decimal
+    transfers_total: Decimal
+
+
+def _user_display_names(db: Session, user_ids: set[int]) -> dict[int, str]:
+    """اسم الموظف المرتبط بالمستخدم، أو اسم الدخول إن لم يُربط."""
+    if not user_ids:
+        return {}
+    from modules.authz.models import User
+    from modules.hr.models import Employee
+
+    users = {
+        int(u.id): (u.username or "").strip()
+        for u in db.scalars(select(User).where(User.id.in_(user_ids))).all()
+    }
+    emp_by_user = {
+        int(e.user_id): (e.full_name_ar or "").strip()
+        for e in db.scalars(select(Employee).where(Employee.user_id.in_(user_ids))).all()
+        if e.user_id
+    }
+    out: dict[int, str] = {}
+    for uid in user_ids:
+        out[uid] = emp_by_user.get(uid) or users.get(uid) or ""
+    return out
 
 
 def _q_match(text: str | None, q: str) -> bool:
@@ -91,7 +120,10 @@ def _collect_rows(
     q: str,
 ) -> list[UnifiedTxRow]:
     """يجمع كل العمليات المطابقة ثم يرتّبها (الأحدث أولاً)."""
+    from modules.gl.wallet_labels import label_from_info_map, wallet_gl_info_map
+
     rows: list[UnifiedTxRow] = []
+    gl_info = wallet_gl_info_map(db)
     q_norm = (q or "").strip().casefold()
     kind = (kind or "all").strip().lower()
     if kind not in {k for k, _ in KIND_OPTIONS}:
@@ -171,7 +203,7 @@ def _collect_rows(
         for sp, sale in pay_rows:
             party = _customer_label(sale.customer)
             ref = f"تحصيل فاتورة #{sale.id}"
-            method = sp.method.name_ar if sp.method else "—"
+            method = label_from_info_map(gl_info, sp.method) if sp.method else "—"
             if (
                 not _q_match(party, q_norm)
                 and not _q_match(ref, q_norm)
@@ -273,7 +305,7 @@ def _collect_rows(
                 or p.receipt_batch_no
                 or f"{'شراء' if row_kind == KIND_PURCHASE else 'مصروف'} #{p.id}"
             )
-            method = p.method.name_ar if p.method else "—"
+            method = label_from_info_map(gl_info, p.method) if p.method else "—"
             note = (p.note or p.expense_category or "")[:160]
             if (
                 not _q_match(party, q_norm)
@@ -299,6 +331,75 @@ def _collect_rows(
                 )
             )
 
+    # ── تحويلات بين الحسابات (يدوي / مالك) ──
+    if kind in ("all", KIND_TRANSFER):
+        from modules.payments.models import PaymentTransfer, PaymentTransferType
+
+        xfer_types = (
+            PaymentTransferType.MANUAL,
+            PaymentTransferType.OWNER_DRAW,
+            PaymentTransferType.OWNER_CAPITAL,
+        )
+        xfers = list(
+            db.scalars(
+                select(PaymentTransfer)
+                .where(
+                    PaymentTransfer.created_at >= start,
+                    PaymentTransfer.created_at < end,
+                    PaymentTransfer.transfer_type.in_(xfer_types),
+                )
+                .options(
+                    selectinload(PaymentTransfer.from_method),
+                    selectinload(PaymentTransfer.to_method),
+                )
+                .order_by(PaymentTransfer.created_at.desc(), PaymentTransfer.id.desc())
+                .limit(_EXPORT_CAP)
+            ).all()
+        )
+        domain_vals = purchase_domain_db_values(domain)
+        user_ids = {int(tf.created_by_id) for tf in xfers if tf.created_by_id}
+        emp_names = _user_display_names(db, user_ids)
+        for tf in xfers:
+            from_m = tf.from_method
+            to_m = tf.to_method
+            if domain_vals is not None:
+                from_dom = getattr(getattr(from_m, "business_domain", None), "value", None)
+                to_dom = getattr(getattr(to_m, "business_domain", None), "value", None)
+                if from_dom not in domain_vals and to_dom not in domain_vals:
+                    continue
+            from_name = label_from_info_map(gl_info, from_m) if from_m else "—"
+            to_name = label_from_info_map(gl_info, to_m) if to_m else "—"
+            party = f"{from_name} → {to_name}"
+            ref = f"تحويل #{tf.id}"
+            note = (tf.note or "").strip()
+            if (
+                not _q_match(party, q_norm)
+                and not _q_match(ref, q_norm)
+                and not _q_match(note, q_norm)
+                and not _q_match(from_name, q_norm)
+                and not _q_match(to_name, q_norm)
+            ):
+                continue
+            amt = Decimal(str(tf.amount or 0)).quantize(Decimal("0.001"))
+            rows.append(
+                UnifiedTxRow(
+                    kind=KIND_TRANSFER,
+                    kind_label=KIND_LABELS[KIND_TRANSFER],
+                    created_at=tf.created_at,
+                    ref=ref,
+                    party_name=party,
+                    amount=amt,
+                    signed_amount=Decimal("0.000"),
+                    method_name=f"{from_name} → {to_name}",
+                    note=note,
+                    detail_url=f"/reports/transactions/transfer/{tf.id}",
+                    sort_id=int(tf.id),
+                    employee_name=emp_names.get(int(tf.created_by_id or 0), ""),
+                    source_kind="transfer",
+                    source_id=int(tf.id),
+                )
+            )
+
     _epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
     rows.sort(
         key=lambda r: (
@@ -312,7 +413,7 @@ def _collect_rows(
 
 def summarize(rows: list[UnifiedTxRow]) -> UnifiedTxSummary:
     zero = Decimal("0.000")
-    sales = receipts = purchases = expenses = refunds = zero
+    sales = receipts = purchases = expenses = refunds = transfers = zero
     for r in rows:
         if r.kind == KIND_SALE:
             sales += r.amount
@@ -324,6 +425,8 @@ def summarize(rows: list[UnifiedTxRow]) -> UnifiedTxSummary:
             expenses += r.amount
         elif r.kind == KIND_REFUND:
             refunds += r.amount
+        elif r.kind == KIND_TRANSFER:
+            transfers += r.amount
     return UnifiedTxSummary(
         total_count=len(rows),
         sales_total=sales.quantize(Decimal("0.001")),
@@ -331,6 +434,7 @@ def summarize(rows: list[UnifiedTxRow]) -> UnifiedTxSummary:
         purchases_total=purchases.quantize(Decimal("0.001")),
         expenses_total=expenses.quantize(Decimal("0.001")),
         refunds_total=refunds.quantize(Decimal("0.001")),
+        transfers_total=transfers.quantize(Decimal("0.001")),
     )
 
 

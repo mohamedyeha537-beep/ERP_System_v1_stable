@@ -196,6 +196,7 @@ def _href_for_notification_event(event_key: str, payload: dict | None = None) ->
         booking_id = payload.get("booking_id") or payload.get("source_id")
         if key.startswith("hotel.booking") or key in (
             "hotel.checkout_reminder",
+            "hotel.late_checkout_charged",
             "hotel.night_payment_due",
             "hotel.balance_claim",
             "hotel.unpaid_service_added",
@@ -215,6 +216,19 @@ def _href_for_notification_event(event_key: str, payload: dict | None = None) ->
     if key.startswith("order.") or key.startswith("pos."):
         # جلسات بيع المطعم تُدار من شاشة الـ POS
         return "/pos"
+    if key in ("treasury.handoff_pending", "treasury.shift_closed"):
+        shift_id = payload.get("shift_id") or payload.get("source_id")
+        kind = str(payload.get("shift_kind") or "restaurant").strip().lower()
+        if shift_id:
+            try:
+                sid = int(shift_id)
+            except (TypeError, ValueError):
+                sid = 0
+            if sid:
+                if kind == "hotel":
+                    return f"/admin/hotel/shift/{sid}/report"
+                return f"/reports/shifts/{sid}"
+        return "/pos/treasury" if kind != "hotel" else "/admin/hotel/shift"
     if key.startswith("inventory."):
         return "/inventory"
     return "/admin/notifications/logs"
@@ -572,26 +586,51 @@ def build_activity_hub(
                 raw_payload = json.loads(ev.payload_json or "{}")
                 if isinstance(raw_payload, dict):
                     payload = raw_payload
-                    for k in (
-                        "overdue_minutes",
-                        "operator_name",
-                        "shift_name",
-                        "room_number",
-                        "booking_ref",
-                        "sale_id",
-                        "product_name",
-                        "guest_name",
+                    if str(payload.get("hub_detail") or "").strip():
+                        payload_hint = str(payload["hub_detail"]).strip()
+                    elif ev.event_key in (
+                        "treasury.handoff_pending",
+                        "treasury.shift_closed",
                     ):
-                        if payload.get(k) is not None:
-                            if k == "overdue_minutes":
-                                payload_hint = f"متأخر {payload[k]} د"
-                            else:
-                                payload_hint = f"{k}={payload[k]}"
-                            break
+                        kind_ar = str(payload.get("shift_kind_ar") or "مطعم").strip()
+                        sid = payload.get("shift_id") or ""
+                        emp = str(
+                            payload.get("employee_name")
+                            or payload.get("cashier_name")
+                            or "—"
+                        ).strip()
+                        payload_hint = f"جلسة {kind_ar} #{sid} · الموظف: {emp}"
+                    else:
+                        for k in (
+                            "overdue_minutes",
+                            "operator_name",
+                            "shift_name",
+                            "room_number",
+                            "booking_ref",
+                            "sale_id",
+                            "product_name",
+                            "guest_name",
+                            "cashier_name",
+                            "shift_id",
+                        ):
+                            if payload.get(k) is not None:
+                                if k == "overdue_minutes":
+                                    payload_hint = f"متأخر {payload[k]} د"
+                                elif k == "cashier_name":
+                                    payload_hint = f"الموظف: {payload[k]}"
+                                elif k == "shift_id":
+                                    payload_hint = f"جلسة #{payload[k]}"
+                                else:
+                                    payload_hint = f"{k}={payload[k]}"
+                                break
             except Exception:
                 payload = {}
             href = _href_for_notification_event(ev.event_key, payload)
             label = _event_label(ev.event_key)
+            if ev.event_key == "treasury.handoff_pending":
+                kind_ar = str(payload.get("shift_kind_ar") or "").strip()
+                if kind_ar:
+                    label = f"جلسة {kind_ar} بانتظار اعتماد الخزينة"
             sec.items.append(
                 ActivityItem(
                     item_key=ik,

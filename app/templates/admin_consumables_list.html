@@ -93,7 +93,7 @@
         <td>{{ p.supplier or '—' }}</td>
         <td>{{ p.lines|length }}</td>
         <td style="direction:ltr;text-align:right">{{ pos_money(p.amount) }} <span class="money-currency">د.ل</span></td>
-        <td>{% if p.method %}{{ p.method.name_ar }}{% else %}—{% endif %}</td>
+        <td>{% if p.method %}{{ pos_wallet_label(p.method) }}{% else %}—{% endif %}</td>
         <td>
           <div class="row" style="gap:0.3rem;margin:0">
             <a class="btn" href="/admin/consumables/{{ p.id }}" style="padding:0.2rem 0.5rem;font-size:0.85rem">عرض</a>

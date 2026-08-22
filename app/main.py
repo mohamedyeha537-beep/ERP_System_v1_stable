@@ -19,6 +19,7 @@ from modules.authz.router_web import admin_router, router as auth_router
 from modules.authz.service import (
     ensure_demo_users,
     ensure_purchases_clerk_demo_user,
+    ensure_treasury_clerk_login_user,
     seed_if_empty,
     sync_permissions,
     user_has_permission,
@@ -61,6 +62,8 @@ from modules.printing.router_web import router as printing_admin_router
 from modules.hr.router_web import (
     advances_router as hr_advances_router,
     attendance_router as hr_attendance_router,
+    bonuses_router as hr_bonuses_router,
+    deductions_router as hr_deductions_router,
     departments_router as hr_departments_router,
     employees_router as hr_employees_router,
     payroll_router as hr_payroll_router,
@@ -85,6 +88,7 @@ from modules.customers.router_web import (
     router as customers_admin_router,
     loyalty_router as loyalty_settings_router,
 )
+from modules.customers.export_router import router as customers_export_router
 from modules.delivery.router_web import router as delivery_router
 from modules.branding.router_web import router as branding_router
 from modules.web_marketing.router_web import router as web_marketing_router
@@ -100,6 +104,9 @@ from modules.pos_shifts.router_web import router as pos_shifts_router
 from modules.pos_shifts.reports_router import router as pos_shift_reports_router
 from modules.admin_shifts_router import router as admin_shifts_router
 from modules.pos_shifts.expense_categories_router import router as shift_expense_categories_router
+from modules.payments.pay_categories_router import router as treasury_pay_categories_router
+from modules.payments.shift_variances_router import router as shift_variances_router
+from modules.payments.treasury_desk_router import router as treasury_desk_router
 from modules.sales.router_web import router as pos_router
 from modules.gl.router_web import router as gl_router
 from modules.settings.router_web import router as settings_router
@@ -127,11 +134,16 @@ async def lifespan(app: FastAPI):
     import modules.catalog.models  # noqa: F401
     import modules.inventory.models  # noqa: F401
     import modules.payments.models  # noqa: F401
+    import modules.payments.shift_variance_models  # noqa: F401
+    import modules.payments.shift_handover_models  # noqa: F401
+    import modules.payments.treasury_session_models  # noqa: F401
+    import modules.payments.purchase_advance_models  # noqa: F401
     import modules.sales.models  # noqa: F401
     import modules.settings.models  # noqa: F401
     import modules.hr.models  # noqa: F401
     import modules.hotel.models  # noqa: F401
     import modules.hotel.booking_models  # noqa: F401
+    import modules.hotel.company_agreement_models  # noqa: F401
     import modules.hotel.shift_models  # noqa: F401
     import modules.customers.models  # noqa: F401
     import modules.delivery.models  # noqa: F401
@@ -148,6 +160,7 @@ async def lifespan(app: FastAPI):
     import modules.web_marketing.models  # noqa: F401
     import modules.seo.models  # noqa: F401
     import modules.marketing_room.models  # noqa: F401
+    import modules.security.supervisor_otp  # noqa: F401
 
     engine = get_engine()
     bootstrap_schema(engine)
@@ -188,8 +201,13 @@ async def lifespan(app: FastAPI):
         sync_permissions(db)
         ensure_demo_users(db)
         ensure_purchases_clerk_demo_user(db)
+        ensure_treasury_clerk_login_user(db)
+        db.commit()
         ensure_default_units(db)
         ensure_default_settings(db)
+        from modules.security.supervisor_otp import ensure_hotel_guest_refund_otp_off
+
+        ensure_hotel_guest_refund_otp_off(db)
         from modules.sales.order_policy import ensure_order_policy_defaults
 
         ensure_order_policy_defaults(db)
@@ -373,6 +391,18 @@ def create_app() -> FastAPI:
         if path.startswith(_SKIP_STATE_PREFIXES):
             return await call_next(request)
 
+        def _after_user_redirect():
+            user = getattr(request.state, "current_user", None)
+            if not user:
+                return None
+            from fastapi.responses import RedirectResponse
+            from modules.authz.domain_scope import domain_scope_redirect_path
+
+            target = domain_scope_redirect_path(user, request.url.path)
+            if target and request.url.path != target:
+                return RedirectResponse(target, status_code=302)
+            return None
+
         request.state.current_user = None
         request.state.store_name = "نقطة البيع"
         request.state.brand = None
@@ -394,6 +424,9 @@ def create_app() -> FastAPI:
                 hit_u = _USER_CACHE.get(uid_i)
                 if hit_u is not None and (now_u - hit_u[0]) < _USER_CACHE_TTL:
                     request.state.current_user = hit_u[1]
+                    bounced = _after_user_redirect()
+                    if bounced is not None:
+                        return bounced
                     return await call_next(request)
 
             from infra.db import get_session_factory
@@ -416,6 +449,8 @@ def create_app() -> FastAPI:
                         if u is not None and u.is_active:
                             for _role in u.roles:
                                 _ = list(_role.permissions)
+                            _ = list(getattr(u, "permission_grants", None) or [])
+                            _ = list(getattr(u, "permission_denies", None) or [])
                             request.state.current_user = u
                             _USER_CACHE[uid_i] = (now_u, u)
                         else:
@@ -459,6 +494,9 @@ def create_app() -> FastAPI:
                 db.close()
         except Exception:
             pass
+        bounced = _after_user_redirect()
+        if bounced is not None:
+            return bounced
         return await call_next(request)
 
     @app.middleware("http")
@@ -589,6 +627,9 @@ def create_app() -> FastAPI:
     app.include_router(pos_shifts_router)
     app.include_router(pos_shift_reports_router)
     app.include_router(shift_expense_categories_router)
+    app.include_router(treasury_pay_categories_router)
+    app.include_router(shift_variances_router)
+    app.include_router(treasury_desk_router)
     app.include_router(reporting_router)
     app.include_router(receivables_router)
     app.include_router(payables_router)
@@ -631,6 +672,8 @@ def create_app() -> FastAPI:
     app.include_router(hr_work_shifts_router)
     app.include_router(hr_attendance_router)
     app.include_router(hr_payroll_router)
+    app.include_router(hr_bonuses_router)
+    app.include_router(hr_deductions_router)
     app.include_router(hr_advances_router)
     app.include_router(hr_meal_router)
     app.include_router(hotel_rooms_router)
@@ -643,6 +686,7 @@ def create_app() -> FastAPI:
     app.include_router(hotel_suites_router)
     app.include_router(hotel_suites_api_router)
     app.include_router(hotel_settle_router)
+    app.include_router(customers_export_router)
     app.include_router(customers_admin_router)
     app.include_router(loyalty_settings_router)
     app.include_router(branding_router)
@@ -746,10 +790,19 @@ def create_app() -> FastAPI:
         if user is None:
             return RedirectResponse("/auth/login", status_code=302)
 
+        from modules.authz.domain_scope import default_landing_path, lands_on_hotel_dashboard
         from modules.authz.kiosk import is_cashier_kiosk_user
 
         if is_cashier_kiosk_user(user):
             return RedirectResponse("/pos", status_code=302)
+
+        # موظفو الفندق: لوحة الشقق مباشرة بدل صفحة الأيقونات المكررة
+        if lands_on_hotel_dashboard(user):
+            from modules.authz.kiosk import requires_hotel_shift_pin
+
+            if requires_hotel_shift_pin(user):
+                return RedirectResponse("/admin/hotel/pin", status_code=302)
+            return RedirectResponse(default_landing_path(user), status_code=302)
 
         def perm(code: str) -> bool:
             return user_has_permission(user, code)

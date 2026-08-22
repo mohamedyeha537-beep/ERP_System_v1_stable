@@ -45,6 +45,95 @@ class NotificationService:
         return get_bool(db, "notifications_enabled", True) and messaging_enabled(db)
 
     @staticmethod
+    def _hub_forward_title_detail(
+        event_key: str,
+        label: str,
+        payload: dict[str, Any],
+        *,
+        source_id: int | None = None,
+    ) -> tuple[str, str]:
+        """عنوان وتفاصيل عربية واضحة لإعادة توجيه مركز الإشعارات إلى واتساب."""
+        pl = payload if isinstance(payload, dict) else {}
+        pre = str(pl.get("hub_detail") or "").strip()
+        if pre:
+            kind_ar = str(pl.get("shift_kind_ar") or "").strip()
+            if event_key == "treasury.handoff_pending" and kind_ar:
+                return f"جلسة {kind_ar} بانتظار اعتماد الخزينة", pre
+            return str(label), pre
+
+        if event_key in (
+            "treasury.handoff_pending",
+            "treasury.shift_closed",
+            "pos.shift_closed",
+        ):
+            kind_ar = str(pl.get("shift_kind_ar") or "").strip() or "مطعم"
+            sid = pl.get("shift_id") or source_id or ""
+            emp = (
+                str(pl.get("employee_name") or pl.get("cashier_name") or "").strip()
+                or "—"
+            )
+            closed = str(pl.get("closed_at") or "").strip()
+            parts = [f"جلسة {kind_ar} #{sid}", f"الموظف: {emp}"]
+            if closed and closed != "—":
+                parts.append(f"أُغلقت: {closed}")
+            title = (
+                f"جلسة {kind_ar} بانتظار اعتماد الخزينة"
+                if event_key == "treasury.handoff_pending"
+                else f"إغلاق جلسة {kind_ar}"
+            )
+            return title, " · ".join(parts)
+
+        hint_parts: list[str] = []
+        labels_ar = {
+            "room_number": "غرفة",
+            "guest_name": "ضيف",
+            "customer_name": "عميل",
+            "operator_name": "موظف",
+            "cashier_name": "موظف",
+            "employee_name": "موظف",
+            "shift_id": "جلسة",
+            "reference": "مرجع",
+            "booking_id": "حجز",
+            "sale_id": "فاتورة",
+            "order_type": "نوع",
+        }
+        for k in (
+            "hub_detail",
+            "shift_kind_ar",
+            "shift_id",
+            "cashier_name",
+            "employee_name",
+            "operator_name",
+            "room_number",
+            "guest_name",
+            "customer_name",
+            "reference",
+            "booking_id",
+            "sale_id",
+            "total",
+            "amount",
+            "items_summary",
+            "order_type",
+            "closed_at",
+        ):
+            v = pl.get(k)
+            if v is None or not str(v).strip():
+                continue
+            if k in ("hub_detail", "shift_kind_ar"):
+                continue
+            if k == "items_summary":
+                hint_parts.append(str(v).strip())
+            elif k == "total":
+                hint_parts.append(f"الإجمالي={v}")
+            elif k in labels_ar:
+                hint_parts.append(f"{labels_ar[k]}: {v}")
+            else:
+                hint_parts.append(f"{k}={v}")
+            if len(hint_parts) >= 6:
+                break
+        return str(label), " · ".join(hint_parts)
+
+    @staticmethod
     def emit_event(
         db: Session,
         *,
@@ -86,34 +175,14 @@ class NotificationService:
                     (lab for k, lab in ALL_EVENT_KEYS if k == event_key),
                     event_key,
                 )
-                hint_parts: list[str] = []
-                for k in (
-                    "room_number",
-                    "guest_name",
-                    "customer_name",
-                    "operator_name",
-                    "reference",
-                    "booking_id",
-                    "sale_id",
-                    "total",
-                    "amount",
-                    "items_summary",
-                    "order_type",
-                ):
-                    v = (payload or {}).get(k)
-                    if v is not None and str(v).strip():
-                        if k == "items_summary":
-                            hint_parts.append(str(v).strip())
-                        elif k == "total":
-                            hint_parts.append(f"الإجمالي={v}")
-                        else:
-                            hint_parts.append(f"{k}={v}")
-                    if len(hint_parts) >= 6:
-                        break
+                pl = payload or {}
+                title_s, detail_s = NotificationService._hub_forward_title_detail(
+                    event_key, label, pl, source_id=source_id
+                )
                 forward_hub_item_to_whatsapp(
                     db,
-                    title=str(label),
-                    detail=" · ".join(hint_parts),
+                    title=title_s,
+                    detail=detail_s,
                     event_type=f"hub.event.{event_key}"[:64],
                     meta={
                         "event_key": event_key,
@@ -212,7 +281,8 @@ class NotificationService:
             return False
         require_consent = (
             rule.recipient_type == "customer"
-            and event.event_key != REFERRAL_LINK_CREATED
+            and event.event_key
+            not in (REFERRAL_LINK_CREATED, "hotel.balance_claim")
         )
         recipients = resolve_recipients(
             db,
@@ -463,6 +533,12 @@ class NotificationService:
             "doc_title": payload.get("doc_title") or payload.get("payment_label") or "إيصال قبض",
             "booking_url": payload.get("booking_url") or "",
             "invoice_url": payload.get("invoice_url") or "",
+            "reception_phone": payload.get("reception_phone") or "",
+            "checkout_time_line": payload.get("checkout_time_line") or "",
+            "grace_deadline": payload.get("grace_deadline") or "",
+            "new_check_out": payload.get("new_check_out") or "",
+            "claim_note_line": payload.get("claim_note_line") or "",
+            "claim_note": payload.get("claim_note") or "",
         })
         return vars_out
 
@@ -508,9 +584,30 @@ class NotificationService:
         )
         log.outbox_id = outbox.id
         log.attempts = 0
+        # مطالبة الدين يدوياً: إرسال فوري (مثل فاتورة الحجز) حتى لا يظن الموظف أن الرسالة أُرسلت وهي في الطابور فقط
+        immediate = str(payload.get("_immediate") or "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
+        if immediate or log.event_key == "hotel.balance_claim":
+            from modules.messaging.models import MessageOutboxStatus
+            from modules.messaging.outbox import send_outbox_item_now
+
+            row = send_outbox_item_now(db, outbox)
+            log.attempts = 1
+            log.last_attempt_at = datetime.now(timezone.utc)
+            if row.status == MessageOutboxStatus.SENT.value:
+                log.status = NotificationLogStatus.SENT.value
+                log.sent_at = datetime.now(timezone.utc)
+                log.error_message = None
+                return True
+            log.status = NotificationLogStatus.FAILED.value
+            log.error_message = (row.error_message or "فشل إرسال واتساب").strip()[:500]
+            return False
         log.status = NotificationLogStatus.QUEUED.value
-        # لا نرسل واتساب بشكل متزامن هنا — عامل الرسائل يلتقط الطابور.
-        # الإرسال الفوري كان يجمّد إتمام البيع وتصفح الصفحات عند بطء المزود.
+        # باقي الأحداث: عامل الرسائل يلتقط الطابور حتى لا يتجمّد إتمام البيع
         return True
 
     @staticmethod

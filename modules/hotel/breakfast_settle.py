@@ -92,6 +92,22 @@ def sale_is_hotel_breakfast(db: Session, sale: Sale | None) -> bool:
     return sale_looks_like_hotel_breakfast(db, sale)
 
 
+def list_open_breakfast_charge_ids(
+    db: Session, *, room_id: int | None = None
+) -> list[int]:
+    """فواتير الإفطار المفتوحة القابلة للتسوية (مربوطة بحجز)."""
+    from modules.hotel.service import settle_index_charges_by_room
+
+    ids: list[int] = []
+    for rid, rows in settle_index_charges_by_room(db).items():
+        if room_id is not None and int(rid) != int(room_id):
+            continue
+        for ch in rows:
+            if ch.is_breakfast and ch.can_settle:
+                ids.append(int(ch.charge_id))
+    return ids
+
+
 @dataclass(frozen=True)
 class BreakfastCostRow:
     sale_id: int

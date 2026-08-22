@@ -1,0 +1,35 @@
+{# منح أو منع صلاحيات مباشرة لكل مستخدم (فوق الأدوار) #}
+{% macro user_permissions_fields(user=None, perms=[], grant_ids=[], deny_ids=[], role_codes=[]) %}
+{% set gset = grant_ids if grant_ids is defined else [] %}
+{% set dset = deny_ids if deny_ids is defined else [] %}
+{% set rset = role_codes if role_codes is defined else [] %}
+<details class="user-perm-panel" open style="margin:0.75rem 0;padding:0.75rem;border:1px solid var(--border);border-radius:8px;background:#fffbeb">
+  <summary style="cursor:pointer;font-weight:700">صلاحيات الوظائف (منح / منع لكل مستخدم)</summary>
+  <p class="muted" style="font-size:0.85rem;margin:0.5rem 0 0.65rem">
+    <strong>من الدور</strong> = كما في الأدوار المعيّنة.
+    <strong>منح</strong> = إضافة صلاحية لهذا المستخدم فقط.
+    <strong>منع</strong> = حظر الصلاحية حتى لو منحها دوره (مثلاً منع تعديل الفواتير عن أمين الخزينة).
+  </p>
+  <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.55rem">
+    <button type="button" class="btn js-user-perm-inherit-all" style="font-size:0.85rem">الكل من الدور</button>
+  </div>
+  <div style="max-height:22rem;overflow:auto;border:1px solid var(--border);border-radius:6px;padding:0.35rem 0.5rem">
+    {% for p in perms %}
+    {% set from_role = p.code in rset %}
+    {% set mode = 'deny' if p.id in dset else ('grant' if p.id in gset else 'inherit') %}
+    <div class="js-user-perm-row" style="display:grid;grid-template-columns:1fr auto;gap:0.5rem;align-items:center;padding:0.35rem 0;border-bottom:1px dashed var(--border)">
+      <div>
+        <strong style="font-size:0.92rem">{{ p.label_ar }}</strong>
+        <span class="muted" style="font-size:0.78rem">({{ p.code }})</span>
+        {% if from_role %}<span class="muted" style="font-size:0.75rem;color:#166534"> · موجودة في الدور</span>{% endif %}
+      </div>
+      <select name="perm_mode_{{ p.id }}" class="js-user-perm-mode" style="min-width:8.5rem">
+        <option value="inherit" {% if mode == 'inherit' %}selected{% endif %}>من الدور</option>
+        <option value="grant" {% if mode == 'grant' %}selected{% endif %}>منح</option>
+        <option value="deny" {% if mode == 'deny' %}selected{% endif %}>منع</option>
+      </select>
+    </div>
+    {% endfor %}
+  </div>
+</details>
+{% endmacro %}

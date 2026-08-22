@@ -22,7 +22,7 @@
   </p>
   <p><strong>رقم فاتورة المورّد / المرجع:</strong> {{ purchase.supplier_invoice_ref or '—' }}</p>
   <p><strong>رقم استلام المخزون:</strong> <code>{{ purchase.receipt_batch_no or ('GR-%06d'|format(purchase.id)) }}</code></p>
-  <p><strong>طريقة السداد (الفاتورة):</strong> {% if purchase.method %}{{ purchase.method.name_ar }}{% else %}—{% endif %}</p>
+  <p><strong>طريقة السداد (الفاتورة):</strong> {% if purchase.method %}{{ pos_wallet_label(purchase.method) }}{% else %}—{% endif %}</p>
   {% if is_cost_reference %}
   <p class="muted" style="margin:0.35rem 0;font-size:0.88rem;background:#eff6ff;padding:0.5rem 0.65rem;border-radius:8px;border:1px solid #bfdbfe">
     <strong>مرجع تكلفة</strong> — لاحتساب سعر التركيبة فقط، بدون استلام مخزون وبدون ذمة مورد.
@@ -134,7 +134,7 @@
       {% for pp in purchase.payments %}
       <tr>
         <td>{{ pos_format_dt(pp.created_at, '%Y-%m-%d %H:%M') if pp.created_at else '—' }}</td>
-        <td>{% if pp.method %}{{ pp.method.name_ar }}{% endif %}</td>
+        <td>{% if pp.method %}{{ pos_wallet_label(pp.method) }}{% endif %}</td>
         <td style="color:#16a34a">{{ pp.amount }} د.ل</td>
         <td>{{ pp.note or '—' }}</td>
       </tr>
@@ -152,7 +152,7 @@
       <label>المحفظة</label>
       <select name="payment_method_id" required>
         {% for m in pay_methods if pos_is_purchase_pay_wallet(m) %}
-        <option value="{{ m.id }}">{{ m.name_ar }}</option>
+        <option value="{{ m.id }}">{{ pos_wallet_label(m) }}</option>
         {% endfor %}
       </select>
     </div>

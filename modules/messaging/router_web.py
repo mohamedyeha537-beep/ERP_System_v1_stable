@@ -102,6 +102,11 @@ SETTING_KEYS = [
     "web_chat_enabled",
     "shop_enabled",
     "shop_online_staff_phone",
+    "shop_hours_enforce",
+    "shop_hours_open",
+    "shop_hours_close",
+    "shop_hours_open_weekdays",
+    "shop_hours_closed_message",
     "web_chat_n8n_webhook_url",
     "web_chat_bank_payment_text",
     "web_chat_guide_loyalty_file",
@@ -225,6 +230,11 @@ def messaging_save(
     web_chat_enabled: str = Form(""),
     shop_enabled: str = Form(""),
     shop_online_staff_phone: str = Form(""),
+    shop_hours_enforce: str = Form(""),
+    shop_hours_open: str = Form("10:00"),
+    shop_hours_close: str = Form("23:00"),
+    shop_hours_open_weekdays: list[str] = Form(default=[]),
+    shop_hours_closed_message: str = Form(""),
     web_chat_n8n_webhook_url: str = Form(""),
     web_chat_bank_payment_text: str = Form(""),
     web_chat_bot_name: str = Form(""),
@@ -292,6 +302,31 @@ def messaging_save(
         db,
         "shop_online_staff_phone",
         (shop_online_staff_phone or "").strip()[:40],
+    )
+    set_setting(db, "shop_hours_enforce", "1" if shop_hours_enforce == "on" else "0")
+    from modules.shop.hours import _parse_hhmm, _fmt_time
+
+    ot = _parse_hhmm(shop_hours_open, "10:00")
+    ct = _parse_hhmm(shop_hours_close, "23:00")
+    set_setting(db, "shop_hours_open", _fmt_time(ot) if ot else "10:00")
+    set_setting(db, "shop_hours_close", _fmt_time(ct) if ct else "23:00")
+    days_vals: list[str] = []
+    if isinstance(shop_hours_open_weekdays, str):
+        days_vals = [shop_hours_open_weekdays] if shop_hours_open_weekdays.strip() else []
+    elif shop_hours_open_weekdays:
+        days_vals = [str(x).strip() for x in shop_hours_open_weekdays if str(x).strip()]
+    valid_days = sorted(
+        {int(d) for d in days_vals if d.isdigit() and 0 <= int(d) <= 6}
+    )
+    set_setting(
+        db,
+        "shop_hours_open_weekdays",
+        ",".join(str(d) for d in valid_days) if valid_days else "0,1,2,3,4,5,6",
+    )
+    set_setting(
+        db,
+        "shop_hours_closed_message",
+        (shop_hours_closed_message or "").strip()[:500],
     )
     set_setting(db, "web_chat_n8n_webhook_url", web_chat_n8n_webhook_url.strip())
     set_setting(db, "web_chat_bank_payment_text", web_chat_bank_payment_text.strip())

@@ -430,10 +430,29 @@ body.pos-mode .pos-layout {
   max-height: min(220px, 32vh);
   overflow: auto;
   -webkit-overflow-scrolling: touch;
+  position: relative;
+  background: #fff;
 }
 
 .pos-all-orders-dialog-body .pos-all-orders-scroll {
   max-height: min(72vh, 820px);
+}
+
+/* جدول جميع الطلبات فقط: لا sticky بـ --header-h حتى لا يغطي الصف الأول */
+.pos-all-orders-scroll .pos-all-orders-table > thead,
+.pos-all-orders-scroll .pos-all-orders-table thead {
+  position: static !important;
+  top: auto !important;
+  z-index: auto !important;
+  box-shadow: none !important;
+}
+.pos-all-orders-scroll .pos-all-orders-table > thead > tr > th,
+.pos-all-orders-scroll .pos-all-orders-table thead th {
+  position: static !important;
+  top: auto !important;
+  z-index: auto !important;
+  box-shadow: none !important;
+  background-color: #f8fafc !important;
 }
 
 .pos-all-orders-table {
@@ -495,8 +514,8 @@ body.pos-mode .pos-layout {
 }
 
 .pos-order-badge--pay-partial {
-  background: #fff7ed;
-  color: #9a3412;
+  background: #ffedd5;
+  color: #ea580c;
 }
 
 .pos-order-badge--pay-room {

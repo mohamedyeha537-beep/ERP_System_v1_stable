@@ -20,7 +20,7 @@
 
   <div class="admin-sidebar-head">
 
-    <span class="admin-sidebar-title">لوحة الإدارة</span>
+    <span class="admin-sidebar-title">{% if pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}أمين الخزينة{% else %}لوحة الإدارة{% endif %}</span>
 
     <button type="button" class="admin-sidebar-close" id="adminSidebarClose" aria-label="إغلاق">✕</button>
 
@@ -28,9 +28,33 @@
 
   <nav class="admin-sidebar-nav">
 
+    {% if pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}
+
+    {{ sidebar_link('/pos/treasury/desk', 'لوحة التحكم', '/pos/treasury/desk', exact=true) }}
+    {{ sidebar_link('/pos/treasury/desk#vaults', 'الخزائن والأرصدة', '/pos/treasury/desk#vaults') }}
+    {{ sidebar_link('/pos/treasury/hotel-shifts', 'تسليم ورديات الاستقبال', '/pos/treasury/hotel-shifts') }}
+    {{ sidebar_link('/pos/treasury/pos-shifts', 'تسليم المطعم والكافيه', '/pos/treasury/pos-shifts') }}
+    {{ sidebar_link('/pos/treasury/vouchers/in', 'سندات القبض', '/pos/treasury/vouchers/in') }}
+    {{ sidebar_link('/pos/treasury/pay', 'سندات الصرف', '/pos/treasury/pay') }}
+    {{ sidebar_link('/pos/treasury/custody', 'العهد', '/pos/treasury/custody') }}
+    {{ sidebar_link('/admin/expenses', 'المصروفات', '/admin/expenses') }}
+    {{ sidebar_link('/admin/purchases', 'المشتريات والفواتير', '/admin/purchases') }}
+    {{ sidebar_link('/admin/payroll', 'الرواتب', '/admin/payroll') }}
+    {{ sidebar_link('/admin/attendance', 'الحضور والانصراف', '/admin/attendance') }}
+    {{ sidebar_link('/admin/advances', 'السلف', '/admin/advances') }}
+    {{ sidebar_link('/admin/bonuses', 'المكافآت', '/admin/bonuses') }}
+    {{ sidebar_link('/admin/deductions', 'الخصومات', '/admin/deductions') }}
+    {{ sidebar_link('/admin/shift-variances', 'العجوزات', '/admin/shift-variances') }}
+    {{ sidebar_link('/pos/treasury/debts', 'الديون والذمم', '/pos/treasury/debts') }}
+    {{ sidebar_link('/pos/treasury/banks', 'حسابات المصارف', '/pos/treasury/banks') }}
+    {{ sidebar_link('/pos/treasury/session', 'إقفال الخزينة', '/pos/treasury/session') }}
+    {{ sidebar_link('/pos/treasury/reports', 'التقارير', '/pos/treasury/reports') }}
+
+    {% else %}
+
     {% if pos_ui_show(request, 'ui_nav_home') %}
 
-    {{ sidebar_link('/', 'الرئيسية', exact=true, ui='ui_nav_home') }}
+    {{ sidebar_link(pos_home_url(request) if pos_home_url is defined else '/', 'الرئيسية', exact=true, ui='ui_nav_home') }}
 
     {% endif %}
 
@@ -50,6 +74,10 @@
 
         {% if pos_ui_show(request, 'ui_hotel_nav_shift') and (p('hotel:booking:view') or p('hotel:booking:manage') or p('hotel:finance:close_day')) %}
         {{ sidebar_link('/admin/hotel/shift', 'جلسة الفندق', '/admin/hotel/shift', ui='ui_hotel_nav_shift') }}
+        {% endif %}
+
+        {% if p('hotel:booking:view') and pos_ui_show(request, 'ui_hotel_nav_reports') %}
+        {{ sidebar_link('/admin/hotel/reports', 'تقارير الفندق', '/admin/hotel/reports', ui='ui_hotel_nav_reports') }}
         {% endif %}
 
         {% if p('hotel:rooms:manage') %}{{ sidebar_link('/admin/hotel/rooms', 'الغرف والشقق', '/admin/hotel/rooms', ui='ui_hotel') }}{% endif %}
@@ -166,6 +194,10 @@
 
         {{ sidebar_link('/admin/payroll', 'الرواتب', '/admin/payroll', ui='ui_hr') }}
 
+        {{ sidebar_link('/admin/bonuses', 'حوافز ومكافآت', '/admin/bonuses', ui='ui_hr') }}
+
+        {{ sidebar_link('/admin/deductions', 'خصومات وعجز', '/admin/deductions', ui='ui_hr') }}
+
         {{ sidebar_link('/admin/advances', 'السلف', '/admin/advances', ui='ui_hr') }}
 
         {% if nav_sales %}{{ sidebar_link('/admin/employee-meals', 'وجبات الموظفين', '/admin/employee-meals', ui='ui_hr') }}{% endif %}
@@ -214,7 +246,15 @@
 
       <div class="admin-sidebar-links">
 
+        {% if p('payments:manage') or p('treasury:handoff_approve') %}{{ sidebar_link('/pos/treasury/desk', 'لوحة أمين الخزينة', '/pos/treasury/desk') }}{% endif %}
+
         {% if p('purchases:manage') %}{{ sidebar_link('/admin/expenses', 'المصروفات', '/admin/expenses', ui='ui_expenses') }}{% endif %}
+
+        {% if p('purchases:manage') or p('payments:manage') %}{{ sidebar_link('/admin/shift-expense-categories', 'بنود مصروف الجلسة', '/admin/shift-expense-categories', ui='ui_expenses') }}{% endif %}
+
+        {% if p('purchases:manage') or p('payments:manage') %}{{ sidebar_link('/admin/treasury-pay-categories', 'بنود سندات الصرف', '/admin/treasury-pay-categories', ui='ui_expenses') }}{% endif %}
+
+        {% if p('purchases:manage') or p('payments:manage') or p('treasury:handoff_approve') %}{{ sidebar_link('/admin/shift-variances', 'العجوزات والزيادات', '/admin/shift-variances', ui='ui_expenses') }}{% endif %}
 
         {% if p('purchases:manage') %}{{ sidebar_link('/admin/assets', 'الأصول', '/admin/assets', ui='ui_assets') }}{% endif %}
 
@@ -291,6 +331,8 @@
       </div>
 
     </details>
+
+    {% endif %}
 
     {% endif %}
 

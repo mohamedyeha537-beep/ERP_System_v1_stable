@@ -19,15 +19,24 @@ DBSession = Annotated[Session, Depends(get_db_session)]
 
 
 def get_current_user(request: Request, db: DBSession) -> User | None:
+    """يعيد المستخدم مربوطاً بجلسة هذا الطلب — لا نعيد كائن الكاش المنفصل."""
+    uid = None
     if getattr(request.state, "_user_attached", False):
-        return getattr(request.state, "current_user", None)
-    uid = request.session.get("user_id")
-    if not uid:
-        return None
+        cached = getattr(request.state, "current_user", None)
+        if cached is None:
+            return None
+        uid = getattr(cached, "id", None)
+    if uid is None:
+        raw = request.session.get("user_id") if hasattr(request, "session") else None
+        if not raw:
+            return None
+        uid = int(raw)
     user = db.get(User, int(uid))
     if user is None or not user.is_active:
-        request.session.clear()
+        if not getattr(request.state, "_user_attached", False):
+            request.session.clear()
         return None
+    request.state.current_user = user
     return user
 
 

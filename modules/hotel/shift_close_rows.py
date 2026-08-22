@@ -1,4 +1,4 @@
-"""صفوف إغلاق وردية الفندق — متوقع مقابل معدود."""
+"""صفوف إغلاق وردية الفندق — كاش ومصرف فقط."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -26,7 +26,7 @@ def hotel_shift_expected_drawers(
     shift,
     activity: HotelShiftActivitySummary,
 ) -> tuple[Decimal, Decimal, Decimal, Decimal]:
-    """متوقع الكاش/المصرف مثل المطعم: افتتاحي + تحصيل − مصروف.
+    """متوقع الكاش/المصرف: افتتاحي + تحصيل الجلسة − مصروف.
 
     يعيد (expected_cash, expected_bank, cash_expenses, bank_expenses).
     """
@@ -38,17 +38,20 @@ def hotel_shift_expected_drawers(
     opening = Decimal(str(getattr(shift, "opening_cash", None) or 0)).quantize(
         Decimal("0.001")
     )
+    opening_bank = Decimal(str(getattr(shift, "opening_bank", None) or 0)).quantize(
+        Decimal("0.001")
+    )
     cash_exp = sum_hotel_shift_cash_expenses(db, shift.id)
     bank_exp = sum_hotel_shift_bank_expenses(db, shift.id)
-    exp_cash = (
-        opening
-        + activity.booking_payments_cash
-        + activity.meals_settled_cash
-        - cash_exp
+    # تحصيلات الجلسة (قبض حجوزات + أي قبض نقدي مرتبط بالتسوية) − مصروفات
+    cash_in = (
+        activity.booking_payments_cash + activity.meals_settled_cash
     ).quantize(Decimal("0.001"))
-    exp_bank = (
-        activity.booking_payments_bank + activity.meals_settled_bank - bank_exp
+    bank_in = (
+        activity.booking_payments_bank + activity.meals_settled_bank
     ).quantize(Decimal("0.001"))
+    exp_cash = (opening + cash_in - cash_exp).quantize(Decimal("0.001"))
+    exp_bank = (opening_bank + bank_in - bank_exp).quantize(Decimal("0.001"))
     return exp_cash, exp_bank, cash_exp, bank_exp
 
 
@@ -58,26 +61,27 @@ def build_hotel_shift_close_rows(
     expected_cash: Decimal,
     expected_bank: Decimal,
     opening_cash: Decimal | None = None,
+    opening_bank: Decimal | None = None,
     cash_expenses: Decimal | None = None,
     bank_expenses: Decimal | None = None,
 ) -> list[HotelShiftCloseRow]:
+    """بنود العد عند الإقفال: رصيد الكاش + رصيد المصرف فقط."""
     oc = Decimal(str(opening_cash or 0)).quantize(Decimal("0.001"))
+    ob = Decimal(str(opening_bank or 0)).quantize(Decimal("0.001"))
     cx = Decimal(str(cash_expenses or 0)).quantize(Decimal("0.001"))
     bx = Decimal(str(bank_expenses or 0)).quantize(Decimal("0.001"))
-    cash_sub = (
-        f"افتتاحي {oc} + تحصيل كاش "
-        f"{(activity.booking_payments_cash + activity.meals_settled_cash).quantize(Decimal('0.001'))}"
-        f" − مصروف كاش {cx}"
-    )
-    bank_sub = (
-        f"تحصيل مصرف "
-        f"{(activity.booking_payments_bank + activity.meals_settled_bank).quantize(Decimal('0.001'))}"
-        f" − مصروف مصرف {bx}"
-    )
-    rows: list[HotelShiftCloseRow] = [
+    cash_in = (
+        activity.booking_payments_cash + activity.meals_settled_cash
+    ).quantize(Decimal("0.001"))
+    bank_in = (
+        activity.booking_payments_bank + activity.meals_settled_bank
+    ).quantize(Decimal("0.001"))
+    cash_sub = f"افتتاحي {oc} + قبض الجلسة {cash_in} − مصروف كاش {cx}"
+    bank_sub = f"افتتاحي {ob} + قبض الجلسة {bank_in} − مصروف مصرف {bx}"
+    return [
         HotelShiftCloseRow(
             key="cash",
-            name_ar="كاش الاستقبال",
+            name_ar="رصيد الكاش",
             subtitle=cash_sub,
             kind="cash",
             closable=True,
@@ -88,7 +92,7 @@ def build_hotel_shift_close_rows(
         ),
         HotelShiftCloseRow(
             key="bank",
-            name_ar="مصرف / تحويل",
+            name_ar="رصيد المصرف",
             subtitle=bank_sub,
             kind="bank",
             closable=True,
@@ -97,61 +101,4 @@ def build_hotel_shift_close_rows(
             expected=expected_bank,
             sales_total=expected_bank,
         ),
-        HotelShiftCloseRow(
-            key="bookings",
-            name_ar="عمليات الحجز",
-            subtitle=(
-                f"حجوزات جديدة {activity.bookings_created} · "
-                f"وصول {activity.checkins} · مغادرة {activity.checkouts}"
-            ),
-            kind="bookings",
-            closable=True,
-            require_count=True,
-            is_count=True,
-            expected=activity.expected_booking_ops,
-        ),
-        HotelShiftCloseRow(
-            key="meals",
-            name_ar="وجبات الغرف (مُسوّاة)",
-            subtitle=f"إجمالي {activity.meals_settled_total} د.ل",
-            kind="meals",
-            closable=True,
-            require_count=True,
-            is_count=True,
-            expected=activity.meals_settled_count,
-        ),
-        HotelShiftCloseRow(
-            key="laundry",
-            name_ar="طلبات المغسلة",
-            subtitle=f"إجمالي {activity.laundry_total} د.ل",
-            kind="laundry",
-            closable=True,
-            require_count=True,
-            is_count=True,
-            expected=activity.laundry_count,
-        ),
-        HotelShiftCloseRow(
-            key="services",
-            name_ar="خدمات إضافية",
-            subtitle=f"إجمالي {activity.services_total} د.ل",
-            kind="services",
-            closable=True,
-            require_count=True,
-            is_count=True,
-            expected=activity.services_count,
-        ),
-        HotelShiftCloseRow(
-            key="booking_payments",
-            name_ar="قبض حجوزات",
-            subtitle=f"{activity.booking_payment_count} حركة",
-            kind="info",
-            closable=False,
-            require_count=False,
-            is_count=False,
-            expected=0,
-            amount=(
-                activity.booking_payments_cash + activity.booking_payments_bank
-            ).quantize(Decimal("0.001")),
-        ),
     ]
-    return rows

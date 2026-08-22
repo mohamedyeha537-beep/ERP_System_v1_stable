@@ -11,6 +11,7 @@ from app.deps import DBSession
 from app.jinja_env import templates
 from modules.messaging.chat_order_service import clear_cart
 from modules.messaging.web_chat_service import web_chat_enabled
+from modules.shop.hours import assert_shop_accepting_orders, shop_hours_public_dict
 from modules.shop.service import (
     ShopError,
     build_product_share_payload,
@@ -40,6 +41,15 @@ api_router = APIRouter(prefix="/api/shop", tags=["shop-api"])
 def _require_shop(db: DBSession) -> None:
     if not shop_enabled(db):
         raise HTTPException(status_code=403, detail="المتجر غير متاح حالياً.")
+
+
+def _require_shop_orders(db: DBSession) -> None:
+    """المتجر مفعّل + داخل ساعات العمل لقبول السلة/الطلب."""
+    _require_shop(db)
+    try:
+        assert_shop_accepting_orders(db)
+    except ShopError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 class TokenPayload(BaseModel):
@@ -110,6 +120,7 @@ def shop_page(request: Request, db: DBSession):
     )
 
     enabled = shop_enabled(db)
+    hours = shop_hours_public_dict(db)
     shop_brand = get_shop_branding(db)
     store = shop_brand["store_name"]
     web_mkt = get_public_web_config(
@@ -123,6 +134,7 @@ def shop_page(request: Request, db: DBSession):
         {
             "request": request,
             "enabled": enabled,
+            "shop_hours": hours,
             "store_name": store,
             "chat_enabled": web_chat_enabled(db),
             "shop_brand": shop_brand,
@@ -202,7 +214,7 @@ def shop_catalog(db: DBSession, category_id: int | None = None):
 
 @api_router.post("/cart/add")
 def shop_cart_add(payload: CartAddPayload, db: DBSession):
-    _require_shop(db)
+    _require_shop_orders(db)
     try:
         qty = Decimal((payload.qty or "1").strip().replace(",", "."))
         session = get_shop_session(db, payload.token)
@@ -216,7 +228,7 @@ def shop_cart_add(payload: CartAddPayload, db: DBSession):
 
 @api_router.post("/cart/update")
 def shop_cart_update(payload: CartUpdatePayload, db: DBSession):
-    _require_shop(db)
+    _require_shop_orders(db)
     try:
         qty = Decimal((payload.qty or "0").strip().replace(",", "."))
         session = get_shop_session(db, payload.token)
@@ -391,7 +403,7 @@ def shop_checkout_payment(payload: PaymentPayload, db: DBSession):
 
 @api_router.post("/checkout/submit")
 def shop_checkout_submit(payload: TokenPayload, db: DBSession):
-    _require_shop(db)
+    _require_shop_orders(db)
     try:
         session = get_shop_session(db, payload.token)
         sale, status = finalize_shop_order(db, session)

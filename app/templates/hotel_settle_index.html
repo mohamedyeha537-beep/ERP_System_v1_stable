@@ -7,14 +7,40 @@
     {% if pos_perm(request)('hotel:rooms:manage') %}
     <a class="btn" href="/admin/hotel/rooms">إدارة الغرف</a>
     {% endif %}
-    <a class="btn" href="/reports/receivables?balance_only=1">ديون العملاء</a>
+    {% if can_settle_transfer %}
+    <a class="btn" href="/reports/receivables?balance_only=1&context=ROOM">فواتير المطعم من الفندق</a>
+    {% endif %}
   </div>
 </div>
+{% if settle_view_only|default(false) %}
+<p class="muted">
+  عرض فواتير المطعم المطلوبة من الفندق. التحويل إلى خزينة المطعم يتم من
+  <strong>وضع الفندق</strong> فقط — لا يمكن اتخاذ إجراء من هنا.
+</p>
+{% else %}
 <p class="muted">
   البطاقات أدناه = فواتير قُيِّدت مسبقاً على رقم الشقة من نقطة البيع.
   يمكنك اختيار غرف كاملة أو فواتير معيّنة ثم تسويتها جماعياً (تحويل فندق → مطعم)
   بنفس آلية صفحة الغرفة. للتسوية يلزم حجز مقيم/مرتبط.
 </p>
+{% endif %}
+{% if can_settle_transfer and breakfast_included_enabled %}
+{% set ns_bf = namespace(n=0) %}
+{% for rid, rows in charges_by_room.items() %}
+  {% for ch in rows %}
+    {% if ch.is_breakfast and ch.can_settle %}{% set ns_bf.n = ns_bf.n + 1 %}{% endif %}
+  {% endfor %}
+{% endfor %}
+{% if ns_bf.n > 0 %}
+<form method="post" action="/hotel/settle/bulk-pay" style="margin:0 0 0.85rem"
+      onsubmit="return confirm('تسوية كل وجبات الإفطار المعلقة ({{ ns_bf.n }} فاتورة) كتكلفة فندق؟');">
+  <input type="hidden" name="settle_mode" value="breakfast" />
+  <button class="btn" type="submit" style="background:#ea580c;color:#fff;border-color:#c2410c">
+    🥐 تسوية كل وجبات الإفطار ({{ ns_bf.n }})
+  </button>
+</form>
+{% endif %}
+{% endif %}
 
 {% if error %}
 <div class="card" style="border-color:#fecaca; background:#fef2f2"><p style="margin:0; color:#b91c1c">{{ error }}</p></div>
@@ -88,6 +114,7 @@
         <td>{{ pos_format_dt(inv.created_at, '%Y-%m-%d %H:%M') if inv.created_at else '—' }}</td>
         <td><strong>{{ '%.3f' % inv.outstanding }}</strong> د.ل</td>
         <td colspan="2">
+          {% if can_settle_transfer %}
           <form method="post" action="/hotel/settle/link-sale"
                 style="display:flex; flex-wrap:wrap; gap:0.4rem; align-items:flex-end">
             <input type="hidden" name="sale_id" value="{{ inv.sale_id }}" />
@@ -107,6 +134,9 @@
             <button class="btn btn-primary" type="submit">ربط</button>
             <a class="btn" href="/reports/receivables/invoice/{{ inv.sale_id }}">تحصيل / تفاصيل</a>
           </form>
+          {% else %}
+          <span class="muted">عرض فقط — الربط والتحصيل من وضع الفندق</span>
+          {% endif %}
         </td>
       </tr>
       {% endfor %}
@@ -177,7 +207,8 @@
     }
   </style>
 
-  <form method="post" action="/hotel/settle/bulk-pay" id="bulk-settle-form">
+  {% if can_settle_transfer %}<form method="post" action="/hotel/settle/bulk-pay" id="bulk-settle-form">{% endif %}
+    {% if can_settle_transfer %}
     <div id="bulk-bar" style="display:flex;flex-wrap:wrap;gap:0.65rem;align-items:center;margin:0 0 1rem;padding:0.75rem 0.9rem;background:#fff7ed;border:1px solid #fdba74;border-radius:10px;position:sticky;top:0.5rem;z-index:5">
       <label class="settle-bulk-bar__pick" for="select-all-settleable">
         <input type="checkbox" id="select-all-settleable" />
@@ -190,7 +221,8 @@
       </span>
       <button type="button" class="btn" id="bulk-toggle-panel">إظهار التحويل / تسوية المجموعة</button>
     </div>
-    {% if settleable_charge_count < total_open_charge_count %}
+    {% endif %}
+    {% if can_settle_transfer and settleable_charge_count < total_open_charge_count %}
     <div class="card" style="border-color:#fcd34d;background:#fffbeb;margin-bottom:0.85rem">
       <p style="margin:0;color:#92400e;line-height:1.55">
         {% if settleable_charge_count == 0 %}
@@ -204,11 +236,23 @@
     </div>
     {% endif %}
 
+    {% if can_settle_transfer %}
     <div id="bulk-xfer-panel" hidden style="margin:0 0 1rem;padding:0.85rem 1rem;background:#f8fafc;border:1px solid var(--border);border-radius:10px">
       <h3 style="margin:0 0 0.35rem">تسوية المجموعة (تحويل فندق → مطعم)</h3>
+      {% if settle_view_only|default(false) %}
+      <div class="alert" style="margin:0">
+        وضع المطعم للعرض فقط. الفندق هو من ينفّذ التحويل إلى خزينة المطعم.
+      </div>
+      {% elif not can_settle_transfer %}
+      <div class="alert" style="margin:0">
+        لديك صلاحية عرض التسوية فقط. لتنفيذ التحويل (كاش/مصرف) يلزم الأدمن منحك
+        «تنفيذ تحويل التسوية فندق↔مطعم» أو «إدارة أساليب الدفع والخزينة».
+      </div>
+      {% else %}
       <p class="muted" style="margin:0 0 0.75rem;font-size:0.85rem;line-height:1.55">
-        نفس منطق صفحة الغرفة: التحويل يسدّد المطعم ويبقى المبلغ <strong>ديناً على النزيل</strong> في كل حجز.
-        لا تخلط فواتير إفطار مشمول مع وجبات عادية في نفس العملية.
+        نفّذ التحويل أولاً في <strong>حساب توا / المصرف</strong>، ثم أدخل <strong>رقم المرجع</strong> هنا قبل الحفظ.
+        المصدر الافتراضي: خزينة الفندق المصرفية (توا). التحويل يسدّد المطعم ويبقى المبلغ
+        <strong>ديناً على النزيل</strong>. لا تخلط فواتير إفطار مع وجبات عادية.
       </p>
       {% if methods and to_methods %}
       <div style="margin:0 0 0.75rem;padding:0.65rem 0.85rem;background:#fff;border-radius:8px;font-size:0.92rem">
@@ -222,9 +266,10 @@
         <table style="width:100%;font-size:0.88rem" id="xfer-table" class="no-sticky-head">
           <thead>
             <tr>
-              <th>من (خزينة الفندق)</th>
+              <th>من (فندق{% if can_pay_from_main %} / الرئيسية{% endif %})</th>
               <th>إلى (خزينة المطعم)</th>
               <th style="width:8rem">المبلغ</th>
+              <th style="width:12rem">رقم المرجع (توا)</th>
               <th style="width:3rem"></th>
             </tr>
           </thead>
@@ -237,19 +282,22 @@
           <td>
             <select name="xfer_from_id" class="input xfer-from" required style="width:100%;min-width:10rem">
               {% for m in methods %}
-              <option value="{{ m.id }}">{{ m.name_ar }} ({{ {'CASH': 'كاش', 'BANK': 'مصرف', 'OTHER': 'أخرى'}.get(m.kind.value, '') }})</option>
+              <option value="{{ m.id }}" {% if loop.first %}selected{% endif %} data-needs-ref="1">{{ pos_wallet_label(m) }} ({{ {'CASH': 'كاش', 'BANK': 'مصرف', 'OTHER': 'أخرى'}.get(m.kind.value, '') }})</option>
               {% endfor %}
             </select>
           </td>
           <td>
             <select name="xfer_to_id" class="input xfer-to" required style="width:100%;min-width:10rem">
               {% for m in to_methods %}
-              <option value="{{ m.id }}">{{ m.name_ar }} ({{ {'CASH': 'كاش', 'BANK': 'مصرف', 'OTHER': 'أخرى'}.get(m.kind.value, '') }})</option>
+              <option value="{{ m.id }}" {% if loop.first %}selected{% endif %} data-needs-ref="1">{{ pos_wallet_label(m) }} ({{ {'CASH': 'كاش', 'BANK': 'مصرف', 'OTHER': 'أخرى'}.get(m.kind.value, '') }})</option>
               {% endfor %}
             </select>
           </td>
           <td>
             <input name="xfer_amount" type="number" step="0.001" min="0.001" class="input xfer-amt" required style="width:100%" />
+          </td>
+          <td>
+            <input name="xfer_bank_ref" class="input xfer-ref" required placeholder="رقم العملية في توا" style="width:100%;min-width:9rem" />
           </td>
           <td>
             <button type="button" class="btn xfer-del" title="حذف السطر" style="padding:0.25rem 0.45rem">×</button>
@@ -263,7 +311,7 @@
         {% if breakfast_included_enabled %}
         <button class="btn" type="submit" name="settle_mode" value="breakfast" id="submit-breakfast-btn"
                 style="background:#ea580c;color:#fff;border-color:#c2410c">
-          🥐 تسوية إفطار (تكلفة فندق)
+          🥐 تسوية كل وجبات الإفطار
         </button>
         {% endif %}
       </div>
@@ -273,7 +321,9 @@
         <a href="/admin/payment-methods">إدارة أساليب الدفع</a>.
       </div>
       {% endif %}
+      {% endif %}
     </div>
+    {% endif %}
 
     <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:0.75rem">
       {% for room, total, count in open_rooms %}
@@ -283,9 +333,11 @@
            style="border:2px solid #f59e0b; border-radius:12px; padding:1rem; background:#fffbeb">
         <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:0.5rem">
           <div style="display:flex;align-items:flex-start;gap:0.5rem;min-width:0">
+            {% if can_settle_transfer %}
             <input type="checkbox" class="room-check"
                    data-room-id="{{ room.id }}"
                    style="margin-top:0.45rem" />
+            {% endif %}
             <div style="min-width:0">
               <div style="font-size:1.6rem; font-weight:800; color:#b45309">#{{ room.number }}</div>
               <div style="font-size:0.88rem; color:#78350f; margin-top:0.25rem; line-height:1.4">
@@ -318,19 +370,21 @@
           </button>
           <a class="btn" href="/hotel/settle/room/{{ room.id }}"
              style="font-size:0.82rem;padding:0.25rem 0.55rem;background:#fff">
-            تفاصيل / ربط حجز
+            {% if can_settle_transfer %}تفاصيل / ربط حجز{% else %}تفاصيل الدين{% endif %}
           </a>
         </div>
         <div class="room-charges" id="room-charges-{{ room.id }}" hidden
              style="margin-top:0.65rem;padding-top:0.55rem;border-top:1px dashed #fcd34d">
           {% for ch in charges %}
           <div class="settle-charge-row">
+            {% if can_settle_transfer %}
             <input type="checkbox" name="charge_ids" value="{{ ch.charge_id }}"
                    class="charge-check"
                    data-room-id="{{ room.id }}"
                    data-due="{{ '%.3f' % ch.outstanding }}"
                    data-breakfast="{{ '1' if ch.is_breakfast else '0' }}"
                    data-can-settle="{{ '1' if ch.can_settle else '0' }}" />
+            {% endif %}
             <div class="settle-charge-row__meta">
               <div>
                 فاتورة <strong>#{{ ch.sale_id }}</strong>
@@ -354,7 +408,7 @@
       </div>
       {% endfor %}
     </div>
-  </form>
+  {% if can_settle_transfer %}</form>{% endif %}
   {% endif %}
 </div>
 
@@ -450,10 +504,25 @@
     }
     syncRoomChecks();
   }
+  function optNeedsRef(sel) {
+    if (!sel || sel.selectedIndex < 0) return false;
+    var opt = sel.options[sel.selectedIndex];
+    return !!(opt && opt.getAttribute('data-needs-ref') === '1');
+  }
+  function syncRowRef(row) {
+    var refInp = row.querySelector('.xfer-ref');
+    if (!refInp) return;
+    refInp.required = true;
+    refInp.placeholder = 'رقم المرجع بعد التنفيذ في توا';
+  }
   function bindRow(row) {
     row.querySelectorAll('.xfer-amt').forEach(function (inp) {
       inp.addEventListener('input', recalc);
     });
+    row.querySelectorAll('.xfer-from, .xfer-to').forEach(function (sel) {
+      sel.addEventListener('change', function () { syncRowRef(row); });
+    });
+    syncRowRef(row);
     var del = row.querySelector('.xfer-del');
     if (del) {
       del.addEventListener('click', function () {
@@ -556,6 +625,24 @@
   var form = document.getElementById('bulk-settle-form');
   if (form) {
     form.addEventListener('submit', function (ev) {
+      var mode = (ev.submitter && ev.submitter.name === 'settle_mode')
+        ? String(ev.submitter.value || '')
+        : 'transfer';
+      if (mode === 'breakfast' || mode === 'hotel_cost') {
+        var bf = document.querySelectorAll('.charge-check[data-breakfast="1"]');
+        if (!bf.length) {
+          ev.preventDefault();
+          alert('لا توجد وجبات إفطار معلّقة للتسوية.');
+          return;
+        }
+        document.querySelectorAll('.charge-check').forEach(function (cb) {
+          cb.checked = cb.getAttribute('data-breakfast') === '1';
+        });
+        if (!confirm('تسوية كل وجبات الإفطار المعلقة كتكلفة فندق؟\n' + bf.length + ' فاتورة')) {
+          ev.preventDefault();
+        }
+        return;
+      }
       var selected = selectedCharges();
       if (!selected.length) {
         ev.preventDefault();
@@ -568,9 +655,6 @@
         if (cb.getAttribute('data-breakfast') === '1') hasBf = true;
         else hasMeal = true;
       });
-      var mode = (ev.submitter && ev.submitter.name === 'settle_mode')
-        ? String(ev.submitter.value || '')
-        : 'transfer';
       if (hasBf && hasMeal) {
         ev.preventDefault();
         alert('لا تخلط فواتير إفطار مشمول مع وجبات عادية في نفس التسوية.');
@@ -591,6 +675,18 @@
       if (Math.abs(sum - due) > 0.001) {
         ev.preventDefault();
         alert('مجموع أسطر التحويل يجب أن يساوي المستحق المختار (' + fmt(due) + ' د.ل).');
+        return;
+      }
+      var missingRef = false;
+      document.querySelectorAll('.xfer-row').forEach(function (row) {
+        var refInp = row.querySelector('.xfer-ref');
+        if (refInp && refInp.required && !String(refInp.value || '').trim()) {
+          missingRef = true;
+        }
+      });
+      if (missingRef) {
+        ev.preventDefault();
+        alert('أدخل رقم المرجع من توا بعد تنفيذ التحويل خارج النظام.');
         return;
       }
       var msg = mode.indexOf('breakfast') >= 0 || mode === 'hotel_cost'

@@ -1,38 +1,69 @@
 {% extends "base.html" %}
 
-{% block title %}تصنيفات مصروفات الجلسة{% endblock %}
+{% block title %}بنود مصروف الجلسة{% endblock %}
 
 {% block body %}
-<h1>تصنيفات مصروفات الجلسة</h1>
-<p class="muted">تظهر هذه التصنيفات للكاشير في نافذة «تسجيل مصروف» أثناء الجلسة المفتوحة.</p>
+<h1>بنود مصروف الجلسة</h1>
+<p class="muted" style="max-width:46rem;line-height:1.65">
+  الأدمن يضيف البنود هنا. كل بند مصروف يُربط بحساب مصروف من دليل الحسابات حتى يُخصم من الأرباح في الميزانية.
+  بند <strong>سلفة موظف</strong> لا يُخصم من الربح فوراً — يُختار الموظف وتُسجَّل السلفة على حسابه وتُخصم من راتبه.
+</p>
 
-<a class="btn" href="/pos/shift">رجوع لجلسة البيع</a>
-<a class="btn" href="/reports/shifts">تقارير الجلسات</a>
+<p style="display:flex;flex-wrap:wrap;gap:0.45rem;margin:0.75rem 0">
+  <a class="btn" href="/admin/hotel/shift">جلسة الفندق</a>
+  <a class="btn" href="/pos/shift">جلسة البيع</a>
+  <a class="btn" href="/admin/expenses">المصروفات</a>
+  <a class="btn" href="/admin/treasury-pay-categories">بنود سندات الصرف</a>
+  <a class="btn" href="/admin/advances">السلف</a>
+  <a class="btn" href="/admin/gl/expense-maps">ربط المصروفات بـ GL</a>
+</p>
 
 {% if saved %}
-<p class="muted" style="color:#15803d;margin:0.75rem 0">تم الحفظ.</p>
+<p class="muted" style="color:#15803d;margin:0.75rem 0">تم الحفظ. الربط المحاسبي محدّث.</p>
 {% endif %}
 {% if err %}
 <div class="alert" style="margin:0.75rem 0">{{ err }}</div>
 {% endif %}
 
-<div class="card" style="margin-top:1rem;max-width:640px">
-  <h2 style="margin-top:0;font-size:1.05rem">إضافة تصنيف</h2>
-  <form method="post" action="/admin/shift-expense-categories/add" class="row" style="gap:0.5rem;flex-wrap:wrap;align-items:flex-end">
+<div class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0;font-size:1.05rem">إضافة بند</h2>
+  <form method="post" action="/admin/shift-expense-categories/add" class="row" id="new-expense-item-form"
+    style="gap:0.65rem;flex-wrap:wrap;align-items:flex-end">
     <div style="flex:1;min-width:12rem">
-      <label for="new_label" style="font-size:0.85rem">اسم التصنيف</label>
-      <input id="new_label" name="label" required maxlength="80" placeholder="مثال: صيانة / مشروبات"
+      <label for="new_label" style="font-size:0.85rem">اسم البند (يظهر في الجلسة)</label>
+      <input id="new_label" name="label" required maxlength="80" placeholder="مثال: صيانة / كهرباء / سلفة"
         style="width:100%;padding:0.45rem 0.5rem;margin-top:0.25rem" />
     </div>
-    <button type="submit" class="btn btn-primary">إضافة</button>
+    <div style="min-width:11rem">
+      <label for="new_kind" style="font-size:0.85rem">نوع البند</label>
+      <select id="new_kind" name="kind" style="width:100%;padding:0.45rem 0.5rem;margin-top:0.25rem">
+        <option value="expense">مصروف (يُخصم من الأرباح)</option>
+        <option value="advance">سلفة موظف (تُخصم من الراتب)</option>
+      </select>
+    </div>
+    <div style="flex:1.2;min-width:16rem" id="new-gl-wrap">
+      <label for="new_gl" style="font-size:0.85rem">حساب المصروف في الدليل</label>
+      <select id="new_gl" name="gl_account_id" required style="width:100%;padding:0.45rem 0.5rem;margin-top:0.25rem">
+        <option value="">— اختر حساب مصروف —</option>
+        {% for a in gl_accounts %}
+        <option value="{{ a.id }}">{{ a.code }} — {{ a.name_ar }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="btn btn-primary">إضافة البند</button>
   </form>
+  {% if not gl_accounts %}
+  <p class="muted" style="color:#b91c1c;margin:0.65rem 0 0">لا توجد حسابات مصروف نشطة — راجع دليل الحسابات أولاً.</p>
+  {% endif %}
 </div>
 
 <div class="card" style="margin-top:1rem">
   <table class="table">
     <thead>
       <tr>
-        <th>الاسم (يظهر للكاشير)</th>
+        <th>البند</th>
+        <th>النوع</th>
+        <th>حساب المصروف</th>
         <th>مفعّل</th>
         <th></th>
       </tr>
@@ -40,28 +71,79 @@
     <tbody>
       {% for c in categories %}
       <tr>
-        <td>
-          <form method="post" action="/admin/shift-expense-categories/{{ c.key }}/update" style="display:flex;gap:0.4rem;flex-wrap:wrap;align-items:center;margin:0">
-            <input type="hidden" name="key" value="{{ c.key }}" />
-            <input name="label" value="{{ c.label }}" required maxlength="80" style="min-width:10rem;padding:0.35rem 0.45rem" />
-            <label style="font-size:0.85rem;white-space:nowrap">
+        <td colspan="5" style="padding:0.65rem 0.4rem">
+          <form method="post" action="/admin/shift-expense-categories/{{ c.key }}/update"
+            class="shift-exp-cat-row" data-kind="{{ c.kind }}"
+            style="display:grid;grid-template-columns:minmax(10rem,1.1fr) minmax(11rem,0.9fr) minmax(14rem,1.4fr) auto auto;gap:0.45rem;align-items:end;margin:0">
+            <div>
+              <label class="muted" style="font-size:0.75rem;display:block">الاسم</label>
+              <input name="label" value="{{ c.label }}" required maxlength="80" style="width:100%;padding:0.35rem 0.45rem" />
+            </div>
+            <div>
+              <label class="muted" style="font-size:0.75rem;display:block">النوع</label>
+              <select name="kind" class="shift-exp-kind" style="width:100%;padding:0.35rem 0.45rem">
+                <option value="expense" {% if not c.is_advance %}selected{% endif %}>مصروف (من الأرباح)</option>
+                <option value="advance" {% if c.is_advance %}selected{% endif %}>سلفة موظف</option>
+              </select>
+            </div>
+            <div class="shift-exp-gl-wrap">
+              <label class="muted" style="font-size:0.75rem;display:block">حساب GL</label>
+              <select name="gl_account_id" class="shift-exp-gl" {% if not c.is_advance %}required{% endif %}
+                style="width:100%;padding:0.35rem 0.45rem" {% if c.is_advance %}disabled{% endif %}>
+                <option value="">— {% if c.is_advance %}ذمة موظف (1200){% else %}اختر حساباً{% endif %} —</option>
+                {% for a in gl_accounts %}
+                <option value="{{ a.id }}" {% if c.gl_account_id == a.id %}selected{% endif %}>{{ a.code }} — {{ a.name_ar }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <label style="font-size:0.85rem;white-space:nowrap;padding-bottom:0.35rem">
               <input type="checkbox" name="active" value="on" {% if c.active %}checked{% endif %} /> نشط
             </label>
             <button type="submit" class="btn" style="font-size:0.82rem">حفظ</button>
           </form>
         </td>
-        <td>{% if c.active %}<span style="color:#15803d">نعم</span>{% else %}<span class="muted">معطّل</span>{% endif %}</td>
+      </tr>
+      <tr>
+        <td colspan="4" class="muted" style="font-size:0.8rem;padding-top:0">
+          {% if c.is_advance %}
+          سلفة: عند الصرف يُختار الموظف وتُخصم من راتبه. لا تُطرح من أرباح الفترة كمصروف تشغيلي.
+          {% else %}
+          يُرحَّل إلى: <strong>{{ c.gl_label }}</strong>
+          {% endif %}
+        </td>
         <td>
           <form method="post" action="/admin/shift-expense-categories/{{ c.key }}/delete" style="margin:0"
-            onsubmit="return confirm('حذف التصنيف «{{ c.label }}»؟');">
+            onsubmit="return confirm('حذف البند «{{ c.label }}»؟');">
             <button type="submit" class="btn" style="color:#b91c1c;border-color:#fecaca;font-size:0.82rem">حذف</button>
           </form>
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="3" class="muted">لا تصنيفات — أضف واحداً من الأعلى.</td></tr>
+      <tr><td colspan="5" class="muted">لا بنود — أضف واحداً من الأعلى.</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+
+<script>
+(function () {
+  function syncKind(kindSel, glSel) {
+    if (!kindSel || !glSel) return;
+    var isAdv = kindSel.value === "advance";
+    glSel.disabled = isAdv;
+    glSel.required = !isAdv;
+    if (isAdv) glSel.value = "";
+  }
+  var newKind = document.getElementById("new_kind");
+  var newGl = document.getElementById("new_gl");
+  if (newKind) newKind.addEventListener("change", function () { syncKind(newKind, newGl); });
+  syncKind(newKind, newGl);
+  document.querySelectorAll(".shift-exp-cat-row").forEach(function (row) {
+    var kindSel = row.querySelector(".shift-exp-kind");
+    var glSel = row.querySelector(".shift-exp-gl");
+    if (kindSel) kindSel.addEventListener("change", function () { syncKind(kindSel, glSel); });
+    syncKind(kindSel, glSel);
+  });
+})();
+</script>
 {% endblock %}

@@ -14,12 +14,16 @@
 *.pem
 *.key
 credentials.json
+keys.txt
+customers-export-*.csv
+_tmp_*
 
 # --- مجلدات محلية (أحمر) ---
 .cursor/
 __pycache__/
 backups/
 New folder/
+New Lock System SDK \[V0921\]/
 
 # --- قواعد بيانات وأرشيف ---
 *.db

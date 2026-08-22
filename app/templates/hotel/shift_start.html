@@ -25,8 +25,15 @@
 <div class="shift-start-wrap">
   <h1>بدء جلسة استقبال جديدة</h1>
   <p class="muted" style="margin-top:-0.35rem;line-height:1.55">
-    نفس طريقة جلسات الكاشير في المطعم: أدخل رصيد الكاش الافتتاحي، ثم اعمل على الحجوزات، وعند الإقفال عدّ الكاش والمصرف.
+    {% if carry_offer %}
+    عدّ العهدة المستلمة وأكد المبلغ الفعلي. لا يُثبَّت مبلغ الموظف السابق تلقائياً.
+    {% else %}
+    أدخل رصيد الكاش الافتتاحي. يُخصم من <strong>خزينة الفندق — كاش</strong> إلى محفظة الاستقبال،
+    ويُحسب مع قبض الجلسة عند الإقفال، ثم يعود بالكامل إلى الخزينة الرئيسية بعد اعتماد أمين الخزينة.
+    {% endif %}
   </p>
+  {% include "_shift_incoming_handovers.html" %}
+  {% include "_shift_start_carry.html" %}
   <p class="muted" style="margin:0.35rem 0 1rem">
     الوردية الزمنية: <strong>{{ current_slot.name_ar }}</strong> ({{ shift_window }})
   </p>
@@ -45,6 +52,28 @@
         {% if current_slot.number != 3 %}<option value="3">الوردية الثالثة</option>{% endif %}
       </select>
 
+      {% if incoming_handovers %}
+      <p style="margin:0 0 0.75rem;color:#b45309;font-weight:600">أكد التسليمات أعلاه أولاً ثم أعد تحميل الصفحة للافتتاح.</p>
+      {% elif carry_offer and carry_offer.remainder_needs_count %}
+      <p style="margin:0 0 0.65rem;font-size:0.88rem;color:#0e7490">
+        المتبقي حسب الموظف السابق:
+        كاش {{ '%.3f'|format(carry_offer.cash) }} · مصرف {{ '%.3f'|format(carry_offer.bank) }}
+      </p>
+      <label for="received_cash" style="display:block;font-weight:700;margin-bottom:0.45rem;font-size:1.05rem">
+        الكاش الذي عددته فعلياً (د.ل)
+      </label>
+      <input id="received_cash" name="received_cash" class="shift-start-cash" type="text"
+        inputmode="decimal" autocomplete="off" required placeholder="0.000" value="" />
+      <label for="received_bank" style="display:block;font-weight:700;margin:0.85rem 0 0.45rem;font-size:1.05rem">
+        المصرف الذي عددته فعلياً (د.ل)
+      </label>
+      <input id="received_bank" name="received_bank" class="shift-start-cash" type="text"
+        inputmode="decimal" autocomplete="off" required placeholder="0.000" value="" />
+      <input type="hidden" name="opening_cash" value="0" />
+      {% elif carry_offer %}
+      <input type="hidden" name="opening_cash" value="0" />
+      <p style="margin:0 0 0.75rem;color:#0f766e;font-weight:600">تم تأكيد العهدة مسبقاً — الافتتاح = المبلغ الذي أكدته.</p>
+      {% else %}
       <label for="opening_cash" style="display:block;font-weight:700;margin-bottom:0.45rem;font-size:1.05rem">
         💵 رصيد كاش الافتتاح (د.ل)
       </label>
@@ -54,15 +83,18 @@
         <input type="checkbox" name="no_opening_float" value="1" id="no_opening_float" />
         لا يوجد رصيد افتتاح — الكاش صفر
       </label>
+      {% endif %}
 
       <label for="opening_note" style="display:block;font-weight:600;margin:0.5rem 0 0.35rem">ملاحظة (اختياري)</label>
       <textarea id="opening_note" name="opening_note" rows="2"
         style="width:100%;padding:0.5rem;border-radius:8px;border:1px solid #e2e8f0;box-sizing:border-box"
         placeholder="اختياري"></textarea>
 
+      {% if not incoming_handovers %}
       <button class="btn btn-primary" type="submit" style="width:100%;margin-top:1rem;padding:0.75rem;font-size:1.05rem">
         افتتاح الجلسة
       </button>
+      {% endif %}
     </form>
   </div>
   <p style="margin-top:1rem;text-align:center">

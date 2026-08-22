@@ -16,29 +16,41 @@
   <a class="rep-tab {% if active == 'hotel_shifts' %}active{% endif %}" href="/reports/hotel-shifts" style="background:#e0e7ff;color:#3730a3;border-color:#a5b4fc;font-weight:800" title="مثل جلسات الكاشير في المطعم">جلسات الفندق</a>
   {% endif %}
   <a class="rep-tab {% if active == 'transactions' %}active{% endif %}" href="/reports/transactions" style="background:#eef2ff;color:#3730a3;border-color:#a5b4fc;font-weight:800" title="مبيعات ومقبوضات ومشتريات ومصروفات معاً">سجل العمليات</a>
+  {% set _clerk = request is defined and pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}
+  {% if not _clerk %}
   <a class="rep-tab {% if active == 'sales' %}active{% endif %}" href="/reports/sales">المبيعات</a>
   {% if request is defined and pos_reports_show_pos_sections(request) %}
   <a class="rep-tab {% if active == 'product_invoices' %}active{% endif %}" href="/reports/product-invoices" style="background:#ecfeff;color:#0e7490;border-color:#67e8f9" title="بحث فواتير البيع حسب اسم الصنف">فواتير الصنف</a>
   {% endif %}
+  {% endif %}
   {% if request is defined and pos_reports_show_hotel_sections(request) %}
   <a class="rep-tab {% if active == 'hotel_collections' %}active{% endif %}" href="/reports/hotel-collections" style="background:#ede9fe;color:#5b21b6;border-color:#c4b5fd">تحصيلات الفندق</a>
-  <a class="rep-tab {% if active == 'hotel_bookings' %}active{% endif %}" href="/reports/hotel-bookings" style="background:#ede9fe;color:#5b21b6;border-color:#c4b5fd">حجوزات الفندق</a>
+  {% if not _clerk %}
+  <a class="rep-tab {% if active == 'hotel_bookings' %}active{% endif %}" href="/reports/hotel-bookings" style="background:#ede9fe;color:#5b21b6;border-color:#c4b5fd">تأجير الشقق</a>
+  {% endif %}
   <a class="rep-tab {% if active == 'hotel_balances' %}active{% endif %}" href="/reports/hotel-balances" style="background:#fef2f2;color:#b91c1c;border-color:#fecaca">ذمم الحجز</a>
+  {% if not _clerk %}
   <a class="rep-tab {% if active == 'hotel_daily_close' %}active{% endif %}" href="/reports/hotel-daily-close" style="background:#ede9fe;color:#5b21b6;border-color:#c4b5fd">إقفال يومي</a>
+  {% endif %}
   {% endif %}
   {% if request is defined and pos_reports_show_pos_sections(request) %}
   <a class="rep-tab {% if active == 'shifts' %}active{% endif %}" href="/reports/shifts">جلسات الكاشير</a>
+  {% if not _clerk %}
   <a class="rep-tab {% if active == 'pos_daily_close' %}active{% endif %}" href="/reports/pos-daily-close" style="background:#dbeafe;color:#1d4ed8;border-color:#93c5fd">إقفال يومي</a>
+  {% endif %}
   <a class="rep-tab {% if active == 'receivables' %}active{% endif %}" href="/reports/receivables?balance_only=1" style="background:#fef2f2;color:#b91c1c;border-color:#fecaca">ديون العملاء</a>
   {% endif %}
   <a class="rep-tab {% if active == 'payables' %}active{% endif %}" href="/reports/payables" style="background:#fff7ed;color:#c2410c;border-color:#fdba74">ذمم دائنة</a>
-  {% if request is defined and pos_reports_show_pos_sections(request) %}
+  {% if not _clerk and request is defined and pos_reports_show_pos_sections(request) %}
   <a class="rep-tab {% if active == 'delivery' %}active{% endif %}" href="/reports/delivery">التوصيل</a>
   {% endif %}
+  {% if not _clerk %}
   <a class="rep-tab {% if active == 'purchases' %}active{% endif %}" href="/reports/purchases">المشتريات</a>
   <a class="rep-tab {% if active == 'assets' %}active{% endif %}" href="/reports/assets">الأصول</a>
   <a class="rep-tab {% if active == 'fixed-assets' %}active{% endif %}" href="/reports/fixed-assets">الإهلاك</a>
+  {% endif %}
   <a class="rep-tab {% if active == 'expenses' %}active{% endif %}" href="/reports/expenses">المصروفات</a>
+  {% if not _clerk %}
   <a class="rep-tab {% if active == 'profit' %}active{% endif %}" href="/reports/profit">الأرباح</a>
   <a class="rep-tab {% if active == 'break-even' %}active{% endif %}" href="/reports/break-even" style="background: #fef3c7; color: #92400e; border-color: #f59e0b">
     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -62,14 +74,16 @@
     إيرادات محوري
   </a>
   <a class="rep-tab {% if active == 'gl_reconciliation' %}active{% endif %}" href="/reports/gl-reconciliation" title="مطابقة إيراد تشغيلي vs GL 4100/4150" style="background:#ecfdf5;color:#047857;border-color:#6ee7b7">مطابقة GL</a>
+  {% endif %}
   <a class="rep-tab {% if active == 'financial_ops' %}active{% endif %}" href="/reports/financial-operational" title="استحقاق وتحصيل ومرتجعات — منطق محاسبي تشغيلي">
     مالي تشغيلي
   </a>
-  {% if request is defined and pos_perm(request)('gl:manage') %}
+  {% if not _clerk and request is defined and pos_perm(request)('gl:manage') %}
   <a class="rep-tab {% if active == 'gl' %}active{% endif %}" href="/admin/gl/accounts" title="دليل وشجرة حسابات GL" style="background:#ecfdf5;color:#047857;border-color:#6ee7b7">
     دليل حسابات
   </a>
   {% endif %}
+  {% if not _clerk %}
   <a class="rep-tab {% if active == 'accounting' %}active{% endif %}" href="/reports/accounting-help" title="دليل المعالجة المحاسبية والمراجع">
     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <circle cx="12" cy="12" r="10"></circle>
@@ -78,6 +92,7 @@
     </svg>
     دليل المحاسبة
   </a>
+  {% endif %}
 </nav>
 <style>
   .reports-nav {

@@ -46,6 +46,31 @@
 
 
   var pageCfg = window.__SHOP_PAGE__ || {};
+  var shopHours = pageCfg.hours || {};
+
+  function ordersOpen() {
+    if (shopHours && shopHours.enforce === true && shopHours.is_open === false) {
+      return false;
+    }
+    return true;
+  }
+
+  function closedMessage() {
+    return (
+      (shopHours && shopHours.message) ||
+      "نعتذر، الطلبات الأونلاين غير متاحة الآن. راجع مواعيد العمل."
+    );
+  }
+
+  function applyHoursFromApi(payload) {
+    if (payload && payload.hours) {
+      shopHours = payload.hours;
+      pageCfg.hours = shopHours;
+    } else if (payload && payload.state && payload.state.hours) {
+      shopHours = payload.state.hours;
+      pageCfg.hours = shopHours;
+    }
+  }
 
 
 
@@ -421,6 +446,7 @@
       allProducts = res.products || [];
       allCategories = res.categories || [];
       referralEnabled = !!res.referral_enabled;
+      applyHoursFromApi(res);
       if (activeSection === null && sections.length >= 1) {
         activeSection = sections[0].id;
       }
@@ -744,11 +770,15 @@
 
           "</div>" +
 
-          '<button type="button" class="shop-card-add" data-add="' +
-
+          '<button type="button" class="shop-card-add' +
+          (ordersOpen() ? "" : " is-disabled") +
+          '" data-add="' +
           p.id +
-
-          '">أضف إلى السلة</button>' +
+          '"' +
+          (ordersOpen() ? "" : ' disabled aria-disabled="true"') +
+          ">" +
+          (ordersOpen() ? "أضف إلى السلة" : "مغلق الآن") +
+          "</button>" +
 
           "</div></article>"
 
@@ -1256,7 +1286,11 @@
 
       "</strong></div>" +
 
-      '<button type="button" class="shop-btn-primary" id="shop-go-checkout">إتمام الطلب</button>' +
+      (ordersOpen()
+        ? '<button type="button" class="shop-btn-primary" id="shop-go-checkout">إتمام الطلب</button>'
+        : '<p class="shop-closed-note">' +
+          esc(closedMessage()) +
+          "</p>") +
 
       '<button type="button" class="shop-btn-secondary" id="shop-clear-cart">تفريغ السلة</button>';
 
@@ -1444,12 +1478,17 @@
 
 
   function addProduct(pid) {
+    if (!ordersOpen()) {
+      showToast(closedMessage());
+      return;
+    }
 
     api("POST", "/api/shop/cart/add", { token: token, product_id: pid, qty: "1" })
 
       .then(function (res) {
 
         state = res.state;
+        applyHoursFromApi(res);
 
         updateBadge();
 
@@ -1481,6 +1520,10 @@
 
 
   function setQty(pid, qty) {
+    if (!ordersOpen() && Number(qty) > 0) {
+      showToast(closedMessage());
+      return;
+    }
 
     api("POST", "/api/shop/cart/update", { token: token, product_id: pid, qty: String(qty) })
 
@@ -1505,6 +1548,10 @@
 
 
   function runCheckout() {
+    if (!ordersOpen()) {
+      showToast(closedMessage());
+      return;
+    }
 
     var name = (document.getElementById("shop-name") || {}).value || "";
 

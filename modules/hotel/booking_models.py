@@ -41,6 +41,18 @@ class BookingStatus(str, enum.Enum):
     CHECKED_OUT = "CHECKED_OUT"
     CANCELLED = "CANCELLED"
     NO_SHOW = "NO_SHOW"
+    # إلغاء بعد موعد الدخول (الزائر حضر للإلغاء أو ألغى متأخراً) — ليس No Show
+    LATE_CANCELLATION = "LATE_CANCELLATION"
+
+# حالات تُحرِّر الشقة من حساب الإشغال
+BOOKING_STATUS_ROOM_FREE = frozenset(
+    {
+        BookingStatus.CANCELLED,
+        BookingStatus.NO_SHOW,
+        BookingStatus.LATE_CANCELLATION,
+        BookingStatus.CHECKED_OUT,
+    }
+)
 
 
 class BookingPaymentStatus(str, enum.Enum):
@@ -192,6 +204,34 @@ class HotelBooking(Base):
     customer_id: Mapped[int | None] = mapped_column(
         ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    #: حساب الشركة المرتبط (محفظة شركة منفصلة عن نزيل الفرد)
+    company_customer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    #: عقد الشركة المطبق على هذا الحجز (لقطة قواعد «من يدفع»)
+    company_agreement_id: Mapped[int | None] = mapped_column(
+        ForeignKey("hotel_company_agreements.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    #: من يدفع: COMPANY | GUEST
+    booking_payer: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+    #: تمهيد لتقسيمة الفاتورة: من يتحمل الإقامة / الخدمات والمطعم
+    stay_payer: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+    extras_payer: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+    #: مستلم رسائل واتساب لهذا الحجز: COMPANY | GUEST1
+    notify_to: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
+    #: آخر فترة أُرسلت فيها مطالبة مجدولة (يتوافق مع تكرار الشركة)
+    notify_claim_last_period: Mapped[str | None] = mapped_column(
+        String(32), nullable=True
+    )
+    #: شركة سياحة — عمولة عند إتمام الدفع
+    is_tourism_agency: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0"
+    )
+    tourism_commission_percent: Mapped[Decimal] = mapped_column(
+        Numeric(7, 3), default=Decimal("0"), server_default="0"
+    )
 
     guest_name: Mapped[str] = mapped_column(String(160))
     guest_phone: Mapped[str | None] = mapped_column(String(40), nullable=True)
@@ -222,6 +262,10 @@ class HotelBooking(Base):
     check_in: Mapped[date] = mapped_column(Date, index=True)
     check_out: Mapped[date] = mapped_column(Date, index=True)
     scheduled_check_out: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    #: الموعد المجدول الأصلي للوصول (لا يُستبدل بوقت الوصول الفعلي)
+    planned_check_in: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    #: أول ليلة تشغيل محتسبة (Business night) — قد تكون قبل تاريخ الوصول الفعلي
+    first_chargeable_night: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
     adults: Mapped[int] = mapped_column(Integer, default=1)
     children: Mapped[int] = mapped_column(Integer, default=0)
 
@@ -311,7 +355,11 @@ class HotelBooking(Base):
 
     @property
     def nights(self) -> int:
-        return max(0, (self.check_out - self.check_in).days)
+        start = self.first_chargeable_night or self.check_in
+        n = max(0, (self.check_out - start).days)
+        if n <= 0 and Decimal(str(self.accommodation_total or 0)) > 0:
+            return 1
+        return n
 
     @property
     def is_quotation(self) -> bool:
@@ -389,15 +437,35 @@ class HotelBookingService(Base):
     product_id: Mapped[int | None] = mapped_column(
         ForeignKey("products.id", ondelete="SET NULL"), nullable=True
     )
+    # deferred: حتى لا يفشل selectin للحجز إن لم يُرقَّع العمود بعد على السيرفر
     sale_id: Mapped[int | None] = mapped_column(
-        ForeignKey("sales.id", ondelete="SET NULL"), nullable=True
+        ForeignKey("sales.id", ondelete="SET NULL"),
+        nullable=True,
+        deferred=True,
     )
     added_by_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     # False = تكلفة فندق مشمولة (إفطار) — لا تُضاف لمستحق النزيل
-    charged_to_guest: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    # deferred: لا يفشل selectin للحجز إن لم يُرقَّع العمود بعد
+    charged_to_guest: Mapped[bool] = mapped_column(
+        Boolean, default=True, index=True, deferred=True
+    )
+    #: كود البند (ACCOMMODATION / LAUNDRY / POS_RESTAURANT…)
+    service_code: Mapped[str | None] = mapped_column(
+        String(40), nullable=True, deferred=True
+    )
+    #: COMPANY | GUEST | SHARED
+    folio_side: Mapped[str | None] = mapped_column(
+        String(16), nullable=True, deferred=True
+    )
+    company_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric(14, 3), nullable=True, deferred=True
+    )
+    guest_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric(14, 3), nullable=True, deferred=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -503,6 +571,8 @@ class HotelBookingDebt(Base):
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     follow_up_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     reminder_at: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    #: وقت تذكير المطالبة (HH:MM) — مع reminder_at
+    reminder_time: Mapped[str | None] = mapped_column(String(8), nullable=True)
     settlement_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True

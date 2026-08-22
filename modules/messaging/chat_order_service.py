@@ -710,7 +710,13 @@ def try_parse_guest_phone(text: str) -> str | None:
 def save_guest_phone(db: Session, session: WebChatSession, phone: str) -> None:
     session.guest_phone = phone
     name = (session.guest_name or "").strip() or None
-    get_or_create_by_phone(db, phone=phone, name=name)
+    # لا ننشئ عميلاً جديداً بلا اسم — الربط يتم لاحقاً عند توفر الاسم
+    if not name:
+        return
+    try:
+        get_or_create_by_phone(db, phone=phone, name=name)
+    except Exception:
+        pass
 
 
 def order_confirmation_message(db: Session, session: WebChatSession, sale: Sale) -> str:

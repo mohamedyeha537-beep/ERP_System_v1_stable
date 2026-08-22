@@ -15,11 +15,18 @@ from sqlalchemy import func, select
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app.deps import DBSession, require_permission
+from app.deps import DBSession, require_any_permission, require_permission
 from app.datetime_local import format_local_dt, now_local
 from app.jinja_env import templates
+from modules.authz.capability import can_pay_payroll
 from modules.authz.models import User
-from modules.authz.permissions import HR_ATTENDANCE, HR_MANAGE, HR_VIEW
+from modules.authz.permissions import (
+    HR_ATTENDANCE,
+    HR_MANAGE,
+    HR_PAYROLL_PAY,
+    HR_VIEW,
+    PAYMENTS_MANAGE,
+)
 from modules.hr import service as hr
 from modules.hr.models import (
     AttendanceSource,
@@ -33,7 +40,18 @@ from modules.payments.service import list_payment_methods
 
 _view_perm = require_permission(HR_VIEW)
 _manage_perm = require_permission(HR_MANAGE)
-_attend_perm = require_permission(HR_ATTENDANCE)
+_attend_perm = require_any_permission(HR_ATTENDANCE, HR_MANAGE, HR_PAYROLL_PAY, PAYMENTS_MANAGE)
+_payroll_pay_perm = require_any_permission(HR_PAYROLL_PAY, HR_MANAGE)
+_payroll_view_perm = require_any_permission(HR_VIEW, HR_PAYROLL_PAY)
+_pay_ops_perm = require_any_permission(HR_MANAGE, HR_PAYROLL_PAY, PAYMENTS_MANAGE)
+_payroll_manage_perm = require_any_permission(HR_MANAGE, HR_PAYROLL_PAY, PAYMENTS_MANAGE)
+
+
+def _can_manage_payroll(user: User) -> bool:
+    from modules.authz.capability import is_treasury_clerk_user
+    from modules.authz.service import user_has_permission
+
+    return user_has_permission(user, HR_MANAGE) or is_treasury_clerk_user(user)
 
 
 def _parse_decimal(raw: str | None, default: str = "0") -> Decimal:
@@ -290,8 +308,11 @@ async def employee_save(
     dept_raw = (form.get("department_id") or "").strip()
     department_id = int(dept_raw) if dept_raw.isdigit() else None
     create_pos_user = form.get("create_pos_user") == "on"
+    create_treasury_user = form.get("create_treasury_user") == "on"
     pos_username = (form.get("pos_username") or "").strip()
     pos_password = (form.get("pos_password") or "").strip()
+    treasury_username = (form.get("treasury_username") or "").strip()
+    treasury_password = (form.get("treasury_password") or "").strip()
     from modules.platform.business_domain import (
         is_system_admin,
         resolve_finance_domain,
@@ -307,6 +328,19 @@ async def employee_save(
         is_pos_cashier = form.get("is_pos_cashier") == "on"
         is_hotel_front = form.get("is_hotel_front") == "on"
         is_pos_supervisor = form.get("is_pos_supervisor") == "on"
+        phone_raw = (form.get("phone") or "").strip()
+        if is_pos_supervisor:
+            from modules.security.supervisor_otp import (
+                SupervisorOtpError,
+                require_supervisor_whatsapp,
+            )
+
+            try:
+                require_supervisor_whatsapp(is_supervisor=True, phone=phone_raw)
+            except SupervisorOtpError as otp_err:
+                raise hr.HRError(str(otp_err)) from otp_err
+        if create_pos_user and create_treasury_user:
+            raise hr.HRError("اختر نوع حساب واحد: كاشير أو أمين خزينة.")
         if create_pos_user:
             if not is_pos_cashier:
                 raise hr.HRError("لإنشاء حساب دخول يجب تفعيل «كاشير نقطة بيع».")
@@ -316,6 +350,15 @@ async def employee_save(
                 db, username=pos_username, password=pos_password
             )
             user_id = new_user.id
+        if create_treasury_user:
+            if user_id is not None:
+                raise hr.HRError("لا يمكن إنشاء حساب جديد مع اختيار حساب مرتبط من القائمة.")
+            new_user = hr.create_treasury_clerk_user(
+                db, username=treasury_username, password=treasury_password
+            )
+            user_id = new_user.id
+            if not dom_raw or dom_raw == "restaurant":
+                dom_raw = "shared"
         emp = hr.upsert_employee(
             db,
             emp_id=emp_id,
@@ -449,15 +492,16 @@ def attendance_page(
         history = hr.list_attendance(
             db, employee_id=employee_id, start=now - timedelta(days=30), limit=200
         )
-    can_record = any(
-        hasattr(p, "code") and p.code == HR_ATTENDANCE
-        for r in (user.roles or [])
-        for p in r.permissions
-    ) or any(
-        hasattr(p, "code") and p.code == HR_MANAGE
-        for r in (user.roles or [])
-        for p in r.permissions
+    from modules.authz.capability import is_treasury_clerk_user
+    from modules.authz.service import user_has_permission
+
+    can_record = (
+        user_has_permission(user, HR_ATTENDANCE)
+        or user_has_permission(user, HR_MANAGE)
+        or is_treasury_clerk_user(user)
     )
+    can_adjust = can_record
+    can_manage = user_has_permission(user, HR_MANAGE)
     from modules.hr.zkbio_sync import get_sync_status
 
     try:
@@ -506,11 +550,8 @@ def attendance_page(
             "selected_emp": selected_emp,
             "selected_id": employee_id,
             "can_record": can_record,
-            "can_manage": any(
-                hasattr(p, "code") and p.code == HR_MANAGE
-                for r in (user.roles or [])
-                for p in r.permissions
-            ),
+            "can_adjust": can_adjust,
+            "can_manage": can_manage,
             "zk_status": zk_status,
             "ot_summary": ot_summary,
             "ot_summary_all": ot_summary_all,
@@ -715,7 +756,7 @@ def attendance_zk_settings(
 @attendance_router.post("/manual-add", response_class=HTMLResponse)
 def attendance_manual(
     db: DBSession,
-    user: User = Depends(_manage_perm),
+    user: User = Depends(_attend_perm),
     employee_id: str = Form(...),
     check_in: str = Form(...),
     check_out: str = Form(""),
@@ -758,7 +799,7 @@ def attendance_manual(
 def attendance_delete(
     rec_id: int,
     db: DBSession,
-    _: User = Depends(_manage_perm),
+    _: User = Depends(_attend_perm),
 ):
     from modules.hr.models import AttendanceRecord
 
@@ -777,7 +818,7 @@ def attendance_delete(
 def attendance_overtime_approve(
     rec_id: int,
     db: DBSession,
-    user: User = Depends(_manage_perm),
+    user: User = Depends(_attend_perm),
     approved_minutes: str = Form(""),
 ):
     try:
@@ -802,7 +843,7 @@ def attendance_overtime_approve(
 def attendance_overtime_reject(
     rec_id: int,
     db: DBSession,
-    user: User = Depends(_manage_perm),
+    user: User = Depends(_attend_perm),
 ):
     try:
         rec = hr.reject_overtime(db, rec_id, approved_by_id=user.id)
@@ -823,7 +864,7 @@ def attendance_overtime_reject(
 def attendance_adjust(
     rec_id: int,
     db: DBSession,
-    _: User = Depends(_manage_perm),
+    _: User = Depends(_attend_perm),
     check_in: str = Form(""),
     check_out: str = Form(""),
     work_hours: str = Form(""),
@@ -888,7 +929,7 @@ payroll_router = APIRouter(prefix="/admin/payroll", tags=["hr-payroll"])
 def payroll_list(
     request: Request,
     db: DBSession,
-    user: User = Depends(_view_perm),
+    user: User = Depends(_payroll_view_perm),
     error: str | None = Query(None),
     saved: int = Query(0),
 ):
@@ -900,7 +941,8 @@ def payroll_list(
 
     domain = resolve_finance_domain(user, request.session)
     runs = hr.list_payroll_runs(db, limit=24, domain=domain)
-    now = datetime.now(timezone.utc)
+    can_manage_hr = _can_manage_payroll(user)
+    now = now_local()
     return templates.TemplateResponse(
         "admin_payroll_list.html",
         {
@@ -918,6 +960,7 @@ def payroll_list(
             "finance_domain_filter": domain,
             "domain_label": domain_label(domain) if domain else "الكل",
             "employee_domain_choices": employee_domain_choices(),
+            "can_manage_hr": can_manage_hr,
         },
     )
 
@@ -926,7 +969,7 @@ def payroll_list(
 def payroll_new(
     request: Request,
     db: DBSession,
-    user: User = Depends(_manage_perm),
+    user: User = Depends(_payroll_manage_perm),
     period_year: str = Form(...),
     period_month: str = Form(...),
     business_domain: str = Form("restaurant"),
@@ -938,7 +981,8 @@ def payroll_new(
         month = int(period_month.strip())
     except ValueError:
         return RedirectResponse(
-            "/admin/payroll?error=" + "فترة غير صالحة.", status_code=302
+            "/admin/payroll?error=" + quote("فترة غير صالحة."),
+            status_code=302,
         )
     domain_filter = resolve_finance_domain(user, request.session)
     dom = domain_filter.value if domain_filter is not None else business_domain
@@ -953,7 +997,15 @@ def payroll_new(
         db.commit()
     except hr.HRError as e:
         db.rollback()
-        return RedirectResponse(f"/admin/payroll?error={e}", status_code=302)
+        return RedirectResponse(
+            f"/admin/payroll?error={quote(str(e))}", status_code=302
+        )
+    except Exception as e:
+        db.rollback()
+        return RedirectResponse(
+            f"/admin/payroll?error={quote('تعذّر إنشاء الدفعة: ' + str(e))}",
+            status_code=302,
+        )
     return RedirectResponse(f"/admin/payroll/{run.id}?saved=1", status_code=302)
 
 
@@ -962,7 +1014,7 @@ def payroll_detail(
     request: Request,
     run_id: int,
     db: DBSession,
-    _: User = Depends(_view_perm),
+    user: User = Depends(_payroll_view_perm),
     error: str | None = Query(None),
     saved: int = Query(0),
     synced: int = Query(0),
@@ -970,8 +1022,9 @@ def payroll_detail(
     run = hr.get_payroll_run(db, run_id)
     if run is None:
         return RedirectResponse("/admin/payroll", status_code=302)
+    can_manage_hr = _can_manage_payroll(user)
     auto_synced_entries = 0
-    is_editable = run.status in (PayrollStatus.DRAFT, PayrollStatus.POSTED)
+    is_editable = can_manage_hr and run.status in (PayrollStatus.DRAFT, PayrollStatus.POSTED)
     if is_editable:
         auto_synced_entries = hr.reconcile_draft_run_withholdings(
             db, run, full=False
@@ -991,15 +1044,23 @@ def payroll_detail(
         e.employee_id: hr.pending_deduction_lines_for(db, e.employee_id)
         for e in run.entries
     }
+    bonuses_by_emp = {
+        e.employee_id: hr.outstanding_bonuses_for(db, e.employee_id)
+        for e in run.entries
+    }
     return templates.TemplateResponse(
         "admin_payroll_detail.html",
         {
             "request": request,
             "run": run,
+            "user": user,
+            "can_pay_payroll": can_pay_payroll(user),
+            "can_manage_hr": can_manage_hr,
             "methods": methods,
             "advances_by_emp": advances_by_emp,
             "deductions_by_emp": deductions_by_emp,
             "pending_deductions_by_emp": pending_deductions_by_emp,
+            "bonuses_by_emp": bonuses_by_emp,
             "auto_synced_entries": auto_synced_entries,
             "synced_full": bool(synced),
             "status_labels": {
@@ -1021,7 +1082,7 @@ def payroll_detail(
 def payroll_sync_withholdings(
     run_id: int,
     db: DBSession,
-    _: User = Depends(_manage_perm),
+    _: User = Depends(_payroll_manage_perm),
 ):
     run = hr.get_payroll_run(db, run_id)
     if run is None:
@@ -1046,7 +1107,7 @@ def payroll_entry_save(
     run_id: int,
     entry_id: int,
     db: DBSession,
-    _: User = Depends(_manage_perm),
+    _: User = Depends(_payroll_manage_perm),
     base_salary: str = Form("0"),
     overtime_pay: str = Form("0"),
     bonuses: str = Form("0"),
@@ -1080,7 +1141,7 @@ def payroll_entry_save(
 def payroll_reopen(
     run_id: int,
     db: DBSession,
-    _: User = Depends(_manage_perm),
+    _: User = Depends(_payroll_manage_perm),
 ):
     try:
         run = hr.reopen_paid_run_to_draft(db, run_id)
@@ -1100,7 +1161,7 @@ def payroll_reopen(
 def payroll_post(
     run_id: int,
     db: DBSession,
-    _: User = Depends(_manage_perm),
+    _: User = Depends(_payroll_manage_perm),
 ):
     try:
         hr.post_run(db, run_id)
@@ -1117,7 +1178,7 @@ def payroll_post(
 def payroll_pay(
     run_id: int,
     db: DBSession,
-    user: User = Depends(_manage_perm),
+    user: User = Depends(_payroll_pay_perm),
     payment_method_id: str = Form(...),
 ):
     pm_id = _parse_int(payment_method_id)
@@ -1148,7 +1209,7 @@ def payroll_pay(
 def payroll_delete(
     run_id: int,
     db: DBSession,
-    _: User = Depends(_manage_perm),
+    _: User = Depends(_payroll_manage_perm),
 ):
     try:
         hr.delete_run(db, run_id)
@@ -1214,7 +1275,7 @@ def advances_list(
 @advances_router.post("/grant", response_class=HTMLResponse)
 def advances_grant(
     db: DBSession,
-    user: User = Depends(_manage_perm),
+    user: User = Depends(_pay_ops_perm),
     employee_id: str = Form(...),
     amount: str = Form(...),
     payment_method_id: str = Form(""),
@@ -1256,7 +1317,7 @@ def advances_grant(
 def advances_repay(
     adv_id: int,
     db: DBSession,
-    _: User = Depends(_manage_perm),
+    _: User = Depends(_pay_ops_perm),
     amount: str = Form(...),
     notes: str = Form(""),
 ):
@@ -1282,7 +1343,7 @@ def advances_repay(
 def advances_cancel(
     adv_id: int,
     db: DBSession,
-    _: User = Depends(_manage_perm),
+    _: User = Depends(_pay_ops_perm),
 ):
     try:
         hr.cancel_advance(db, adv_id)
@@ -1355,11 +1416,223 @@ def advances_export_csv(
     return csv_response(f"advances-{suffix}", headers, rows)
 
 
+# =====================================================================
+#                     حوافز ومكافآت
+# =====================================================================
+bonuses_router = APIRouter(prefix="/admin/bonuses", tags=["hr-bonuses"])
+
+
+@bonuses_router.get("", response_class=HTMLResponse)
+def bonuses_list(
+    request: Request,
+    db: DBSession,
+    _: User = Depends(_view_perm),
+    employee_id: int | None = Query(None),
+    only_outstanding: int = Query(0, ge=0, le=1),
+    error: str | None = Query(None),
+    saved: int = Query(0),
+):
+    items = hr.list_employee_bonuses(
+        db, employee_id=employee_id, only_outstanding=bool(only_outstanding)
+    )
+    employees = hr.list_employees(db, only_active=False)
+    summary = hr.outstanding_bonuses_summary(db)
+    grand_total = hr.grand_total_outstanding_bonuses(db)
+    selected_emp = hr.get_employee(db, employee_id) if employee_id else None
+    status_labels = {
+        "OUTSTANDING": "قائمة",
+        "SETTLED": "طُبّقت في راتب",
+        "CANCELLED": "ملغاة",
+    }
+    return templates.TemplateResponse(
+        "admin_bonuses.html",
+        {
+            "request": request,
+            "items": items,
+            "employees": employees,
+            "summary": summary,
+            "grand_total": grand_total,
+            "selected_emp": selected_emp,
+            "selected_id": employee_id,
+            "only_outstanding": bool(only_outstanding),
+            "status_labels": status_labels,
+            "error": error,
+            "saved": bool(saved),
+        },
+    )
+
+
+@bonuses_router.post("/grant", response_class=HTMLResponse)
+def bonuses_grant(
+    db: DBSession,
+    user: User = Depends(_pay_ops_perm),
+    employee_id: str = Form(...),
+    amount: str = Form(...),
+    note: str = Form(""),
+):
+    eid = _parse_int(employee_id)
+    amt = _parse_decimal(amount)
+    if eid <= 0 or amt <= 0:
+        return RedirectResponse(
+            "/admin/bonuses?error=" + quote("بيانات غير صالحة."),
+            status_code=302,
+        )
+    try:
+        hr.create_employee_bonus(
+            db,
+            employee_id=eid,
+            amount=amt,
+            note=note,
+            created_by_id=user.id,
+        )
+        db.commit()
+    except hr.HRError as e:
+        db.rollback()
+        return RedirectResponse(
+            f"/admin/bonuses?error={quote(str(e))}", status_code=302
+        )
+    return RedirectResponse(
+        f"/admin/bonuses?saved=1&employee_id={eid}", status_code=302
+    )
+
+
+@bonuses_router.post("/{bonus_id}/cancel", response_class=HTMLResponse)
+def bonuses_cancel(
+    bonus_id: int,
+    db: DBSession,
+    user: User = Depends(_pay_ops_perm),
+):
+    try:
+        hr.cancel_employee_bonus(db, bonus_id=bonus_id, by_user_id=user.id)
+        db.commit()
+    except hr.HRError as e:
+        db.rollback()
+        return RedirectResponse(
+            f"/admin/bonuses?error={quote(str(e))}", status_code=302
+        )
+    return RedirectResponse("/admin/bonuses?saved=1", status_code=302)
+
+
+# =====================================================================
+#                     خصومات وعجز
+# =====================================================================
+deductions_router = APIRouter(prefix="/admin/deductions", tags=["hr-deductions"])
+
+
+@deductions_router.get("", response_class=HTMLResponse)
+def deductions_list(
+    request: Request,
+    db: DBSession,
+    _: User = Depends(_view_perm),
+    employee_id: int | None = Query(None),
+    only_outstanding: int = Query(0, ge=0, le=1),
+    error: str | None = Query(None),
+    saved: int = Query(0),
+):
+    items = hr.list_employee_deductions(
+        db, employee_id=employee_id, only_outstanding=bool(only_outstanding)
+    )
+    employees = hr.list_employees(db, only_active=False)
+    summary = hr.outstanding_deductions_summary(db)
+    grand_total = hr.grand_total_outstanding_deductions(db)
+    selected_emp = hr.get_employee(db, employee_id) if employee_id else None
+    unassigned_shortages = []
+    try:
+        from modules.pos_shifts.shortages import list_unassigned_open_shortages
+
+        unassigned_shortages = list_unassigned_open_shortages(db)
+    except Exception:  # noqa: BLE001
+        unassigned_shortages = []
+    status_labels = {
+        "OUTSTANDING": "قائمة",
+        "PARTIALLY_REPAID": "مخصوم جزئياً",
+        "FULLY_REPAID": "مخصوم بالكامل",
+        "CANCELLED": "معفاة/ملغاة",
+    }
+    source_labels = {
+        "POS_SHIFT_SHORTAGE": "عجز جلسة مطعم",
+        "HOTEL_SHIFT_SHORTAGE": "عجز وردية فندق",
+        "MANUAL": "خصم يدوي",
+    }
+    return templates.TemplateResponse(
+        "admin_deductions.html",
+        {
+            "request": request,
+            "items": items,
+            "employees": employees,
+            "summary": summary,
+            "grand_total": grand_total,
+            "selected_emp": selected_emp,
+            "selected_id": employee_id,
+            "only_outstanding": bool(only_outstanding),
+            "status_labels": status_labels,
+            "source_labels": source_labels,
+            "error": error,
+            "saved": bool(saved),
+            "unassigned_shortages": unassigned_shortages,
+        },
+    )
+
+
+@deductions_router.post("/create", response_class=HTMLResponse)
+def deductions_create(
+    db: DBSession,
+    user: User = Depends(_pay_ops_perm),
+    employee_id: str = Form(...),
+    amount: str = Form(...),
+    note: str = Form(""),
+):
+    eid = _parse_int(employee_id)
+    amt = _parse_decimal(amount)
+    if eid <= 0 or amt <= 0:
+        return RedirectResponse(
+            "/admin/deductions?error=" + quote("بيانات غير صالحة."),
+            status_code=302,
+        )
+    try:
+        hr.create_employee_deduction(
+            db,
+            employee_id=eid,
+            amount=amt,
+            note=note or "خصم يدوي",
+            source_type="MANUAL",
+            resolved_by_id=user.id,
+        )
+        db.commit()
+    except hr.HRError as e:
+        db.rollback()
+        return RedirectResponse(
+            f"/admin/deductions?error={quote(str(e))}", status_code=302
+        )
+    return RedirectResponse(
+        f"/admin/deductions?saved=1&employee_id={eid}", status_code=302
+    )
+
+
+@deductions_router.post("/{deduction_id}/cancel", response_class=HTMLResponse)
+def deductions_cancel(
+    deduction_id: int,
+    db: DBSession,
+    user: User = Depends(_pay_ops_perm),
+):
+    try:
+        hr.cancel_employee_deduction(
+            db, deduction_id=deduction_id, by_user_id=user.id
+        )
+        db.commit()
+    except hr.HRError as e:
+        db.rollback()
+        return RedirectResponse(
+            f"/admin/deductions?error={quote(str(e))}", status_code=302
+        )
+    return RedirectResponse("/admin/deductions?saved=1", status_code=302)
+
+
 @payroll_router.get("/{run_id}/export.csv")
 def payroll_export_csv(
     run_id: int,
     db: DBSession,
-    _: User = Depends(_view_perm),
+    _: User = Depends(_payroll_view_perm),
 ):
     """تصدير دفعة رواتب كاملة إلى CSV."""
     from modules.reporting.exports import csv_response

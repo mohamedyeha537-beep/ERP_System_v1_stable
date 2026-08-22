@@ -13,9 +13,11 @@ from modules.hr.models import (
     AdvanceStatus,
     AttendanceRecord,
     AttendanceSource,
+    BonusStatus,
     DeductionRepayment,
     DeductionStatus,
     Employee,
+    EmployeeBonus,
     EmployeeDeduction,
     EmployeeStatus,
     OvertimeApprovalStatus,
@@ -75,7 +77,11 @@ def list_employees(
             else:
                 stmt = stmt.where(Employee.department_id == department_id)
         if filter_domain is not None:
-            stmt = stmt.where(Employee.business_domain == filter_domain.value)
+            from modules.platform.business_domain import employee_domain_sql_values
+
+            stmt = stmt.where(
+                Employee.business_domain.in_(employee_domain_sql_values(filter_domain))
+            )
         return list(db.scalars(stmt).unique().all())
     except Exception:
         db.rollback()
@@ -88,7 +94,11 @@ def list_employees(
             else:
                 stmt = stmt.where(Employee.department_id == department_id)
         if filter_domain is not None:
-            stmt = stmt.where(Employee.business_domain == filter_domain.value)
+            from modules.platform.business_domain import employee_domain_sql_values
+
+            stmt = stmt.where(
+                Employee.business_domain.in_(employee_domain_sql_values(filter_domain))
+            )
         return list(db.scalars(stmt).all())
 
 
@@ -251,6 +261,38 @@ def create_pos_cashier_user(
     return u
 
 
+def create_treasury_clerk_user(db: Session, *, username: str, password: str):
+    """إنشاء مستخدم أمين خزينة — نطاق المطعم والفندق معاً."""
+    from modules.authz.models import User
+    from modules.authz.service import (
+        get_treasury_clerk_role,
+        get_user_by_username,
+        hash_password,
+    )
+    from modules.platform.business_domain import UserViewScope
+
+    name = (username or "").strip()
+    if len(name) < 2:
+        raise HRError("اسم مستخدم الحساب مطلوب (حرفان على الأقل).")
+    if len((password or "").strip()) < 4:
+        raise HRError("كلمة مرور الحساب قصيرة جداً (4 أحرف على الأقل).")
+    if get_user_by_username(db, name) is not None:
+        raise HRError(f"اسم المستخدم «{name}» مستخدم مسبقاً.")
+    role = get_treasury_clerk_role(db)
+    if role is None:
+        raise HRError("دور «أمين خزينة» غير موجود في النظام.")
+    u = User(
+        username=name,
+        password_hash=hash_password(password.strip()),
+        is_active=True,
+        roles=[role],
+        view_scope=UserViewScope.BOTH.value,
+    )
+    db.add(u)
+    db.flush()
+    return u
+
+
 def set_employee_pos_pin(
     db: Session,
     emp: Employee,
@@ -259,12 +301,14 @@ def set_employee_pos_pin(
     clear_pin: bool = False,
     is_pos_cashier: bool | None = None,
 ) -> None:
+    from modules.hr.pos_pin import normalize_pos_pin
+
     if is_pos_cashier is not None:
         emp.is_pos_cashier = bool(is_pos_cashier)
     if clear_pin:
         emp.pos_pin_hash = None
         return
-    if pin_plain is not None and (pin_plain or "").strip():
+    if pin_plain is not None and normalize_pos_pin(pin_plain):
         try:
             emp.pos_pin_hash = hash_pos_pin(pin_plain)
         except ValueError as e:
@@ -386,9 +430,9 @@ def upsert_employee(
     from modules.platform.business_domain import parse_employee_domain
 
     emp.business_domain = parse_employee_domain(business_domain).value
-    if emp.is_pos_cashier and emp.business_domain != parse_employee_domain("restaurant").value:
+    if emp.is_pos_cashier and emp.business_domain != "restaurant":
         raise HRError("كاشير نقطة البيع يجب أن يكون في مجال المطعم.")
-    if emp.is_hotel_front and emp.business_domain != parse_employee_domain("hotel").value:
+    if emp.is_hotel_front and emp.business_domain != "hotel":
         raise HRError("موظف استقبال الفندق يجب أن يكون في مجال الفندق.")
 
     if status == EmployeeStatus.TERMINATED and emp.terminated_at is None:
@@ -455,6 +499,10 @@ def delete_employee(db: Session, emp_id: int) -> None:
         db.execute(
             delete(EmployeeDeduction).where(EmployeeDeduction.employee_id == emp_id)
         )
+
+    db.execute(
+        delete(EmployeeBonus).where(EmployeeBonus.employee_id == emp_id)
+    )
 
     advances = list(
         db.scalars(
@@ -535,7 +583,11 @@ def total_active_monthly_salaries(db: Session, domain=None) -> Decimal:
         Employee.status == EmployeeStatus.ACTIVE
     )
     if filter_domain is not None:
-        stmt = stmt.where(Employee.business_domain == filter_domain.value)
+        from modules.platform.business_domain import employee_domain_sql_values
+
+        stmt = stmt.where(
+            Employee.business_domain.in_(employee_domain_sql_values(filter_domain))
+        )
     total = db.execute(stmt).scalar_one()
     return Decimal(str(total or 0)).quantize(Decimal("0.001"))
 
@@ -1091,6 +1143,32 @@ def _suggested_payroll_withholdings(
     )
 
 
+def salary_payout_plan(
+    db: Session, employee_id: int, *, gross: Decimal | None = None
+) -> dict[str, Decimal]:
+    """راتب أساسي − سلف قائمة − خصومات قائمة = صافي يُصرف من الخزينة."""
+    emp = get_employee(db, employee_id)
+    base = Decimal(
+        str(
+            gross
+            if gross is not None
+            else (emp.base_monthly_salary if emp is not None else 0)
+        )
+    ).quantize(Decimal("0.001"))
+    if base < 0:
+        base = Decimal("0")
+    adv, ded = _suggested_payroll_withholdings(db, employee_id, base)
+    net = (base - adv - ded).quantize(Decimal("0.001"))
+    if net < 0:
+        net = Decimal("0")
+    return {
+        "gross": base,
+        "advances": adv,
+        "deductions": ded,
+        "net": net,
+    }
+
+
 def pending_deduction_lines_for(
     db: Session, employee_id: int
 ) -> list[dict[str, object]]:
@@ -1130,17 +1208,31 @@ def _run_allows_editing(status: PayrollStatus) -> bool:
 def reconcile_draft_run_withholdings(
     db: Session, run: PayrollRun, *, full: bool = False
 ) -> int:
-    """يحدّث السلف والاستقطاعات في دفعة رواتب (مسودة أو معتمدة) من المستحقات.
+    """يحدّث المكافآت والسلف والاستقطاعات في دفعة رواتب من المستحقات.
 
-    full=False: يرفع الخصم/السلف فقط إذا كان المدخل أقل من المستحق (لا يمسّ التعديل اليدوي الأعلى).
+    قبل الحساب: يحوّل عجز جلسات الكاشير المفتوح إلى خصم راتب تلقائياً
+    حتى لا يُصرف الراتب كاملاً بالخطأ.
+
+    full=False: يرفع البنود فقط إذا كان المدخل أقل من المستحق (لا يمسّ التعديل اليدوي الأعلى).
     full=True: يعيد ضبط البنود بالكامل كما عند إنشاء الدفعة.
     """
     if not _run_allows_editing(run.status):
         return 0
     changed = 0
     for entry in run.entries:
-        gross = entry.gross_pay
-        sug_adv, sug_ded = _suggested_payroll_withholdings(db, entry.employee_id, gross)
+        sug_bonus = outstanding_bonuses_for(db, entry.employee_id)
+        if full:
+            new_bonus = sug_bonus
+        else:
+            new_bonus = max(entry.bonuses or Decimal("0"), sug_bonus)
+        gross = (
+            Decimal(str(entry.base_salary or 0))
+            + Decimal(str(entry.overtime_pay or 0))
+            + new_bonus
+        ).quantize(Decimal("0.001"))
+        sug_adv, sug_ded = _suggested_payroll_withholdings(
+            db, entry.employee_id, gross
+        )
         if full:
             new_adv, new_ded = sug_adv, sug_ded
         else:
@@ -1148,10 +1240,12 @@ def reconcile_draft_run_withholdings(
             new_ded = max(entry.deductions or Decimal("0"), sug_ded)
         new_net = (gross - new_adv - new_ded).quantize(Decimal("0.001"))
         if (
-            new_adv != (entry.advances or Decimal("0"))
+            new_bonus != (entry.bonuses or Decimal("0"))
+            or new_adv != (entry.advances or Decimal("0"))
             or new_ded != (entry.deductions or Decimal("0"))
             or new_net != (entry.net_pay or Decimal("0"))
         ):
+            entry.bonuses = new_bonus
             entry.advances = new_adv
             entry.deductions = new_ded
             entry.net_pay = new_net
@@ -1187,6 +1281,13 @@ def create_payroll_run(
             f"دفعة رواتب {dom.value} موجودة بالفعل لشهر {year}/{month:02d}."
         )
 
+    employees = list_employees(db, only_active=True, domain=dom)
+    if not employees:
+        raise HRError(
+            "لا يوجد موظفون نشطون في هذا المجال. "
+            "أضف موظفين من تبويب «الموظفون» ثم أنشئ الدفعة."
+        )
+
     run = PayrollRun(
         period_year=year,
         period_month=month,
@@ -1197,9 +1298,12 @@ def create_payroll_run(
     db.add(run)
     db.flush()
 
-    for emp in list_employees(db, only_active=True, domain=dom):
+    for emp in employees:
         c = _calc_for_employee(db, emp, year, month)
-        gross = (c.base_salary + c.overtime_pay).quantize(Decimal("0.001"))
+        suggested_bonus = outstanding_bonuses_for(db, emp.id)
+        gross = (c.base_salary + c.overtime_pay + suggested_bonus).quantize(
+            Decimal("0.001")
+        )
         suggested_adv, suggested_ded = _suggested_payroll_withholdings(
             db, emp.id, gross
         )
@@ -1211,7 +1315,7 @@ def create_payroll_run(
             hours_worked=c.hours_worked,
             overtime_hours=c.overtime_hours,
             overtime_pay=c.overtime_pay,
-            bonuses=Decimal("0"),
+            bonuses=suggested_bonus,
             deductions=suggested_ded,
             advances=suggested_adv,
             net_pay=net,
@@ -1368,6 +1472,15 @@ def pay_run(
                 payroll_entry_id=e.id,
                 when=now,
             )
+        if e.bonuses and e.bonuses > 0:
+            apply_employee_bonuses(
+                db,
+                employee_id=e.employee_id,
+                amount=Decimal(str(e.bonuses)),
+                payroll_entry_id=e.id,
+                when=now,
+                settled_by_id=user_id,
+            )
     run.status = PayrollStatus.PAID
     run.paid_at = now
     db.flush()
@@ -1387,7 +1500,15 @@ def pay_run(
 
 
 def _undo_payroll_entry_settlements(db: Session, entry: PayrollEntry) -> None:
-    """يلغي تسجيلات سداد السلف/الخصومات المرتبطة ببند راتب مدفوع."""
+    """يلغي تسجيلات سداد السلف/الخصومات/المكافآت المرتبطة ببند راتب مدفوع."""
+    for bonus in list(
+        db.scalars(
+            select(EmployeeBonus).where(EmployeeBonus.payroll_entry_id == entry.id)
+        ).all()
+    ):
+        bonus.status = BonusStatus.OUTSTANDING
+        bonus.settled_at = None
+        bonus.payroll_entry_id = None
     for rep in list(
         db.scalars(
             select(DeductionRepayment).where(
@@ -1573,12 +1694,18 @@ def grant_advance(
     when: datetime | None = None,
     notes: str | None = None,
     given_by_id: int | None = None,
+    pos_shift_id: int | None = None,
+    hotel_shift_id: int | None = None,
+    business_domain: str | None = None,
+    allow_any_pay_wallet: bool = False,
 ) -> SalaryAdvance:
     """صرف سلفة لموظف.
 
     - record_as_expense=True (الافتراضي): يُسجَّل قيد مصروف بفئة «سلف موظفين»
       ليظهر في التدفق النقدي. لا يدخل في تقرير «رواتب» الأساسي.
     - يجب تمرير `payment_method_id` إذا كان `record_as_expense=True`.
+    - من جلسة POS: مرّر ``pos_shift_id`` و``allow_any_pay_wallet=True`` لخصم الدرج.
+    - من جلسة فندق: مرّر ``hotel_shift_id`` و``business_domain`` للفندق.
     """
     emp = db.get(Employee, employee_id)
     if emp is None:
@@ -1601,7 +1728,13 @@ def grant_advance(
             supplier=emp.full_name_ar,
             note=(notes or "").strip() or f"سلفة لـ {emp.full_name_ar}",
             user_id=given_by_id,
+            pos_shift_id=pos_shift_id,
+            allow_any_pay_wallet=allow_any_pay_wallet,
+            business_domain=business_domain,
         )
+        if hotel_shift_id is not None:
+            purchase.hotel_shift_id = int(hotel_shift_id)
+            db.flush()
         purchase_id = purchase.id
 
     adv = SalaryAdvance(
@@ -1690,7 +1823,7 @@ def apply_advance_deductions(
     *,
     employee_id: int,
     amount: Decimal,
-    payroll_entry_id: int,
+    payroll_entry_id: int | None = None,
     when: datetime | None = None,
 ) -> list[AdvanceRepayment]:
     """يطبّق خصماً على السلف القائمة لموظف بطريقة FIFO (الأقدم أولاً).
@@ -1899,3 +2032,209 @@ def apply_employee_deductions(
         reps.append(rep)
     db.flush()
     return reps
+
+
+# =====================================================================
+#                     حوافز ومكافآت
+# =====================================================================
+def list_employee_bonuses(
+    db: Session,
+    *,
+    employee_id: int | None = None,
+    only_outstanding: bool = False,
+    limit: int = 500,
+) -> list[EmployeeBonus]:
+    stmt = select(EmployeeBonus).order_by(EmployeeBonus.id.desc())
+    if employee_id is not None:
+        stmt = stmt.where(EmployeeBonus.employee_id == employee_id)
+    if only_outstanding:
+        stmt = stmt.where(EmployeeBonus.status == BonusStatus.OUTSTANDING)
+    stmt = stmt.limit(limit)
+    return list(db.scalars(stmt).all())
+
+
+def outstanding_bonuses_for(db: Session, employee_id: int) -> Decimal:
+    rows = db.execute(
+        select(EmployeeBonus.amount).where(
+            EmployeeBonus.employee_id == employee_id,
+            EmployeeBonus.status == BonusStatus.OUTSTANDING,
+        )
+    ).all()
+    total = sum((Decimal(str(r[0] or 0)) for r in rows), Decimal("0"))
+    return total.quantize(Decimal("0.001"))
+
+
+def outstanding_bonuses_summary(
+    db: Session,
+) -> list[tuple[Employee, Decimal, int]]:
+    out: list[tuple[Employee, Decimal, int]] = []
+    employees = list_employees(db, only_active=False)
+    for emp in employees:
+        items = list_employee_bonuses(db, employee_id=emp.id, only_outstanding=True)
+        if not items:
+            continue
+        rem = sum((Decimal(str(b.amount or 0)) for b in items), Decimal("0"))
+        if rem > 0:
+            out.append((emp, rem.quantize(Decimal("0.001")), len(items)))
+    out.sort(key=lambda x: x[1], reverse=True)
+    return out
+
+
+def grand_total_outstanding_bonuses(db: Session) -> Decimal:
+    rows = db.execute(
+        select(EmployeeBonus.amount).where(
+            EmployeeBonus.status == BonusStatus.OUTSTANDING
+        )
+    ).all()
+    total = sum((Decimal(str(r[0] or 0)) for r in rows), Decimal("0"))
+    return total.quantize(Decimal("0.001"))
+
+
+def create_employee_bonus(
+    db: Session,
+    *,
+    employee_id: int,
+    amount: Decimal,
+    note: str | None = None,
+    created_by_id: int | None = None,
+) -> EmployeeBonus:
+    emp = db.get(Employee, employee_id)
+    if emp is None:
+        raise HRError("الموظف غير موجود.")
+    amt = Decimal(str(amount)).quantize(Decimal("0.001"))
+    if amt <= 0:
+        raise HRError("قيمة المكافأة يجب أن تكون أكبر من صفر.")
+    b = EmployeeBonus(
+        employee_id=employee_id,
+        amount=amt,
+        status=BonusStatus.OUTSTANDING,
+        note=(note or "").strip() or None,
+        created_by_id=created_by_id,
+    )
+    db.add(b)
+    db.flush()
+    return b
+
+
+def cancel_employee_bonus(
+    db: Session,
+    *,
+    bonus_id: int,
+    by_user_id: int | None = None,
+    note: str | None = None,
+) -> EmployeeBonus:
+    b = db.get(EmployeeBonus, bonus_id)
+    if b is None:
+        raise HRError("المكافأة غير موجودة.")
+    if b.status == BonusStatus.SETTLED:
+        raise HRError("لا يمكن إلغاء مكافأة طُبّقت بالفعل ضمن راتب مدفوع.")
+    b.status = BonusStatus.CANCELLED
+    b.settled_at = datetime.now(timezone.utc)
+    b.settled_by_id = by_user_id
+    if note is not None:
+        b.note = (note or "").strip() or None
+    db.flush()
+    return b
+
+
+def apply_employee_bonuses(
+    db: Session,
+    *,
+    employee_id: int,
+    amount: Decimal,
+    payroll_entry_id: int | None,
+    when: datetime | None = None,
+    settled_by_id: int | None = None,
+) -> list[EmployeeBonus]:
+    """يسوّي مكافآت قائمة لموظف بطريقة FIFO حتى مبلغ بند الراتب.
+
+    إذا كان مبلغ الراتب أقل من مكافأة واحدة، تُقسَّم: الجزء المطبّق يُسوَّى،
+    والمتبقي يبقى مكافأة قائمة للدفعة التالية.
+    """
+    remaining = Decimal(str(amount or 0)).quantize(Decimal("0.001"))
+    if remaining <= 0:
+        return []
+    when = when or datetime.now(timezone.utc)
+    bonuses = list(
+        db.scalars(
+            select(EmployeeBonus)
+            .where(
+                EmployeeBonus.employee_id == employee_id,
+                EmployeeBonus.status == BonusStatus.OUTSTANDING,
+            )
+            .order_by(EmployeeBonus.created_at.asc(), EmployeeBonus.id.asc())
+        ).all()
+    )
+    settled: list[EmployeeBonus] = []
+    for b in bonuses:
+        if remaining <= 0:
+            break
+        amt = Decimal(str(b.amount or 0)).quantize(Decimal("0.001"))
+        if amt <= 0:
+            b.status = BonusStatus.SETTLED
+            b.settled_at = when
+            b.payroll_entry_id = payroll_entry_id
+            b.settled_by_id = settled_by_id
+            settled.append(b)
+            continue
+        if amt <= remaining:
+            b.status = BonusStatus.SETTLED
+            b.settled_at = when
+            b.payroll_entry_id = payroll_entry_id
+            b.settled_by_id = settled_by_id
+            remaining -= amt
+            settled.append(b)
+        else:
+            leftover = (amt - remaining).quantize(Decimal("0.001"))
+            b.amount = remaining
+            b.status = BonusStatus.SETTLED
+            b.settled_at = when
+            b.payroll_entry_id = payroll_entry_id
+            b.settled_by_id = settled_by_id
+            settled.append(b)
+            db.add(
+                EmployeeBonus(
+                    employee_id=employee_id,
+                    amount=leftover,
+                    status=BonusStatus.OUTSTANDING,
+                    note=(b.note or "").strip() or None,
+                    created_by_id=b.created_by_id,
+                )
+            )
+            remaining = Decimal("0")
+    db.flush()
+    return settled
+
+
+def outstanding_deductions_summary(
+    db: Session,
+) -> list[tuple[Employee, Decimal, int]]:
+    out: list[tuple[Employee, Decimal, int]] = []
+    employees = list_employees(db, only_active=False)
+    for emp in employees:
+        items = list_employee_deductions(
+            db, employee_id=emp.id, only_outstanding=True
+        )
+        if not items:
+            continue
+        rem = sum((d.remaining_amount for d in items), Decimal("0"))
+        if rem > 0:
+            out.append((emp, rem.quantize(Decimal("0.001")), len(items)))
+    out.sort(key=lambda x: x[1], reverse=True)
+    return out
+
+
+def grand_total_outstanding_deductions(db: Session) -> Decimal:
+    rows = db.execute(
+        select(EmployeeDeduction.amount, EmployeeDeduction.repaid_amount).where(
+            EmployeeDeduction.status.in_(
+                [DeductionStatus.OUTSTANDING, DeductionStatus.PARTIALLY_REPAID]
+            )
+        )
+    ).all()
+    total = Decimal("0")
+    for amount, repaid in rows:
+        rem = Decimal(str(amount or 0)) - Decimal(str(repaid or 0))
+        if rem > 0:
+            total += rem
+    return total.quantize(Decimal("0.001"))

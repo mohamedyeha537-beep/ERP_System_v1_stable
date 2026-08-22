@@ -1471,6 +1471,51 @@ def patch_sqlite_schema(engine: Engine) -> None:
                 )
             )
 
+        # حوافز ومكافآت الموظفين — تُضاف عبر الرواتب
+        insp = inspect(engine)
+        names = set(insp.get_table_names())
+        if "hr_employee_bonuses" not in names:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE hr_employee_bonuses (
+                        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                        employee_id INTEGER NOT NULL,
+                        amount NUMERIC(14, 3) NOT NULL DEFAULT 0,
+                        status VARCHAR(30) NOT NULL DEFAULT 'OUTSTANDING',
+                        note TEXT,
+                        created_at DATETIME NOT NULL,
+                        settled_at DATETIME,
+                        settled_by_id INTEGER,
+                        payroll_entry_id INTEGER,
+                        created_by_id INTEGER,
+                        FOREIGN KEY(employee_id) REFERENCES hr_employees(id) ON DELETE RESTRICT,
+                        FOREIGN KEY(settled_by_id) REFERENCES users(id) ON DELETE SET NULL,
+                        FOREIGN KEY(payroll_entry_id) REFERENCES hr_payroll_entries(id) ON DELETE SET NULL,
+                        FOREIGN KEY(created_by_id) REFERENCES users(id) ON DELETE SET NULL
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_hr_employee_bonuses_employee_id "
+                    "ON hr_employee_bonuses (employee_id)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_hr_employee_bonuses_status "
+                    "ON hr_employee_bonuses (status)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_hr_employee_bonuses_payroll_entry_id "
+                    "ON hr_employee_bonuses (payroll_entry_id)"
+                )
+            )
+
         insp = inspect(engine)
         names = set(insp.get_table_names())
         if "kitchen_departments" not in names:
@@ -3047,6 +3092,13 @@ def patch_sqlite_schema(engine: Engine) -> None:
                         "ON hotel_booking_debts (reminder_at)"
                     )
                 )
+            if "reminder_time" not in debt_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE hotel_booking_debts "
+                        "ADD COLUMN reminder_time VARCHAR(8)"
+                    )
+                )
         if "hotel_room_charges" in names:
             rc_cols = {c["name"] for c in insp.get_columns("hotel_room_charges")}
             if "booking_id" not in rc_cols:
@@ -3062,6 +3114,18 @@ def patch_sqlite_schema(engine: Engine) -> None:
                         "ON hotel_room_charges (booking_id)"
                     )
                 )
+            # إعادة قراءة الأعمدة بعد احتمال إضافة booking_id
+            rc_cols = {c["name"] for c in inspect(engine).get_columns("hotel_room_charges")}
+            for col, ddl in (
+                ("service_code", "VARCHAR(40)"),
+                ("folio_side", "VARCHAR(16)"),
+                ("company_amount", "NUMERIC(14, 3)"),
+                ("guest_amount", "NUMERIC(14, 3)"),
+            ):
+                if col not in rc_cols:
+                    conn.execute(
+                        text(f"ALTER TABLE hotel_room_charges ADD COLUMN {col} {ddl}")
+                    )
         if "sales" in names:
             s_cols = {c["name"] for c in insp.get_columns("sales")}
             if "booking_id" not in s_cols:
@@ -3139,6 +3203,15 @@ def patch_sqlite_schema(engine: Engine) -> None:
                         "REFERENCES warehouses(id) ON DELETE SET NULL"
                     )
                 )
+            for col, ddl in (
+                ("close_destination", "VARCHAR(20)"),
+                ("opening_bank", "NUMERIC(14, 3)"),
+                ("received_from_shift_id", "INTEGER"),
+                ("carried_to_shift_id", "INTEGER"),
+                ("carried_to_employee_id", "INTEGER"),
+            ):
+                if col not in ps_cols:
+                    conn.execute(text(f"ALTER TABLE pos_shifts ADD COLUMN {col} {ddl}"))
         if "users" in names:
             u_cols = {c["name"] for c in insp.get_columns("users")}
             if "warehouse_id" not in u_cols:
@@ -3162,6 +3235,46 @@ def patch_sqlite_schema(engine: Engine) -> None:
                 conn.execute(
                     text(
                         "ALTER TABLE users ADD COLUMN ui_hidden VARCHAR(4000) NOT NULL DEFAULT '[]'"
+                    )
+                )
+            if "pos_show_cash" not in u_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE users ADD COLUMN pos_show_cash BOOLEAN NOT NULL DEFAULT 1"
+                    )
+                )
+            if "pos_show_bank" not in u_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE users ADD COLUMN pos_show_bank BOOLEAN NOT NULL DEFAULT 1"
+                    )
+                )
+            if "user_permission_grants" not in names:
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE user_permission_grants (
+                            user_id INTEGER NOT NULL,
+                            permission_id INTEGER NOT NULL,
+                            PRIMARY KEY (user_id, permission_id),
+                            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                            FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE
+                        )
+                        """
+                    )
+                )
+            if "user_permission_denies" not in names:
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE user_permission_denies (
+                            user_id INTEGER NOT NULL,
+                            permission_id INTEGER NOT NULL,
+                            PRIMARY KEY (user_id, permission_id),
+                            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                            FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE
+                        )
+                        """
                     )
                 )
         if "warehouses" in names:
@@ -3247,6 +3360,7 @@ def patch_sqlite_schema(engine: Engine) -> None:
 
         if "hotel_shifts" in names:
             hcols = {c["name"] for c in insp.get_columns("hotel_shifts")}
+            hotel_handoff_col_added = "treasury_handoff_at" not in hcols
             for col, ddl in (
                 ("opening_cash", "NUMERIC(14, 3)"),
                 ("counted_cash", "NUMERIC(14, 3)"),
@@ -3264,9 +3378,28 @@ def patch_sqlite_schema(engine: Engine) -> None:
                 ("expected_services_count", "INTEGER"),
                 ("counted_services_count", "INTEGER"),
                 ("close_snapshot_json", "TEXT"),
+                ("treasury_handoff_at", "DATETIME"),
+                ("treasury_handoff_by_id", "INTEGER"),
+                ("close_destination", "VARCHAR(20)"),
+                ("opening_bank", "NUMERIC(14, 3)"),
+                ("received_from_shift_id", "INTEGER"),
+                ("carried_to_shift_id", "INTEGER"),
+                ("carried_to_employee_id", "INTEGER"),
             ):
                 if col not in hcols:
                     conn.execute(text(f"ALTER TABLE hotel_shifts ADD COLUMN {col} {ddl}"))
+            # مرة واحدة عند إضافة العمود فقط — لا تُوسَم الجلسات المعلّقة لاحقاً عند كل تشغيل
+            if hotel_handoff_col_added:
+                try:
+                    conn.execute(
+                        text(
+                            "UPDATE hotel_shifts SET treasury_handoff_at = closed_at "
+                            "WHERE status = 'CLOSED' AND closed_at IS NOT NULL "
+                            "AND treasury_handoff_at IS NULL"
+                        )
+                    )
+                except Exception:
+                    pass
         if "hr_employees" in names:
             ecols = {c["name"] for c in insp.get_columns("hr_employees")}
             if "is_hotel_front" not in ecols:
@@ -3286,6 +3419,14 @@ def patch_sqlite_schema(engine: Engine) -> None:
                 ("wallet_balance", "NUMERIC(14, 3) NOT NULL DEFAULT 0"),
                 ("business_domain", "VARCHAR(20) NOT NULL DEFAULT 'restaurant'"),
                 ("loyalty_intro_sent_at", "DATETIME"),
+                ("parent_company_id", "INTEGER"),
+                ("company_discount_percent", "NUMERIC(7, 3) NOT NULL DEFAULT 0"),
+                ("company_credit_limit", "NUMERIC(14, 3) NOT NULL DEFAULT 0"),
+                ("allow_company_credit", "BOOLEAN NOT NULL DEFAULT 0"),
+                ("company_notify_frequency", "VARCHAR(32) NOT NULL DEFAULT 'DAILY'"),
+                ("company_default_notify_to", "VARCHAR(16) NOT NULL DEFAULT 'COMPANY'"),
+                ("company_notify_last_period", "VARCHAR(32)"),
+                ("company_notify_last_sent_at", "DATETIME"),
             ):
                 if col not in ccols:
                     conn.execute(text(f"ALTER TABLE customers ADD COLUMN {col} {ddl}"))
@@ -3589,6 +3730,30 @@ def patch_sqlite_schema(engine: Engine) -> None:
                         "ADD COLUMN charged_to_guest BOOLEAN NOT NULL DEFAULT 1"
                     )
                 )
+            if "sale_id" not in hbs_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE hotel_booking_services "
+                        "ADD COLUMN sale_id INTEGER REFERENCES sales(id) ON DELETE SET NULL"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_hotel_booking_services_sale_id "
+                        "ON hotel_booking_services (sale_id)"
+                    )
+                )
+            hbs_cols = {c["name"] for c in inspect(engine).get_columns("hotel_booking_services")}
+            for col, ddl in (
+                ("service_code", "VARCHAR(40)"),
+                ("folio_side", "VARCHAR(16)"),
+                ("company_amount", "NUMERIC(14, 3)"),
+                ("guest_amount", "NUMERIC(14, 3)"),
+            ):
+                if col not in hbs_cols:
+                    conn.execute(
+                        text(f"ALTER TABLE hotel_booking_services ADD COLUMN {col} {ddl}")
+                    )
         if "products" in names:
             pcols = {c["name"] for c in insp.get_columns("products")}
             if "is_hotel_breakfast" not in pcols:
@@ -3598,6 +3763,27 @@ def patch_sqlite_schema(engine: Engine) -> None:
                         "ADD COLUMN is_hotel_breakfast BOOLEAN NOT NULL DEFAULT 0"
                     )
                 )
+
+        names = set(insp.get_table_names())
+        if "hotel_bookings" in names:
+            hbcols = {c["name"] for c in insp.get_columns("hotel_bookings")}
+            for col, ddl in (
+                ("company_customer_id", "INTEGER"),
+                ("company_agreement_id", "INTEGER"),
+                ("booking_payer", "VARCHAR(20)"),
+                ("stay_payer", "VARCHAR(20)"),
+                ("extras_payer", "VARCHAR(20)"),
+                ("notify_to", "VARCHAR(16)"),
+                ("notify_claim_last_period", "VARCHAR(32)"),
+                ("is_tourism_agency", "BOOLEAN NOT NULL DEFAULT 0"),
+                ("tourism_commission_percent", "NUMERIC(7, 3) NOT NULL DEFAULT 0"),
+                ("planned_check_in", "DATE"),
+                ("first_chargeable_night", "DATE"),
+            ):
+                if col not in hbcols:
+                    conn.execute(
+                        text(f"ALTER TABLE hotel_bookings ADD COLUMN {col} {ddl}")
+                    )
 
         # SEO entity columns
         names = set(insp.get_table_names())
@@ -3627,3 +3813,230 @@ def patch_sqlite_schema(engine: Engine) -> None:
             for col, ddl in seo_col_defs:
                 if col not in tcols:
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}"))
+
+        names = set(insp.get_table_names())
+        if "supervisor_otp_challenges" not in names:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE supervisor_otp_challenges (
+                        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                        purpose VARCHAR(40) NOT NULL,
+                        domain VARCHAR(20) NOT NULL,
+                        ref_type VARCHAR(20) NOT NULL,
+                        ref_id INTEGER NOT NULL,
+                        code_hash VARCHAR(128) NOT NULL,
+                        expires_at DATETIME NOT NULL,
+                        consumed_at DATETIME,
+                        attempts INTEGER NOT NULL DEFAULT 0,
+                        requested_by_user_id INTEGER,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_supervisor_otp_purpose "
+                    "ON supervisor_otp_challenges (purpose)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_supervisor_otp_domain "
+                    "ON supervisor_otp_challenges (domain)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_supervisor_otp_ref "
+                    "ON supervisor_otp_challenges (ref_type, ref_id)"
+                )
+            )
+        names = set(insp.get_table_names())
+        if "hotel_company_agreement_change_requests" not in names:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE hotel_company_agreement_change_requests (
+                        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                        company_customer_id INTEGER NOT NULL,
+                        agreement_id INTEGER,
+                        booking_id INTEGER,
+                        requested_by_user_id INTEGER,
+                        status VARCHAR(16) NOT NULL DEFAULT 'PENDING',
+                        note TEXT,
+                        attachment_path VARCHAR(260),
+                        attachment_name VARCHAR(180),
+                        items_json TEXT NOT NULL DEFAULT '[]',
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        reviewed_at DATETIME,
+                        reviewed_by_user_id INTEGER,
+                        review_note TEXT
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_agr_chg_req_company "
+                    "ON hotel_company_agreement_change_requests (company_customer_id)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_agr_chg_req_status "
+                    "ON hotel_company_agreement_change_requests (status)"
+                )
+            )
+        names = set(insp.get_table_names())
+        if "shift_variances" not in names:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE shift_variances (
+                        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                        ref VARCHAR(20) NOT NULL UNIQUE,
+                        source_type VARCHAR(24) NOT NULL,
+                        kind VARCHAR(8) NOT NULL,
+                        status VARCHAR(24) NOT NULL DEFAULT 'PENDING_REVIEW',
+                        hotel_shift_id INTEGER,
+                        pos_shift_id INTEGER,
+                        from_employee_id INTEGER,
+                        to_employee_id INTEGER,
+                        claimed_amount NUMERIC(14, 3) NOT NULL,
+                        received_amount NUMERIC(14, 3) NOT NULL,
+                        difference NUMERIC(14, 3) NOT NULL,
+                        note TEXT,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        resolved_at DATETIME,
+                        resolved_by_id INTEGER,
+                        resolved_note TEXT,
+                        payroll_deduction_id INTEGER
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_shift_variances_status "
+                    "ON shift_variances (status)"
+                )
+            )
+        names = set(insp.get_table_names())
+        if "shift_handovers" not in names:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE shift_handovers (
+                        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                        ref VARCHAR(20) NOT NULL UNIQUE,
+                        kind VARCHAR(20) NOT NULL,
+                        status VARCHAR(16) NOT NULL DEFAULT 'SENT',
+                        domain VARCHAR(16) NOT NULL,
+                        hotel_shift_id INTEGER,
+                        pos_shift_id INTEGER,
+                        from_employee_id INTEGER,
+                        to_employee_id INTEGER,
+                        claimed_cash NUMERIC(14, 3) NOT NULL DEFAULT 0,
+                        claimed_bank NUMERIC(14, 3) NOT NULL DEFAULT 0,
+                        received_cash NUMERIC(14, 3),
+                        received_bank NUMERIC(14, 3),
+                        handover_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        confirmed_at DATETIME,
+                        bank_name VARCHAR(80),
+                        bank_ref VARCHAR(80),
+                        bank_transferred_at DATETIME,
+                        note TEXT,
+                        created_by_id INTEGER,
+                        confirmed_by_id INTEGER,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+        names = set(insp.get_table_names())
+        if "treasury_sessions" not in names:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE treasury_sessions (
+                        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                        status VARCHAR(12) NOT NULL DEFAULT 'OPEN',
+                        opened_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        opened_by_id INTEGER,
+                        opening_cash NUMERIC(14, 3) NOT NULL DEFAULT 0,
+                        opening_bank NUMERIC(14, 3) NOT NULL DEFAULT 0,
+                        closed_at DATETIME,
+                        closed_by_id INTEGER,
+                        counted_cash NUMERIC(14, 3),
+                        counted_bank NUMERIC(14, 3),
+                        expected_cash NUMERIC(14, 3),
+                        expected_bank NUMERIC(14, 3),
+                        cash_in NUMERIC(14, 3) NOT NULL DEFAULT 0,
+                        cash_out NUMERIC(14, 3) NOT NULL DEFAULT 0,
+                        bank_in NUMERIC(14, 3) NOT NULL DEFAULT 0,
+                        bank_out NUMERIC(14, 3) NOT NULL DEFAULT 0,
+                        advances_out NUMERIC(14, 3) NOT NULL DEFAULT 0,
+                        close_note TEXT
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_treasury_sessions_status "
+                    "ON treasury_sessions (status)"
+                )
+            )
+        names = set(insp.get_table_names())
+        if "purchase_advances" not in names:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE purchase_advances (
+                        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                        ref VARCHAR(24) NOT NULL UNIQUE,
+                        status VARCHAR(12) NOT NULL DEFAULT 'OPEN',
+                        employee_id INTEGER NOT NULL,
+                        amount NUMERIC(14, 3) NOT NULL,
+                        returned_amount NUMERIC(14, 3) NOT NULL DEFAULT 0,
+                        source_pm_id INTEGER NOT NULL,
+                        custody_pm_id INTEGER NOT NULL,
+                        purpose VARCHAR(200),
+                        domain VARCHAR(16) NOT NULL DEFAULT 'restaurant',
+                        transfer_id INTEGER,
+                        return_transfer_id INTEGER,
+                        created_by_id INTEGER,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        closed_at DATETIME,
+                        closed_by_id INTEGER,
+                        note TEXT
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_purchase_advances_status "
+                    "ON purchase_advances (status)"
+                )
+            )
+        names = set(inspect(engine).get_table_names())
+        if "user_wallet_access" not in names:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE user_wallet_access (
+                        user_id INTEGER NOT NULL,
+                        payment_method_id INTEGER NOT NULL,
+                        can_send BOOLEAN NOT NULL DEFAULT 0,
+                        can_receive BOOLEAN NOT NULL DEFAULT 0,
+                        PRIMARY KEY (user_id, payment_method_id),
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                        FOREIGN KEY (payment_method_id) REFERENCES payment_methods(id) ON DELETE CASCADE
+                    )
+                    """
+                )
+            )
+

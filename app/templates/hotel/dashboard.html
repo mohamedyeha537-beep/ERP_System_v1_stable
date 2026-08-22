@@ -1,11 +1,10 @@
 ﻿{% extends "base.html" %}
 {% block title %}لوحة الشقق{% endblock %}
 {% block head_extra %}
-<link rel="stylesheet" href="/static/hotel_dashboard.css?v=30" />
-{% from "_dash_qlink_badge.html" import dash_badge %}
-{% set hotel_badge_counts = pos_hotel_nav_badges(request) %}
+<link rel="stylesheet" href="/static/hotel_dashboard.css?v=41" />
 <style>
-  .hotel-stat-grid .qlink.is-active-view {
+  .hotel-desk-grid .qlink.qlink--active,
+  .hotel-desk-grid .qlink.is-active-view {
     outline: 2px solid var(--accent, #2563eb);
     outline-offset: 2px;
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #2563eb) 25%, transparent);
@@ -23,6 +22,16 @@
     background: #eff6ff;
   }
   .fd-view-banner strong { color: #1d4ed8; }
+  .hotel-debt-details { margin: 0.5rem 0 0; }
+  .hotel-debt-details > summary {
+    list-style: none;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--muted, #64748b);
+    margin: 0.35rem 0 0.45rem;
+  }
+  .hotel-debt-details > summary::-webkit-details-marker { display: none; }
 </style>
 {% endblock %}
 {% block body %}
@@ -35,7 +44,7 @@
     </p>
   </div>
   <div class="apt-page-header__actions">
-    <a class="btn" href="/admin/hotel/bookings">الحجوزات</a>
+    <a class="btn btn-primary" href="/admin/hotel/bookings?scope=open">الحجوزات</a>
     <a class="btn" href="/hotel/settle">تسوية حسابات</a>
     <a class="btn" href="/admin/hotel/rooms">إعداد</a>
   </div>
@@ -54,70 +63,50 @@
 {% if error %}
 <div class="fd-alert fd-alert--danger" role="alert">{{ error }}</div>
 {% endif %}
+{% if incoming_handover_count|default(0) > 0 %}
+<div class="fd-alert" style="background:#ecfeff;border-color:#67e8f9" role="status">
+  يوجد <strong>{{ incoming_handover_count }}</strong> تسليم عهدة بانتظار تأكيدك —
+  <a href="/admin/hotel/shift/incoming">فتح صفحة الاستلام</a>
+</div>
+{% endif %}
 
 {% if summary.debt_grand_total > 0 and not dash_view %}
 <div class="fd-alert fd-alert--danger" role="alert">
   <strong>⚠️ تنبيه ديون:</strong>
   إجمالي غير المدفوع <strong>{{ '%.3f'|format(summary.debt_grand_total) }} د.ل</strong>
   على {{ summary.debt_stay_rooms + summary.debt_laundry_rooms + summary.debt_restaurant_rooms }} شقة/حساب —
+  <a href="/admin/hotel/debts">ذمم الحجوزات</a>
+  ·
   <a href="/hotel/settle">تسوية الآن</a>
 </div>
 {% endif %}
 
-<section class="quick-grid hotel-stat-grid" aria-label="ملخص اليوم — اضغط للتصفية">
-  <a class="qlink{% if dash_view == 'available' %} is-active-view{% endif %}" href="/admin/hotel/dashboard?view=available#focus-panel" style="--accent:#22c55e">
-    <div class="qicon qicon--stat" aria-hidden="true">{{ counts.available }}</div>
-    <div><div class="qtitle">متاحة</div><div class="qhint">جاهزة للحجز</div></div>
-  </a>
-  <a class="qlink{% if dash_view == 'occupied' %} is-active-view{% endif %}" href="/admin/hotel/dashboard?view=occupied#focus-panel" style="--accent:#ef4444">
-    <div class="qicon qicon--stat" aria-hidden="true">{{ counts.occupied }}</div>
-    <div><div class="qtitle">مشغولة</div><div class="qhint">نزلاء حالياً</div></div>
-  </a>
-  <a class="qlink{% if dash_view == 'checkout' %} is-active-view{% endif %}" href="/admin/hotel/dashboard?view=checkout#focus-panel" style="--accent:#f97316">
-    <div class="qicon qicon--stat" aria-hidden="true">{{ summary.checkout_due }}</div>
-    <div><div class="qtitle">مغادرة اليوم</div><div class="qhint">check-out</div></div>
-  </a>
-  <a class="qlink{% if dash_view == 'arrivals' %} is-active-view{% endif %}" href="/admin/hotel/dashboard?view=arrivals#focus-panel" style="--accent:#3b82f6">
-    <div class="qicon qicon--stat" aria-hidden="true">{{ summary.arrivals_today }}</div>
-    <div><div class="qtitle">وصول اليوم</div><div class="qhint">check-in</div></div>
-  </a>
-  <a class="qlink{% if dash_view == 'online' %} is-active-view{% endif %}" href="/admin/hotel/dashboard?view=online#focus-panel" style="--accent:#8b5cf6">
-    <div class="qicon qicon--stat" aria-hidden="true">{{ summary.online_requests }}</div>
-    <div><div class="qtitle">طلبات أونلاين</div><div class="qhint">من متجر /suites</div></div>
-  </a>
-  <a class="qlink{% if dash_view == 'reserved' %} is-active-view{% endif %}" href="/admin/hotel/dashboard?view=reserved#focus-panel" style="--accent:#64748b">
-    <div class="qicon qicon--stat" aria-hidden="true">{{ counts.reserved }}</div>
-    <div><div class="qtitle">محجوزة</div><div class="qhint">لم يُسجّل دخول</div></div>
-  </a>
-  <a class="qlink{% if dash_view == 'maintenance' %} is-active-view{% endif %}" href="/admin/hotel/dashboard?view=maintenance#focus-panel" style="--accent:#f97316">
-    <div class="qicon qicon--stat" aria-hidden="true">{{ counts.maintenance }}</div>
-    <div><div class="qtitle">صيانة</div><div class="qhint">غير متاحة — صيانة</div></div>
-  </a>
-</section>
-
-<section class="quick-grid hotel-debt-grid" aria-label="تتبع الديون — اضغط للتصفية">
-  <a class="qlink{% if dash_view == 'debt_stay' %} is-active-view{% endif %}{% if summary.debt_stay_total > 0 %} qlink--warn{% endif %}" href="/admin/hotel/dashboard?view=debt_stay#focus-panel" style="--accent:#6366f1">
-    <div class="qicon" aria-hidden="true">🛏️</div>
-    <div>
-      <div class="qtitle">{{ '%.3f'|format(summary.debt_stay_total) }} د.ل</div>
-      <div class="qhint">ديون إقامة · {{ summary.debt_stay_rooms }} شقة</div>
-    </div>
-  </a>
-  <a class="qlink{% if dash_view == 'debt_laundry' %} is-active-view{% endif %}{% if summary.debt_laundry_total > 0 %} qlink--warn{% endif %}" href="/admin/hotel/dashboard?view=debt_laundry#focus-panel" style="--accent:#14b8a6">
-    <div class="qicon" aria-hidden="true">👕</div>
-    <div>
-      <div class="qtitle">{{ '%.3f'|format(summary.debt_laundry_total) }} د.ل</div>
-      <div class="qhint">ديون مغسلة · {{ summary.debt_laundry_rooms }} شقة</div>
-    </div>
-  </a>
-  <a class="qlink{% if dash_view == 'debt_restaurant' %} is-active-view{% endif %}{% if summary.debt_restaurant_total > 0 %} qlink--warn{% endif %}" href="/admin/hotel/dashboard?view=debt_restaurant#focus-panel" style="--accent:#f59e0b">
-    <div class="qicon" aria-hidden="true">🍽️</div>
-    <div>
-      <div class="qtitle">{{ '%.3f'|format(summary.debt_restaurant_total) }} د.ل</div>
-      <div class="qhint">ديون مطعم · {{ summary.debt_restaurant_rooms }} شقة</div>
-    </div>
-  </a>
-</section>
+<details class="hotel-debt-details"{% if summary.debt_grand_total > 0 or (dash_view and dash_view.startswith('debt_')) %} open{% endif %}>
+  <summary>تفاصيل الديون (إقامة · مغسلة · مطعم)</summary>
+  <section class="quick-grid hotel-debt-grid" aria-label="تتبع الديون — اضغط للتصفية">
+    <a class="qlink{% if dash_view == 'debt_stay' %} is-active-view{% endif %}{% if summary.debt_stay_total > 0 %} qlink--warn{% endif %}" href="/admin/hotel/dashboard?view=debt_stay#focus-panel" style="--accent:#6366f1">
+      <div class="qicon" aria-hidden="true">🛏️</div>
+      <div>
+        <div class="qtitle">{{ '%.3f'|format(summary.debt_stay_total) }} د.ل</div>
+        <div class="qhint">ديون إقامة · {{ summary.debt_stay_rooms }} شقة</div>
+      </div>
+    </a>
+    <a class="qlink{% if dash_view == 'debt_laundry' %} is-active-view{% endif %}{% if summary.debt_laundry_total > 0 %} qlink--warn{% endif %}" href="/admin/hotel/dashboard?view=debt_laundry#focus-panel" style="--accent:#14b8a6">
+      <div class="qicon" aria-hidden="true">👕</div>
+      <div>
+        <div class="qtitle">{{ '%.3f'|format(summary.debt_laundry_total) }} د.ل</div>
+        <div class="qhint">ديون مغسلة · {{ summary.debt_laundry_rooms }} شقة</div>
+      </div>
+    </a>
+    <a class="qlink{% if dash_view == 'debt_restaurant' %} is-active-view{% endif %}{% if summary.debt_restaurant_total > 0 %} qlink--warn{% endif %}" href="/admin/hotel/dashboard?view=debt_restaurant#focus-panel" style="--accent:#f59e0b">
+      <div class="qicon" aria-hidden="true">🍽️</div>
+      <div>
+        <div class="qtitle">{{ '%.3f'|format(summary.debt_restaurant_total) }} د.ل</div>
+        <div class="qhint">ديون مطعم · {{ summary.debt_restaurant_rooms }} شقة</div>
+      </div>
+    </a>
+  </section>
+</details>
 
 <div id="focus-panel">
 {% if dash_view %}
@@ -142,6 +131,9 @@
       <li>
         <a href="/admin/hotel/bookings/{{ b.id }}">#{{ b.reference }} — {{ b.guest_name }}</a>
         {% if b.room %} · {{ b.room.number }}{% endif %}
+        <span class="muted" style="display:block;font-size:0.8rem;margin-top:0.15rem" dir="ltr">
+          وصول {{ b.check_in }} → مغادرة {{ b.check_out }}
+        </span>
       </li>
       {% endfor %}
     </ul>
@@ -155,6 +147,10 @@
       <li>
         <a href="/admin/hotel/bookings/{{ b.id }}">#{{ b.reference }} — {{ b.guest_name }}</a>
         {% if b.room %} · {{ b.room.number }}{% endif %}
+        <a class="apt-tile__maint-btn apt-tile__maint-btn--checkin" href="/admin/hotel/bookings/{{ b.id }}#booking-checkin-actions" style="margin-inline-start:0.45rem;display:inline-block;vertical-align:middle">تسكين</a>
+        <span class="muted" style="display:block;font-size:0.8rem;margin-top:0.15rem" dir="ltr">
+          وصول {{ b.check_in }} → مغادرة {{ b.check_out }}
+        </span>
       </li>
       {% endfor %}
     </ul>
@@ -232,7 +228,10 @@
   {% endfor %}
 </div>
 {% if not dash_view %}
-<p class="muted apt-grid-note">🟢 متاحة للحجز · 📅 متاحة مع حجز قادم · 🔴 مشغولة/محجوزة اليوم · 🔧 غير متاحة — صيانة · ⚠️ دين · 🚪 مغادرة اليوم<br />النص داخل الكرت = <strong>الحالة الحالية</strong> · الزر أسفل الكرت = <strong>إجراء</strong> (وضع في الصيانة أو إنهاؤها)</p>
+<p class="muted apt-grid-note">
+  🟢 متاحة · 🔴 مشغولة · 🟠 محجوزة · 🟡 صيانة · 🟤 منتهي وقت المغادرة · 🟠 بانتظار السداد · 🔵 تمديد إقامة · 🚪 مغادرة اليوم · ⚠️ دين
+  <br />النص داخل الكرت = <strong>الحالة الحالية</strong> · الزر أسفل الكرت = <strong>إجراء</strong>
+</p>
 {% endif %}
 {% if can_maintain %}
 {% include "_hotel_maintenance_dialog.html" %}

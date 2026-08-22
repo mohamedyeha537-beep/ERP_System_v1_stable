@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}العهد{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/treasury_desk.css?v=1" />
+{% endblock %}
+{% block body %}
+<div class="tdesk">
+  <h1 style="margin:0">العهد — من لديه أموال الآن</h1>
+  {% include "treasury/_nav.html" %}
+  <div class="tdesk-tabs">
+    <a href="/pos/treasury/custody">عهد المشتريات</a>
+    <a href="/pos/treasury/advances" class="active">من لديه أموال الآن</a>
+  </div>
+  <p class="muted">كل مبلغ خارج الخزينة الرئيسية يجب أن يظهر هنا: محفظة استقبال، محفظة كاشير، تسليم معلّق، أو عهدة مشتريات.</p>
+  <div class="tdesk-card">
+    {% if holders %}
+    <table class="tdesk-table">
+      <thead>
+        <tr><th>حامل العهدة</th><th>النوع</th><th>أصل / رصيد</th><th>المستخدم</th><th>المتبقي</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for h in holders %}
+        <tr>
+          <td>{{ h.holder }}</td>
+          <td>{{ h.kind_ar }}</td>
+          <td>{{ pos_money(h.origin) }}</td>
+          <td>{{ pos_money(h.used) }}</td>
+          <td><strong>{{ pos_money(h.remaining) }}</strong></td>
+          <td><a href="{{ h.detail_href }}">التفاصيل</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted" style="margin:0">لا توجد أموال خارج الخزينة حالياً.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

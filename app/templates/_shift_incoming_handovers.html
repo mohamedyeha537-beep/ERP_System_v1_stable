@@ -1,0 +1,27 @@
+{% if incoming_handovers %}
+<div class="card" style="border-color:#67e8f9;background:#ecfeff;margin:0 0 1rem;padding:0.9rem 1rem">
+  <p style="margin:0;font-weight:800;color:#0e7490">عهدة بانتظار تأكيدك</p>
+  <p class="muted" style="margin:0.35rem 0 0.65rem;font-size:0.84rem">
+    عدّ ما استلمته فعلياً لكل تسليم. رصيد افتتاحك = ما أكدته أنت، لا ما كتبه المسلِّم.
+  </p>
+  {% for h in incoming_handovers %}
+  <form method="post" action="{{ incoming_confirm_action }}" style="margin:0 0 0.75rem;padding:0.65rem;border:1px solid #a5f3fc;border-radius:10px;background:#fff">
+    <input type="hidden" name="handover_id" value="{{ h.id }}" />
+    <p style="margin:0 0 0.45rem;font-size:0.9rem">
+      <strong>{{ h.ref }}</strong>
+      {% if h.from_employee %} — من {{ h.from_employee.full_name_ar }}{% endif %}
+      · كاش {{ '%.3f'|format(h.claimed_cash) }} · مصرف {{ '%.3f'|format(h.claimed_bank) }}
+    </p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.45rem">
+      <label>الكاش الذي عددته
+        <input name="received_cash" type="text" inputmode="decimal" required placeholder="0.000" dir="ltr" />
+      </label>
+      <label>المصرف الذي عددته
+        <input name="received_bank" type="text" inputmode="decimal" required placeholder="0.000" dir="ltr" />
+      </label>
+    </div>
+    <button class="btn btn-primary" type="submit" style="margin-top:0.55rem">تأكيد الاستلام</button>
+  </form>
+  {% endfor %}
+</div>
+{% endif %}

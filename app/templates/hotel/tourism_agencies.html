@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}وكالات السياحة والعمولات{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/hotel_dashboard.css?v=34" />
+{% endblock %}
+{% block body %}
+<h1 style="margin-top:0">وكالة سياحة — العمولات</h1>
+{% set active = 'tourism' %}
+{% include "_hotel_nav.html" %}
+
+<p class="muted" style="max-width:48rem;line-height:1.6;margin:0.75rem 0 1rem">
+  هنا فقط الأدمن يُعرّف <strong>اسم الشركة</strong> و<strong>نسبة عمولتها</strong>.
+  موظف الاستقبال يختار الوكالة في نموذج الحجز فقط — النسبة تُطبَّق تلقائياً،
+  تُخصم من قيمة الحجز وتُضاف لمحفظة الشركة حتى تتم <strong>التسوية</strong> (تصفير الرصيد).
+</p>
+
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+{% if saved == 'created' %}
+<div class="alert" style="background:#ecfdf5">تم إضافة وكالة سياحة ✓</div>
+{% elif saved == 'updated' %}
+<div class="alert" style="background:#ecfdf5">تم تحديث الوكالة ✓</div>
+{% elif saved == 'settled' %}
+<div class="alert" style="background:#ecfdf5">تم تسوية رصيد العمولات (تم التصفير) ✓</div>
+{% elif saved == 'deactivated' %}
+<div class="alert" style="background:#ecfdf5">تم إيقاف الوكالة ✓</div>
+{% endif %}
+
+<div class="card" style="border-color:#fcd34d;background:linear-gradient(180deg,#fffbeb 0%,#fff 50%);margin-bottom:1rem">
+  <h2 style="margin-top:0;font-size:1.05rem">إضافة / تحديث وكالة</h2>
+  <form method="post" action="/admin/hotel/tourism-agencies/save" class="row" style="gap:0.65rem;flex-wrap:wrap;align-items:flex-end">
+    <input type="hidden" name="customer_id" id="edit_customer_id" value="" />
+    <label style="display:flex;flex-direction:column;gap:0.2rem;font-size:0.88rem;min-width:200px;flex:1">
+      اسم الشركة *
+      <input name="company_name" id="edit_company_name" required minlength="2" placeholder="مثال: وكالة النور للسياحة" />
+    </label>
+    <label style="display:flex;flex-direction:column;gap:0.2rem;font-size:0.88rem;min-width:140px">
+      هاتف (موصى به للوكالات الجديدة)
+      <input name="phone" id="edit_phone" dir="ltr" placeholder="09..." />
+    </label>
+    <label style="display:flex;flex-direction:column;gap:0.2rem;font-size:0.88rem;min-width:120px">
+      نسبة العمولة % *
+      <input name="commission_percent" id="edit_pct" type="number" step="0.001" min="0.001" max="100" required placeholder="10" dir="ltr" />
+    </label>
+    <label style="display:flex;flex-direction:column;gap:0.2rem;font-size:0.88rem;min-width:180px;flex:1">
+      ملاحظات
+      <input name="notes" id="edit_notes" placeholder="اختياري" />
+    </label>
+    <button class="btn btn-primary" type="submit">حفظ الوكالة</button>
+    <button class="btn" type="button" id="clear-edit-form">مسح النموذج</button>
+  </form>
+  <p class="muted" style="margin:0.65rem 0 0;font-size:0.8rem">
+    للتعديل: اضغط «تعديل» بجانب الوكالة في الجدول — نفس النموذج يحدّث النسبة دون إدخال يدوي من الاستقبال.
+  </p>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0;font-size:1.05rem">الوكالات النشطة</h2>
+  {% if agencies %}
+  <table>
+    <thead>
+      <tr>
+        <th>الشركة</th>
+        <th>الهاتف</th>
+        <th>العمولة %</th>
+        <th>رصيد العمولات (محفظة)</th>
+        <th>إجراءات</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in agencies %}
+      <tr>
+        <td>
+          <strong>{{ a.name }}</strong>
+          <div class="muted" style="font-size:0.78rem">#{{ a.customer_id }}</div>
+        </td>
+        <td dir="ltr">{{ a.phone or '—' }}</td>
+        <td dir="ltr"><strong>{{ '%.3f'|format(a.commission_percent) }}%</strong></td>
+        <td dir="ltr" style="font-weight:700;color:{% if a.wallet_balance > 0 %}#b45309{% else %}#64748b{% endif %}">
+          {{ '%.3f'|format(a.wallet_balance) }} د.ل
+        </td>
+        <td>
+          <div class="row" style="gap:0.35rem;flex-wrap:wrap;align-items:flex-end">
+            <button type="button" class="btn btn-sm agency-edit-btn"
+              data-id="{{ a.customer_id }}"
+              data-name="{{ a.name }}"
+              data-phone="{{ a.phone or '' }}"
+              data-pct="{{ '%.3f'|format(a.commission_percent) }}">تعديل</button>
+            <a class="btn btn-sm" href="/admin/customers/{{ a.customer_id }}">محفظة / كشف</a>
+            {% if a.wallet_balance > 0 %}
+            <form method="post" action="/admin/hotel/tourism-agencies/{{ a.customer_id }}/settle"
+                  class="row" style="gap:0.25rem;align-items:flex-end;margin:0"
+                  onsubmit="return confirm('تسوية كامل رصيد العمولات ({{ '%.3f'|format(a.wallet_balance) }} د.ل) وتصفير الحساب؟');">
+              <input name="note" placeholder="بيان التسوية" style="max-width:9rem" />
+              <button class="btn btn-sm btn-primary" type="submit" style="background:#0f766e;border-color:#0f766e">
+                تسوية وتصفير
+              </button>
+            </form>
+            {% endif %}
+            <form method="post" action="/admin/hotel/tourism-agencies/{{ a.customer_id }}/deactivate" style="margin:0"
+                  onsubmit="return confirm('إيقاف هذه الوكالة من قائمة اختيار الاستقبال؟');">
+              <button class="btn btn-sm" type="submit" style="color:#b91c1c">إيقاف</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted" style="margin:0">لا توجد وكالات نشطة بعد — أضف أول وكالة أعلاه.</p>
+  {% endif %}
+</div>
+
+{% if inactive_agencies %}
+<div class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0;font-size:1.05rem">متوقفة / بلا نسبة</h2>
+  <ul class="muted" style="margin:0;padding-inline-start:1.2rem;line-height:1.7">
+    {% for a in inactive_agencies %}
+    <li>
+      {{ a.name }} — {{ '%.3f'|format(a.commission_percent) }}% —
+      رصيد {{ '%.3f'|format(a.wallet_balance) }} د.ل
+      · <button type="button" class="btn btn-sm agency-edit-btn" style="padding:0.1rem 0.4rem"
+        data-id="{{ a.customer_id }}" data-name="{{ a.name }}" data-phone="{{ a.phone or '' }}"
+        data-pct="{{ '%.3f'|format(a.commission_percent) }}">إعادة تفعيل / تعديل</button>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<script>
+(function () {
+  var idEl = document.getElementById('edit_customer_id');
+  var nameEl = document.getElementById('edit_company_name');
+  var phoneEl = document.getElementById('edit_phone');
+  var pctEl = document.getElementById('edit_pct');
+  function fill(id, name, phone, pct) {
+    if (idEl) idEl.value = id || '';
+    if (nameEl) nameEl.value = name || '';
+    if (phoneEl) phoneEl.value = phone || '';
+    if (pctEl) pctEl.value = pct || '';
+    if (nameEl) nameEl.focus();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  document.querySelectorAll('.agency-edit-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      fill(btn.getAttribute('data-id'), btn.getAttribute('data-name'),
+           btn.getAttribute('data-phone'), btn.getAttribute('data-pct'));
+    });
+  });
+  var clearBtn = document.getElementById('clear-edit-form');
+  if (clearBtn) clearBtn.addEventListener('click', function () { fill('', '', '', ''); });
+})();
+</script>
+{% endblock %}

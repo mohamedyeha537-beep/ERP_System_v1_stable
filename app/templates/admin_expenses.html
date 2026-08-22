@@ -1,6 +1,14 @@
 {% extends "base.html" %}
 {% block title %}المصروفات{% endblock %}
+{% block head_extra %}
+{% if pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}
+<link rel="stylesheet" href="/static/treasury_desk.css?v=2" />
+{% endif %}
+{% endblock %}
 {% block body %}
+{% if pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}
+{% include "treasury/_nav.html" %}
+{% endif %}
 <div class="row" style="justify-content: space-between; align-items: center">
   <div>
     <h1 style="margin: 0">المصروفات (لا تأثير على المخزون)</h1>
@@ -34,10 +42,23 @@
     </div>
     <div>
       <label for="payment_method_id">المحفظة</label>
-      <select id="payment_method_id" name="payment_method_id" required style="max-width: 12rem">
+      <select id="payment_method_id" name="payment_method_id" required style="max-width: 14rem">
+        {% if pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}
+        <optgroup label="خزينة المطعم">
+          {% for m in methods if pos_is_main_treasury_wallet(m) %}
+          <option value="{{ m.id }}">{{ pos_wallet_label(m) }}</option>
+          {% endfor %}
+        </optgroup>
+        <optgroup label="خزينة الفندق">
+          {% for m in methods if pos_is_hotel_treasury_wallet(m) %}
+          <option value="{{ m.id }}">{{ pos_wallet_label(m) }}</option>
+          {% endfor %}
+        </optgroup>
+        {% else %}
         {% for m in methods if pos_is_main_treasury_wallet(m) %}
-        <option value="{{ m.id }}">{{ m.name_ar }}</option>
+        <option value="{{ m.id }}">{{ pos_wallet_label(m) }}</option>
         {% endfor %}
+        {% endif %}
       </select>
     </div>
     <div>
@@ -55,7 +76,9 @@
         <option value="أخرى"></option>
       </datalist>
     </div>
-    {% if not finance_domain_filter %}
+    {% if pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}
+    <input type="hidden" name="business_domain" value="{{ finance_domain_filter.value if finance_domain_filter else 'restaurant' }}" />
+    {% elif not finance_domain_filter %}
     <div>
       <label for="exp-domain">المجال</label>
       <select id="exp-domain" name="business_domain" style="max-width: 10rem">
@@ -146,7 +169,7 @@
           <a class="btn" href="/static/{{ p.invoice_image_filename }}" target="_blank" rel="noopener" style="padding: 0.15rem 0.45rem; font-size: 0.78rem; margin-inline-start: 0.35rem">صورة</a>
           {% endif %}
         </td>
-        <td>{% if p.method %}{{ p.method.name_ar }}{% else %}—{% endif %}</td>
+        <td>{% if p.method %}{{ pos_wallet_label(p.method) }}{% else %}—{% endif %}</td>
         <td>{{ p.note or '' }}</td>
         <td>
           <form method="post" action="/admin/expenses/{{ p.id }}/delete" onsubmit="return confirm('حذف هذا المصروف؟');" style="margin: 0">

@@ -19,6 +19,11 @@ from modules.hotel.models import HotelRoom
 
 
 BLOCKING_STATUSES = (BookingStatus.CONFIRMED, BookingStatus.CHECKED_IN)
+OPEN_STAY_STATUSES = (
+    BookingStatus.PENDING,
+    BookingStatus.CONFIRMED,
+    BookingStatus.CHECKED_IN,
+)
 UNAVAILABLE_ROOM_STATUSES = (
     RoomPhysicalStatus.MAINTENANCE,
     RoomPhysicalStatus.OUT_OF_SERVICE,
@@ -213,6 +218,40 @@ def blocking_booking_on_date(
     )
 
 
+def checked_in_booking_for_room(db: Session, room_id: int) -> HotelBooking | None:
+    """الحجز المسكن حالياً على الشقة — حتى لو يوم المغادرة هو اليوم."""
+    return db.scalar(
+        select(HotelBooking)
+        .where(
+            HotelBooking.room_id == room_id,
+            HotelBooking.booking_status == BookingStatus.CHECKED_IN,
+        )
+        .order_by(HotelBooking.id.desc())
+        .limit(1)
+    )
+
+
+def open_booking_on_date(
+    db: Session, room_id: int, day: date
+) -> HotelBooking | None:
+    """حجز معلّق/مؤكد/مسكن يغطي هذا اليوم — يشمل المعلّق الذي لا يمنع التوفر العام."""
+    return db.scalar(
+        select(HotelBooking)
+        .where(
+            HotelBooking.room_id == room_id,
+            HotelBooking.booking_status.in_(OPEN_STAY_STATUSES),
+            HotelBooking.check_in <= day,
+            HotelBooking.check_out > day,
+        )
+        .order_by(
+            (HotelBooking.booking_status == BookingStatus.CHECKED_IN).desc(),
+            (HotelBooking.booking_status == BookingStatus.CONFIRMED).desc(),
+            HotelBooking.id.desc(),
+        )
+        .limit(1)
+    )
+
+
 def next_blocking_booking(
     db: Session, room_id: int, *, after_day: date | None = None
 ) -> HotelBooking | None:
@@ -257,7 +296,8 @@ def room_rentability_on_date(
         return False, "محجوزة", "reserved", booking, None
 
     if ps == RoomPhysicalStatus.OCCUPIED:
-        return False, "مشغولة", "occupied", None, None
+        active = checked_in_booking_for_room(db, room.id)
+        return False, "مشغولة", "occupied", active, None
     if ps == RoomPhysicalStatus.DIRTY:
         return False, "للتنظيف", "dirty", None, None
     if ps == RoomPhysicalStatus.CLEANING:
@@ -357,7 +397,7 @@ def calendar_bookings(
                 HotelBooking.check_in < end,
                 HotelBooking.check_out > start,
                 HotelBooking.booking_status.notin_(
-                    (BookingStatus.CANCELLED, BookingStatus.NO_SHOW)
+                    (BookingStatus.CANCELLED, BookingStatus.NO_SHOW, BookingStatus.LATE_CANCELLATION)
                 ),
             )
             .order_by(HotelBooking.check_in, HotelBooking.id)

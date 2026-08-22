@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}عهد المشتريات{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/treasury_desk.css?v=1" />
+{% endblock %}
+{% block body %}
+<div class="tdesk">
+  <h1 style="margin:0">العهد</h1>
+  {% include "treasury/_nav.html" %}
+  <p class="muted" style="margin:0 0 0.55rem;font-size:0.86rem">صرف العهد المعتمدة ومتابعتها واستلام التسويات.</p>
+  <div class="tdesk-tabs">
+    <a href="/pos/treasury/custody" class="active">عهد المشتريات</a>
+    <a href="/pos/treasury/advances">من لديه أموال الآن</a>
+  </div>
+  {% if err %}<div class="tdesk-banner err">{{ err }}</div>{% endif %}
+  {% if ok == 'created' %}<div class="tdesk-banner ok">تم تحويل العهدة. المبلغ خرج من الخزينة إلى حساب العهدة — ليس مصروفاً بعد.</div>{% endif %}
+
+  <div class="tdesk-card">
+    <h2>تحويل عهدة جديدة</h2>
+    <form method="post" action="/pos/treasury/custody/create" class="row" style="gap:0.6rem;flex-wrap:wrap;align-items:flex-end">
+      <label>المستلم
+        <select name="employee_id" required>
+          <option value="">— اختر —</option>
+          {% for e in employees %}
+          <option value="{{ e.id }}">{{ e.full_name_ar }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>المبلغ
+        <input name="amount" type="number" step="0.001" min="0.001" required />
+      </label>
+      <label>المصدر
+        <select name="source_pm_id" required>
+          {% for m in pay_methods %}
+          <option value="{{ m.id }}">{{ pos_wallet_label(m) }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>الغرض
+        <input name="purpose" maxlength="200" placeholder="مشتريات الفندق الأسبوعية" />
+      </label>
+      <button class="btn btn-primary" type="submit">تحويل العهدة</button>
+    </form>
+  </div>
+
+  <div class="tdesk-tabs">
+    <a href="/pos/treasury/custody?status=OPEN" class="{% if status_filter == 'OPEN' %}active{% endif %}">قائمة</a>
+    <a href="/pos/treasury/custody?status=CLOSED" class="{% if status_filter == 'CLOSED' %}active{% endif %}">مغلقة</a>
+    <a href="/pos/treasury/custody?status=" class="{% if not status_filter %}active{% endif %}">الكل</a>
+  </div>
+
+  <div class="tdesk-card">
+    {% if rows %}
+    <table class="tdesk-table">
+      <thead>
+        <tr><th>المرجع</th><th>المستلم</th><th>الأصل</th><th>المستخدم</th><th>مرتجع</th><th>المتبقي</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td><a href="/pos/treasury/custody/{{ r.id }}">{{ r.ref }}</a></td>
+          <td>{{ r.employee_name }}</td>
+          <td>{{ pos_money(r.amount) }}</td>
+          <td>{{ pos_money(r.used) }}</td>
+          <td>{{ pos_money(r.returned) }}</td>
+          <td><strong>{{ pos_money(r.remaining) }}</strong></td>
+          <td>{{ r.domain_ar }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted" style="margin:0">لا توجد عهد في هذا التبويب.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

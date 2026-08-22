@@ -2,12 +2,12 @@
 {% set brand = pos_brand(request) %}
 {% block title %}{{ brand.pos_label }}{% endblock %}
 {% block head_extra %}
-<link rel="stylesheet" href="/static/pos.css?v=7" />
+<link rel="stylesheet" href="/static/pos.css?v=8" />
 <script src="/static/kds_alert_sound.js" defer></script>
 <script src="/static/pos_web_chat_alert.js" defer></script>
 <script src="/static/pos_checkout.js?v=4" defer></script>
 <script src="/static/pos_receipt_print.js?v=8" defer></script>
-<script src="/static/receipt_whatsapp.js?v=3" defer></script>
+<script src="/static/receipt_whatsapp.js?v=4" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" crossorigin="anonymous" defer></script>
 {% endblock %}
 {% block pos_topbar %}
@@ -157,7 +157,7 @@
         </main>
 
         <aside class="pos-context-rail card" id="pos-context-rail">
-          <div id="pos-order-hub" class="pos-order-hub-wrap" data-current-ctx="{{ sale.context_type.value if sale and sale.context_type else 'TABLE' }}" data-current-sale-id="{{ sale.id if sale else '' }}" data-refund-sale-prompt="{{ refund_sale_prompt|default('') }}" data-orders-modal="{{ '1' if orders_modal|default(false) else '0' }}" data-refund-auth-configured="{{ '1' if refund_auth_configured|default(false) else '0' }}">
+          <div id="pos-order-hub" class="pos-order-hub-wrap" data-current-ctx="{{ sale.context_type.value if sale and sale.context_type else 'TABLE' }}" data-current-sale-id="{{ sale.id if sale else '' }}" data-refund-sale-prompt="{{ refund_sale_prompt|default('') }}" data-orders-modal="{{ '1' if orders_modal|default(false) else '0' }}" data-refund-auth-configured="{{ '1' if refund_auth_configured|default(false) else '0' }}" data-pos-refund-otp-required="{{ '1' if pos_refund_otp_required|default(true) else '0' }}">
             {% include "pos_order_hub.html" %}
           </div>
         </aside>
@@ -169,20 +169,26 @@
 {% include "pos_all_orders_modal.html" %}
 
 <dialog id="pos-refund-code-dialog" class="pos-refund-code-dialog">
-  <form method="post" action="/pos/refund-auth" class="pos-refund-code-dialog-inner">
-    <h3 style="margin:0 0 0.5rem">كود تفويض الاسترداد</h3>
+  <div class="pos-refund-code-dialog-inner">
+    <h3 style="margin:0 0 0.5rem">اعتماد استرداد (OTP واتساب)</h3>
     <p class="muted" style="margin:0 0 0.75rem;font-size:0.88rem">
-      أدخل الكود الخاص — فقط من يملكه يمكن تنفيذ الاسترداد.
+      يُرسل رمز لمرة واحدة إلى <strong>مشرف المطعم</strong> على واتساب — أدخله هنا للمتابعة.
     </p>
-    <input type="hidden" name="sale_id" id="pos-refund-code-sale-id" value="" />
-    <label for="pos-refund-code-input" style="font-weight:600;margin:0 0 0.35rem;display:block">الكود</label>
-    <input id="pos-refund-code-input" name="refund_code" type="password" autocomplete="off" required
-      style="width:100%;max-width:none;letter-spacing:0.15em" placeholder="••••" />
-    <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;flex-wrap:wrap">
-      <button type="button" class="btn" id="pos-refund-code-cancel">إلغاء</button>
-      <button type="submit" class="btn btn-primary">متابعة الاسترداد</button>
-    </div>
-  </form>
+    <form method="post" action="/pos/refund-otp/request" id="pos-refund-otp-request-form" style="margin:0 0 0.75rem">
+      <input type="hidden" name="sale_id" id="pos-refund-code-sale-id-req" value="" />
+      <button type="submit" class="btn" id="pos-refund-otp-send-btn" style="width:100%">إرسال رمز للمشرف</button>
+    </form>
+    <form method="post" action="/pos/refund-auth" id="pos-refund-otp-verify-form">
+      <input type="hidden" name="sale_id" id="pos-refund-code-sale-id" value="" />
+      <label for="pos-refund-code-input" style="font-weight:600;margin:0 0 0.35rem;display:block">رمز الاعتماد (6 أرقام)</label>
+      <input id="pos-refund-code-input" name="refund_code" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required
+        style="width:100%;max-width:none;letter-spacing:0.2em;font-size:1.15rem" placeholder="••••••" />
+      <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;flex-wrap:wrap">
+        <button type="button" class="btn" id="pos-refund-code-cancel">إلغاء</button>
+        <button type="submit" class="btn btn-primary">متابعة الاسترداد</button>
+      </div>
+    </form>
+  </div>
 </dialog>
 
 <dialog id="pos-payfix-dialog" class="pos-refund-code-dialog">
@@ -200,7 +206,7 @@
     <select id="pos-payfix-method" name="payment_method_id" required class="input" style="width:100%">
       <option value="">اختر…</option>
       {% for m in treasury_pay_methods|default([]) %}
-      <option value="{{ m.id }}">{{ m.name_ar }}</option>
+      <option value="{{ m.id }}">{{ pos_wallet_label(m) }}</option>
       {% endfor %}
     </select>
     <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;flex-wrap:wrap">
@@ -774,6 +780,14 @@
     });
   }
 
+  function posRefundOtpRequired() {
+    var hub = document.getElementById("pos-order-hub");
+    if (hub && hub.getAttribute("data-pos-refund-otp-required") === "0") return false;
+    var ordersDlg = document.getElementById("pos-all-orders-dialog");
+    if (ordersDlg && ordersDlg.getAttribute("data-pos-refund-otp-required") === "0") return false;
+    return true;
+  }
+
   function posRefundAuthConfigured() {
     var hub = document.getElementById("pos-order-hub");
     if (hub && hub.getAttribute("data-refund-auth-configured") === "1") return true;
@@ -785,20 +799,25 @@
   function initPosRefundCodeDialog() {
     var dlg = document.getElementById("pos-refund-code-dialog");
     var saleIn = document.getElementById("pos-refund-code-sale-id");
+    var saleInReq = document.getElementById("pos-refund-code-sale-id-req");
     var codeIn = document.getElementById("pos-refund-code-input");
     var cancelBtn = document.getElementById("pos-refund-code-cancel");
     if (!dlg || !saleIn) return;
 
     function openRefundDialog(saleId) {
+      if (!posRefundOtpRequired()) {
+        if (saleId) window.location.href = "/pos/refund/" + saleId;
+        return;
+      }
       if (!posRefundAuthConfigured()) {
         posAskConfirm({
-          title: "كود الاسترداد غير مُضبط",
-          message: "يجب ضبط «كود تفويض الاسترداد» من إعدادات النظام قبل تنفيذ أي استرداد.",
-          detail: "من: الإعدادات → كود تفويض الاسترداد (4–12 حرفاً).",
-          confirmLabel: "فتح الإعدادات",
+          title: "لا يوجد مشرف مطعم",
+          message: "عيّن موظفاً مجال عمله «مطعم» كمشرف مع رقم واتساب من بطاقة الموظف.",
+          detail: "مشرف المطعم فقط يستلم رمز اعتماد استرداد المطعم.",
+          confirmLabel: "فتح الموظفين",
           cancelLabel: "إغلاق"
         }).then(function (ok) {
-          if (ok) window.open("/admin/settings", "_blank", "noopener");
+          if (ok) window.open("/admin/employees", "_blank", "noopener");
         });
         return;
       }
@@ -807,6 +826,7 @@
         ordersDlg.close();
       }
       saleIn.value = saleId || "";
+      if (saleInReq) saleInReq.value = saleId || "";
       if (codeIn) {
         codeIn.value = "";
       }
@@ -814,7 +834,7 @@
         dlg.showModal();
         if (codeIn) codeIn.focus();
       } else {
-        alert("المتصفح لا يدعم نافذة كود الاسترداد — حدّث المتصفح.");
+        alert("المتصفح لا يدعم نافذة اعتماد الاسترداد — حدّث المتصفح.");
       }
     }
     window.openPosRefundDialog = openRefundDialog;

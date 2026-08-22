@@ -39,7 +39,10 @@ def user_can_correct_payment(user: User) -> bool:
 
 
 def user_can_refund_sale(user: User) -> bool:
-    return user_has_permission(user, SALES_REFUND)
+    """بدء مسار الاسترداد (الزر ظاهر) — التنفيذ الفعلي يتطلب OTP مشرف."""
+    return user_has_permission(user, SALES_REFUND) or user_has_permission(
+        user, SALES_CREATE
+    )
 
 
 def sale_allows_payment_correction(db: Session, sale: Sale) -> bool:
@@ -75,16 +78,17 @@ def sale_payment_method_label(db: Session, sale_id: int) -> str | None:
         if get_open_room_charge(db, sale_id):
             return "حساب شقة"
         return None
+    from modules.gl.wallet_labels import label_from_info_map, wallet_gl_info_map
+    from modules.payments.models import PaymentMethod
+
+    gl_info = wallet_gl_info_map(db)
     names = []
     for p in pays:
-        if p.method:
-            names.append(p.method.name_ar)
-        elif p.payment_method_id:
-            from modules.payments.models import PaymentMethod
-
+        pm = p.method
+        if pm is None and p.payment_method_id:
             pm = db.get(PaymentMethod, p.payment_method_id)
-            if pm:
-                names.append(pm.name_ar)
+        if pm:
+            names.append(label_from_info_map(gl_info, pm))
     return "، ".join(dict.fromkeys(names)) if names else None
 
 

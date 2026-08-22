@@ -309,12 +309,17 @@ def enqueue_completed_sale_receipt(
     store_name = get_setting(db, "store_name", "نقطة البيع")
     sp = get_sale_payment(db, sale.id)
     sale_payments = list_sale_payments(db, sale.id)
+    from modules.gl.wallet_labels import label_from_info_map, wallet_gl_info_map
+
+    gl_info = wallet_gl_info_map(db)
     method_names = [
-        p.method.name_ar for p in sale_payments if p.method is not None and p.amount > 0
+        label_from_info_map(gl_info, p.method)
+        for p in sale_payments
+        if p.method is not None and p.amount > 0
     ]
     payment_method_name = " + ".join(dict.fromkeys(method_names)) if method_names else None
     if payment_method_name is None and sp is not None and sp.method is not None:
-        payment_method_name = sp.method.name_ar
+        payment_method_name = label_from_info_map(gl_info, sp.method)
     loyalty_ctx = build_receipt_loyalty_context(db, sale, sp)
     printer = get_receipt_printer(db)
     paper_w = printer.paper_width if printer else 80

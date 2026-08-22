@@ -250,7 +250,7 @@ def send_textmebot_with_fallback(
             base_url=base_url,
             apikey=apikey,
             recipient=recipient,
-            text=text + "\n\n(تعذّر إرفاق صورة الفاتورة — أُرسل النص فقط.)",
+            text=text,
             timeout=timeout,
         )
 

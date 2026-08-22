@@ -97,21 +97,32 @@ th {
   font-weight: 600;
 }
 
-/* ===== رؤوس الجداول الثابتة ===== */
+/* ===== رؤوس الجداول =====
+   لا sticky عام على thead — يغطي الصف الأول دائماً عند التمرير.
+   الرأس اللاصق فقط داخل حاوية تمرير صريحة (.table-scroll / .sticky-table-wrap / …).
+*/
 thead th,
 table > tr:first-child > th,
 .sticky-table-head th {
-  position: sticky;
-  top: var(--header-h, 76px);
-  z-index: 20;
-  background-color: #f8fafc !important;
-  box-shadow: 0 1px 0 var(--border), 0 2px 8px rgba(15, 23, 42, 0.08);
+  position: static;
+  top: auto;
+  z-index: auto;
+  background-color: #f8fafc;
+  box-shadow: none;
 }
 
-/* تمرير أفقي فقط للجداول القصيرة */
+/* تمرير أفقي فقط — بدون sticky رأسي (يمنع تداخل الرأس مع الصفوف) */
 .table-x-scroll {
   overflow-x: auto;
   overflow-y: visible;
+}
+.table-x-scroll thead,
+.table-x-scroll thead th,
+.table-x-scroll > table > tr:first-child > th {
+  position: static !important;
+  top: auto !important;
+  z-index: auto !important;
+  box-shadow: none !important;
 }
 
 /*
@@ -145,11 +156,11 @@ table > tr:first-child > th,
 .table-scroll > table > tr:first-child > th,
 .table-sticky-host > table > tr:first-child > th,
 .card.table-scroll thead th {
-  position: relative;
-  top: auto !important;
-  z-index: auto;
+  position: sticky;
+  top: 0 !important;
+  z-index: 30;
   background-color: #f8fafc !important;
-  box-shadow: none;
+  box-shadow: 0 1px 0 var(--border);
   border-bottom: 1px solid var(--border);
 }
 .sticky-table-wrap thead tr,
@@ -159,7 +170,7 @@ table > tr:first-child > th,
   box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
 }
 
-/* بطاقات تحتوي جدولاً مباشرة — نفس سلوك الرأس الثابت بدون تعديل كل قالب */
+/* بطاقات تحتوي جدولاً مباشرة — رأس ثابت داخل البطاقة فقط */
 .card:has(> table) {
   max-height: min(72vh, 780px);
   overflow: auto;
@@ -172,17 +183,18 @@ table > tr:first-child > th,
   z-index: 30;
 }
 .card:has(> table) > table > thead > tr > th {
-  position: relative;
-  top: auto !important;
+  position: sticky;
+  top: 0 !important;
+  z-index: 30;
   background-color: #f8fafc !important;
-  box-shadow: none;
+  box-shadow: 0 1px 0 var(--border);
   border-bottom: 1px solid var(--border);
 }
 .card:has(> table) > table > thead > tr {
   box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
 }
 
-/* جداول نماذج قصيرة — بدون رأس لاصق (يمنع ظهور العناوين تحت الحقول) */
+/* جداول نماذج قصيرة — بدون رأس لاصق */
 table.no-sticky-head > thead,
 table.no-sticky-head thead {
   position: static !important;
@@ -267,7 +279,15 @@ label {
   font-size: 0.9rem;
 }
 
-/* ===== Collapsible page guides (pos_guides.js) ===== */
+/* ===== Collapsible page guides (pos_guides.js) — مخفية بناءً على طلب التشغيل ===== */
+.pos-guide,
+.help,
+.help-card,
+.pos-guide-panel,
+.pos-guide-intro {
+  display: none !important;
+}
+
 .pos-guide {
   margin-bottom: 1rem;
   border-radius: 10px;
@@ -508,3 +528,14 @@ input[type="number"] {
 .pos-page-trail-wrap .page-trail {
   margin-bottom: 0.5rem;
 }
+
+.pay-st {
+  font-weight: 800;
+  white-space: nowrap;
+}
+.pay-st--unpaid { color: #dc2626; }
+.pay-st--partial { color: #ea580c; }
+.pay-st--paid { color: #16a34a; }
+.badge.bad, .badge.pay-unpaid { background: #fee2e2; color: #dc2626; }
+.badge.warn, .badge.pay-partial { background: #ffedd5; color: #ea580c; }
+.badge.good, .badge.pay-paid { background: #dcfce7; color: #16a34a; }

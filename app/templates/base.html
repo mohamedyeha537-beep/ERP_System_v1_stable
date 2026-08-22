@@ -131,23 +131,12 @@
         margin-inline-end: 0.35rem;
         flex: 1 1 auto;
         min-width: 0;
-        overflow-x: auto;
-        overflow-y: hidden;
-        scrollbar-width: thin;
-        -ms-overflow-style: none;
+        overflow: visible;
       }
       @media (min-width: 901px) {
-        .header-nav {
-          overflow-x: auto;
-          overflow-y: visible;
-        }
         .header-inner {
           overflow: visible;
         }
-      }
-      .header-nav::-webkit-scrollbar {
-        display: none;
-        height: 0;
       }
       .header-nav a {
         color: var(--brand-header-fg);
@@ -631,7 +620,7 @@
         body.admin-layout.admin-sidebar-open .admin-sidebar-close { display: block; }
       }
     </style>
-    <link rel="stylesheet" href="/static/app.css?v=29" />
+    <link rel="stylesheet" href="/static/app.css?v=32" />
     <script src="/static/vendor/htmx.min.js"></script>
     {% block head_extra %}{% endblock %}
   </head>
@@ -639,12 +628,14 @@
   {% set p = pos_perm(request) %}
   {% set kiosk = pos_is_kiosk(request) %}
   {% set admin_layout = u and not kiosk and pos_is_admin(request) %}
+  {% set home_url = pos_home_url(request) if pos_home_url is defined else '/' %}
+  {% set hotel_scope_only = pos_is_hotel_scope(request) if pos_is_hotel_scope is defined else false %}
   <body{% if admin_layout %} class="admin-layout"{% endif %}>
     {# ===================== HEADER ===================== #}
     {% if u %}
     <header class="app-header">
       <div class="header-inner">
-        <a class="brand" href="{% if kiosk %}/pos{% else %}/{% endif %}" title="{% if kiosk %}{{ brand.pos_label }}{% else %}الرئيسية{% endif %}">
+        <a class="brand" href="{% if kiosk %}/pos{% else %}{{ home_url }}{% endif %}" title="{% if kiosk %}{{ brand.pos_label }}{% else %}الرئيسية{% endif %}">
           {% if brand.show_logo_in_header %}
           <span class="logo {% if not brand.logo_url %}is-fallback{% endif %}">
             {% if brand.logo_url %}
@@ -683,13 +674,15 @@
           </a>
           {% endif %}
           {% else %}
-          {% set nav_stock = p('inventory:view') or p('warehouses:manage') or p('catalog:write') or p('purchases:manage') or p('purchases:invoices') %}
-          {% set nav_sales = pos_nav_show_restaurant(request) %}
-          {% set nav_hotel = pos_nav_show_hotel(request) %}
+          {% set _clerk = pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}
+          {% set nav_stock = (not _clerk) and (p('inventory:view') or p('warehouses:manage') or p('catalog:write') or p('purchases:manage') or p('purchases:invoices')) %}
+          {% set nav_sales = (not _clerk) and pos_nav_show_restaurant(request) %}
+          {% set nav_hotel = (not _clerk) and pos_nav_show_hotel(request) %}
 
-          <a href="/">الرئيسية</a>
+          <a href="{{ home_url }}">الرئيسية</a>
 
-          {% if nav_hotel %}
+          {# لمستخدمي الفندق فقط: الرئيسية = لوحة الشقق — لا نكرر «الشقق» #}
+          {% if nav_hotel and not hotel_scope_only %}
           <a href="/admin/hotel/dashboard">الشقق</a>
           {% endif %}
 
@@ -749,12 +742,12 @@
             <span id="header-sync-label">يعمل أوفلاين</span>
           </span>
           {% endif %}
-          {% if pos_is_admin(request) %}
-          <form method="post" action="/admin/view-mode" class="view-mode-form" title="وضع العرض: مطعم أو فندق — الوضع العام من مركز الربح فقط">
-            <select name="mode" onchange="this.form.submit()" aria-label="وضع العرض">
+          {% if pos_can_switch_view_mode(request) %}
+          <form method="post" action="/admin/view-mode" class="view-mode-form">
+            <select name="mode" onchange="this.form.submit()" aria-label="وضع العمل">
               <option value="restaurant"{% if pos_view_mode(request) == 'restaurant' %} selected{% endif %}>مطعم</option>
               <option value="hotel"{% if pos_view_mode(request) == 'hotel' %} selected{% endif %}>فندق</option>
-              {% if pos_view_mode(request) == 'general' %}
+              {% if pos_is_admin(request) and pos_view_mode(request) == 'general' %}
               <option value="general" selected>عام — تقارير</option>
               {% endif %}
             </select>
@@ -780,10 +773,15 @@
             {{ u.username[0]|upper }}
           </div>
           {% if pos_can_lock_hotel_session(request) %}
+          <a class="header-action" href="/admin/hotel/shift#hotel-close-panel"
+             title="إقفال وردية الاستقبال بعد عدّ الكاش والمصرف — مثل جلسة المطعم"
+             style="text-decoration:none;background:rgba(255,255,255,0.18);font-weight:700">
+            📋 إقفال الوردية
+          </a>
           <form method="post" action="/admin/hotel/pin/logout" style="display:inline;margin:0">
-            <button type="submit" class="header-action" title="قفل جلسة الاستقبال — يبقى الجهاز جاهزاً لموظف آخر بالرقم السري"
+            <button type="submit" class="header-action" title="قفل الشاشة فقط — الوردية تبقى مفتوحة حتى إقفالها بعد عدّ الكاش والمصرف من جلسة الفندق"
                     style="cursor:pointer;border:none;background:rgba(255,255,255,0.12);font:inherit;color:inherit">
-              🔒 قفل الجلسة
+              🔒 قفل الشاشة
             </button>
           </form>
           {% elif pos_can_lock_pos_session(request) %}
@@ -1007,6 +1005,6 @@
       });
     })();
     </script>
-    <script src="/static/pos_guides.js"></script>
+    <script src="/static/pos_guides.js?v=2"></script>
   </body>
 </html>

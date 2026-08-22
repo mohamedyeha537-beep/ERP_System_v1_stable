@@ -82,7 +82,7 @@
       <select name="payment_method_id" style="min-width:10rem">
         <option value="">— الكل —</option>
         {% for pm in payment_methods %}
-        <option value="{{ pm.id }}" {% if filters.payment_method_id == pm.id %}selected{% endif %}>{{ pm.name_ar }}</option>
+        <option value="{{ pm.id }}" {% if filters.payment_method_id == pm.id %}selected{% endif %}>{{ pos_wallet_label(pm) }}</option>
         {% endfor %}
       </select>
     </div>

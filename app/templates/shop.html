@@ -17,7 +17,7 @@
     <title>{{ store_name }} — المتجر</title>
     {% endif %}
 
-    <link rel="stylesheet" href="/static/shop.css?v=17" />
+    <link rel="stylesheet" href="/static/shop.css?v=18" />
 
     <style>
 
@@ -57,6 +57,23 @@
     {% else %}
 
     <main class="shop-main">
+
+      {% if shop_hours is defined and shop_hours.enforce and not shop_hours.is_open %}
+      <div class="shop-closed-banner" role="status" aria-live="polite">
+        <div class="shop-closed-banner__icon" aria-hidden="true">🕐</div>
+        <div>
+          <strong class="shop-closed-banner__title">نعتذر — الطلبات الأونلاين مغلقة الآن</strong>
+          <p class="shop-closed-banner__text">{{ shop_hours.message }}</p>
+          {% if shop_hours.hours_label %}
+          <p class="shop-closed-banner__hours">مواعيد العمل: <strong dir="ltr">{{ shop_hours.hours_label }}</strong></p>
+          {% endif %}
+        </div>
+      </div>
+      {% elif shop_hours is defined and shop_hours.enforce and shop_hours.is_open %}
+      <div class="shop-open-hours-hint" title="ساعات قبول الطلبات الأونلاين">
+        ⏱ الطلبات متاحة الآن · {{ shop_hours.hours_label }}
+      </div>
+      {% endif %}
 
       {% if shop.banners and shop.banners|length > 0 %}
       <section class="shop-hero" id="shop-hero" data-interval="{{ shop.banner_interval or 10 }}" aria-label="عروض">
@@ -263,13 +280,15 @@
 
         referralFromUrl: new URLSearchParams(location.search).get("ref") || "",
 
-        highlightProduct: new URLSearchParams(location.search).get("product") || ""
+        highlightProduct: new URLSearchParams(location.search).get("product") || "",
+
+        hours: {{ (shop_hours if shop_hours is defined else {}) | tojson }}
 
       };
 
     </script>
 
-    <script src="/static/shop.js?v=21"></script>
+    <script src="/static/shop.js?v=22"></script>
 
     {% endif %}
 

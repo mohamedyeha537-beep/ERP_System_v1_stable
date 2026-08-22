@@ -1,6 +1,14 @@
 {% extends "base.html" %}
 {% block title %}فواتير الشراء{% endblock %}
+{% block head_extra %}
+{% if pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}
+<link rel="stylesheet" href="/static/treasury_desk.css?v=1" />
+{% endif %}
+{% endblock %}
 {% block body %}
+{% if pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}
+{% include "treasury/_nav.html" %}
+{% endif %}
 <div class="row" style="justify-content: space-between; align-items: center">
   <div>
     <h1 style="margin: 0">فواتير الشراء</h1>
@@ -204,12 +212,8 @@
         <td>
           {% if row.is_cost_reference %}
           <span style="display:inline-block;padding:0.15rem 0.45rem;border-radius:6px;font-size:0.78rem;background:#eff6ff;color:#1d4ed8">{{ row.status_label }}</span>
-          {% elif row.pay_status.value == 'unpaid' %}
-          <span style="display:inline-block;padding:0.15rem 0.45rem;border-radius:6px;font-size:0.78rem;background:#fef2f2;color:#b91c1c">{{ row.status_label }}</span>
-          {% elif row.pay_status.value == 'partial' %}
-          <span style="display:inline-block;padding:0.15rem 0.45rem;border-radius:6px;font-size:0.78rem;background:#fffbeb;color:#b45309">{{ row.status_label }}</span>
           {% else %}
-          <span style="display:inline-block;padding:0.15rem 0.45rem;border-radius:6px;font-size:0.78rem;background:#f0fdf4;color:#15803d">{{ row.status_label }}</span>
+          {{ pos_pay_status_badge(row.pay_status) }}
           {% endif %}
         </td>
         <td>{% if p.warehouse %}{{ p.warehouse.name_ar }}{% else %}—{% endif %}</td>
@@ -223,7 +227,7 @@
         <td style="direction:ltr;text-align:right">{{ pos_money(row.amount) }} <span class="money-currency">د.ل</span></td>
         <td style="direction:ltr;text-align:right;color:#15803d">{{ pos_money(row.paid) }}</td>
         <td style="direction:ltr;text-align:right;{% if row.outstanding > 0 %}color:#b91c1c;font-weight:600{% endif %}">{{ pos_money(row.outstanding) }}</td>
-        <td>{% if p.method %}{{ p.method.name_ar }}{% else %}—{% endif %}</td>
+        <td>{% if p.method %}{{ pos_wallet_label(p.method) }}{% else %}—{% endif %}</td>
         <td>
           <div class="row" style="gap: 0.3rem; margin: 0">
             <a class="btn" href="/admin/purchases/{{ p.id }}" style="padding: 0.2rem 0.5rem; font-size: 0.85rem">عرض</a>

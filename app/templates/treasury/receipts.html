@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}استلامات الخزينة{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/treasury_desk.css?v=1" />
+{% endblock %}
+{% block body %}
+<div class="tdesk">
+  <h1 style="margin:0">{{ page_title|default('استلامات الورديات') }}</h1>
+  {% include "treasury/_nav.html" %}
+  {% if err %}<div class="tdesk-banner err">{{ err }}</div>{% endif %}
+  {% if ok == 'received' %}<div class="tdesk-banner ok">تم الاستلام. المبلغ المعدود دخل الخزينة. أي فرق سُجّل كعجز/زيادة معلّق.</div>{% endif %}
+  {% if ok == 'matched' %}<div class="tdesk-banner ok">تم تسجيل المطابقة المصرفية.</div>{% endif %}
+  {% set base = receive_ok_path|default('/pos/treasury/receipts') %}
+  <p class="muted" style="margin:0 0 0.65rem;font-size:0.86rem;line-height:1.55">
+    استلم الوردية وعدّ النقدي والمصرفي. النظام يقارن المعدود بالمسلَّم ويُظهر الفرق تلقائياً.
+  </p>
+  <div class="tdesk-tabs">
+    <a href="{{ base }}?tab=cash" class="{% if tab == 'cash' %}active{% endif %}">النقدية</a>
+    <a href="{{ base }}?tab=bank" class="{% if tab == 'bank' %}active{% endif %}">المصرفية</a>
+  </div>
+
+  {% if tab == 'cash' %}
+  <div class="tdesk-card">
+    <h2>تسليم كاش بانتظار العدّ</h2>
+    {% if cash_rows %}
+    <table class="tdesk-table">
+      <thead>
+        <tr><th>الموظف</th><th>المجال</th><th>المبلغ المسلم</th><th>مصرف معلن</th><th>الحالة</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for r in cash_rows %}
+        <tr>
+          <td>{{ r.person }}</td>
+          <td>{{ r.domain_ar }} #{{ r.shift_id }}</td>
+          <td>{{ pos_money(r.claimed_cash) }}</td>
+          <td>{{ pos_money(r.claimed_bank) }}</td>
+          <td>{% if r.can_approve %}بانتظار الاستلام{% else %}بالدور — الأقدم أولاً{% endif %}</td>
+          <td><a href="{{ r.report_href }}">تقرير الجلسة</a></td>
+        </tr>
+        {% if r.can_approve %}
+        <tr>
+          <td colspan="6">
+            <form class="tdesk-receive" method="post"
+              action="{% if r.domain == 'hotel' %}/pos/treasury/receipts/hotel/{{ r.shift_id }}/receive{% else %}/pos/treasury/receipts/pos/{{ r.shift_id }}/receive{% endif %}">
+              <p style="margin:0 0 0.4rem;font-weight:700">استلام عهدة — {{ r.person }} يقول إنه سلّم {{ pos_money(r.claimed_cash) }} كاش</p>
+              <div class="row" style="gap:0.6rem;flex-wrap:wrap;align-items:flex-end">
+                <label>المبلغ الذي عددته فعلياً (كاش)
+                  <input name="handoff_cash" class="js-tdesk-hof" data-claimed="{{ r.claimed_cash }}" type="number" step="0.001" min="0" value="{{ r.claimed_cash }}" required />
+                </label>
+                <label>المصرف الظاهر / المعدود
+                  <input name="handoff_bank" class="js-tdesk-hof" data-claimed="{{ r.claimed_bank }}" type="number" step="0.001" min="0" value="{{ r.claimed_bank }}" />
+                </label>
+                <label>ملاحظة
+                  <input name="handoff_note" maxlength="200" />
+                </label>
+                <button class="btn btn-primary" type="submit">تأكيد الاستلام</button>
+              </div>
+              <p class="js-tdesk-hof-diff muted" style="margin:0.4rem 0 0;font-size:0.85rem;font-weight:700"></p>
+              <p class="muted" style="margin:0.4rem 0 0;font-size:0.8rem">
+                إن طابق المعدود المسلَّم يدخل للخزينة. أي فرق يُنشئ سجل عجز/زيادة تلقائياً ولا يُعدَّل رقم الموظف.
+              </p>
+            </form>
+          </td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted" style="margin:0">لا توجد جلسات مغلقة بانتظار اعتمادك.</p>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="tdesk-card">
+    <h2>تحويلات بانتظار المطابقة</h2>
+    {% if bank_rows %}
+    <table class="tdesk-table">
+      <thead>
+        <tr><th>الموظف</th><th>المتوقع</th><th>المصرف</th><th>المرجع</th><th>الحالة</th></tr>
+      </thead>
+      <tbody>
+        {% for r in bank_rows %}
+        <tr>
+          <td>{{ r.person }} · {{ r.domain_ar }}</td>
+          <td>{{ pos_money(r.claimed_bank) }}</td>
+          <td>{{ r.bank_name or '—' }}</td>
+          <td>{{ r.bank_ref or '—' }}</td>
+          <td>🟡 تحقق</td>
+        </tr>
+        <tr>
+          <td colspan="5">
+            <form class="tdesk-receive" method="post" action="/pos/treasury/receipts/bank/{{ r.handover_id }}/match">
+              <p style="margin:0 0 0.4rem;font-weight:700">مطابقة تحويل — المرجع {{ r.bank_ref or '—' }}</p>
+              <div class="row" style="gap:0.6rem;flex-wrap:wrap;align-items:flex-end">
+                <label>المبلغ الظاهر فعلياً في حساب الخزينة
+                  <input name="received_bank" type="number" step="0.001" min="0" value="{{ r.claimed_bank }}" required />
+                </label>
+                <label>ملاحظة
+                  <input name="note" maxlength="200" />
+                </label>
+                <button class="btn btn-primary" type="submit">تأكيد المطابقة</button>
+              </div>
+              <p class="muted" style="margin:0.4rem 0 0;font-size:0.8rem">
+                رصيد الخزينة المصرفية يزيد عند اعتماد الجلسة كاملة. المطابقة هنا تثبّت المبلغ الظاهر وتُنشئ فرقاً إن وُجد.
+              </p>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted" style="margin:0">لا توجد تحويلات مصرفية معلنة بانتظار المطابقة.</p>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+<script>
+(function () {
+  function money(v) { return (Math.round(v * 1000) / 1000).toFixed(3); }
+  document.querySelectorAll(".tdesk-receive").forEach(function (form) {
+    var out = form.querySelector(".js-tdesk-hof-diff");
+    var inputs = form.querySelectorAll(".js-tdesk-hof");
+    if (!out || !inputs.length) return;
+    function sync() {
+      var parts = [];
+      inputs.forEach(function (inp) {
+        var claimed = parseFloat(inp.getAttribute("data-claimed") || "0") || 0;
+        var rec = parseFloat(String(inp.value || "").replace(",", ".")) || 0;
+        var d = rec - claimed;
+        if (Math.abs(d) < 0.0005) return;
+        var label = inp.name === "handoff_cash" ? "كاش" : "مصرف";
+        parts.push((d < 0 ? "عجز " : "زيادة ") + label + " " + money(Math.abs(d)) + " د.ل");
+      });
+      out.textContent = parts.join(" · ");
+      out.style.color = parts.some(function (p) { return p.indexOf("عجز") === 0; }) ? "#b91c1c" : "#15803d";
+    }
+    inputs.forEach(function (inp) {
+      inp.addEventListener("input", sync);
+      inp.addEventListener("change", sync);
+    });
+    sync();
+  });
+})();
+</script>
+{% endblock %}

@@ -27,6 +27,15 @@
   .filter-tabs a.active { background: var(--primary, #2563eb); color: #fff; border-color: transparent; }
   .dir-in { color: #16a34a; }
   .dir-out { color: #b91c1c; }
+  .treasury-stmt th.col-in, .treasury-stmt td.col-in {
+    color: #16a34a; text-align: left; white-space: nowrap;
+    font-variant-numeric: tabular-nums; min-width: 6.5rem;
+  }
+  .treasury-stmt th.col-out, .treasury-stmt td.col-out {
+    color: #b91c1c; text-align: left; white-space: nowrap;
+    font-variant-numeric: tabular-nums; min-width: 6.5rem;
+  }
+  .treasury-stmt th.col-in, .treasury-stmt th.col-out { text-align: center; }
 </style>
 {% endblock %}
 {% block body %}
@@ -38,13 +47,16 @@
 <div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem">
   <h1 style="margin:0">{{ kind_label }}</h1>
   <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+    <a class="btn" href="/pos/treasury/desk">لوحة أمين الخزينة</a>
     <a class="btn btn-primary" href="/pos/treasury/transfer?kind={{ kind }}">تحويل أموال</a>
     <a class="btn" href="/admin/payment-methods">إدارة الحسابات</a>
+    {% if not (pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request)) %}
     {% if show_pos_links %}
     <a class="btn" href="/pos/shift">جلسة البيع</a>
     <a class="btn" href="/pos">الكاشير</a>
     {% else %}
     <a class="btn" href="/admin/hotel/dashboard">لوحة الفندق</a>
+    {% endif %}
     {% endif %}
   </div>
 </div>
@@ -59,7 +71,7 @@
     <select name="pm" style="min-width:14rem;padding:0.4rem;border-radius:8px;border:1px solid var(--border)">
       <option value="">— إجمالي {{ 'الكاش' if kind == 'cash' else 'المصرف' }} —</option>
       {% for acc in treasury_accounts if acc.kind.value.lower() == kind %}
-      <option value="{{ acc.id }}" {% if selected_pm_id == acc.id %}selected{% endif %}>{{ acc.name_ar }}</option>
+      <option value="{{ acc.id }}" {% if selected_pm_id == acc.id %}selected{% endif %}>{{ pos_wallet_label(acc) }}</option>
       {% endfor %}
     </select>
   </label>
@@ -70,6 +82,11 @@
 </p>
 {% endif %}
 
+<p class="muted" style="font-size:0.86rem;margin:0.75rem 0 0;line-height:1.55;max-width:52rem">
+  مبيعات نقطة البيع تبقى في <strong>محفظة الكاشير</strong> أثناء الجلسة، وتُرحَّل إلى الخزينة الرئيسية
+  عند <strong>إقفال الجلسة ثم اعتمادها</strong> (وليس بعد كل فاتورة) — حتى يُفرَّق إيراد كل جلسة عن الأخرى.
+</p>
+
 <div class="treasury-stat-grid">
   <div class="stat-card">
     <div class="label">الرصيد الحالي</div>
@@ -79,7 +96,9 @@
   <div class="stat-card">
     <div class="label">رصيد آخر إقفال جلسة</div>
     {% if summary.last_close_shift_id %}
-    <div class="muted" style="font-size:0.78rem;margin-top:0.15rem">جلسة #{{ summary.last_close_shift_id }}
+    <div class="muted" style="font-size:0.78rem;margin-top:0.15rem;line-height:1.5">
+      {{ summary.last_close_kind_ar or 'جلسة' }} #{{ summary.last_close_shift_id }}
+      {% if summary.last_close_employee %} · {{ summary.last_close_employee }}{% endif %}
       {% if summary.last_close_at %} · {{ pos_format_dt(summary.last_close_at, '%Y-%m-%d %H:%M') }}{% endif %}
     </div>
     {% endif %}
@@ -118,13 +137,107 @@
   {% endif %}
 </form>
 
+{% if note_saved %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4;margin-top:0.5rem">
+  <p style="margin:0">تم حفظ البيان.</p>
+</div>
+{% endif %}
+{% if note_error %}
+<div class="card" style="border-color:#fecaca;background:#fef2f2;margin-top:0.5rem">
+  <p style="margin:0;color:#b91c1c">{{ note_error }}</p>
+</div>
+{% endif %}
+
 <div class="card" style="margin-top:0.5rem">
-  <h2 style="margin-top:0">الرصيد يومياً</h2>
-  <p class="muted" style="font-size:0.88rem;margin:0 0 0.75rem">
-    في كل يوم: الرصيد عند بداية اليوم، إجمالي الوارد والمنصرف، والرصيد في نهاية اليوم.
-    اضغط على «تفاصيل» لعرض حركات ذلك اليوم.
+  <h2 style="margin-top:0">
+    {% if filter_day %}حركات يوم {{ filter_day }}
+    {% elif filter_dir == 'in' %}سجل الوارد
+    {% elif filter_dir == 'out' %}سجل المنصرف
+    {% else %}سجل الحركات — وارد ومنصرف{% endif %}
+  </h2>
+  <p class="muted" style="font-size:0.88rem;margin:0 0 0.75rem;line-height:1.55">
+    عرض ككشف الحساب: <strong class="dir-in">وارد</strong> و<strong class="dir-out">منصرف</strong> في عمودين متجاورين،
+    مع التاريخ والوقت والبيان واسم الموظف ورقم الجلسة إن وُجدت.
   </p>
-  {% if daily_rows %}
+  {% if entries %}
+  <div class="table-x-scroll">
+  <table class="treasury-stmt no-sticky-head">
+    <thead>
+      <tr>
+        <th>التاريخ والوقت</th>
+        <th>المصدر / التصنيف</th>
+        <th>الموظف</th>
+        <th>الجلسة</th>
+        <th>البيان</th>
+        <th>الحساب</th>
+        <th class="col-in">وارد</th>
+        <th class="col-out">منصرف</th>
+        {% if can_edit_ledger_note %}<th class="no-print"></th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in entries %}
+      <tr>
+        <td dir="ltr" style="font-variant-numeric:tabular-nums;white-space:nowrap">{% if e.at %}{{ pos_format_dt(e.at, '%Y-%m-%d %H:%M:%S') }}{% else %}—{% endif %}</td>
+        <td>
+          {{ e.category_ar }}
+          {% if e.detail_url %}
+          <div><a href="{{ e.detail_url }}">{{ e.reference }}</a></div>
+          {% elif e.reference %}
+          <div class="muted" style="font-size:0.8rem">{{ e.reference }}</div>
+          {% endif %}
+        </td>
+        <td>{% if e.employee_name %}{{ e.employee_name }}{% else %}—{% endif %}</td>
+        <td>
+          {% if e.session_label %}{{ e.session_label }}
+          {% elif e.detail_url and e.reference %}{{ e.reference }}
+          {% else %}—{% endif %}
+        </td>
+        <td style="max-width:22rem;font-size:0.88rem;line-height:1.45">
+          {% if e.notes %}
+          {{ e.notes }}
+          {% else %}
+          <span style="color:#b45309">بدون بيان</span>
+          {% endif %}
+          {% if e.room_label %}<div class="muted" style="font-size:0.78rem">{{ e.room_label }}</div>{% endif %}
+        </td>
+        <td style="font-size:0.82rem">{{ e.method_name }}</td>
+        <td class="col-in" dir="ltr">
+          {% if e.direction == 'IN' %}{{ pos_money(e.amount) }}{% endif %}
+        </td>
+        <td class="col-out" dir="ltr">
+          {% if e.direction == 'OUT' %}{{ pos_money(e.amount) }}{% endif %}
+        </td>
+        {% if can_edit_ledger_note %}
+        <td class="no-print">
+          {% if e.source_kind in ('transfer', 'refund', 'purchase') %}
+          <form method="post" action="/pos/treasury/note" style="display:flex;gap:0.3rem;align-items:center;min-width:14rem">
+            <input type="hidden" name="kind" value="{{ kind }}" />
+            <input type="hidden" name="dir" value="{{ filter_dir }}" />
+            {% if filter_day %}<input type="hidden" name="day" value="{{ filter_day }}" />{% endif %}
+            {% if selected_pm_id %}<input type="hidden" name="pm" value="{{ selected_pm_id }}" />{% endif %}
+            <input type="hidden" name="source_kind" value="{{ e.source_kind }}" />
+            <input type="hidden" name="source_id" value="{{ e.source_id }}" />
+            <input name="statement" required maxlength="400" value="{{ e.notes or '' }}"
+                   placeholder="أضف / عدّل البيان" style="width:11rem;padding:0.3rem" />
+            <button class="btn" type="submit" style="padding:0.25rem 0.5rem;font-size:0.8rem">حفظ</button>
+          </form>
+          {% endif %}
+        </td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="muted">لا توجد حركات مطابقة للفلتر.</p>
+  {% endif %}
+</div>
+
+{% if daily_rows %}
+<div class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0">ملخص الرصيد يومياً</h2>
   <table>
     <thead>
       <tr>
@@ -146,67 +259,12 @@
         <td><strong>{{ pos_money(row.closing) }}</strong></td>
         <td>
           <a class="btn" style="padding:0.2rem 0.5rem;font-size:0.82rem"
-            href="/pos/treasury?kind={{ kind }}&dir={{ filter_dir }}&day={{ row.day.isoformat() }}{{ pm_qs }}">تفاصيل</a>
+            href="/pos/treasury?kind={{ kind }}&dir={{ filter_dir }}&day={{ row.day.isoformat() }}{{ pm_qs }}">تفاصيل اليوم</a>
         </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
-  {% else %}
-  <p class="muted">لا توجد حركات مسجّلة بعد.</p>
-  {% endif %}
 </div>
-
-<div class="card" style="margin-top:1rem">
-  <h2 style="margin-top:0">
-    {% if filter_day %}حركات يوم {{ filter_day }}
-    {% elif filter_dir == 'in' %}تفاصيل الوارد
-    {% elif filter_dir == 'out' %}تفاصيل المنصرف
-    {% else %}كل الحركات{% endif %}
-  </h2>
-  {% if entries %}
-  <table>
-    <thead>
-      <tr>
-        <th>الوقت</th>
-        <th>الاتجاه</th>
-        <th>المبلغ</th>
-        <th>التصنيف</th>
-        <th>رقم الإيصال / المرجع</th>
-        <th>الغرفة</th>
-        <th>الموظف</th>
-        <th>طريقة الدفع</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for e in entries %}
-      <tr>
-        <td dir="ltr" style="font-variant-numeric:tabular-nums">{% if e.at %}{{ pos_format_dt(e.at, '%Y-%m-%d %H:%M:%S') }}{% else %}—{% endif %}</td>
-        <td>
-          {% if e.direction == 'IN' %}
-          <span class="dir-in">وارد</span>
-          {% else %}
-          <span class="dir-out">منصرف</span>
-          {% endif %}
-        </td>
-        <td>{{ pos_money(e.amount) }} <span class="money-currency">د.ل</span></td>
-        <td>{{ e.category_ar }}</td>
-        <td>
-          {% if e.detail_url %}
-          <a href="{{ e.detail_url }}" style="font-weight:600">{{ e.reference }}</a>
-          {% else %}
-          {{ e.reference }}
-          {% endif %}
-        </td>
-        <td>{% if e.room_label %}{{ e.room_label }}{% else %}—{% endif %}</td>
-        <td>{% if e.employee_name %}{{ e.employee_name }}{% else %}—{% endif %}</td>
-        <td>{{ e.method_name }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p class="muted">لا توجد حركات مطابقة للفلتر.</p>
-  {% endif %}
-</div>
+{% endif %}
 {% endblock %}

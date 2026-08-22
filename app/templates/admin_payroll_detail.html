@@ -3,7 +3,9 @@
 {% block title %}دفعة رواتب {{ run.label }}{% endblock %}
 
 {% block head_extra %}
-
+{% if pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}
+<link rel="stylesheet" href="/static/treasury_desk.css?v=1" />
+{% endif %}
 <style>
 
   .pill { display: inline-block; padding: 0.18rem 0.6rem; border-radius: 999px; font-size: 0.78rem; font-weight: 700; }
@@ -52,6 +54,13 @@
 
           border-radius: 8px; color: #1e3a8a; margin-bottom: 1rem; line-height: 1.7; }
 
+  .hr-nav { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 1rem;
+            border-bottom: 1px solid var(--border); padding-bottom: 0.6rem; }
+  .hr-nav a { padding: 0.45rem 0.85rem; border-radius: 8px; border: 1px solid var(--border);
+              background: #fff; color: inherit; text-decoration: none; font-weight: 600; }
+  .hr-nav a.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .hr-nav a:hover { background: #eef2ff; }
+
 </style>
 
 {% endblock %}
@@ -78,11 +87,16 @@
 
 </div>
 
-
+{% if pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}
+{% include "treasury/_nav.html" %}
+{% else %}
+{% set hr_nav_active = 'payroll' %}
+{% include "_hr_nav.html" %}
+{% endif %}
 
 {% if error %}<div class="alert">{{ error }}</div>{% endif %}
 
-{% if saved %}<div class="alert" style="background:#ecfdf5; border-color:#10b981; color:#065f46">تم الحفظ ✓</div>{% endif %}
+{% if saved %}<div class="alert" style="background:#ecfdf5; border-color:#10b981; color:#065f46">تم حفظ تعديل البند ✓ — لم يُصرف الراتب بعد. الصرف من قسم «صرف الرواتب» في أسفل الصفحة.</div>{% endif %}
 
 {% if request.query_params.get('reopened') %}
 
@@ -94,7 +108,7 @@
 
 {% endif %}
 
-{% if synced_full %}<div class="alert" style="background:#ecfdf5; border-color:#10b981; color:#065f46">تم تطبيق السلف والاستقطاعات المستحقة على كل البنود ✓</div>{% endif %}
+{% if synced_full %}<div class="alert" style="background:#ecfdf5; border-color:#10b981; color:#065f46">تم تطبيق المكافآت والسلف والاستقطاعات المستحقة على كل البنود ✓</div>{% endif %}
 
 {% if auto_synced_entries and auto_synced_entries > 0 and not synced_full %}
 
@@ -128,7 +142,7 @@
 
   <div class="tot net">
 
-    <div class="label">صافي الواجب الدفع</div>
+    <div class="label">صافي الواجب الدفع (بعد الخصم والسلف)</div>
 
     <div class="value" id="run-total-net">{{ run.total_net }} د.ل</div>
 
@@ -207,9 +221,13 @@
 
 <div class="help">
 
-  <strong>مسودة</strong> — عدّل القيم ثم اضغط <strong>حفظ</strong> لكل موظف. الصافي يُحسب تلقائياً: (أساسي + إضافي + مكافآت) − استقطاعات − سلف.
-
-  استخدم <strong>تطبيق السلف والخصومات المستحقة</strong> لملء عجز الجلسات تلقائياً.
+  <strong>مسودة</strong> — الصافي يُحسب تلقائياً:
+  <strong>(أساسي + إضافي + مكافآت) − استقطاعات − سلف</strong>.
+  <br>
+  عجز جلسات المطعم/الفندق والخصومات اليدوية تُخصم تلقائياً من «استقطاعات»،
+  والحوافز القائمة تُضاف إلى «مكافآت» (مثال: أساسي 2000 − عجز 200 = صافي 1800).
+  اضغط <strong>تطبيق المكافآت والسلف والخصومات</strong> للتحديث فوراً،
+  أو أدر السجلات من <a href="/admin/bonuses">حوافز ومكافآت</a> و<a href="/admin/deductions">خصومات وعجز</a>.
 
 </div>
 
@@ -238,6 +256,7 @@
           {{ e.employee.job_title or '' }}
 
           · ساعات: {{ e.hours_worked }}
+          <a href="/admin/attendance?employee_id={{ e.employee_id }}" style="font-size:0.76rem;font-weight:700">سجل الحضور</a>
 
           {% if e.overtime_hours and e.overtime_hours > 0 %}· إضافي: {{ e.overtime_hours }} س{% endif %}
 
@@ -261,7 +280,18 @@
 
         {% set pend = pending_deductions_by_emp.get(e.employee_id, []) %}
 
-        {% if pend and is_editable %}
+        {% if e.deductions and e.deductions > 0 %}
+
+        <div style="margin-top:0.25rem">
+          <a href="/admin/deductions?employee_id={{ e.employee_id }}" style="background:#fee2e2; color:#7f1d1d; padding:0.15rem 0.5rem; border-radius:6px; font-size:0.78rem; font-weight:700; text-decoration:none">
+            🔴 خصم/عجز مطبّق على الراتب: {{ e.deductions }} د.ل
+          </a>
+          <a href="/admin/shift-variances" style="margin-inline-start:0.25rem;font-size:0.75rem;font-weight:700;color:#7f1d1d">العجوزات</a>
+        </div>
+
+        {% endif %}
+
+        {% if pend %}
 
         <div style="margin-top: 0.25rem">
 
@@ -271,7 +301,7 @@
 
             مستحق: {{ line.remaining }} د.ل — {{ line.note }}
 
-            {% if line.source_type == 'POS_SHIFT_SHORTAGE' %}(عجز جلسة){% endif %}
+            {% if line.source_type == 'POS_SHIFT_SHORTAGE' %}(عجز جلسة مطعم){% elif line.source_type == 'HOTEL_SHIFT_SHORTAGE' %}(عجز جلسة فندق){% endif %}
 
           </div>
 
@@ -283,11 +313,23 @@
 
         {% set out_ded = deductions_by_emp.get(e.employee_id, 0) %}
 
-        {% if is_editable and out_ded and out_ded > (e.deductions or 0) %}
+        {% if out_ded and out_ded > (e.deductions or 0) %}
 
         <div style="margin-top:0.2rem; font-size:0.76rem; color:#b91c1c; font-weight:700">
 
-          ⚠ مستحق {{ out_ded }} د.ل — المطبّق {{ e.deductions or 0 }} د.ل — اضغط «تطبيق السلف والخصومات» أو أدخل الاستقطاع يدوياً
+          ⚠ خصم مستحق {{ out_ded }} د.ل — المطبّق {{ e.deductions or 0 }} د.ل — اضغط «تطبيق المكافآت والسلف والخصومات»
+
+        </div>
+
+        {% endif %}
+
+        {% set out_bonus = bonuses_by_emp.get(e.employee_id, 0) if bonuses_by_emp is defined else 0 %}
+
+        {% if is_editable and out_bonus and out_bonus > (e.bonuses or 0) %}
+
+        <div style="margin-top:0.2rem; font-size:0.76rem; color:#166534; font-weight:700">
+
+          مكافآت قائمة {{ out_bonus }} د.ل — المطبّق {{ e.bonuses or 0 }} د.ل — اضغط «تطبيق المكافآت والسلف والخصومات»
 
         </div>
 
@@ -347,7 +389,7 @@
 
         {% if is_editable %}
 
-        <button class="btn btn-primary" type="submit" style="padding:0.4rem 0.7rem; font-size: 0.85rem">حفظ</button>
+        <button class="btn" type="submit" style="padding:0.4rem 0.7rem; font-size: 0.85rem" title="يحفظ أرقام هذا الموظف فقط — لا يصرف الراتب">حفظ التعديل</button>
 
         {% endif %}
 
@@ -383,9 +425,13 @@
 
 
 
-<div class="card">
+<div class="card" id="payroll-pay">
 
-  <h2 style="margin-top: 0">إجراءات</h2>
+  <h2 style="margin-top: 0">صرف الرواتب</h2>
+  <p class="muted" style="margin:0 0 0.75rem;line-height:1.65">
+    زر <strong>حفظ التعديل</strong> فوق كل موظف يخزّن الأساسي/الخصم/السلفة فقط.
+    صرف الراتب يتم من هنا <strong>دفعة واحدة لكل الموظفين</strong> بعد الاعتماد، من المحفظة المختارة (كاش أو مصرف).
+  </p>
 
   <div class="row" style="gap: 0.6rem; flex-wrap: wrap">
 
@@ -397,7 +443,7 @@
 
       <button class="btn" type="submit" style="background:#dbeafe; color:#1e40af; border-color:#3b82f6; font-weight:700">
 
-        ↻ تطبيق السلف والخصومات المستحقة
+        ↻ تطبيق المكافآت والسلف والخصومات المستحقة
 
       </button>
 
@@ -417,7 +463,7 @@
 
 
 
-    {% if not is_paid %}
+    {% if not is_paid and can_pay_payroll %}
 
     <form method="post" action="/admin/payroll/{{ run.id }}/pay" style="margin:0; display:flex; gap:0.4rem; align-items:end" onsubmit="return confirm('دفع الدفعة؟ سيُطبَّق الخصم المستحق تلقائياً ثم يُسجَّل المصروف.')">
 
@@ -431,7 +477,7 @@
 
           {% for m in methods %}
 
-          <option value="{{ m.id }}">{{ m.name_ar }}</option>
+          <option value="{{ m.id }}">{{ pos_wallet_label(m) }}</option>
 
           {% endfor %}
 
@@ -439,15 +485,17 @@
 
       </div>
 
-      <button class="btn" type="submit" style="background:#10b981; color:#fff; border-color:#059669">⊕ دفع وتسجيل كمصروف</button>
+      <button class="btn" type="submit" style="background:#10b981; color:#fff; border-color:#059669; font-weight:800">صرف الرواتب</button>
 
     </form>
 
+    {% elif not is_paid %}
+    <p class="muted" style="margin:0">لا صلاحية لصرف هذه الدفعة — اطلب من الأدمن تفعيل «صرف/دفع كشوف الرواتب».</p>
     {% endif %}
 
 
 
-    {% if is_paid %}
+    {% if is_paid and can_manage_hr|default(true) %}
 
     <form method="post" action="/admin/payroll/{{ run.id }}/reopen" style="margin:0"
 

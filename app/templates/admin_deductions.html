@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+{% block title %}خصومات وعجز الموظفين{% endblock %}
+{% block head_extra %}
+<style>
+  .hr-nav { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 1rem;
+            border-bottom: 1px solid var(--border); padding-bottom: 0.6rem; }
+  .hr-nav a { padding: 0.45rem 0.85rem; border-radius: 8px; border: 1px solid var(--border);
+              background: #fff; color: inherit; text-decoration: none; font-weight: 600; }
+  .hr-nav a.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .hr-nav a:hover { background: #eef2ff; }
+  .pill { display: inline-block; padding: 0.18rem 0.6rem; border-radius: 999px;
+          font-size: 0.78rem; font-weight: 700; }
+  .pill.outstanding { background: #fef3c7; color: #92400e; }
+  .pill.partially_repaid { background: #dbeafe; color: #1e40af; }
+  .pill.fully_repaid { background: #dcfce7; color: #166534; }
+  .pill.cancelled { background: #fee2e2; color: #b91c1c; }
+  .grant-row { display: grid; grid-template-columns: 2fr 1fr 2fr auto;
+               gap: 0.5rem; align-items: end; }
+  @media (max-width: 900px) { .grant-row { grid-template-columns: 1fr; } }
+  .help { background: #fef3c7; border-right: 4px solid #f59e0b; padding: 0.7rem 1rem;
+          border-radius: 8px; color: #78350f; margin-bottom: 1rem; line-height: 1.7; }
+  .emp-summary-row {
+    display: grid; grid-template-columns: 2fr 1fr 1fr auto;
+    gap: 0.5rem; align-items: center; padding: 0.6rem 0.8rem;
+    border-bottom: 1px solid var(--border);
+  }
+</style>
+{% endblock %}
+{% block body %}
+<div class="row" style="justify-content: space-between; align-items: center">
+  <h1 style="margin: 0">خصومات وعجز الموظفين</h1>
+</div>
+
+{% if pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}
+<link rel="stylesheet" href="/static/treasury_desk.css?v=1" />
+{% include "treasury/_nav.html" %}
+{% else %}
+{% set hr_nav_active = 'deductions' %}
+{% include "_hr_nav.html" %}
+{% endif %}
+
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+{% if saved %}<div class="alert" style="background:#ecfdf5; border-color:#10b981; color:#065f46">تم الحفظ ✓</div>{% endif %}
+
+<div class="help">
+  <strong>الخصم التلقائي من الراتب — مؤكد</strong>
+  <ol style="margin: 0.4rem 0">
+    <li><strong>عجز جلسة مطعم أو وردية فندق</strong> يُحوَّل تلقائياً إلى خصم مستحق على الموظف المرتبط.</li>
+    <li>إذا أُغلقت الجلسة بحساب <strong>أدمن بدون موظف</strong> يظهر العجز أدناه في «عجز بانتظار تعيين موظف» حتى تربطه يدوياً.</li>
+    <li>يمكنك أيضاً <strong>تسجيل خصم يدوي</strong> (جزاء / نقص / تسوية) من النموذج أدناه.</li>
+    <li>عند <strong>إنشاء أو مزامنة دفعة الرواتب</strong> يُملأ حقل «استقطاعات» تلقائياً بحد أقصى ما يسمح به الراتب بعد السلف.</li>
+    <li>عند <strong>دفع الراتب</strong> يُخصم المبلغ من صافي الصرف ويُحدَّث رصيد الخصم (الأقدم أولاً). لا يمكن دفع راتب كامل مع وجود عجز غير مطبّق.</li>
+  </ol>
+  <p style="margin:0.4rem 0 0"><strong>مثال:</strong> راتب 2000 د.ل + عجز 200 د.ل ⇒ صافي الصرف 1800 د.ل.</p>
+</div>
+
+{% if unassigned_shortages %}
+<div class="card" style="border-color:#fca5a5;background:#fff7ed">
+  <h2 style="margin-top:0;color:#9a3412">⚠ عجز بانتظار تعيين موظف ({{ unassigned_shortages|length }})</h2>
+  <p class="muted" style="margin:0 0 0.75rem;font-size:0.9rem">
+    جلسات أُغلقت بدون ربط موظف (غالباً دخول أدمن). عيّن الموظف ليُضاف العجز لخصم الراتب.
+    أو من <a href="/pos/shift/shortages?kind=all">سجل عجز الجلسات</a>.
+  </p>
+  {% for r in unassigned_shortages %}
+  <form method="post" action="/pos/shift/shortages/{{ r.id }}/deduct"
+        style="display:grid;grid-template-columns:1.2fr 1fr 1fr auto;gap:0.5rem;align-items:end;margin:0 0 0.65rem;padding:0.65rem;border:1px solid #fed7aa;border-radius:10px;background:#fff">
+    <input type="hidden" name="next" value="/admin/deductions" />
+    <div>
+      <div style="font-weight:700">جلسة #{{ r.shift_id }} · {{ r.kind_ar }}</div>
+      <div class="muted" style="font-size:0.82rem">
+        {% if r.closed_at %}{{ pos_format_dt(r.closed_at, '%Y-%m-%d %H:%M') }}{% endif %}
+        · مستخدم: {{ r.username }}
+      </div>
+      <div style="margin-top:0.25rem;font-weight:800;color:#b91c1c">{{ pos_money(r.shortage_amount) }} د.ل</div>
+    </div>
+    <div>
+      <label style="font-size:0.78rem">الموظف *</label>
+      <select name="employee_id" required style="width:100%">
+        <option value="">— اختر —</option>
+        {% for e in employees %}{% if e.is_active %}
+        <option value="{{ e.id }}">{{ e.full_name_ar }}</option>
+        {% endif %}{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label style="font-size:0.78rem">ملاحظة</label>
+      <input type="text" name="note" value="عجز {{ r.kind_ar }} جلسة #{{ r.shift_id }}" style="width:100%" />
+    </div>
+    <button type="submit" class="btn btn-primary" onclick="return confirm('ربط العجز بالموظف وخصمه من الراتب؟');">
+      خصم من الراتب
+    </button>
+  </form>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if summary %}
+<div class="card">
+  <h2 style="margin-top: 0">خصومات قائمة ستُخصم من الراتب القادم</h2>
+  {% for emp, rem, count in summary %}
+  <div class="emp-summary-row">
+    <div>
+      <strong>{{ emp.full_name_ar }}</strong>
+      <span class="muted">— {{ emp.job_title or '' }}</span>
+    </div>
+    <div><span class="pill outstanding">{{ count }} خصم</span></div>
+    <div style="font-size: 1.1rem; font-weight: 800; color: #b45309">{{ rem }} د.ل</div>
+    <div>
+      <a class="btn" href="/admin/deductions?employee_id={{ emp.id }}" style="padding: 0.25rem 0.6rem; font-size: 0.85rem">عرض</a>
+    </div>
+  </div>
+  {% endfor %}
+  <div style="display: flex; justify-content: flex-end; padding: 0.7rem 0.8rem; background: #fffbeb; border-top: 2px solid #f59e0b; font-weight: 800; font-size: 1.15rem; color: #78350f">
+    الإجمالي: {{ grand_total }} د.ل
+  </div>
+</div>
+{% else %}
+<div class="alert" style="background:#dcfce7; border-color:#10b981; color:#065f46">
+  ✓ لا توجد خصومات قائمة على أي موظف حالياً.
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top: 0">تسجيل خصم يدوي</h2>
+  <form method="post" action="/admin/deductions/create">
+    <div class="grant-row">
+      <div>
+        <label for="emp">الموظف *</label>
+        <select id="emp" name="employee_id" required>
+          <option value="">— اختر —</option>
+          {% for e in employees %}{% if e.is_active %}
+          <option value="{{ e.id }}" {% if selected_id == e.id %}selected{% endif %}>{{ e.full_name_ar }} ({{ e.job_title or 'موظف' }})</option>
+          {% endif %}{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="amt">المبلغ (د.ل) *</label>
+        <input id="amt" name="amount" type="number" step="0.001" min="0.001" required />
+      </div>
+      <div>
+        <label for="note">السبب / الملاحظة</label>
+        <input id="note" name="note" placeholder="جزاء، تسوية، نقص بضاعة…" />
+      </div>
+      <div>
+        <button class="btn btn-primary" type="submit">+ تسجيل خصم</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">سجل الخصومات</h2>
+  <form method="get" action="/admin/deductions" class="row" style="gap: 0.4rem; align-items: end; margin-bottom: 0.7rem">
+    <div>
+      <label for="fe">الموظف</label>
+      <select id="fe" name="employee_id">
+        <option value="">— الكل —</option>
+        {% for e in employees %}
+        <option value="{{ e.id }}" {% if selected_id == e.id %}selected{% endif %}>{{ e.full_name_ar }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="fo">عرض</label>
+      <select id="fo" name="only_outstanding">
+        <option value="0" {% if not only_outstanding %}selected{% endif %}>الكل</option>
+        <option value="1" {% if only_outstanding %}selected{% endif %}>القائمة فقط</option>
+      </select>
+    </div>
+    <button class="btn btn-primary" type="submit">عرض</button>
+  </form>
+
+  {% if items %}
+  <table>
+    <thead>
+      <tr>
+        <th>التاريخ</th>
+        <th>الموظف</th>
+        <th>المصدر</th>
+        <th>المبلغ</th>
+        <th>المخصوم</th>
+        <th>المتبقي</th>
+        <th>الحالة</th>
+        <th>ملاحظة</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for d in items %}
+      <tr>
+        <td class="muted" style="font-size:0.85rem">{{ pos_format_dt(d.created_at, '%Y-%m-%d') }}</td>
+        <td>
+          <strong>{{ d.employee.full_name_ar if d.employee else '?' }}</strong>
+        </td>
+        <td class="muted" style="font-size:0.82rem">
+          {{ source_labels.get(d.source_type, d.source_type or 'يدوي') }}
+        </td>
+        <td style="font-weight:700">{{ d.amount }}</td>
+        <td>{{ d.repaid_amount }}</td>
+        <td style="font-weight:800; {% if d.remaining_amount > 0 %}color:#b45309{% else %}color:#16a34a{% endif %}">
+          {{ d.remaining_amount }}
+        </td>
+        <td>
+          <span class="pill {{ d.status.value|lower }}">
+            {{ status_labels.get(d.status.value, d.status.value) }}
+          </span>
+        </td>
+        <td class="muted" style="font-size: 0.82rem">{{ d.note or '—' }}</td>
+        <td>
+          {% if d.status.value in ('OUTSTANDING', 'PARTIALLY_REPAID') %}
+          <form method="post" action="/admin/deductions/{{ d.id }}/cancel" style="display:inline"
+                onsubmit="return confirm('عفو / إلغاء هذا الخصم؟')">
+            <button class="btn" type="submit" style="padding:0.18rem 0.45rem; font-size:0.8rem">عفو</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% if d.repayments %}
+      <tr style="background: #f8fafc">
+        <td colspan="9">
+          <div style="padding: 0.3rem 0.5rem; font-size: 0.8rem">
+            <strong style="color:#475569">سجل الخصم من الرواتب:</strong>
+            {% for r in d.repayments %}
+              <span style="background:#fff; padding:0.1rem 0.4rem; border-radius:6px; margin-inline-start:0.3rem; border:1px solid #e2e8f0">
+                {{ pos_format_dt(r.repaid_at, '%Y-%m-%d') }}: {{ r.amount }} د.ل
+                {% if r.payroll_entry_id %}<span class="muted">(من راتب)</span>{% endif %}
+              </span>
+            {% endfor %}
+          </div>
+        </td>
+      </tr>
+      {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted" style="text-align: center; padding: 1.5rem">لا توجد خصومات بهذه الفلاتر.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -13,9 +13,13 @@
   <strong style="color:#c2410c">⚠ {{ stale_count }} جلسة مفتوحة منذ أكثر من 24 ساعة</strong>
   <p class="muted" style="margin:0.35rem 0 0;line-height:1.6">
     الإغلاق العادي من حساب موظف الاستقبال في
+    {% if pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}
+    جلسة الفندق
+    {% else %}
     <a href="/admin/hotel/shift">جلسة الفندق</a>
-    (عدّ الكاش/المصرف ثم إقفال). للجلسات العالقة استخدم
-    <strong>تفاصيل → إغلاق إداري</strong>{% if not can_admin_close %} (يتطلب صلاحية مالية){% endif %}.
+    {% endif %}
+    (عدّ الكاش/المصرف ثم إقفال).{% if can_admin_close %} للجلسات العالقة استخدم
+    <strong>تفاصيل → إغلاق إداري</strong>.{% endif %}
   </p>
 </div>
 {% endif %}
@@ -29,7 +33,9 @@
   <a class="btn {% if status_filter == 'all' %}btn-primary{% endif %}" href="/reports/hotel-shifts?status=all">الكل</a>
   <a class="btn {% if status_filter == 'closed' %}btn-primary{% endif %}" href="/reports/hotel-shifts?status=closed">مغلقة</a>
   <a class="btn {% if status_filter == 'open' %}btn-primary{% endif %}" href="/reports/hotel-shifts?status=open">مفتوحة</a>
+  {% if not (pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request)) %}
   <a class="btn btn-primary" href="/admin/hotel/shift" style="margin-inline-start:0.25rem">فتح / إقفال جلسة</a>
+  {% endif %}
   <span style="flex:1"></span>
   {{ export_button('/reports/hotel-shifts/export.csv?status=' ~ status_filter, 'تصدير القائمة') }}
 </div>

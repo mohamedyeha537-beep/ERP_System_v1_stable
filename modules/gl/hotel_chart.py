@@ -76,7 +76,6 @@ def ensure_purchase_custody_gl_accounts(db: Session) -> None:
             db.flush()
             code_to_acc[code] = acc
         else:
-            acc.name_ar = name_ar
             acc.is_active = True
             acc.show_on_dashboard = True
             acc.business_domain = account_domain_for_code(code)
@@ -110,7 +109,6 @@ def ensure_hotel_operating_chart(db: Session) -> None:
             db.flush()
             code_to_acc[code] = acc
         else:
-            acc.name_ar = name_ar
             acc.account_type = acc_type
             acc.business_domain = hotel_dom
             acc.is_active = True

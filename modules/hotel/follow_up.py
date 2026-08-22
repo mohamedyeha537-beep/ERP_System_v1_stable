@@ -188,11 +188,20 @@ def send_booking_claim_whatsapp(
         phone = (booking.company_contact_phone or "").strip()
     if not phone:
         raise BookingError("لا يوجد رقم واتساب للنزيل.")
-    emit_hotel_balance_claim(
+    ok, err = emit_hotel_balance_claim(
         db,
         booking,
         claim_note=(note or booking.follow_up_note or "").strip() or None,
+        immediate=True,
     )
+    if not ok:
+        raise BookingError(
+            err
+            or (
+                "تعذّر إرسال واتساب. تحقق من تفعيل المراسلات ومفتاح TextMeBot "
+                "وحدث «مطالبة رصيد حجز فندقي»."
+            )
+        )
     log_audit(
         db,
         entity_type="booking",

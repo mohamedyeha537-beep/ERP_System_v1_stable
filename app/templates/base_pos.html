@@ -33,6 +33,8 @@
         min-height: 100vh;
         display: flex;
         flex-direction: column;
+        /* محاذاة رأس الجداول اللاصق مع شريط POS وليس هيدر لوحة التحكم */
+        --header-h: var(--pos-topbar-h);
       }
       .pos-topbar {
         height: var(--pos-topbar-h);
@@ -191,7 +193,7 @@
         padding: 0;
       }
     </style>
-    <link rel="stylesheet" href="/static/app.css" />
+    <link rel="stylesheet" href="/static/app.css?v=32" />
     <script src="/static/vendor/htmx.min.js"></script>
     {% block head_extra %}{% endblock %}
   </head>
@@ -250,7 +252,7 @@
       {% endif %}
       {% block body %}{% endblock %}
     </main>
-    <script src="/static/pos_guides.js"></script>
+    <script src="/static/pos_guides.js?v=2"></script>
     <script>
       (function () {
         var menu = document.querySelector(".pos-brand-menu");

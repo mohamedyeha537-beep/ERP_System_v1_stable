@@ -31,6 +31,7 @@ class NotificationRecipientType(str, enum.Enum):
     SUPERVISOR = "supervisor"
     INVENTORY_MANAGER = "inventory_manager"
     HR_MANAGER = "hr_manager"
+    TREASURY_CLERK = "treasury_clerk"
     EMPLOYEE = "employee"
 
 

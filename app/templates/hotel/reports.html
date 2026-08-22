@@ -102,6 +102,15 @@
   <p>الغرف: {{ occ.total_rooms }} · مشغولة: {{ occ.occupied }} · نسبة الإشغال: {{ occ.occupancy_rate }}%</p>
 </div>
 
+<div class="card" style="margin-top:1rem;border-color:#c4b5fd;background:linear-gradient(180deg,#f5f3ff 0%,#fff 60%)">
+  <h2 style="margin-top:0">تقرير تأجير الشقق</h2>
+  <p class="muted" style="margin:0 0 0.75rem;max-width:42rem">
+    لليوم أو لأي فترة: عدد الشقق المؤجّرة، القيمة المالية، المدفوع، والمتبقي — مع تفاصيل كل حجز.
+  </p>
+  <a class="btn btn-primary" href="/admin/hotel/reports/bookings?from={{ today }}&to={{ today }}">تقرير اليوم ←</a>
+  <a class="btn" href="/admin/hotel/reports/bookings" style="margin-inline-start:0.35rem">اختيار فترة</a>
+</div>
+
 <div class="card" style="margin-top:1rem;border-color:#fdba74;background:linear-gradient(180deg,#fff7ed 0%,#fff 60%)">
   <h2 style="margin-top:0">تكلفة الإفطار المشمول</h2>
   <p class="muted" style="margin:0 0 0.75rem;max-width:40rem">
@@ -320,13 +329,36 @@
 </script>
 
 {% if finance_on %}
-<div class="card" style="margin-top:1rem">
-  <h2>إقفال يومي</h2>
-  <form method="post" action="/admin/hotel/daily-close">
-    <input name="closing_date" type="date" value="{{ today }}" />
-    <input name="notes" placeholder="ملاحظات" />
-    <button class="btn btn-primary">إقفال اليوم</button>
-  </form>
+<div class="card" style="margin-top:1rem;border-color:#86efac;background:linear-gradient(180deg,#ecfdf5 0%,#fff 50%)">
+  <h2 style="margin-top:0">إقفال يومي — تلقائي</h2>
+  <p class="muted" style="margin:0 0 0.75rem;line-height:1.55;max-width:42rem">
+    النظام يقفل كل يوم تقويمي تلقائياً بعد منتصف الليل (توقيت المحل):
+    اليوم المكتمل = <strong>24 ساعة من 00:00 إلى 23:59</strong>.
+    لا حاجة للضغط يدوياً كل يوم — الزر أدناه للطوارئ أو لإقفال يوم فائت فقط.
+  </p>
+  {% if daily_close_last_date %}
+  <p style="margin:0 0 0.75rem;font-size:0.92rem">
+    آخر يوم أُقفل: <strong>{{ daily_close_last_date }}</strong>
+    {% if daily_close_auto_enabled %}<span style="color:#15803d"> · التلقائي مفعّل</span>{% else %}<span style="color:#b91c1c"> · التلقائي متوقف</span>{% endif %}
+  </p>
+  {% endif %}
+  <p style="margin:0 0 0.65rem;font-size:0.88rem">
+    <a href="/reports/hotel-daily-close?period=month">عرض سجل الإقفال والتقارير ←</a>
+  </p>
+  <details style="margin-top:0.35rem">
+    <summary style="cursor:pointer;font-weight:700;color:#0f766e">إقفال يدوي احتياطي (يوم فائت)</summary>
+    <form method="post" action="/admin/hotel/daily-close" style="margin-top:0.75rem;display:flex;flex-wrap:wrap;gap:0.5rem;align-items:end">
+      <div>
+        <label for="closing_date">اليوم</label>
+        <input id="closing_date" name="closing_date" type="date" value="{{ today }}" />
+      </div>
+      <div>
+        <label for="close_notes">ملاحظات</label>
+        <input id="close_notes" name="notes" placeholder="اختياري" />
+      </div>
+      <button class="btn" type="submit">إقفال هذا اليوم</button>
+    </form>
+  </details>
 </div>
 {% endif %}
 {% endblock %}

@@ -1,4 +1,4 @@
-{# إغلاق وردية الفندق — متوقع مقابل معدود #}
+{# إغلاق وردية الفندق — متوقع مقابل معدود (مثل المطعم) #}
 {% if close_rows and close_rows|length > 0 %}
 <div class="shift-close-wallets" id="hotel-shift-close-wallets">
   <div class="shift-close-wallets__head" aria-hidden="true">
@@ -33,11 +33,13 @@
     <div class="shift-close-wallet-row__box shift-close-wallet-row__box--counted">
       <span class="shift-close-wallet-row__box-label">المعدود *</span>
       <input type="text" inputmode="decimal"
-        class="shift-counted-input hotel-counted-input"
+        name="counted_{{ row.key }}"
+        class="shift-counted-input hotel-counted-input shift-counted-input--required"
         data-kind="{{ row.kind }}"
         data-field="{{ row.key }}"
-        placeholder="أدخل بعد المراجعة"
-        required autocomplete="off" dir="ltr" />
+        placeholder="{% if row.key == 'cash' or row.key == 'bank' %}أدخل المعدود بعد العدّ{% else %}أدخل العدد بعد المراجعة{% endif %}"
+        value=""
+        required aria-required="true" autocomplete="off" dir="ltr" />
     </div>
     <div class="shift-close-wallet-row__box shift-close-wallet-row__box--deficit">
       <span class="shift-close-wallet-row__box-label">الفرق</span>

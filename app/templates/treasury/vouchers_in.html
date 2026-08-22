@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}سندات القبض{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/treasury_desk.css?v=1" />
+{% endblock %}
+{% block body %}
+<div class="tdesk">
+  <h1 style="margin:0">سندات القبض</h1>
+  {% include "treasury/_nav.html" %}
+  {% if err %}<div class="tdesk-banner err">{{ err }}</div>{% endif %}
+  {% if ok %}<div class="tdesk-banner ok">تم تسجيل سند القبض.</div>{% endif %}
+  {% set _mode = pos_view_mode(request) %}
+  <p class="muted" style="margin:0 0 0.75rem;font-size:0.86rem;line-height:1.55">
+    عرض آخر المقبوضات وطباعة السند.
+    {% if _mode == 'restaurant' %}
+    استلام وردية المطعم وتحصيل ديون العملاء من هنا.
+    {% elif _mode == 'hotel' %}
+    استلام وردية الاستقبال وتحصيل ذمم الحجوزات من هنا.
+    {% else %}
+    استلام الوردية من شاشتي الاستقبال أو المطعم، وتحصيل الذمم من شاشة الديون.
+    {% endif %}
+  </p>
+
+  <div class="tdesk-mov" style="margin-bottom:0.85rem">
+    <div><div class="lbl">قبض كاش اليوم / الجلسة</div><div class="val">{{ pos_money(movement.cash_in) }}</div></div>
+    <div><div class="lbl">قبض مصرف اليوم / الجلسة</div><div class="val">{{ pos_money(movement.bank_in) }}</div></div>
+  </div>
+
+  <div class="tdesk-card">
+    <h2>إنشاء سند قبض</h2>
+    <div class="tdesk-actions-bar">
+      {% if _mode != 'restaurant' %}
+      <a class="btn btn-primary" href="/pos/treasury/hotel-shifts">استلام وردية استقبال</a>
+      {% endif %}
+      {% if _mode != 'hotel' %}
+      <a class="btn btn-primary" href="/pos/treasury/pos-shifts">استلام وردية مطعم</a>
+      {% endif %}
+      {% if _mode != 'restaurant' %}
+      <a class="btn" href="/admin/hotel/debts">تحصيل ذمة حجز</a>
+      {% endif %}
+      {% if _mode != 'hotel' %}
+      <a class="btn" href="/reports/receivables?balance_only=1">تحصيل دين عميل</a>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="tdesk-card">
+    <h2>آخر سندات القبض</h2>
+    {% if recent_receipts %}
+    <table class="tdesk-table">
+      <thead>
+        <tr><th>#</th><th>التاريخ</th><th>البند</th><th>المستفيد</th><th>المبلغ</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for v in recent_receipts %}
+        <tr>
+          <td>{{ v.id }}</td>
+          <td>{{ pos_format_dt(v.created_at, '%Y-%m-%d') }}</td>
+          <td>{{ v.item }}</td>
+          <td>{{ v.party or '—' }}</td>
+          <td>{{ pos_money(v.amount) }}</td>
+          <td>
+            {% if v.print_href %}
+            <a href="{{ v.print_href }}" target="_blank" rel="noopener">طباعة السند</a>
+            {% else %}
+            —
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted" style="margin:0">لا توجد مقبوضات مسجّلة خلال آخر شهر.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

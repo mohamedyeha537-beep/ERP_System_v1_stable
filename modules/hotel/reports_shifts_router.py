@@ -9,8 +9,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app.deps import DBSession, require_permission
 from app.jinja_env import templates
 from modules.authz.models import User
-from modules.authz.permissions import HOTEL_FINANCE_CLOSE, PAYMENTS_MANAGE, REPORTS_VIEW
-from modules.authz.service import user_has_permission
+from modules.authz.capability import can_admin_close_hotel_shift
+from modules.authz.permissions import REPORTS_VIEW
 from modules.hotel.shift_models import HotelShiftError
 from modules.hotel.shift_service import (
     admin_close_hotel_shift,
@@ -49,9 +49,7 @@ def reports_hotel_shifts_index(
     total_pages = max(1, (total + page_size - 1) // page_size)
     stale = list_stale_open_hotel_shifts(db, stale_hours=24.0)
     stale_ids = {s.id for s in stale}
-    can_admin_close = user_has_permission(user, PAYMENTS_MANAGE) or user_has_permission(
-        user, HOTEL_FINANCE_CLOSE
-    )
+    can_admin_close = can_admin_close_hotel_shift(user)
     return templates.TemplateResponse(
         "reports_hotel_shifts.html",
         {
@@ -77,10 +75,7 @@ def reports_hotel_shift_admin_close(
     user: User = Depends(_perm),
     note: str = Form(""),
 ):
-    if not (
-        user_has_permission(user, PAYMENTS_MANAGE)
-        or user_has_permission(user, HOTEL_FINANCE_CLOSE)
-    ):
+    if not can_admin_close_hotel_shift(user):
         return RedirectResponse(
             "/reports/hotel-shifts?err=" + quote("لا صلاحية للإغلاق الإداري."),
             status_code=302,

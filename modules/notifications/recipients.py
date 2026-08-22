@@ -68,7 +68,7 @@ def resolve_recipients(
 
     rt = (recipient_type or "").strip().lower()
 
-    if rt in ("admin", "supervisor", "inventory_manager", "hr_manager"):
+    if rt in ("admin", "supervisor", "inventory_manager", "hr_manager", "treasury_clerk"):
 
         phones = resolve_system_phones(
 
@@ -85,6 +85,8 @@ def resolve_recipients(
             "inventory_manager": "مخزون",
 
             "hr_manager": "موارد بشرية",
+
+            "treasury_clerk": "أمين الخزينة",
 
         }
 
@@ -279,6 +281,24 @@ def resolve_recipient(
             return None
 
         return ResolvedRecipient(phone=phone, name="المشرف")
+
+    if rt == "treasury_clerk":
+
+        phones = resolve_system_phones(
+
+            db,
+
+            event_key=event_key or str(payload.get("event_key") or ""),
+
+            recipient_type="treasury_clerk",
+
+        )
+
+        if not phones:
+
+            return None
+
+        return ResolvedRecipient(phone=phones[0], name="أمين الخزينة")
 
     if rt == "driver":
 

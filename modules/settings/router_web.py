@@ -33,6 +33,7 @@ from modules.settings.service import (
     get_int,
     get_public_base_url,
     get_setting,
+    invalidate_settings_cache,
     normalize_orientation,
     normalize_paper,
     public_base_url_from_env,
@@ -150,12 +151,34 @@ def settings_page(
             "treasury_notify_shift_close_enabled": get_bool(
                 db, "treasury_notify_shift_close_enabled", True
             ),
+            "treasury_notify_handoff_pending_enabled": get_bool(
+                db, "treasury_notify_handoff_pending_enabled", False
+            ),
             "treasury_notify_movements_enabled": get_bool(
                 db, "treasury_notify_movements_enabled", True
             ),
             "treasury_notify_balance_updates_enabled": get_bool(
                 db, "treasury_notify_balance_updates_enabled", True
             ),
+            "hotel_shift_allow_next_shift_carry": get_bool(
+                db, "hotel_shift_allow_next_shift_carry", True
+            ),
+            "hotel_shift_allow_treasury_close": get_bool(
+                db, "hotel_shift_allow_treasury_close", True
+            ),
+            "pos_shift_allow_next_shift_carry": get_bool(
+                db, "pos_shift_allow_next_shift_carry", True
+            ),
+            "pos_shift_allow_treasury_close": get_bool(
+                db, "pos_shift_allow_treasury_close", True
+            ),
+            **(
+                __import__(
+                    "modules.security.supervisor_otp",
+                    fromlist=["otp_policy_context"],
+                ).otp_policy_context(db)
+            ),
+            "otp_policy_saved": request.query_params.get("otp_saved") == "1",
         },
     )
 
@@ -191,8 +214,13 @@ def settings_save(
     default_sales_warehouse_id: str = Form(""),
     treasury_notifications_enabled: str = Form(""),
     treasury_notify_shift_close_enabled: str = Form(""),
+    treasury_notify_handoff_pending_enabled: str = Form(""),
     treasury_notify_movements_enabled: str = Form(""),
     treasury_notify_balance_updates_enabled: str = Form(""),
+    hotel_shift_allow_next_shift_carry: str = Form(""),
+    hotel_shift_allow_treasury_close: str = Form(""),
+    pos_shift_allow_next_shift_carry: str = Form(""),
+    pos_shift_allow_treasury_close: str = Form(""),
     refund_code_save: str = Form(""),
     refund_code: str = Form(""),
     clear_refund_code: str = Form(""),
@@ -265,6 +293,11 @@ def settings_save(
     )
     set_setting(
         db,
+        "treasury_notify_handoff_pending_enabled",
+        "1" if treasury_notify_handoff_pending_enabled == "1" else "0",
+    )
+    set_setting(
+        db,
         "treasury_notify_movements_enabled",
         "1" if treasury_notify_movements_enabled == "1" else "0",
     )
@@ -273,6 +306,22 @@ def settings_save(
         "treasury_notify_balance_updates_enabled",
         "1" if treasury_notify_balance_updates_enabled == "1" else "0",
     )
+    from modules.payments.shift_carry import (
+        save_hotel_shift_close_policy,
+        save_pos_shift_close_policy,
+    )
+
+    save_hotel_shift_close_policy(
+        db,
+        allow_carry=hotel_shift_allow_next_shift_carry == "1",
+        allow_treasury=hotel_shift_allow_treasury_close == "1",
+    )
+    save_pos_shift_close_policy(
+        db,
+        allow_carry=pos_shift_allow_next_shift_carry == "1",
+        allow_treasury=pos_shift_allow_treasury_close == "1",
+    )
+    invalidate_settings_cache()
     wh_raw = (default_sales_warehouse_id or "").strip()
     if wh_raw:
         from modules.inventory.service import resolve_warehouse_id
@@ -347,6 +396,30 @@ def settings_order_policy_save(
     db.commit()
     return RedirectResponse(
         "/admin/settings?order_policy_saved=1#order-policy-section",
+        status_code=302,
+    )
+
+
+@router.post("/otp-policy", response_class=HTMLResponse)
+def settings_otp_policy_save(
+    request: Request,
+    db: DBSession,
+    _: User = Depends(_admin),
+    otp_require_hotel_refund: str = Form(""),
+    otp_require_pos_refund: str = Form(""),
+    otp_require_hotel_cancel: str = Form(""),
+):
+    from modules.security.supervisor_otp import save_otp_policy
+
+    save_otp_policy(
+        db,
+        hotel_refund=otp_require_hotel_refund == "on",
+        pos_refund=otp_require_pos_refund == "on",
+        hotel_cancel=otp_require_hotel_cancel == "on",
+    )
+    db.commit()
+    return RedirectResponse(
+        "/admin/settings?otp_saved=1#supervisor-otp-section",
         status_code=302,
     )
 

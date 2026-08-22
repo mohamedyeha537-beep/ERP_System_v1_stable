@@ -28,7 +28,14 @@ def _m(d: Decimal) -> str:
     return f"{d.quantize(Decimal('0.001')):.3f}"
 
 
-def build_shift_close_rows(db: Session, shift_id: int) -> list[ShiftCloseRow]:
+def build_shift_close_rows(
+    db: Session, shift_id: int, *, user=None
+) -> list[ShiftCloseRow]:
+    from modules.authz.pos_wallet_access import (
+        user_may_use_pos_bank,
+        user_may_use_pos_cash,
+    )
+
     fin = compute_shift_financial_summary(db, shift_id)
 
     cash_sub = f"صافي الدرج {_m(fin.expected_cash_drawer)} د.ل"
@@ -46,57 +53,67 @@ def build_shift_close_rows(db: Session, shift_id: int) -> list[ShiftCloseRow]:
         else "لا توجد عمليات خصم نقاط في هذه الجلسة"
     )
 
-    return [
-        ShiftCloseRow(
-            key="cash",
-            name_ar="خزينة الكاش",
-            subtitle=cash_sub,
-            closable=True,
-            sales_total=fin.cash_sales,
-            close_expected=fin.expected_cash_drawer,
-            kind="CASH",
-        ),
-        ShiftCloseRow(
-            key="bank",
-            name_ar="خزينة المصرف",
-            subtitle=bank_sub + " — أدخل المجموع بعد مراجعة فواتير المصرف",
-            closable=True,
-            sales_total=fin.bank_sales,
-            close_expected=fin.expected_bank,
-            kind="BANK",
-            require_count=True,
-        ),
-        ShiftCloseRow(
-            key="room",
-            name_ar="حساب مبيعات الشقق",
-            subtitle="راجع فواتير «قيد على الشقة» وأدخل إجماليها — إلزامي",
-            closable=True,
-            sales_total=fin.room_account_sales,
-            close_expected=fin.room_account_sales,
-            kind="ROOM",
-            require_count=True,
-        ),
-        ShiftCloseRow(
-            key="delivery",
-            name_ar="حساب التوصيل",
-            subtitle="مصروفات دُفعت للسائق من الكاش خلال الجلسة",
-            closable=False,
-            amount=fin.delivery_expenses,
-        ),
-        ShiftCloseRow(
-            key="shift_expense",
-            name_ar="مصروفات الجلسة",
-            subtitle="صرف مسجّل من الكاشير أثناء الجلسة (كاش + مصرف)",
-            closable=False,
-            amount=(fin.shift_cash_expenses + fin.shift_bank_expenses).quantize(
-                Decimal("0.001")
+    rows: list[ShiftCloseRow] = []
+    if user_may_use_pos_cash(user):
+        rows.append(
+            ShiftCloseRow(
+                key="cash",
+                name_ar="خزينة الكاش",
+                subtitle=cash_sub,
+                closable=True,
+                sales_total=fin.cash_sales,
+                close_expected=fin.expected_cash_drawer,
+                kind="CASH",
+            )
+        )
+    if user_may_use_pos_bank(user):
+        rows.append(
+            ShiftCloseRow(
+                key="bank",
+                name_ar="خزينة المصرف",
+                subtitle=bank_sub + " — أدخل المجموع بعد مراجعة فواتير المصرف",
+                closable=True,
+                sales_total=fin.bank_sales,
+                close_expected=fin.expected_bank,
+                kind="BANK",
+                require_count=True,
+            )
+        )
+    rows.extend(
+        [
+            ShiftCloseRow(
+                key="room",
+                name_ar="حساب مبيعات الشقق",
+                subtitle="راجع فواتير «قيد على الشقة» وأدخل إجماليها — إلزامي",
+                closable=True,
+                sales_total=fin.room_account_sales,
+                close_expected=fin.room_account_sales,
+                kind="ROOM",
+                require_count=True,
             ),
-        ),
-        ShiftCloseRow(
-            key="loyalty",
-            name_ar="نقاط الولاء",
-            subtitle=loyalty_sub,
-            closable=False,
-            amount=fin.loyalty_dinar_cost,
-        ),
-    ]
+            ShiftCloseRow(
+                key="delivery",
+                name_ar="حساب التوصيل",
+                subtitle="مصروفات دُفعت للسائق من الكاش خلال الجلسة",
+                closable=False,
+                amount=fin.delivery_expenses,
+            ),
+            ShiftCloseRow(
+                key="shift_expense",
+                name_ar="مصروفات الجلسة",
+                subtitle="صرف مسجّل من الكاشير أثناء الجلسة (كاش + مصرف)",
+                closable=False,
+                amount=(fin.shift_cash_expenses + fin.shift_bank_expenses).quantize(
+                    Decimal("0.001")
+                ),
+            ),
+            ShiftCloseRow(
+                key="loyalty",
+                name_ar="نقاط الولاء",
+                subtitle=loyalty_sub,
+                closable=False,
+                amount=fin.loyalty_dinar_cost,
+            ),
+        ]
+    )
+    return rows

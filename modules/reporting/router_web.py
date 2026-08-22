@@ -9,11 +9,16 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from urllib.parse import quote
 from sqlalchemy import select
 
-from app.deps import DBSession, require_permission
+from app.deps import DBSession, require_any_permission, require_permission
 from app.datetime_local import format_local_dt
 from app.jinja_env import templates
+from modules.authz.capability import can_approve_treasury_handoff
 from modules.authz.models import User
-from modules.authz.permissions import PAYMENTS_MANAGE, REPORTS_VIEW
+from modules.authz.permissions import (
+    PAYMENTS_MANAGE,
+    REPORTS_VIEW,
+    TREASURY_HANDOFF_APPROVE,
+)
 from modules.authz.service import user_has_permission
 from modules.customers.models import Customer
 from modules.delivery.service import delivery_fee_cash_out_total
@@ -43,6 +48,21 @@ from modules.reporting.unified_transactions import (
 )
 
 router = APIRouter(prefix="/reports", tags=["reports"])
+
+
+def _wallet_csv_label(db, method) -> str:
+    if method is None:
+        return ""
+    from modules.gl.wallet_labels import label_from_info_map, wallet_gl_info_map
+
+    info = getattr(db, "_wallet_gl_info_csv", None)
+    if info is None:
+        info = wallet_gl_info_map(db)
+        try:
+            setattr(db, "_wallet_gl_info_csv", info)
+        except Exception:
+            pass
+    return label_from_info_map(info, method)
 
 
 _PERIOD_LABELS = {
@@ -84,6 +104,7 @@ def _common_ctx(request: Request, period: str, s, e, start: str | None, end: str
 
 _perm = require_permission(REPORTS_VIEW)
 _pay_manage = require_permission(PAYMENTS_MANAGE)
+_handoff_approve = require_any_permission(TREASURY_HANDOFF_APPROVE, PAYMENTS_MANAGE)
 
 
 def _payment_flow_totals(rows) -> tuple[Decimal, Decimal, Decimal]:
@@ -111,6 +132,10 @@ def reports_hub(
     start: str | None = Query(None),
     end: str | None = Query(None),
 ):
+    from modules.authz.capability import is_treasury_clerk_user
+
+    if is_treasury_clerk_user(user):
+        return RedirectResponse("/pos/treasury/reports", 302)
     period, s, e = _resolve_period(period, start, end)
     domain = _finance_domain_filter(request, user)
 
@@ -186,6 +211,8 @@ def reports_unified_transactions(
         page=page,
     )
     export_qs = _unified_export_query_params(period, start, end, kind_f, q_f)
+    from modules.platform.business_domain import is_system_admin
+
     ctx = _common_ctx(request, period, s, e, start, end)
     ctx.update(
         {
@@ -200,6 +227,9 @@ def reports_unified_transactions(
             "finance_domain_filter": domain,
             "domain_label": domain_label(domain) if domain else "الكل",
             "export_qs": export_qs,
+            "can_edit_note": is_system_admin(user),
+            "note_saved": request.query_params.get("saved") == "note",
+            "note_error": request.query_params.get("note_err") or "",
         }
     )
     return templates.TemplateResponse("reports_transactions.html", ctx)
@@ -223,20 +253,22 @@ def export_unified_transactions_csv(
     )
     headers = [
         "النوع",
-        "التاريخ",
+        "التاريخ والوقت",
         "المرجع",
         "الاسم / الطرف",
+        "الموظف",
         "المبلغ",
         "موجب/سالب",
         "طريقة الدفع",
-        "ملاحظة",
+        "البيان / الملاحظة",
     ]
     data = [
         [
             r.kind_label,
-            r.created_at,
+            format_local_dt(r.created_at, "%Y-%m-%d %H:%M:%S") if r.created_at else "",
             r.ref,
             r.party_name,
+            r.employee_name,
             r.amount,
             r.signed_amount,
             r.method_name,
@@ -265,20 +297,22 @@ def export_unified_transactions_xlsx(
     )
     headers = [
         "النوع",
-        "التاريخ",
+        "التاريخ والوقت",
         "المرجع",
         "الاسم / الطرف",
+        "الموظف",
         "المبلغ",
         "موجب/سالب",
         "طريقة الدفع",
-        "ملاحظة",
+        "البيان / الملاحظة",
     ]
     data = [
         [
             r.kind_label,
-            format_local_dt(r.created_at, "%Y-%m-%d %H:%M") if r.created_at else "",
+            format_local_dt(r.created_at, "%Y-%m-%d %H:%M:%S") if r.created_at else "",
             r.ref,
             r.party_name,
+            r.employee_name,
             r.amount,
             r.signed_amount,
             r.method_name,
@@ -290,6 +324,97 @@ def export_unified_transactions_xlsx(
         "transactions",
         [SheetSpec(name="العمليات", headers=headers, rows=data)],
     )
+
+
+_TRANSFER_TYPE_AR = {
+    "MANUAL": "تحويل بين الحسابات",
+    "OWNER_DRAW": "سحب للمالك",
+    "OWNER_CAPITAL": "إيداع رأس مال",
+    "SHIFT_HANDOFF": "اعتماد جلسة",
+    "REFUND_SETTLEMENT": "تسوية مرتجع",
+    "SALE_PAYMENT_CORRECTION": "تصحيح دفعة",
+}
+
+
+def _safe_reports_next(next_url: str) -> str:
+    path = (next_url or "").strip()
+    if path.startswith("/reports/"):
+        return path
+    return "/reports/transactions"
+
+
+@router.get("/transactions/transfer/{transfer_id}", response_class=HTMLResponse)
+def reports_transfer_detail(
+    request: Request,
+    transfer_id: int,
+    db: DBSession,
+    user: User = Depends(_perm),
+):
+    from modules.gl.wallet_labels import label_from_info_map, wallet_gl_info_map
+    from modules.payments.models import PaymentTransfer
+    from modules.payments.treasury_service import _employee_name_for_user_id
+    from modules.platform.business_domain import is_system_admin
+
+    tf = db.get(PaymentTransfer, transfer_id)
+    if tf is None:
+        return RedirectResponse(
+            "/reports/transactions?kind=transfer&note_err="
+            + quote("التحويل غير موجود."),
+            status_code=302,
+        )
+    gl_info = wallet_gl_info_map(db)
+    from_name = label_from_info_map(gl_info, tf.from_method) if tf.from_method else "—"
+    to_name = label_from_info_map(gl_info, tf.to_method) if tf.to_method else "—"
+    tt = tf.transfer_type.value if getattr(tf.transfer_type, "value", None) else str(tf.transfer_type)
+    return templates.TemplateResponse(
+        "reports_transfer_detail.html",
+        {
+            "request": request,
+            "tf": tf,
+            "type_label": _TRANSFER_TYPE_AR.get(tt, tt),
+            "from_name": from_name,
+            "to_name": to_name,
+            "employee_name": _employee_name_for_user_id(db, tf.created_by_id),
+            "can_edit_note": is_system_admin(user),
+            "note_saved": request.query_params.get("saved") == "note",
+            "note_error": request.query_params.get("note_err") or "",
+        },
+    )
+
+
+@router.post("/transactions/note", response_class=HTMLResponse)
+def reports_transaction_note_save(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_perm),
+    source_kind: str = Form(...),
+    source_id: str = Form(...),
+    statement: str = Form(...),
+    next: str = Form("/reports/transactions"),
+):
+    from modules.payments.service import PaymentsError
+    from modules.payments.treasury_service import update_ledger_statement
+    from modules.platform.business_domain import is_system_admin
+
+    back = _safe_reports_next(next)
+    sep = "&" if "?" in back else "?"
+    if not is_system_admin(user):
+        return RedirectResponse(
+            back + sep + "note_err=" + quote("تحرير البيان للأدمن فقط."),
+            status_code=302,
+        )
+    try:
+        update_ledger_statement(
+            db,
+            source_kind=source_kind,
+            source_id=int(source_id),
+            statement=statement,
+        )
+        db.commit()
+    except (PaymentsError, ValueError) as exc:
+        db.rollback()
+        return RedirectResponse(back + sep + "note_err=" + quote(str(exc)), status_code=302)
+    return RedirectResponse(back + sep + "saved=note", status_code=302)
 
 
 @router.get("/sales", response_class=HTMLResponse)
@@ -349,7 +474,7 @@ def reports_sales(
             "delivery_cash_out": delivery_cash_out,
             "shift_handoff": shift_handoff,
             "handoff_pending_count": handoff_pending_count,
-            "can_approve_handoff": user_has_permission(user, PAYMENTS_MANAGE),
+            "can_approve_handoff": can_approve_treasury_handoff(user),
             "handoff_ok": handoff_ok,
             "handoff_err": handoff_err,
             "show_pos_sections": show_pos_sections,
@@ -736,7 +861,7 @@ def reports_pos_daily_close(
 def reports_sales_shift_handoff(
     request: Request,
     db: DBSession,
-    user: User = Depends(_pay_manage),
+    user: User = Depends(_handoff_approve),
     shift_id: int = Form(...),
     period: str = Form("day"),
     start: str = Form(""),
@@ -1413,6 +1538,7 @@ def reports_break_even(
         )
         cur = nxt_day
 
+    daily_rows.reverse()
     from modules.platform.business_domain import domain_label
 
     ctx = _common_ctx(request, period, s, e, start, end)
@@ -1826,6 +1952,7 @@ def export_hotel_bookings_csv(
     detail_rows, summary = hotel_bookings_in_period(db, s, e)
     dom_tag = domain_label(domain) if domain else "الكل"
     headers = [
+        "الشقة",
         "مرجع الحجز",
         "رقم الحجز",
         "النزيل",
@@ -1834,18 +1961,21 @@ def export_hotel_bookings_csv(
         "ليالي",
         "حالة الحجز",
         "حالة الدفع",
+        "القيمة المالية",
         "استحقاق الإقامة",
         "المدفوع",
-        "الرصيد",
+        "المتبقي",
     ]
     rows: list[list] = [
         ["الفترة", f"{format_local_dt(s, '%Y-%m-%d')} → {format_local_dt(e, '%Y-%m-%d')}"],
         ["مجال التقرير", dom_tag],
+        ["شقق مؤجّرة", summary.room_count],
         ["عدد الحجوزات", summary.booking_count],
         ["إجمالي الليالي", summary.nights_total],
-        ["إجمالي الاستحقاق", summary.accommodation_total],
+        ["القيمة المالية", summary.folio_total],
+        ["إجمالي استحقاق الإقامة", summary.accommodation_total],
         ["إجمالي المدفوع", summary.paid_total],
-        ["إجمالي الرصيد", summary.balance_total],
+        ["إجمالي المتبقي", summary.balance_total],
         ["مسكّن حالياً", summary.checked_in_count],
         ["مغادر", summary.checked_out_count],
         [],
@@ -1853,6 +1983,7 @@ def export_hotel_bookings_csv(
     for r in detail_rows:
         rows.append(
             [
+                r.room_label or "",
                 r.reference,
                 r.booking_id,
                 r.guest_name,
@@ -1861,6 +1992,7 @@ def export_hotel_bookings_csv(
                 r.nights,
                 r.booking_status_label,
                 r.payment_status_label,
+                r.folio_total,
                 r.accommodation_total,
                 r.paid_amount,
                 r.balance,
@@ -2202,7 +2334,7 @@ def export_purchases_csv(
             p.id,
             p.created_at,
             p.supplier or "",
-            p.method.name_ar if p.method else "",
+            _wallet_csv_label(db, p.method),
             p.amount,
             p.note or "",
         ]
@@ -2236,7 +2368,7 @@ def export_expenses_csv(
         [
             p.created_at,
             p.expense_category or "—",
-            p.method.name_ar if p.method else "",
+            _wallet_csv_label(db, p.method),
             p.amount,
             p.note or "",
         ]
@@ -2270,7 +2402,7 @@ def export_assets_csv(
         [
             p.created_at,
             p.supplier or "",
-            p.method.name_ar if p.method else "",
+            _wallet_csv_label(db, p.method),
             p.amount,
             p.note or "",
         ]

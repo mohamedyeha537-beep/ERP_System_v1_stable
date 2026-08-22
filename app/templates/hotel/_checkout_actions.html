@@ -1,0 +1,76 @@
+<form method="post" action="/admin/hotel/bookings/{{ booking.id }}/check-out" id="checkout-form">
+  <div class="row" style="gap:0.75rem;flex-wrap:wrap;align-items:flex-end">
+    <label style="display:flex;flex-direction:column;gap:0.15rem;font-size:0.82rem">
+      تاريخ المغادرة الفعلي
+      {% if can_pick_departure_date|default(false) %}
+      <input type="date" name="actual_departure" id="actual_departure"
+             min="{{ booking.check_in }}" value="{{ today }}" />
+      {% else %}
+      <input type="date" name="actual_departure" id="actual_departure"
+             value="{{ today }}" readonly style="background:#f1f5f9;pointer-events:none" />
+      {% endif %}
+    </label>
+    <button class="btn btn-primary" type="submit" style="font-size:1.05rem;padding:0.55rem 1.25rem">تسجيل المغادرة</button>
+  </div>
+  <div style="margin-top:0.75rem;padding:0.65rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px">
+    <label style="display:flex;align-items:flex-start;gap:0.45rem;font-size:0.88rem;line-height:1.45">
+      <input type="checkbox" id="post-as-debt-cb" style="margin-top:0.2rem" />
+      <span>الزبون لن يدفع الآن — ترحيل المتبقي إلى <strong>ذمم الحجوزات</strong> وتحرير الشقة</span>
+    </label>
+    {% if can_checkout_write_off|default(false) %}
+    <label style="display:flex;align-items:flex-start;gap:0.45rem;font-size:0.86rem;line-height:1.45;margin-top:0.45rem;color:#991b1b">
+      <input type="checkbox" id="write-off-cb" style="margin-top:0.2rem" />
+      <span>شطب كدين غير قابل للتحصيل (مدير النظام)</span>
+    </label>
+    {% endif %}
+    <input type="hidden" name="post_as_debt" id="post_as_debt" value="" />
+    <input type="hidden" name="allow_balance" id="allow_balance" value="" />
+    <input type="hidden" name="write_off_balance" id="write_off_balance" value="" />
+    <div id="debt-note-wrap" style="display:none;margin-top:0.55rem">
+      <label style="display:flex;flex-direction:column;gap:0.15rem;font-size:0.82rem;max-width:420px">
+        ملاحظة الدين (اختياري)
+        <input name="debt_note" id="debt_note_input" placeholder="مثال: وعد بالدفع لاحقاً" />
+      </label>
+    </div>
+  </div>
+</form>
+<script>
+(function () {
+  var form = document.getElementById("checkout-form");
+  if (!form) return;
+  var debtCb = document.getElementById("post-as-debt-cb");
+  var woCb = document.getElementById("write-off-cb");
+  var noteWrap = document.getElementById("debt-note-wrap");
+  function sync() {
+    var debtOn = !!(debtCb && debtCb.checked);
+    var woOn = !!(woCb && woCb.checked);
+    if (debtOn && woOn && woCb) {
+      woCb.checked = false;
+      woOn = false;
+    }
+    var debt = document.getElementById("post_as_debt");
+    var wo = document.getElementById("write_off_balance");
+    if (debt) debt.value = debtOn ? "on" : "";
+    if (wo) wo.value = woOn ? "on" : "";
+    if (noteWrap) noteWrap.style.display = (debtOn || woOn) ? "block" : "none";
+  }
+  if (debtCb) debtCb.addEventListener("change", sync);
+  if (woCb) woCb.addEventListener("change", function () {
+    if (woCb.checked && debtCb) debtCb.checked = false;
+    sync();
+  });
+  form.addEventListener("submit", function (e) {
+    sync();
+    if (woCb && woCb.checked) {
+      var note = ((document.getElementById("debt_note_input") || {}).value || "").trim();
+      if (note.length < 3) {
+        e.preventDefault();
+        alert("أدخل سبب الشطب (3 أحرف على الأقل).");
+        return;
+      }
+      if (!confirm("تأكيد شطب المتبقي كدين غير قابل للتحصيل؟")) e.preventDefault();
+    }
+  });
+  sync();
+})();
+</script>

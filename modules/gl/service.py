@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import func, select
@@ -583,6 +583,10 @@ class AccountLedgerRow:
     detail_url: str | None = None
     is_aggregate: bool = False
     item_count: int = 1
+    #: وقت إنشاء القيد (للعرض بالدقائق والثواني)
+    created_at: datetime | None = None
+    session_no: str | None = None
+    employee_name: str | None = None
 
 
 @dataclass
@@ -593,6 +597,8 @@ class AccountLedgerPage:
     rows: list[AccountLedgerRow]
     total_lines: int
     linked_wallets: list[tuple[str, Decimal]]
+    wallet_ops_total: Decimal | None = None
+    wallet_gl_diff: Decimal | None = None
     is_header: bool = False
     child_summaries: list[tuple[GlAccount, Decimal]] | None = None
     #: عرض مجمّع حسب جلسة/يوم (خزائن كاش ومصرف)
@@ -630,6 +636,24 @@ def _is_vault_session_account(db: Session, acc: GlAccount) -> bool:
     return bool(wallet_maps_for_account(db, int(acc.id)))
 
 
+_HOTEL_SHIFT_NOTE_RE = re.compile(r"جلسة\s+فندق\s*#(\d+)")
+_POS_SHIFT_NOTE_RE = re.compile(r"جلسة\s*#(\d+)")
+
+
+def _shift_from_transfer_note(note: str | None) -> tuple[str, int] | None:
+    """يستخرج نوع الجلسة ورقمها من ملاحظة التحويل (اعتماد / فكة / إلغاء)."""
+    text = (note or "").strip()
+    if not text:
+        return None
+    m = _HOTEL_SHIFT_NOTE_RE.search(text)
+    if m:
+        return ("hotel_shift", int(m.group(1)))
+    m = _POS_SHIFT_NOTE_RE.search(text)
+    if m:
+        return ("pos_shift", int(m.group(1)))
+    return None
+
+
 def _vault_shift_maps(
     db: Session, pairs: list[tuple[object, object]]
 ) -> dict[str, dict[int, int]]:
@@ -638,6 +662,7 @@ def _vault_shift_maps(
     hotel_pay_ids: set[int] = set()
     hotel_refund_ids: set[int] = set()
     purchase_pay_ids: set[int] = set()
+    transfer_ids: set[int] = set()
     for _ln, ent in pairs:
         st = (ent.source_type or "").strip()
         sid = ent.source_id
@@ -652,6 +677,8 @@ def _vault_shift_maps(
             hotel_refund_ids.add(sid_i)
         elif st == "purchase_payment":
             purchase_pay_ids.add(sid_i)
+        elif st == "payment_transfer":
+            transfer_ids.add(sid_i)
 
     out: dict[str, dict[int, int]] = {
         "sale_payment": {},
@@ -659,6 +686,8 @@ def _vault_shift_maps(
         "hotel_booking_payment_refund": {},
         "purchase_payment_pos": {},
         "purchase_payment_hotel": {},
+        "payment_transfer_pos": {},
+        "payment_transfer_hotel": {},
     }
     if sale_pay_ids:
         from sqlalchemy import column, table
@@ -724,6 +753,20 @@ def _vault_shift_maps(
                 out["purchase_payment_pos"][int(pp_id)] = int(pos_sid)
             elif hotel_sid is not None:
                 out["purchase_payment_hotel"][int(pp_id)] = int(hotel_sid)
+    if transfer_ids:
+        from modules.payments.models import PaymentTransfer
+
+        for tf in db.scalars(
+            select(PaymentTransfer).where(PaymentTransfer.id.in_(transfer_ids))
+        ).all():
+            linked = _shift_from_transfer_note(tf.note)
+            if linked is None:
+                continue
+            kind, shift_id = linked
+            if kind == "pos_shift":
+                out["payment_transfer_pos"][int(tf.id)] = shift_id
+            else:
+                out["payment_transfer_hotel"][int(tf.id)] = shift_id
     return out
 
 
@@ -754,61 +797,118 @@ def _vault_group_key(
             hs = shift_maps["purchase_payment_hotel"].get(sid_i)
             if hs:
                 return ("hotel_shift", hs)
+        elif st == "payment_transfer":
+            ps = shift_maps["payment_transfer_pos"].get(sid_i)
+            if ps:
+                return ("pos_shift", ps)
+            hs = shift_maps["payment_transfer_hotel"].get(sid_i)
+            if hs:
+                return ("hotel_shift", hs)
     return ("day", entry_date, st or "other")
+
+
+def _employee_display_name(db: Session, employee_id: int | None) -> str:
+    if not employee_id:
+        return ""
+    from modules.hr.models import Employee
+
+    emp = db.get(Employee, int(employee_id))
+    return ((emp.full_name_ar if emp else "") or "").strip()
+
+
+def _user_display_name(db: Session, user_id: int | None) -> str:
+    if not user_id:
+        return ""
+    from modules.authz.models import User
+
+    u = db.get(User, int(user_id))
+    return ((u.username if u else "") or "").strip()
+
+
+@dataclass
+class _VaultGroupLabel:
+    description: str
+    detail_url: str | None
+    session_no: str | None = None
+    employee_name: str | None = None
+    occurred_at: datetime | None = None
 
 
 def _vault_group_labels(
     db: Session, keys: list[tuple]
-) -> dict[tuple, tuple[str, str | None]]:
-    """وصف الصف المجمّع + رابط التفاصيل."""
+) -> dict[tuple, _VaultGroupLabel]:
+    """وصف الصف المجمّع + رقم الجلسة والموظف ووقت الجلسة."""
     pos_ids = {k[1] for k in keys if k[0] == "pos_shift"}
     hotel_ids = {k[1] for k in keys if k[0] == "hotel_shift"}
-    pos_labels: dict[int, str] = {}
-    hotel_labels: dict[int, str] = {}
+    pos_meta: dict[int, _VaultGroupLabel] = {}
+    hotel_meta: dict[int, _VaultGroupLabel] = {}
     if pos_ids:
-        from modules.authz.models import User
         from modules.pos_shifts.models import PosShift
 
-        for sid, uid in db.execute(
-            select(PosShift.id, PosShift.user_id).where(PosShift.id.in_(pos_ids))
-        ).all():
-            uname = ""
-            if uid is not None:
-                u = db.get(User, int(uid))
-                uname = (u.username if u else "") or ""
-            label = f"جلسة كاشير #{int(sid)}"
-            if uname:
-                label += f" — {uname}"
-            pos_labels[int(sid)] = label
+        for sh in db.scalars(select(PosShift).where(PosShift.id.in_(pos_ids))).all():
+            who = _employee_display_name(db, sh.employee_id) or _user_display_name(
+                db, sh.user_id
+            )
+            when = getattr(sh, "closed_at", None) or getattr(sh, "opened_at", None)
+            pos_meta[int(sh.id)] = _VaultGroupLabel(
+                description=f"جلسة كاشير #{int(sh.id)}",
+                detail_url=f"/reports/shifts/{int(sh.id)}",
+                session_no=f"#{int(sh.id)}",
+                employee_name=who or "—",
+                occurred_at=when,
+            )
     if hotel_ids:
         from modules.hotel.shift_models import HotelShift
 
         for hs in db.scalars(
             select(HotelShift).where(HotelShift.id.in_(hotel_ids))
         ).all():
-            name = (hs.shift_name_ar or "").strip() or f"#{hs.shift_number}"
-            hotel_labels[int(hs.id)] = f"جلسة فندق #{int(hs.id)} — {name}"
+            shift_name = (hs.shift_name_ar or "").strip() or f"وردية {hs.shift_number}"
+            who = _employee_display_name(db, hs.employee_id) or _user_display_name(
+                db, hs.user_id
+            )
+            when = getattr(hs, "closed_at", None) or getattr(hs, "opened_at", None)
+            hotel_meta[int(hs.id)] = _VaultGroupLabel(
+                description=f"{shift_name}",
+                detail_url=f"/admin/hotel/shift/{int(hs.id)}/report",
+                session_no=f"#{int(hs.id)}",
+                employee_name=who or "—",
+                occurred_at=when,
+            )
 
-    out: dict[tuple, tuple[str, str | None]] = {}
+    out: dict[tuple, _VaultGroupLabel] = {}
     for key in keys:
         kind = key[0]
         if kind == "pos_shift":
             sid = int(key[1])
-            out[key] = (
-                pos_labels.get(sid, f"جلسة كاشير #{sid}"),
-                f"/reports/shifts/{sid}",
+            out[key] = pos_meta.get(
+                sid,
+                _VaultGroupLabel(
+                    description=f"جلسة كاشير #{sid}",
+                    detail_url=f"/reports/shifts/{sid}",
+                    session_no=f"#{sid}",
+                    employee_name="—",
+                ),
             )
         elif kind == "hotel_shift":
             sid = int(key[1])
-            out[key] = (
-                hotel_labels.get(sid, f"جلسة فندق #{sid}"),
-                f"/admin/hotel/shift/{sid}/report",
+            out[key] = hotel_meta.get(
+                sid,
+                _VaultGroupLabel(
+                    description=f"جلسة فندق #{sid}",
+                    detail_url=f"/admin/hotel/shift/{sid}/report",
+                    session_no=f"#{sid}",
+                    employee_name="—",
+                ),
             )
         else:
             d = key[1]
             st = str(key[2])
             label = _DAY_SOURCE_LABELS.get(st, st or "حركات")
-            out[key] = (f"{label} — {d}", None)
+            out[key] = _VaultGroupLabel(
+                description=f"{label} — {d}",
+                detail_url=None,
+            )
     return out
 
 
@@ -850,7 +950,9 @@ def _aggregate_vault_ledger_rows(
         debit = debit.quantize(Decimal("0.001"))
         credit = credit.quantize(Decimal("0.001"))
         running = (running + debit - credit).quantize(Decimal("0.001"))
-        desc, detail = labels.get(key, ("حركة مجمّعة", None))
+        meta = labels.get(key) or _VaultGroupLabel(description="حركة مجمّعة", detail_url=None)
+        desc = meta.description
+        detail = meta.detail_url
         n = len(items)
         if n > 1:
             desc = f"{desc} · {n} حركة"
@@ -864,6 +966,9 @@ def _aggregate_vault_ledger_rows(
             else ("hotel_shift" if kind == "hotel_shift" else str(key[2]))
         )
         source_id = int(key[1]) if kind in ("pos_shift", "hotel_shift") else None
+        occurred = meta.occurred_at or getattr(last_ent, "created_at", None) or getattr(
+            first_ent, "created_at", None
+        )
         rows.append(
             AccountLedgerRow(
                 line_id=int(last_ln.id),
@@ -880,6 +985,9 @@ def _aggregate_vault_ledger_rows(
                 detail_url=detail,
                 is_aggregate=True,
                 item_count=n,
+                created_at=occurred,
+                session_no=meta.session_no,
+                employee_name=meta.employee_name,
             )
         )
     return rows
@@ -904,8 +1012,10 @@ def list_account_ledger(
         raise GLError("الحساب غير موجود.")
 
     children_map = build_children_map(db)
-    raw_balances = account_balances_map(db, domain=domain)
-    all_display = display_balances_map(db, raw_balances)
+    from modules.gl.vault_display import overlay_vault_wallet_balances
+
+    raw_balances = account_balances_map(db, domain=None)
+    all_display = overlay_vault_wallet_balances(db, raw_balances)
     display_bal = all_display.get(account_id, Decimal("0"))
     is_hdr = is_header_account(db, account_id, children_map)
 
@@ -989,6 +1099,7 @@ def list_account_ledger(
                     credit=c,
                     running_balance=running,
                     post_mode=ent.post_mode,
+                    created_at=getattr(ent, "created_at", None),
                 )
             )
         rows = list(reversed(chrono_page))
@@ -996,13 +1107,15 @@ def list_account_ledger(
     from modules.payments.service import method_current_balance
 
     linked: list[tuple[str, Decimal]] = []
+    ops_total = Decimal("0")
     for m in wallet_maps_for_account(db, account_id):
         pm = m.payment_method
         if pm is None:
             continue
-        linked.append(
-            (pm.name_ar, method_current_balance(db, int(pm.id)))
-        )
+        op_bal = method_current_balance(db, int(pm.id))
+        linked.append((pm.name_ar, op_bal))
+        ops_total += op_bal
+    ops_total = ops_total.quantize(Decimal("0.001")) if linked else None
 
     return AccountLedgerPage(
         account=acc,
@@ -1011,6 +1124,8 @@ def list_account_ledger(
         rows=rows,
         total_lines=total_lines,
         linked_wallets=linked,
+        wallet_ops_total=ops_total,
+        wallet_gl_diff=None,
         is_header=False,
         session_view=session_view,
     )
@@ -1085,17 +1200,18 @@ def update_account(
     if name_ar is not None:
         acc.name_ar = _normalize_name(name_ar)
     if code is not None:
-        if acc.is_system:
-            raise GLError("لا يمكن تغيير رمز حساب نظامي — غيّر الاسم فقط.")
         code_n = _normalize_code(code)
-        taken = db.scalar(
-            select(GlAccount.id).where(
-                GlAccount.code == code_n, GlAccount.id != account_id
+        if code_n != (acc.code or "").strip():
+            if acc.is_system:
+                raise GLError("لا يمكن تغيير رمز حساب نظامي — غيّر الاسم فقط.")
+            taken = db.scalar(
+                select(GlAccount.id).where(
+                    GlAccount.code == code_n, GlAccount.id != account_id
+                )
             )
-        )
-        if taken:
-            raise GLError("رمز الحساب مستخدم مسبقاً.")
-        acc.code = code_n
+            if taken:
+                raise GLError("رمز الحساب مستخدم مسبقاً.")
+            acc.code = code_n
     if notes is not None:
         acc.notes = notes.strip() or None
     if is_active is not None:

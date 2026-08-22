@@ -9,8 +9,10 @@ from modules.notifications.events import (
     HOTEL_BALANCE_CLAIM,
     HOTEL_BOOKING_CONFIRMED,
     HOTEL_BOOKING_CREATED,
+    HOTEL_CHECK_IN_WELCOME,
     HOTEL_ONLINE_BOOKING_REQUEST,
     HOTEL_CHECKOUT_REMINDER,
+    HOTEL_LATE_CHECKOUT_CHARGED,
     HOTEL_NIGHT_PAYMENT_DUE,
     HOTEL_PAYMENT_RECEIVED,
     HOTEL_ROOM_CLEANING,
@@ -52,6 +54,12 @@ from modules.notifications.events import (
     POS_SHIFT_OPENED,
     POS_CASH_OVERAGE,
     TREASURY_BALANCE_UPDATE,
+    TREASURY_HANDOFF_PENDING,
+    TREASURY_HANDOFF_APPROVED,
+    SHIFT_HANDOVER_SENT,
+    SHIFT_HANDOVER_CONFIRMED,
+    SHIFT_VARIANCE_OPENED,
+    SHIFT_BANK_TRANSFER_DECLARED,
     TREASURY_MOVEMENT,
     TREASURY_SHIFT_CLOSED,
     REFERRAL_FIRST_ORDER,
@@ -268,6 +276,24 @@ HOTEL_BOOKING_CONFIRMED_BODY = (
     "\n"
     "نشكر ثقتكم باختيار *{store_name}*، ونسعد بخدمتكم دائماً، "
     "ونتمنى لكم إقامة مريحة وسعيدة."
+)
+
+
+HOTEL_CHECK_IN_WELCOME_TITLE = "رسالة ترحيب بعد التسكين"
+
+HOTEL_CHECK_IN_WELCOME_BODY = (
+    "مرحباً {guest_name} 👋\n"
+    "\n"
+    "يرحّب بك *{store_name}* ويتمنى لك إقامة سعيدة في الشقة *{room_name}*.\n"
+    "\n"
+    "يمكنك الاستفادة من خدمات الفندق أثناء إقامتك:\n"
+    "• مطعم ومقهى في الدور السابع\n"
+    "• خدمة مغسلة\n"
+    "\n"
+    "للاستفسار أو أي طلب، تواصل مع الاستقبال على الرقم:\n"
+    "*{reception_phone}*\n"
+    "\n"
+    "نتمنى لك إقامة ممتعة 🌿"
 )
 
 
@@ -660,6 +686,78 @@ def _seed_treasury(db: Session) -> None:
             throttle_minutes=0,
         )
 
+    handoff_body = (
+        "⚠️ *جلسة {shift_kind_ar} بانتظار اعتماد الخزينة*\n\n"
+        "النوع: {shift_kind_ar}\n"
+        "رقم الجلسة: #{shift_id}\n"
+        "الموظف: {employee_name}\n"
+        "أُغلقت: {closed_at}\n"
+        "كاش معدود: {counted_cash} د.ل\n"
+        "مصرف معدود: {counted_bank} د.ل\n"
+        "جلسات معلّقة للاعتماد: {pending_count}\n\n"
+        "يُرجى اعتماد إيراد الجلسة من شاشة الخزينة حتى لا تتراكم الجلسات دون إقفال."
+    )
+    handoff_admin = _upsert_template(
+        db,
+        name="جلسة بانتظار اعتماد الخزينة — إدارة",
+        event_key=TREASURY_HANDOFF_PENDING,
+        recipient_type="admin",
+        body=handoff_body,
+    )
+    handoff_clerk = _upsert_template(
+        db,
+        name="جلسة بانتظار اعتماد الخزينة — أمين خزينة",
+        event_key=TREASURY_HANDOFF_PENDING,
+        recipient_type="treasury_clerk",
+        body=handoff_body,
+    )
+    _upsert_rule(
+        db,
+        event_key=TREASURY_HANDOFF_PENDING,
+        recipient_type="admin",
+        template_id=handoff_admin.id,
+        throttle_minutes=60,
+    )
+    _upsert_rule(
+        db,
+        event_key=TREASURY_HANDOFF_PENDING,
+        recipient_type="treasury_clerk",
+        template_id=handoff_clerk.id,
+        throttle_minutes=60,
+    )
+
+    def _pair(event_key, name, body):
+        tpl_a = _upsert_template(db, name=name + " — إدارة", event_key=event_key, recipient_type="admin", body=body)
+        tpl_t = _upsert_template(db, name=name + " — خزينة", event_key=event_key, recipient_type="treasury_clerk", body=body)
+        _upsert_rule(db, event_key=event_key, recipient_type="admin", template_id=tpl_a.id, throttle_minutes=0)
+        _upsert_rule(db, event_key=event_key, recipient_type="treasury_clerk", template_id=tpl_t.id, throttle_minutes=0)
+
+    _pair(
+        SHIFT_HANDOVER_SENT,
+        "تسليم عهدة",
+        "🔄 *{from_name}* سلّم عهدة *{ref}*\nإلى: {to_name}\nكاش: {claimed_cash} د.ل · مصرف: {claimed_bank} د.ل\nبانتظار تأكيد الاستلام.",
+    )
+    _pair(
+        SHIFT_HANDOVER_CONFIRMED,
+        "تأكيد استلام عهدة",
+        "✅ {to_name} أكد استلام *{ref}*\nالمسلَّم: كاش {claimed_cash} / مصرف {claimed_bank}\nالمستلم: كاش {received_cash} / مصرف {received_bank}",
+    )
+    _pair(
+        SHIFT_VARIANCE_OPENED,
+        "فرق عهدة",
+        "🚨 *فرق تسليم {ref}*\nمن {from_name} إلى {to_name}\nفرق كاش: {diff_cash} · فرق مصرف: {diff_bank}\nراجع شاشة العجوزات والزيادات.",
+    )
+    _pair(
+        SHIFT_BANK_TRANSFER_DECLARED,
+        "تحويل مصرفي معلن",
+        "🏦 تحويل مصرفي بانتظار الاعتماد\n{ref}\nالموظف: {from_name}\nالمبلغ: {claimed_bank} د.ل\nالمصرف: {bank_name}\nرقم العملية: {bank_ref}",
+    )
+    _pair(
+        TREASURY_HANDOFF_APPROVED,
+        "اعتماد خزينة",
+        "✅ أمين الخزينة اعتمد جلسة #{shift_id}\nكاش: {claimed_cash} · مصرف: {claimed_bank}",
+    )
+
 
 def _seed_hotel(db: Session) -> None:
     templates = [
@@ -686,11 +784,32 @@ def _seed_hotel(db: Session) -> None:
             "",
         ),
         (
+            HOTEL_CHECK_IN_WELCOME_TITLE,
+            HOTEL_CHECK_IN_WELCOME,
+            HOTEL_CHECK_IN_WELCOME_BODY,
+            "text",
+            "",
+        ),
+        (
             "تذكير مغادرة الفندق",
             HOTEL_CHECKOUT_REMINDER,
-            "تذكير لطيف يا {guest_name}: موعد مغادرتك {check_out_date}.\n"
-            "المتبقي على الحساب: {balance_due} د.ل\n"
-            "يرجى مراجعة الاستقبال قبل المغادرة.",
+            "تذكير لطيف يا {guest_name}: موعد مغادرتك {check_out_date}"
+            "{checkout_time_line}.\n"
+            "يرجى المغادرة أو طلب التمديد من الاستقبال قبل انتهاء فترة السماح"
+            " (حتى الساعة {grace_deadline}).\n"
+            "بعدها يُحتسب النظام ليلة إضافية تلقائياً.\n"
+            "المتبقي على الحساب: {balance_due} د.ل",
+            "interactive",
+            '[{"text":"عرض الحساب","id":"hotel_booking_view:{booking_id}"}]',
+        ),
+        (
+            "احتساب ليلة متأخرة تلقائياً",
+            HOTEL_LATE_CHECKOUT_CHARGED,
+            "تنبيه يا {guest_name}: بسبب عدم المغادرة/التمديد بعد موعد المغادرة "
+            "تم تمديد حجزك #{booking_reference} ليلة واحدة تلقائياً.\n"
+            "الموعد الجديد للمغادرة: {new_check_out}\n"
+            "إجمالي الحساب: {booking_total} د.ل — المتبقي: {balance_due} د.ل\n"
+            "راجع الاستقبال للتسوية أو التمديد.",
             "interactive",
             '[{"text":"عرض الحساب","id":"hotel_booking_view:{booking_id}"}]',
         ),
@@ -706,7 +825,7 @@ def _seed_hotel(db: Session) -> None:
         (
             "مطالبة رصيد حجز فندقي",
             HOTEL_BALANCE_CLAIM,
-            "مطالبة سداد يا {guest_name} — حجز #{booking_reference}.\n"
+            "{claim_headline}.\n"
             "{claim_note_line}"
             "المتبقي المستحق: {balance_due} د.ل\n"
             "يرجى السداد لدى الاستقبال. عند السداد تتوقف رسائل المطالبة تلقائياً.",
@@ -716,7 +835,7 @@ def _seed_hotel(db: Session) -> None:
         (
             "خدمة فندقية غير مدفوعة",
             HOTEL_UNPAID_SERVICE_ADDED,
-            "تمت إضافة خدمة على حساب إقامتك يا {guest_name}:\n"
+            "{service_added_headline}\n"
             "{service_name} — {service_amount} د.ل\n"
             "المتبقي الحالي: {balance_due} د.ل",
             "interactive",
@@ -744,9 +863,36 @@ def _seed_hotel(db: Session) -> None:
                 tpl.body_template = HOTEL_BOOKING_CONFIRMED_BODY
             tpl.message_type = "text"
             tpl.buttons_json = ""
+        elif event_key == HOTEL_CHECK_IN_WELCOME:
+            if not (tpl.title or "").strip():
+                tpl.title = HOTEL_CHECK_IN_WELCOME_TITLE
+            if _body_needs_default(tpl.body_template):
+                tpl.body_template = HOTEL_CHECK_IN_WELCOME_BODY
+            tpl.message_type = "text"
+            tpl.buttons_json = ""
         elif event_key == HOTEL_CHECKOUT_REMINDER:
-            if "موعد مغادرتك اليوم" in (tpl.body_template or ""):
+            if (
+                "موعد مغادرتك اليوم" in (tpl.body_template or "")
+                or "فترة السماح" not in (tpl.body_template or "")
+            ):
                 tpl.body_template = body
+            if buttons and not (tpl.buttons_json or "").strip():
+                tpl.buttons_json = buttons
+        elif event_key == HOTEL_LATE_CHECKOUT_CHARGED:
+            tpl.body_template = body
+            tpl.message_type = msg_type
+            if buttons:
+                tpl.buttons_json = buttons
+        elif event_key == HOTEL_BALANCE_CLAIM:
+            if "{claim_headline}" not in (tpl.body_template or ""):
+                tpl.body_template = body
+            if buttons and not (tpl.buttons_json or "").strip():
+                tpl.buttons_json = buttons
+        elif event_key == HOTEL_UNPAID_SERVICE_ADDED:
+            if "{service_added_headline}" not in (tpl.body_template or ""):
+                tpl.body_template = body
+            if buttons and not (tpl.buttons_json or "").strip():
+                tpl.buttons_json = buttons
         elif event_key == HOTEL_PAYMENT_RECEIVED:
             if not _is_hotel_payment_template_current(tpl.body_template):
                 tpl.body_template = HOTEL_PAYMENT_RECEIVED_BODY

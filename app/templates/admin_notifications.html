@@ -78,6 +78,9 @@
   <label>هواتف المشرف (احتياطي)
     <input type="text" name="notification_supervisor_phones" value="{{ supervisor_phones or '' }}" placeholder="091…" style="width:100%;max-width:28rem" />
   </label>
+  <label>هواتف أمين الخزينة (جلسات بانتظار الاعتماد)
+    <input type="text" name="notification_treasury_phones" value="{{ treasury_phones or '' }}" placeholder="091…" style="width:100%;max-width:28rem" />
+  </label>
   <p class="muted" style="font-size:0.85rem"><a href="/admin/notifications/routes">مسارات التوجيه</a> تتجاوز هذه الأرقام عند التطابق.</p>
   <button type="submit" class="btn btn-primary">حفظ</button>
 </form>
@@ -97,6 +100,7 @@
         <option value="loyalty.points_redeemed">loyalty.points_redeemed</option>
         <option value="customer.created">customer.created</option>
         <option value="pos.shift_closed">pos.shift_closed</option>
+        <option value="treasury.handoff_pending">treasury.handoff_pending</option>
         <option value="pos.cash_shortage">pos.cash_shortage</option>
         <option value="pos.item_void_requested">pos.item_void_requested</option>
         <option value="inventory.low_stock">inventory.low_stock</option>

@@ -156,11 +156,18 @@ def call_local_encoder(payload: dict[str, Any], *, timeout: float = 25.0) -> dic
 
 def lock_ui_context(db: Session, booking: HotelBooking | None = None) -> dict[str, Any]:
     enabled = lock_encoder_enabled(db)
-    room = booking.room if booking else None
+    room = None
+    lock_no = ""
+    try:
+        room = booking.room if booking else None
+        lock_no = ((getattr(room, "lock_no", None) or "") if room else "").strip()
+    except Exception:  # noqa: BLE001
+        room = None
+        lock_no = ""
     return {
         "lock_encoder_enabled": enabled,
         "lock_encoder_url": encoder_base_url(db),
         "lock_co_id": get_setting(db, "hotel_lock_co_id", "") or "",
-        "lock_room_ready": bool(room and (room.lock_no or "").strip()),
-        "lock_no": (room.lock_no if room else None) or "",
+        "lock_room_ready": bool(lock_no),
+        "lock_no": lock_no,
     }

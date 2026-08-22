@@ -1,0 +1,279 @@
+AI SEO Center Specification
+
+Restaurant & Hotel Management Platform
+
+Project Objective
+
+Build a complete AI SEO Center inside the existing Restaurant & Hotel Management Platform.
+
+The platform already exists and is fully functional.
+
+Do NOT modify existing business logic.
+
+The SEO Center must be developed as a completely independent module that integrates with the existing platform through services and APIs.
+
+The module should support:
+
+- Restaurant Website
+- Restaurant Online Store
+- Hotel Website
+- Hotel Booking Website
+- Product Pages
+- Room Pages
+- Categories
+- Blog
+- Landing Pages
+- Dynamic Pages
+
+---
+
+Architecture
+
+Use a modular architecture.
+
+Backend
+
+- FastAPI
+- PostgreSQL
+- Redis
+- n8n
+- OpenAI API
+- Qdrant Vector Database
+- Background Workers
+- REST API
+
+Frontend
+
+- Integrate with existing Admin Dashboard
+- Responsive UI
+- Dark Mode
+- Charts
+- Real-time Notifications
+
+---
+
+AI Architecture
+
+The system must use three independent AI Agents.
+
+Each agent must have:
+
+- Independent Service
+- Memory
+- Logs
+- Scheduler
+- Background Tasks
+- API
+- Queue
+- Permission System
+
+Agents communicate through n8n workflows and share data using PostgreSQL and Qdrant.
+
+---
+
+Agent 1
+
+Technical SEO Agent
+
+Responsibilities
+
+- Crawl the entire website
+- Detect missing Title tags
+- Detect missing Meta Descriptions
+- Detect duplicate Titles
+- Detect duplicate Meta Descriptions
+- Detect missing H1
+- Detect incorrect heading hierarchy
+- Detect missing ALT attributes
+- Detect broken links
+- Detect redirect chains
+- Detect orphan pages
+- Detect canonical issues
+- Detect robots.txt issues
+- Detect sitemap issues
+- Detect pages blocked from indexing
+- Detect page speed issues
+- Detect Core Web Vitals issues
+- Detect mobile usability issues
+- Detect missing Open Graph tags
+- Detect missing Twitter Cards
+- Detect missing Structured Data
+- Generate technical SEO reports
+- Generate automatic technical fixes
+
+---
+
+Agent 2
+
+Content SEO Agent
+
+Responsibilities
+
+Analyze every public page.
+
+Generate
+
+- SEO Score
+- Content Quality Score
+- Readability Score
+- Keyword Suggestions
+- Semantic Keywords
+- Long-tail Keywords
+- Meta Title Suggestions
+- Meta Description Suggestions
+- H1 Suggestions
+- H2 Suggestions
+- FAQ Sections
+- Internal Linking Suggestions
+- External Link Suggestions
+- Content Expansion
+- Content Rewriting
+- Image ALT Text
+- Image Captions
+- Schema Markup
+
+Generate SEO content for
+
+Restaurant
+
+- Menu Items
+- Categories
+- Products
+- Promotions
+- Blog Articles
+
+Hotel
+
+- Rooms
+- Facilities
+- Tourism Guides
+- Hotel Services
+- Packages
+
+Store
+
+- Product Descriptions
+- Category Descriptions
+
+Support multilingual content.
+
+Arabic
+
+English
+
+---
+
+Agent 3
+
+SEO Strategy Agent
+
+Responsibilities
+
+Connect with
+
+- Google Search Console
+- Google Analytics
+- Bing Webmaster Tools
+
+Analyze
+
+- Clicks
+- Impressions
+- CTR
+- Average Position
+- Top Queries
+- Top Landing Pages
+- Lost Rankings
+- Rising Rankings
+- Declining Pages
+- Organic Traffic
+- Conversion Rate
+
+Analyze competitors.
+
+Find
+
+- Keyword Opportunities
+- Content Gaps
+- Internal Linking Opportunities
+- Rich Snippet Opportunities
+- Featured Snippet Opportunities
+
+Generate
+
+- Daily Reports
+- Weekly Reports
+- Monthly Reports
+- SEO Growth Plans
+- Priority Task Lists
+
+---
+
+Website Scanner
+
+Create a crawler that scans every public page automatically.
+
+Collect
+
+- URL
+- Status Code
+- Canonical
+- Title
+- Description
+- Headings
+- Images
+- ALT Tags
+- Internal Links
+- External Links
+- Word Count
+- Schema
+- Open Graph
+- Twitter Cards
+- Page Speed
+- Mobile Compatibility
+- Index Status
+- Robots Status
+
+Store scan history for comparison.
+
+---
+
+Automatic SEO Fixes
+
+Allow administrators to
+
+- Review fixes
+- Approve fixes
+- Reject fixes
+- Apply one fix
+- Apply all fixes
+- Schedule fixes
+- Rollback changes
+
+---
+
+Schema Generator
+
+Automatically generate
+
+- Restaurant Schema
+- Hotel Schema
+- Product Schema
+- FAQ Schema
+- Breadcrumb Schema
+- Organization Schema
+- Local Business Schema
+- Review Schema
+
+---
+
+Sitemap Manager
+
+Automatically
+
+- Generate XML Sitemap
+- Update Sitemap
+- Image Sitemap
+- Blog Sitemap
+- Product Sitemap
+-

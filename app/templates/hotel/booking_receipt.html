@@ -36,21 +36,107 @@
         padding: 0.35rem 0.5rem; border-radius: 8px;
         transform: rotate(-6deg);
       }
+      .rcp-amount-hero {
+        margin: 0.65rem 0 0.25rem;
+        padding: 0.65rem 0.75rem;
+        border-radius: 10px;
+        background: #ecfdf5;
+        border: 1px solid #86efac;
+        text-align: center;
+      }
+      .rcp-amount-hero__label {
+        margin: 0; font-size: 0.85rem; color: #166534; font-weight: 700;
+      }
+      .rcp-amount-hero__value {
+        margin: 0.2rem 0 0; font-size: 1.45rem; font-weight: 900; color: #047857;
+      }
+      .folio-reprint-link {
+        color: #1d4ed8; font-weight: 700; text-decoration: underline;
+      }
+      .folio-reprint-link:hover { color: #1e40af; }
+      .rcp-party-grid {
+        display: grid;
+        gap: 0.55rem;
+        margin-top: 0.35rem;
+      }
+      .rcp-party-block {
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 0.45rem 0.55rem;
+        background: #f8fafc;
+      }
+      .rcp-party-block--payer {
+        border-color: #99f6e4;
+        background: #f0fdfa;
+      }
+      .rcp-party-block__title {
+        margin: 0 0 0.25rem;
+        font-size: 0.78rem;
+        font-weight: 800;
+        color: #64748b;
+      }
+      .rcp-party-block__name {
+        margin: 0;
+        font-size: 0.98rem;
+        font-weight: 900;
+        color: #0f172a;
+      }
+      .rcp-party-block__meta {
+        margin: 0.12rem 0 0;
+        font-size: 0.85rem;
+        color: #334155;
+      }
+      .rcp-stay-bar {
+        margin-top: 0.55rem;
+        padding: 0.45rem 0.55rem;
+        border-radius: 8px;
+        border: 1px solid #fed7aa;
+        background: #fffbeb;
+        font-size: 0.88rem;
+        line-height: 1.55;
+      }
+      .rcp-stay-bar strong { color: #9a3412; }
+      .rcp-room-big {
+        font-size: 1.15rem;
+        font-weight: 900;
+        color: #0f766e;
+        letter-spacing: 0.03em;
+      }
+      .rcp-folio-group-title {
+        margin: 0.55rem 0 0.25rem;
+        font-size: 0.82rem;
+        font-weight: 800;
+        color: #475569;
+      }
+      @media print {
+        .folio-reprint-link { color: inherit !important; text-decoration: none !important; }
+        .rcp-party-block { background: #fff !important; }
+        .rcp-party-block--payer { background: #fff !important; }
+        .rcp-stay-bar { background: #fff !important; }
+      }
     </style>
   </head>
   <body class="paper-{{ paper }}">
+    {% set is_receipt = (doc_kind|default('')) in ('receipt', 'RECEIPT') %}
+    {% set ip = invoice_party|default(none) %}
     <div class="receipt-page paper-{{ paper }}">
       {% include "_receipt_print_actions.html" %}
       <div class="receipt-actions no-print" style="margin-top:0.35rem;flex-wrap:wrap;align-items:center;gap:0.5rem">
         <a class="btn" href="/admin/hotel/bookings/{{ booking.id }}">← الحجز</a>
+        {% if is_receipt %}
+        <a class="btn" href="/admin/hotel/bookings/{{ booking.id }}/receipt?doc=receipt{% if focus_payment %}&payment_id={{ focus_payment.id }}{% endif %}">طباعة إيصال القبض</a>
+        {% else %}
         <a class="btn" href="/admin/hotel/bookings/{{ booking.id }}/receipt?doc=receipt{% if focus_payment %}&payment_id={{ focus_payment.id }}{% endif %}">إيصال قبض</a>
+        {% endif %}
         {% set _bst = booking.booking_status.value if booking.booking_status is defined and booking.booking_status and booking.booking_status.value is defined else booking.booking_status %}
         {% if _bst == 'CHECKED_OUT' %}
         <a class="btn" href="/admin/hotel/bookings/{{ booking.id }}/receipt?doc=invoice">فاتورة نهائية</a>
         {% else %}
         <span class="muted" style="font-size:0.82rem">الفاتورة النهائية متاحة بعد تسجيل المغادرة</span>
         {% endif %}
+        {% if not is_receipt %}
         <span class="muted no-print" style="font-size:0.8rem">انقر رقم فاتورة المطعم/المغسلة لإعادة طباعتها</span>
+        {% endif %}
         {% if can_choose_paper|default(true) %}
         {% set form_action = print_form_action %}
         {% set preserve_params = print_preserve_params|default({}) %}
@@ -59,15 +145,6 @@
         <span class="muted no-print" style="margin-inline-start:auto">المقاس: {{ paper }}</span>
         {% endif %}
       </div>
-      <style>
-        .folio-reprint-link {
-          color: #1d4ed8; font-weight: 700; text-decoration: underline;
-        }
-        .folio-reprint-link:hover { color: #1e40af; }
-        @media print {
-          .folio-reprint-link { color: inherit !important; text-decoration: none !important; }
-        }
-      </style>
 
       <div id="receipt-capture-root" class="receipt-capture-root">
         <header class="receipt-header">
@@ -80,33 +157,160 @@
           <p style="margin:0.25rem 0 0;font-size:1.05rem;font-weight:700">{{ doc_title|default('فاتورة حجز') }}</p>
           <p style="margin:0.15rem 0 0;font-size:0.9rem;font-weight:700;color:#1d4ed8">رقم المستند: {{ doc_number|default(booking.reference) }}</p>
           <p style="margin:0.15rem 0 0;font-size:0.85rem">مرجع الحجز: {{ booking.reference }} — {{ pos_format_dt(booking.created_at, '%Y-%m-%d %H:%M') if booking.created_at else '' }}</p>
-          {% if focus_payment %}
-          <p style="margin:0.35rem 0 0;font-size:0.92rem;font-weight:700;color:#047857">
-            مبلغ مستلم: {{ '%.3f'|format(focus_payment.amount) }} د.ل
-            {% if focus_payment.is_deposit %} (عربون){% endif %}
-          </p>
-          {% endif %}
-          {% if booking.room %}
-          <p style="margin:0.15rem 0 0;font-size:0.95rem;font-weight:700;color:#b45309">الشقة: #{{ booking.room.number }}</p>
+          {% if ip and ip.room_label and ip.room_label != '—' %}
+          <p class="rcp-room-big" style="margin:0.35rem 0 0">الشقة: #{{ ip.room_label }}{% if ip.room_type %} <span style="font-size:0.82rem;font-weight:600;color:#64748b">({{ ip.room_type }})</span>{% endif %}</p>
+          {% elif booking.room %}
+          <p class="rcp-room-big" style="margin:0.35rem 0 0">الشقة: #{{ booking.room.number }}</p>
           {% elif booking.room_type %}
           <p style="margin:0.15rem 0 0;font-size:0.88rem">نوع الشقة: {{ booking.room_type.name_ar }}</p>
           {% endif %}
         </header>
 
         <section class="receipt-section">
+          {% if not is_receipt %}
+          <h2 class="receipt-section-title">بيانات الجهة والنزيل</h2>
+          <div class="rcp-party-grid">
+            {# 1) الجهة التي دفعت / تُصدر الفاتورة إليها #}
+            <div class="rcp-party-block rcp-party-block--payer">
+              <p class="rcp-party-block__title">{{ ip.payer_label if ip else 'الجهة الدافعة' }} — تُصدر الفاتورة إليها</p>
+              <p class="rcp-party-block__name">{{ ip.payer_name if ip else (booking.display_name or booking.guest_name or '—') }}</p>
+              {% if ip and ip.payer_contact_name and ip.payer_contact_name != ip.payer_name %}
+              <p class="rcp-party-block__meta">مسؤول الحجز: {{ ip.payer_contact_name }}</p>
+              {% endif %}
+              {% if ip and ip.payer_phone %}
+              <p class="rcp-party-block__meta">📞 هاتف الجهة الدافعة: <span dir="ltr">{{ ip.payer_phone }}</span></p>
+              {% elif guest_phone %}
+              <p class="rcp-party-block__meta">📞 <span dir="ltr">{{ guest_phone }}</span></p>
+              {% else %}
+              <p class="rcp-party-block__meta muted">📞 هاتف الجهة: —</p>
+              {% endif %}
+            </div>
+            {# 2) جهة الحجز (شركة) إن اختلفت أو وجدت — هاتف الجهة الحاجّة #}
+            {% if ip and ip.show_entity_block and ip.entity_name and (ip.entity_name != ip.payer_name or (ip.entity_phone and ip.entity_phone != ip.payer_phone)) %}
+            <div class="rcp-party-block">
+              <p class="rcp-party-block__title">الجهة الحاجّة (شركة / جهة الحجز)</p>
+              <p class="rcp-party-block__name">{{ ip.entity_name }}</p>
+              {% if ip.entity_phone %}
+              <p class="rcp-party-block__meta">📞 هاتف الجهة الحاجّة: <span dir="ltr">{{ ip.entity_phone }}</span></p>
+              {% else %}
+              <p class="rcp-party-block__meta muted">📞 هاتف الجهة الحاجّة: —</p>
+              {% endif %}
+            </div>
+            {% elif ip and ip.show_entity_block and ip.entity_phone and not ip.payer_phone %}
+            <div class="rcp-party-block">
+              <p class="rcp-party-block__title">هاتف الجهة الحاجّة</p>
+              <p class="rcp-party-block__meta">📞 <span dir="ltr">{{ ip.entity_phone }}</span></p>
+            </div>
+            {% endif %}
+            {# 3) النزيل المقيم في الغرفة — دائماً في الفاتورة النهائية (إلا فرد هو نفسه الدافع) #}
+            {% if not ip or not ip.payer_is_resident or (ip and ip.show_entity_block) %}
+            <div class="rcp-party-block">
+              <p class="rcp-party-block__title">النزيل المقيم في الغرفة</p>
+              <p class="rcp-party-block__name">{{ ip.resident_name if ip else (booking.guest_name or '—') }}</p>
+              {% if ip and ip.resident_phone %}
+              <p class="rcp-party-block__meta">📞 هاتف النزيل: <span dir="ltr">{{ ip.resident_phone }}</span></p>
+              {% elif guest_phone and (not ip or not ip.payer_phone or guest_phone != ip.payer_phone) %}
+              <p class="rcp-party-block__meta">📞 هاتف النزيل: <span dir="ltr">{{ guest_phone }}</span></p>
+              {% else %}
+              <p class="rcp-party-block__meta muted">📞 هاتف النزيل: —</p>
+              {% endif %}
+            </div>
+            {% endif %}
+          </div>
+          <div class="rcp-stay-bar">
+            <strong>مدة الإقامة:</strong>
+            من {{ ip.check_in if ip and ip.check_in else booking.check_in }}
+            إلى {{ ip.check_out if ip and ip.check_out else booking.check_out }}
+            · <strong>{{ (ip.nights if ip and ip.nights is not none else nights)|default(0) }} ليلة</strong>
+            {% if ip and ip.room_label and ip.room_label != '—' %}
+            · الشقة <span class="rcp-room-big" style="font-size:1rem">#{{ ip.room_label }}</span>
+            {% elif booking.room %}
+            · الشقة <span class="rcp-room-big" style="font-size:1rem">#{{ booking.room.number }}</span>
+            {% endif %}
+          </div>
+          {% else %}
           <h2 class="receipt-section-title">بيانات النزيل</h2>
-          <p style="margin:0.2rem 0;font-size:0.88rem"><strong>{{ booking.guest_name }}</strong></p>
-          {% if guest_phone %}
+          <p style="margin:0.2rem 0;font-size:0.88rem"><strong>{{ ip.resident_name if ip else booking.guest_name }}</strong></p>
+          {% if ip and ip.resident_phone %}
+          <p class="receipt-delivery-line" style="margin:0.15rem 0">📞 {{ ip.resident_phone }}</p>
+          {% elif guest_phone %}
           <p class="receipt-delivery-line" style="margin:0.15rem 0">📞 {{ guest_phone }}</p>
           {% endif %}
           <p style="margin:0.25rem 0 0;font-size:0.85rem">
             من {{ booking.check_in }} إلى {{ booking.check_out }}
             {% if nights %} · {{ nights }} ليلة{% endif %}
           </p>
+          {% endif %}
         </section>
 
+        {% if is_receipt %}
+        {# ——— إيصال قبض: بيانات عملية القبض فقط (بدون مستحق / رصيد / إجماليات) ——— #}
+        {% if focus_payment %}
+        <div class="rcp-amount-hero">
+          <p class="rcp-amount-hero__label">المبلغ المستلم{% if focus_payment.is_deposit %} (عربون){% endif %}</p>
+          <p class="rcp-amount-hero__value">{{ '%.3f'|format(focus_payment.amount) }} د.ل</p>
+        </div>
+        <section class="receipt-section">
+          <table class="receipt-table">
+            <tr>
+              <th>تاريخ الاستلام</th>
+              <td>{{ pos_format_dt(focus_payment.created_at, '%Y-%m-%d %H:%M') if focus_payment.created_at else '—' }}</td>
+            </tr>
+            {% if payment_method_name %}
+            <tr>
+              <th>وسيلة الدفع</th>
+              <td>{{ payment_method_name }}</td>
+            </tr>
+            {% endif %}
+            {% if focus_payment.note %}
+            <tr>
+              <th>ملاحظة</th>
+              <td>{{ focus_payment.note }}</td>
+            </tr>
+            {% endif %}
+          </table>
+        </section>
+        {% else %}
+        <p class="muted" style="margin:0.5rem 0;font-size:0.88rem;text-align:center">اختر دفعة معيّنة لطباعة إيصال القبض.</p>
+        {% endif %}
+
+        <p class="muted" style="margin:0.75rem 0 0;font-size:0.78rem;text-align:center;line-height:1.45">
+          إيصال قبض بالمبلغ المستلم فقط — لا يشمل المستحق أو الرصيد. تفاصيل الحساب في الفاتورة النهائية بعد المغادرة.
+        </p>
+        <p class="receipt-thanks">شكراً لاختياركم {{ hotel_brand.hotel_name or store_name }}</p>
+
+        {% else %}
+        {# ——— فاتورة نهائية: كل التفاصيل ——— #}
         <section class="receipt-section">
           <h2 class="receipt-section-title">تفاصيل الحساب</h2>
+          {% set groups = invoice_line_groups|default([]) %}
+          {% if groups %}
+            {% for gtitle, glines in groups %}
+            <p class="rcp-folio-group-title">{{ gtitle }}</p>
+            <table class="receipt-table">
+              <thead>
+                <tr>
+                  <th>البند</th>
+                  <th class="num">المبلغ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for line in glines %}
+                <tr>
+                  <td>
+                    {% if line.sale_id %}
+                    <a class="folio-reprint-link" href="/pos/receipt/{{ line.sale_id }}?doc=invoice&back=/admin/hotel/bookings/{{ booking.id }}" target="_blank" rel="noopener" title="إعادة طباعة هذه الفاتورة">{{ line.description }}</a>
+                    {% else %}
+                    {{ line.description }}
+                    {% endif %}
+                  </td>
+                  <td class="num">{{ pos_money(line.amount) }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% endfor %}
+          {% else %}
           <table class="receipt-table">
             <thead>
               <tr>
@@ -120,7 +324,7 @@
               <tr>
                 <td>
                   {% if line.sale_id %}
-                  <a class="folio-reprint-link" href="/pos/receipt/{{ line.sale_id }}?doc=invoice" target="_blank" rel="noopener" title="إعادة طباعة هذه الفاتورة">{{ line.description }}</a>
+                  <a class="folio-reprint-link" href="/pos/receipt/{{ line.sale_id }}?doc=invoice&back=/admin/hotel/bookings/{{ booking.id }}" target="_blank" rel="noopener" title="إعادة طباعة هذه الفاتورة">{{ line.description }}</a>
                   {% else %}
                   {{ line.description }}
                   {% endif %}
@@ -131,6 +335,7 @@
               {% endfor %}
             </tbody>
           </table>
+          {% endif %}
         </section>
 
         <hr class="receipt-divider" />
@@ -178,6 +383,7 @@
         <div class="receipt-paid-stamp" aria-label="خالص">خالص</div>
         {% endif %}
         <p class="receipt-thanks">شكراً لاختياركم {{ hotel_brand.hotel_name or store_name }}</p>
+        {% endif %}
       </div>
     </div>
   </body>

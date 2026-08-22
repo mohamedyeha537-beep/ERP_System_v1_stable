@@ -3,7 +3,13 @@
 {% block title %}ذمم الزبائن{% endblock %}
 {% block body %}
 <h1>ذمم الزبائن</h1>
-<p class="muted" style="margin-top:-0.35rem">ديون غير مسدّدة أو مسدّدة جزئياً — انقر على الدين لاختيار تسديد كامل أو جزئي.</p>
+<p class="muted" style="margin-top:-0.35rem">
+  {% if restaurant_hotel_invoices_only|default(false) %}
+  فواتير المطعم التي طُلب سدادها من الفندق فقط — لا تظهر مبيعات الطاولات أو الطلبات الخارجية.
+  {% else %}
+  ديون غير مسدّدة أو مسدّدة جزئياً — انقر على الدين لاختيار تسديد كامل أو جزئي.
+  {% endif %}
+</p>
 {{ reports_nav('receivables') }}
 
 <div class="card">
@@ -74,13 +80,7 @@
       <tr class="click-row" data-href="/reports/receivables/debtor?key={{ g.debt_key | urlencode }}">
         <td><strong>{{ g.party_label }}</strong></td>
         <td>
-          {% if g.pay_status.value == 'unpaid' %}
-          <span class="badge bad">{{ status_labels[g.pay_status] }}</span>
-          {% elif g.pay_status.value == 'partial' %}
-          <span class="badge warn">{{ status_labels[g.pay_status] }}</span>
-          {% else %}
-          <span class="badge good">{{ status_labels[g.pay_status] }}</span>
-          {% endif %}
+          {{ pos_pay_status_badge(g.pay_status) }}
         </td>
         <td>{{ g.invoice_count }}</td>
         <td style="font-weight:700;color:#b91c1c">{{ g.total_outstanding }} د.ل</td>
@@ -123,13 +123,7 @@
         <td>{{ r.party_label }}</td>
         <td style="font-weight:700;{% if r.outstanding > 0 %}color:#b91c1c{% endif %}">{{ r.outstanding }} د.ل</td>
         <td>
-          {% if r.pay_status.value == 'unpaid' %}
-          <span class="badge bad">غير مدفوعة</span>
-          {% elif r.pay_status.value == 'partial' %}
-          <span class="badge warn">جزئي</span>
-          {% else %}
-          <span class="badge good">مسدّد</span>
-          {% endif %}
+          {{ pos_pay_status_badge(r.pay_status) }}
         </td>
         <td><span class="muted">تحصيل ←</span></td>
       </tr>

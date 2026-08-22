@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}تقارير أمين الخزينة{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/treasury_desk.css?v=1" />
+{% endblock %}
+{% block body %}
+<div class="tdesk">
+  <h1 style="margin:0">التقارير التشغيلية</h1>
+  {% include "treasury/_nav.html" %}
+  <p class="muted" style="margin:0 0 0.75rem;font-size:0.86rem;line-height:1.55">
+    تقارير عملك فقط — عرض ومتابعة بلا تعديل للبيانات من هنا.
+  </p>
+
+  <div class="tdesk-mov" style="margin-bottom:0.85rem">
+    <div><div class="lbl">قبض كاش</div><div class="val">{{ pos_money(movement.cash_in) }}</div></div>
+    <div><div class="lbl">قبض مصرف</div><div class="val">{{ pos_money(movement.bank_in) }}</div></div>
+    <div><div class="lbl">مدفوعات</div><div class="val">{{ pos_money(movement.payments_out) }}</div></div>
+    <div><div class="lbl">عهد</div><div class="val">{{ pos_money(movement.advances_out) }}</div></div>
+  </div>
+
+  {% set _mode = pos_view_mode(request) %}
+  <div class="tdesk-kpis">
+    <a class="tdesk-kpi" href="/reports/transactions"><div class="lbl">سجل العمليات</div><div class="sub">مقبوضات ومصروفات اليوم</div></a>
+    {% if _mode != 'restaurant' %}
+    <a class="tdesk-kpi" href="/reports/hotel-shifts"><div class="lbl">جلسات الاستقبال</div><div class="sub">تسليم وتسوية كل وردية</div></a>
+    {% endif %}
+    {% if _mode != 'hotel' %}
+    <a class="tdesk-kpi" href="/reports/shifts"><div class="lbl">جلسات المطعم</div><div class="sub">مبيعات POS حسب الوردية</div></a>
+    {% endif %}
+    {% if _mode != 'restaurant' %}
+    <a class="tdesk-kpi" href="/reports/hotel-collections"><div class="lbl">تحصيلات الفندق</div><div class="sub">سندات القبض الفندقية</div></a>
+    {% endif %}
+    <a class="tdesk-kpi" href="/reports/expenses"><div class="lbl">المصروفات</div><div class="sub">سندات الصرف المنفّذة</div></a>
+    {% if _mode != 'restaurant' %}
+    <a class="tdesk-kpi" href="/reports/hotel-balances"><div class="lbl">ذمم الحجز</div><div class="sub">أرصدة معتمدة للمتابعة</div></a>
+    {% endif %}
+    {% if _mode != 'hotel' %}
+    <a class="tdesk-kpi" href="/reports/receivables?balance_only=1"><div class="lbl">ديون العملاء</div><div class="sub">متابعة التحصيل</div></a>
+    {% endif %}
+    <a class="tdesk-kpi" href="/reports/payables"><div class="lbl">ذمم دائنة</div><div class="sub">سداد معتمد</div></a>
+    <a class="tdesk-kpi" href="/reports/financial-operational"><div class="lbl">مالي تشغيلي</div><div class="sub">استحقاق وتحصيل</div></a>
+    <a class="tdesk-kpi" href="/admin/shift-variances"><div class="lbl">العجوزات والزيادات</div><div class="sub">فروقات العدّ — عرض فقط</div></a>
+  </div>
+</div>
+{% endblock %}

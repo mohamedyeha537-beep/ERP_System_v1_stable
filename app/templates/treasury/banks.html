@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}حسابات المصارف{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/treasury_desk.css?v=1" />
+{% endblock %}
+{% block body %}
+<div class="tdesk">
+  <h1 style="margin:0">حسابات المصارف</h1>
+  {% include "treasury/_nav.html" %}
+  {% if err %}<div class="tdesk-banner err">{{ err }}</div>{% endif %}
+  {% if ok == 'matched' %}<div class="tdesk-banner ok">تم تسجيل المطابقة المصرفية.</div>{% endif %}
+  <p class="muted" style="margin:0 0 0.75rem;font-size:0.86rem;line-height:1.55">
+    مشاهدة الحركات المتعلقة بعملك وتسجيل الإيداع أو السحب المصرّح به بين النقدية والمصرف.
+  </p>
+
+  <div class="tdesk-kpis">
+    <a class="tdesk-kpi" href="/pos/treasury?kind=bank">
+      <div class="lbl">رصيد المصرف</div>
+      <div class="val">{{ pos_money(bals.bank_total) }} <span class="money-currency">د.ل</span></div>
+      <div class="sub">مطعم {{ pos_money(bals.restaurant_bank) }} · فندق {{ pos_money(bals.hotel_bank) }}</div>
+    </a>
+    <a class="tdesk-kpi" href="/pos/treasury?kind=cash">
+      <div class="lbl">رصيد النقدية</div>
+      <div class="val">{{ pos_money(bals.cash_total) }} <span class="money-currency">د.ل</span></div>
+      <div class="sub">للتحويل من/إلى المصرف</div>
+    </a>
+  </div>
+
+  <div class="tdesk-actions-bar" style="margin-bottom:0.85rem">
+    <a class="btn btn-primary" href="/pos/treasury/transfer?kind=bank">إيداع / سحب مصرّح</a>
+    <a class="btn" href="/pos/treasury?kind=bank">دفتر حركات المصرف</a>
+  </div>
+
+  <div class="tdesk-card">
+    <h2>تحويلات بانتظار المطابقة</h2>
+    {% if bank_rows %}
+    <table class="tdesk-table">
+      <thead>
+        <tr><th>الموظف</th><th>المتوقع</th><th>المصرف</th><th>المرجع</th><th>الحالة</th></tr>
+      </thead>
+      <tbody>
+        {% for r in bank_rows %}
+        <tr>
+          <td>{{ r.person }} · {{ r.domain_ar }}</td>
+          <td>{{ pos_money(r.claimed_bank) }}</td>
+          <td>{{ r.bank_name or '—' }}</td>
+          <td>{{ r.bank_ref or '—' }}</td>
+          <td>🟡 تحقق</td>
+        </tr>
+        <tr>
+          <td colspan="5">
+            <form class="tdesk-receive" method="post" action="/pos/treasury/receipts/bank/{{ r.handover_id }}/match">
+              <p style="margin:0 0 0.4rem;font-weight:700">مطابقة تحويل — المرجع {{ r.bank_ref or '—' }}</p>
+              <div class="row" style="gap:0.6rem;flex-wrap:wrap;align-items:flex-end">
+                <label>المبلغ الظاهر فعلياً في حساب الخزينة
+                  <input name="received_bank" type="number" step="0.001" min="0" value="{{ r.claimed_bank }}" required />
+                </label>
+                <label>ملاحظة
+                  <input name="note" maxlength="200" />
+                </label>
+                <button class="btn btn-primary" type="submit">تأكيد المطابقة</button>
+              </div>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted" style="margin:0">لا توجد تحويلات مصرفية معلنة بانتظار المطابقة.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
