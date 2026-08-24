@@ -270,20 +270,33 @@
           {% if folio %}
           {% set _badge_acc = folio_display_guest if folio_display_guest is defined and folio_display_guest else none %}
           {% set _badge_bal = _badge_acc.balance if _badge_acc else folio.balance %}
-          {% if folio_scope|default('all') == 'all' and folio_slices %}
+          {% if folio_scope|default('all') == 'all' and folio_slices and guest_account is defined %}
+          <span class="booking-detail-badge booking-detail-badge--status" style="background:{% if guest_account.amount_due > 0.0005 %}#fff7ed{% elif guest_account.amount_credit > 0.0005 %}#ecfdf5{% else %}#f1f5f9{% endif %};color:{% if guest_account.amount_due > 0.0005 %}#b45309{% elif guest_account.amount_credit > 0.0005 %}#047857{% else %}#475569{% endif %}">
+            {% if guest_account.amount_due > 0.0005 %}مستحقات: {{ guest_account.amount_due }} د.ل{% elif guest_account.amount_credit > 0.0005 %}رصيد للنزيل: {{ guest_account.amount_credit }} د.ل{% else %}خالص{% endif %}
+          </span>
+          {% if folio_slices.restaurant.total > 0 %}
+          <span class="booking-detail-badge booking-detail-badge--status" style="background:{% if folio_slices.restaurant.balance > 0 %}#fef2f2{% else %}#f1f5f9{% endif %};color:{% if folio_slices.restaurant.balance > 0 %}#b91c1c{% else %}#475569{% endif %}">
+            مطعم {% if folio_slices.restaurant.balance > 0 %}مستحقات: {{ folio_slices.restaurant.balance }} د.ل{% else %}خالص{% endif %}
+          </span>
+          {% endif %}
+          {% elif folio_scope|default('all') == 'all' and folio_slices %}
           <span class="booking-detail-badge booking-detail-badge--status" style="background:{% if folio_slices.hotel.balance > 0 %}#fff7ed{% elif folio_slices.hotel.balance < 0 %}#ecfdf5{% else %}#f1f5f9{% endif %};color:{% if folio_slices.hotel.balance > 0 %}#b45309{% elif folio_slices.hotel.balance < 0 %}#047857{% else %}#475569{% endif %}">
-            فندق {% if folio_slices.hotel.balance > 0 %}{{ folio_slices.hotel.balance }}{% elif folio_slices.hotel.balance < 0 %}له {{ 0 - folio_slices.hotel.balance }}{% else %}خالص{% endif %}
+            {% if folio_slices.hotel.balance > 0 %}مستحقات الفندق: {{ folio_slices.hotel.balance }} د.ل{% elif folio_slices.hotel.balance < 0 %}رصيد للنزيل: {{ 0 - folio_slices.hotel.balance }} د.ل{% else %}فندق — خالص{% endif %}
           </span>
           {% if folio_slices.restaurant.total > 0 %}
           <span class="booking-detail-badge booking-detail-badge--status" style="background:{% if folio_slices.restaurant.balance > 0 %}#fef2f2{% else %}#f1f5f9{% endif %};color:{% if folio_slices.restaurant.balance > 0 %}#b91c1c{% else %}#475569{% endif %}">
             مطعم {% if folio_slices.restaurant.balance > 0 %}{{ folio_slices.restaurant.balance }}{% else %}خالص{% endif %}
           </span>
           {% endif %}
+          {% elif folio_scope|default('all') == 'hotel' and folio_slices and folio_slices.restaurant.total > 0.0005 and guest_account is defined %}
+          <span class="booking-detail-badge booking-detail-badge--status" style="background:{% if guest_account.amount_due > 0.0005 %}#fff7ed{% elif guest_account.amount_credit > 0.0005 %}#ecfdf5{% else %}#f1f5f9{% endif %};color:{% if guest_account.amount_due > 0.0005 %}#b45309{% elif guest_account.amount_credit > 0.0005 %}#047857{% else %}#475569{% endif %}">
+            {% if guest_account.amount_due > 0.0005 %}مستحقات (إقامة+مطعم): {{ guest_account.amount_due }} د.ل{% elif guest_account.amount_credit > 0.0005 %}رصيد للنزيل: {{ guest_account.amount_credit }} د.ل{% else %}خالص (إقامة+مطعم){% endif %}
+          </span>
           {% else %}
           <span class="booking-detail-badge booking-detail-badge--status" style="background:{% if _badge_bal > 0 %}#fff7ed{% elif _badge_bal < 0 %}#ecfdf5{% else %}#f1f5f9{% endif %};color:{% if _badge_bal > 0 %}#b45309{% elif _badge_bal < 0 %}#047857{% else %}#475569{% endif %}">
-            {% if folio_scope|default('all') == 'restaurant' %}مطعم — {% elif folio_scope|default('all') == 'hotel' %}فندق — {% endif %}{% if _badge_bal > 0 %}المطلوب: {{ _badge_bal }} د.ل
-            {% elif _badge_bal < 0 %}له {{ (0 - _badge_bal) }} د.ل
-            {% else %}خالص{% endif %}
+            {% if folio_scope|default('all') == 'restaurant' %}مطعم — {% elif folio_scope|default('all') == 'hotel' %}{% endif %}{% if _badge_bal > 0 %}{% if folio_scope|default('all') == 'hotel' %}مستحقات الفندق: {{ _badge_bal }} د.ل{% else %}المطلوب: {{ _badge_bal }} د.ل{% endif %}
+            {% elif _badge_bal < 0 %}رصيد للنزيل: {{ (0 - _badge_bal) }} د.ل
+            {% else %}{% if folio_scope|default('all') == 'hotel' %}فندق — {% elif folio_scope|default('all') == 'restaurant' %}مطعم — {% endif %}خالص{% endif %}
           </span>
           {% endif %}
           {% endif %}
@@ -555,6 +568,19 @@
     <p class="muted" style="margin:-0.15rem 0 0.75rem;font-size:0.86rem;line-height:1.5">حساب المطعم فقط — فواتير طُلب سدادها من الفندق. إقامة الفندق وخدماته لا تدخل في هذا الكشف.</p>
     {% elif _fscope == 'hotel' %}
     <p class="muted" style="margin:-0.15rem 0 0.75rem;font-size:0.86rem;line-height:1.5">حساب الفندق — إقامة وخدمات. فواتير المطعم المطلوبة من الحجز تظهر منفصلة ولا تُجمع مع متبقي الإقامة.</p>
+    {% if guest_account is defined and _slices and _slices.restaurant.total > 0.0005 %}
+    <div style="margin:0 0 0.75rem;padding:0.65rem 0.85rem;border-radius:8px;background:#eff6ff;border:1px solid #bfdbfe;font-size:0.88rem;line-height:1.55">
+      <strong>الرصيد الموحّد (إقامة + مطعم):</strong>
+      {% if guest_account.amount_due > 0.0005 %}
+      مستحقات <strong style="color:#b45309">{{ guest_account.amount_due }} د.ل</strong>
+      {% elif guest_account.amount_credit > 0.0005 %}
+      رصيد للنزيل <strong style="color:#15803d">{{ guest_account.amount_credit }} د.ل</strong>
+      {% else %}
+      <strong style="color:#15803d">خالص</strong>
+      {% endif %}
+      — إقامة {{ _slices.hotel.total }} · مطعم {{ _slices.restaurant.total }} · مدفوع {{ guest_account.total_paid }}
+    </div>
+    {% endif %}
     {% else %}
     <p class="muted" style="margin:-0.15rem 0 0.75rem;font-size:0.86rem;line-height:1.5">حساب الفندق وحساب المطعم منفصلان — لا يُجمع المتبقي في رقم واحد.</p>
     {% endif %}
@@ -570,7 +596,7 @@
         <div class="folio-party-card__meta">مستحق {{ pa.company.charges }} · مدفوع {{ pa.company.paid }}</div>
         <div class="folio-party-card__bal">
           {% if c_due > 0.0005 %}عليه {{ pa.company.due }} د.ل
-          {% elif c_credit > 0.0005 %}له {{ pa.company.credit }} د.ل
+          {% elif c_credit > 0.0005 %}يُرجع للشركة: {{ pa.company.credit }} د.ل
           {% else %}خالص{% endif %}
         </div>
         {% if folio.company_folio and folio.company_folio.lines %}
@@ -590,7 +616,7 @@
         <div class="folio-party-card__meta">مستحق {{ pa.guest.charges }} · مدفوع {{ pa.guest.paid }}</div>
         <div class="folio-party-card__bal">
           {% if g_due > 0.0005 %}عليه {{ pa.guest.due }} د.ل
-          {% elif g_credit > 0.0005 %}له {{ pa.guest.credit }} د.ل
+          {% elif g_credit > 0.0005 %}رصيد للنزيل: {{ pa.guest.credit }} د.ل
           {% else %}خالص{% endif %}
         </div>
         {% if folio.guest_folio and folio.guest_folio.lines %}
@@ -601,6 +627,79 @@
         </ul>
         {% endif %}
       </div>
+    </div>
+    {% endif %}
+
+    {# تفصيل كاش / مصرف — يظهر لكل من يرى الحجز (استقبال وغيره) #}
+    {% if payment_means and payment_means.lines and folio_scope|default('all') != 'restaurant' %}
+    <div id="payment-means-box" style="margin:0.85rem 0 0;padding:0.85rem 1rem;background:#f0f9ff;border:1px solid #7dd3fc;border-radius:10px">
+      <h3 style="margin:0 0 0.45rem;font-size:1rem;color:#0c4a6e">تفصيل وسائل الدفع (كاش / مصرف)</h3>
+      <p class="muted" style="margin:0 0 0.65rem;font-size:0.84rem;line-height:1.5">
+        يوضح <strong>كيف دُفع المبلغ</strong> — وليس الإجمالي فقط — حتى يعرف الاستقبال وسيلة الإرجاع الصحيحة.
+      </p>
+      <div style="display:flex;flex-wrap:wrap;gap:0.65rem;margin-bottom:0.75rem">
+        <div style="flex:1;min-width:8.5rem;padding:0.55rem 0.7rem;background:#fff;border:1px solid #bae6fd;border-radius:8px">
+          <div style="font-size:0.78rem;color:#0369a1">كاش (صافي)</div>
+          <div style="font-size:1.15rem;font-weight:800;color:#0f766e" dir="ltr">{{ payment_means.cash_net }} د.ل</div>
+          {% if payment_means.cash_refunded > 0 %}
+          <div class="muted" style="font-size:0.75rem">مدفوع {{ payment_means.cash_paid }} − إرجاع {{ payment_means.cash_refunded }}</div>
+          {% endif %}
+        </div>
+        <div style="flex:1;min-width:8.5rem;padding:0.55rem 0.7rem;background:#fff;border:1px solid #bae6fd;border-radius:8px">
+          <div style="font-size:0.78rem;color:#0369a1">مصرف (صافي)</div>
+          <div style="font-size:1.15rem;font-weight:800;color:#1d4ed8" dir="ltr">{{ payment_means.bank_net }} د.ل</div>
+          {% if payment_means.bank_refunded > 0 %}
+          <div class="muted" style="font-size:0.75rem">مدفوع {{ payment_means.bank_paid }} − إرجاع {{ payment_means.bank_refunded }}</div>
+          {% endif %}
+        </div>
+        {% if payment_means.other_net != 0 %}
+        <div style="flex:1;min-width:8.5rem;padding:0.55rem 0.7rem;background:#fff;border:1px solid #bae6fd;border-radius:8px">
+          <div style="font-size:0.78rem;color:#0369a1">أخرى (صافي)</div>
+          <div style="font-size:1.15rem;font-weight:800" dir="ltr">{{ payment_means.other_net }} د.ل</div>
+        </div>
+        {% endif %}
+        <div style="flex:1;min-width:8.5rem;padding:0.55rem 0.7rem;background:#ecfeff;border:1px solid #67e8f9;border-radius:8px">
+          <div style="font-size:0.78rem;color:#0e7490">الإجمالي الصافي</div>
+          <div style="font-size:1.15rem;font-weight:800" dir="ltr">{{ payment_means.total_net }} د.ل</div>
+        </div>
+      </div>
+      <table style="width:100%;font-size:0.88rem;border-collapse:collapse">
+        <thead>
+          <tr style="background:#e0f2fe;text-align:right">
+            <th style="padding:0.35rem 0.45rem">#</th>
+            <th style="padding:0.35rem 0.45rem">التاريخ</th>
+            <th style="padding:0.35rem 0.45rem">الوسيلة</th>
+            <th style="padding:0.35rem 0.45rem">النوع</th>
+            <th style="padding:0.35rem 0.45rem">المبلغ</th>
+            <th style="padding:0.35rem 0.45rem">مُسترد</th>
+            <th style="padding:0.35rem 0.45rem">المتبقي للصرف</th>
+            <th style="padding:0.35rem 0.45rem">إيصال</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in payment_means.lines %}
+          <tr style="border-top:1px solid #e2e8f0">
+            <td style="padding:0.35rem 0.45rem">{{ row.payment_id }}</td>
+            <td style="padding:0.35rem 0.45rem;font-size:0.82rem">{{ pos_format_dt(row.created_at, '%Y-%m-%d %H:%M') if row.created_at else '—' }}</td>
+            <td style="padding:0.35rem 0.45rem">{{ row.method_label }}</td>
+            <td style="padding:0.35rem 0.45rem">
+              <span style="display:inline-block;padding:0.1rem 0.45rem;border-radius:999px;font-size:0.78rem;font-weight:700;
+                background:{% if row.method_kind == 'CASH' %}#dcfce7{% elif row.method_kind == 'BANK' %}#dbeafe{% else %}#f1f5f9{% endif %};
+                color:{% if row.method_kind == 'CASH' %}#166534{% elif row.method_kind == 'BANK' %}#1e40af{% else %}#475569{% endif %}">
+                {{ row.method_kind_ar }}
+              </span>
+              {% if row.is_deposit %}<span class="muted" style="font-size:0.75rem"> عربون</span>{% endif %}
+            </td>
+            <td style="padding:0.35rem 0.45rem;font-weight:700" dir="ltr">{{ row.amount }}</td>
+            <td style="padding:0.35rem 0.45rem;color:#b91c1c" dir="ltr">{% if row.refunded > 0 %}{{ row.refunded }}{% else %}—{% endif %}</td>
+            <td style="padding:0.35rem 0.45rem;font-weight:800;color:{% if row.remaining > 0 %}#0f766e{% else %}#94a3b8{% endif %}" dir="ltr">{{ row.remaining }}</td>
+            <td style="padding:0.35rem 0.45rem">
+              <a href="/admin/hotel/bookings/{{ booking.id }}/receipt?doc=receipt&payment_id={{ row.payment_id }}" target="_blank" rel="noopener" style="font-size:0.82rem">🖨 قبض</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
     {% endif %}
 
@@ -617,11 +716,11 @@
       <tr><th>إجمالي الفندق</th><th style="text-align:left">{{ (hs.total if hs else folio.total) }} د.ل</th></tr>
       <tr><td>مدفوع (إقامة/خدمات)</td><td style="text-align:left;color:#16a34a">{{ (hs.paid if hs else folio.paid) }} د.ل</td></tr>
       {% if hs and hs.amount_credit > 0 %}
-      <tr style="background:#ecfdf5"><td><strong>فائض الفندق (له +)</strong></td><td style="text-align:left"><strong style="color:#16a34a">+ {{ hs.amount_credit }} د.ل</strong></td></tr>
+      <tr style="background:#ecfdf5"><td><strong>رصيد للنزيل</strong></td><td style="text-align:left"><strong style="color:#16a34a">+ {{ hs.amount_credit }} د.ل</strong></td></tr>
       {% elif hs and hs.balance > 0 %}
-      <tr style="background:#fef2f2"><td><strong>متبقي على الفندق</strong></td><td style="text-align:left"><strong style="color:#b91c1c">− {{ hs.balance }} د.ل</strong></td></tr>
+      <tr style="background:#fef2f2"><td><strong>مستحقات الفندق</strong></td><td style="text-align:left"><strong style="color:#b91c1c">− {{ hs.balance }} د.ل</strong></td></tr>
       {% elif acc.amount_credit > 0 and _fscope == 'hotel' %}
-      <tr style="background:#ecfdf5"><td><strong>فائض قابل للإرجاع (له +)</strong></td><td style="text-align:left"><strong style="color:#16a34a">+ {{ acc.amount_credit }} د.ل</strong></td></tr>
+      <tr style="background:#ecfdf5"><td><strong>رصيد للنزيل — قابل للإرجاع</strong></td><td style="text-align:left"><strong style="color:#16a34a">+ {{ acc.amount_credit }} د.ل</strong></td></tr>
       {% elif not hs and folio.balance > 0 %}
       <tr style="background:#fef2f2"><td><strong>متبقٍ على الحساب (عليه −)</strong></td><td style="text-align:left"><strong style="color:#b91c1c">− {{ folio.balance }} د.ل</strong></td></tr>
       {% else %}
@@ -694,7 +793,7 @@
       </div>
     </div>
     {% endif %}
-    {% if pos_is_admin(request) and payment_ledger and folio_scope|default('all') != 'restaurant' %}
+    {% if payment_ledger and folio_scope|default('all') != 'restaurant' %}
     <div id="payment-ledger-section" style="margin-top:1rem;scroll-margin-top:1rem">
       <h3 style="margin:0 0 0.45rem;font-size:1rem">حركة الحساب بالترتيب</h3>
       <p class="muted" style="font-size:0.88rem;margin:0 0 0.65rem">
@@ -705,20 +804,15 @@
         — صافي المطبّق على الحساب: <strong>{{ folio.paid }} د.ل</strong>
         — المستحق: <strong>{{ folio.total }} د.ل</strong>
       </p>
-      <p class="muted" style="font-size:0.82rem;margin:0 0 0.65rem">
-        <strong>عليه</strong> = مبلغ أُضيف للمستحقات أو خُصم من رصيد المدفوع ·
-        <strong>له</strong> = مبلغ مدفوع أو خصم من المستحقات ·
-        الرصيد الموجب = على النزيل · السالب = له
-      </p>
       <table>
         <thead>
           <tr>
             <th>التاريخ</th>
             <th>البيان</th>
+            <th>الوسيلة</th>
             <th>عليه (+)</th>
-            <th>له (−)</th>
+            <th>دائن / إرجاع (−)</th>
             <th>الرصيد بعد الحركة</th>
-            <th>ملاحظة</th>
             <th>المستند</th>
           </tr>
         </thead>
@@ -727,27 +821,26 @@
           <tr>
             <td style="font-size:0.88rem">{{ pos_format_dt(m.created_at, '%Y-%m-%d %H:%M') if m.created_at else '—' }}</td>
             <td>{{ m.label }}</td>
+            <td style="font-size:0.85rem">
+              {% if m.method_kind == 'CASH' %}<span style="color:#166534;font-weight:700">كاش</span>
+              {% elif m.method_kind == 'BANK' %}<span style="color:#1e40af;font-weight:700">مصرف</span>
+              {% elif m.method_label %}{{ m.method_label }}
+              {% else %}—{% endif %}
+            </td>
             <td style="color:#b45309;font-weight:600">{% if m.debit and m.debit > 0 %}{{ m.debit }} د.ل{% else %}—{% endif %}</td>
             <td style="color:#047857;font-weight:600">{% if m.credit and m.credit > 0 %}{{ m.credit }} د.ل{% else %}—{% endif %}</td>
             <td style="font-weight:600{% if m.running_balance > 0 %};color:#b45309{% elif m.running_balance < 0 %};color:#047857{% endif %}">
               {% if m.running_balance > 0 %}عليه {{ m.running_balance }} د.ل
-              {% elif m.running_balance < 0 %}له {{ -m.running_balance }} د.ل
+              {% elif m.running_balance < 0 %}رصيد للنزيل: {{ -m.running_balance }} د.ل
               {% else %}خالص{% endif %}
             </td>
-            <td style="font-size:0.88rem">{{ m.note or '—' }}</td>
             <td>
               {% if m.kind == 'payment' and m.payment_id %}
-              <details style="margin:0">
-                <summary style="cursor:pointer;font-weight:600;color:#1d4ed8">تفاصيل</summary>
-                <a class="btn btn-sm btn-primary" style="margin-top:0.35rem" target="_blank" rel="noopener"
-                   href="/admin/hotel/bookings/{{ booking.id }}/receipt?doc=receipt&payment_id={{ m.payment_id }}">🖨 طباعة إيصال القبض</a>
-              </details>
+              <a style="font-size:0.82rem" target="_blank" rel="noopener"
+                 href="/admin/hotel/bookings/{{ booking.id }}/receipt?doc=receipt&payment_id={{ m.payment_id }}">🖨 قبض</a>
               {% elif m.kind == 'refund' and m.refund_id %}
-              <details style="margin:0">
-                <summary style="cursor:pointer;font-weight:600;color:#1d4ed8">تفاصيل</summary>
-                <a class="btn btn-sm btn-primary" style="margin-top:0.35rem;background:#ea580c;border-color:#c2410c" target="_blank" rel="noopener"
-                   href="/admin/hotel/bookings/{{ booking.id }}/refunds/{{ m.refund_id }}/voucher">🖨 طباعة إيصال الصرف</a>
-              </details>
+              <a style="font-size:0.82rem;color:#c2410c" target="_blank" rel="noopener"
+                 href="/admin/hotel/bookings/{{ booking.id }}/refunds/{{ m.refund_id }}/voucher">🖨 صرف</a>
               {% else %}
               <span class="muted">—</span>
               {% endif %}
@@ -1111,7 +1204,7 @@
         </div>
       </div>
 
-      {% set _kpi_acc = folio_display_guest if folio_display_guest is defined and folio_display_guest else guest_account %}
+      {% set _kpi_acc = guest_account if folio_scope|default('all') == 'hotel' and folio_slices is defined and folio_slices.restaurant.total > 0.0005 and guest_account is defined else (folio_display_guest if folio_display_guest is defined and folio_display_guest else guest_account) %}
       {% set _kpi_pa = folio_display_party if folio_display_party is defined and folio_display_party else party_accounts %}
       <div class="checkout-desk-kpis">
         {% if folio_scope|default('all') != 'restaurant' %}
@@ -1149,7 +1242,7 @@
           <span class="checkout-desk-kpi__lbl">حساب الشركة</span>
           <span class="checkout-desk-kpi__val {% if _kpi_pa.company.due > 0 %}checkout-desk-kpi__val--debt{% else %}checkout-desk-kpi__val--ok{% endif %}">
             {% if _kpi_pa.company.due > 0 %}عليه {{ '%.3f'|format(_kpi_pa.company.due|float) }}
-            {% elif _kpi_pa.company.credit > 0 %}له {{ '%.3f'|format(_kpi_pa.company.credit|float) }}
+            {% elif _kpi_pa.company.credit > 0 %}يُرجع للشركة {{ '%.3f'|format(_kpi_pa.company.credit|float) }}
             {% else %}خالص{% endif %}
           </span>
         </div>
@@ -1157,7 +1250,7 @@
           <span class="checkout-desk-kpi__lbl">حساب النزيل</span>
           <span class="checkout-desk-kpi__val {% if _kpi_pa.guest.due > 0 %}checkout-desk-kpi__val--debt{% else %}checkout-desk-kpi__val--ok{% endif %}">
             {% if _kpi_pa.guest.due > 0 %}عليه {{ '%.3f'|format(_kpi_pa.guest.due|float) }}
-            {% elif _kpi_pa.guest.credit > 0 %}له {{ '%.3f'|format(_kpi_pa.guest.credit|float) }}
+            {% elif _kpi_pa.guest.credit > 0 %}رصيد للنزيل {{ '%.3f'|format(_kpi_pa.guest.credit|float) }}
             {% else %}خالص{% endif %}
           </span>
         </div>
@@ -1436,14 +1529,16 @@
     var creditBox = document.getElementById('credit-settle-box');
     var creditAmtEl = document.getElementById('credit-settle-amt');
     var creditRefundWrap = document.getElementById('credit-refund-method-wrap');
-    var lastCredit = {{ (guest_account.amount_credit or 0)|float }};
+    var pageCredit = {{ (guest_account.amount_credit or 0)|float }};
+    var lastCredit = pageCredit;
     function money(v) { return Number(v || 0).toFixed(3); }
     function setCreditUi(credit) {
       lastCredit = Number(credit || 0);
       if (creditAmtEl) creditAmtEl.textContent = money(lastCredit);
       if (!creditBox) return;
-      creditBox.style.display = lastCredit > 0.001 ? 'block' : 'none';
-      if (creditRefundWrap) creditRefundWrap.style.display = lastCredit > 0.001 ? 'block' : 'none';
+      var show = pageCredit > 0.001 && lastCredit > 0.001;
+      creditBox.style.display = show ? 'block' : 'none';
+      if (creditRefundWrap) creditRefundWrap.style.display = show ? 'block' : 'none';
     }
     async function loadPreview() {
       if (!depInp || !depInp.value) return;
@@ -1547,11 +1642,11 @@
           return;
         }
       }
-      if (lastCredit > 0.001 && {{ (guest_account.amount_credit or 0)|float }} > 0.001) {
+      if (pageCredit > 0.001) {
         var pm = document.getElementById('credit_refund_method_id');
         if (!pm || !pm.value) {
           e.preventDefault();
-          alert('يوجد فائض (' + money(lastCredit) + ' د.ل) يُسترد نقداً.\nاختر وسيلة صرف الاسترداد (كاش أو مصرف).');
+          alert('يوجد فائض (' + money(Math.max(lastCredit, pageCredit)) + ' د.ل) يُسترد نقداً.\nاختر وسيلة صرف الاسترداد (كاش أو مصرف).');
           if (creditBox) creditBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
           return;
         }
@@ -2028,19 +2123,32 @@
     يُسجَّل الصرف ويظهر في قائمة الإيصالات للطباعة.
   </p>
   {% if guest_account.amount_credit > 0 and booking.payments %}
-  <p style="margin:0 0 0.75rem">الرصيد المتاح للصرف: <strong style="color:#15803d">{{ guest_account.amount_credit }} د.ل</strong></p>
-  <form method="post" action="/admin/hotel/bookings/{{ booking.id }}/refund-credit" class="row" style="gap:0.5rem;align-items:flex-end;flex-wrap:wrap">
+  {% set _credit = guest_account.amount_credit %}
+  <p style="margin:0 0 0.35rem">الرصيد المتاح للصرف: <strong style="color:#15803d">{{ _credit }} د.ل</strong></p>
+  <p class="muted" style="margin:0 0 0.75rem;font-size:0.84rem;line-height:1.5">
+    كل سطر استرداد مربوط <strong>بدفعة واحدة</strong>. إذا كان الرصيد أكبر من دفعة واحدة،
+    أصدر أكثر من إيصال، أو سجّل <a href="#checkout-settle">المغادرة</a> ليوزّع النظام المبلغ تلقائياً.
+  </p>
+  <form method="post" action="/admin/hotel/bookings/{{ booking.id }}/refund-credit" class="row" style="gap:0.5rem;align-items:flex-end;flex-wrap:wrap" id="refund-credit-form">
     <label style="display:flex;flex-direction:column;gap:0.15rem;font-size:0.82rem">
       من دفعة سابقة (مرجع الاسترداد)
-      <select name="payment_id" required>
+      <select name="payment_id" id="refund-payment-id" required>
         {% for p in booking.payments if not p.is_refunded %}
-        <option value="{{ p.id }}">#{{ p.id }} — {{ p.amount }} د.ل ({{ pos_format_dt(p.created_at, '%Y-%m-%d') }})</option>
+        {% set _cap = p.amount if p.amount < _credit else _credit %}
+        <option value="{{ p.id }}"
+                data-amount="{{ p.amount }}"
+                data-cap="{{ _cap }}"
+                data-method-id="{{ p.payment_method_id or '' }}">
+          #{{ p.id }} — {{ p.amount }} د.ل
+          {%- for m in methods if p.payment_method_id and m.id == p.payment_method_id %} · {{ pos_wallet_label(m) }}{%- endfor %}
+          ({{ pos_format_dt(p.created_at, '%Y-%m-%d') }})
+        </option>
         {% endfor %}
       </select>
     </label>
     <label style="display:flex;flex-direction:column;gap:0.15rem;font-size:0.82rem">
       وسيلة الصرف (كاش / مصرف)
-      <select name="payment_method_id" required>
+      <select name="payment_method_id" id="refund-method-id" required>
         <option value="">— اختر —</option>
         {% for m in methods %}
         <option value="{{ m.id }}">{{ pos_wallet_label(m) }}</option>
@@ -2048,8 +2156,9 @@
       </select>
     </label>
     <label style="display:flex;flex-direction:column;gap:0.15rem;font-size:0.82rem">
-      المبلغ
-      <input name="amount" type="number" step="0.001" min="0.001" max="{{ guest_account.amount_credit }}" value="{{ guest_account.amount_credit }}" required />
+      المبلغ (لا يتجاوز الدفعة المختارة)
+      <input name="amount" id="refund-amount" type="number" step="0.001" min="0.001"
+             max="{{ _credit }}" value="{{ _credit }}" required />
     </label>
     <label style="display:flex;flex-direction:column;gap:0.15rem;font-size:0.82rem">
       السبب
@@ -2057,6 +2166,30 @@
     </label>
     <button class="btn btn-primary" type="submit" style="background:#ea580c;border-color:#c2410c">إصدار إيصال صرف</button>
   </form>
+  <script>
+  (function () {
+    var sel = document.getElementById('refund-payment-id');
+    var amt = document.getElementById('refund-amount');
+    var meth = document.getElementById('refund-method-id');
+    if (!sel || !amt) return;
+    function sync() {
+      var opt = sel.options[sel.selectedIndex];
+      if (!opt) return;
+      var cap = parseFloat(opt.getAttribute('data-cap') || opt.getAttribute('data-amount') || '0');
+      if (!(cap > 0)) return;
+      amt.max = cap.toFixed(3);
+      amt.value = cap.toFixed(3);
+      var mid = opt.getAttribute('data-method-id') || '';
+      if (meth && mid) {
+        for (var i = 0; i < meth.options.length; i++) {
+          if (meth.options[i].value === mid) { meth.selectedIndex = i; break; }
+        }
+      }
+    }
+    sel.addEventListener('change', sync);
+    sync();
+  })();
+  </script>
   {% else %}
   <div style="margin:0;padding:0.75rem 0.85rem;border-radius:10px;background:#fff7ed;border:1px solid #fdba74;color:#9a3412;line-height:1.55">
     <strong>لا يوجد رصيد دائن لإصدار إيصال صرف.</strong>

@@ -12,6 +12,31 @@
     </label>
     <button class="btn btn-primary" type="submit" style="font-size:1.05rem;padding:0.55rem 1.25rem">تسجيل المغادرة</button>
   </div>
+
+  {% set _credit = (guest_account.amount_credit if guest_account is defined else 0) or 0 %}
+  {% if _credit|float > 0.001 %}
+  <div style="margin-top:0.75rem;padding:0.75rem;background:#ecfdf5;border:1px solid #86efac;border-radius:8px">
+    <div style="font-weight:800;color:#166534;margin-bottom:0.35rem">
+      فائض قابل للإرجاع عند المغادرة:
+      <span dir="ltr">{{ '%.3f'|format(_credit|float) }}</span> د.ل
+    </div>
+    <p style="margin:0 0 0.55rem;font-size:0.88rem;line-height:1.55;color:#14532d">
+      يُسترد نقداً تلقائياً عند المغادرة. اختر <strong>وسيلة الصرف</strong> (كاش أو مصرف) —
+      النظام يوزّع المبلغ على الدفعات السابقة تلقائياً.
+    </p>
+    <input type="hidden" name="credit_disposition" value="refund" />
+    <label style="display:flex;flex-direction:column;gap:0.15rem;font-size:0.82rem;max-width:320px">
+      وسيلة صرف الاسترداد *
+      <select name="credit_refund_method_id" id="credit_refund_method_id" required>
+        <option value="">— اختر كاش أو مصرف —</option>
+        {% for m in methods|default([]) %}
+        <option value="{{ m.id }}">{{ pos_wallet_label(m) }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </div>
+  {% endif %}
+
   <div style="margin-top:0.75rem;padding:0.65rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px">
     <label style="display:flex;align-items:flex-start;gap:0.45rem;font-size:0.88rem;line-height:1.45">
       <input type="checkbox" id="post-as-debt-cb" style="margin-top:0.2rem" />
@@ -61,6 +86,13 @@
   });
   form.addEventListener("submit", function (e) {
     sync();
+    var pm = document.getElementById("credit_refund_method_id");
+    if (pm && !pm.disabled && pm.options.length > 1 && !pm.value) {
+      e.preventDefault();
+      alert("يوجد رصيد دائن للنزيل — اختر وسيلة صرف الاسترداد (كاش أو مصرف) قبل تسجيل المغادرة.");
+      pm.focus();
+      return;
+    }
     if (woCb && woCb.checked) {
       var note = ((document.getElementById("debt_note_input") || {}).value || "").trim();
       if (note.length < 3) {

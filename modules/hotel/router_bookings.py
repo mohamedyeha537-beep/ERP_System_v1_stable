@@ -101,6 +101,7 @@ from modules.hotel.folio import (
     build_guest_account,
     build_party_accounts,
     build_payment_ledger,
+    build_payment_means_breakdown,
     checkout_service_groups_for_booking,
     folio_debt_breakdown,
     folio_domain_slices,
@@ -1647,6 +1648,10 @@ def booking_detail(
         )
     except Exception:  # noqa: BLE001
         payment_ledger, payments_gross, payments_refunded = build_payment_ledger(booking)
+    try:
+        payment_means = build_payment_means_breakdown(db, booking)
+    except Exception:  # noqa: BLE001
+        payment_means = None
     payments_to_wallet = Decimal("0")
     try:
         for m in payment_ledger or []:
@@ -1847,6 +1852,7 @@ def booking_detail(
             "payments_gross": payments_gross,
             "payments_refunded": payments_refunded,
             "payments_to_wallet": payments_to_wallet,
+            "payment_means": payment_means,
             "booking_debts": booking_debts,
             "can_checkout_with_balance": user_has_permission(
                 user, HOTEL_BOOKING_CHECKOUT_BALANCE

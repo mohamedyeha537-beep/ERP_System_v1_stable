@@ -70,6 +70,103 @@ def issue_hotel_opening_float_transfer(
     )
 
 
+def ensure_hotel_reception_funded_for_payout(
+    db: Session,
+    *,
+    payout_pm,
+    amount: Decimal,
+    user_id: int | None,
+    context: str = "استرداد حجز",
+) -> PaymentTransfer | None:
+    """قبل صرف من محفظة الاستقبال: تغذيتها من خزينة الفندق إن لزم — يمنع سالب 1114/1124."""
+    from modules.payments.models import PaymentMethod
+    from modules.payments.service import is_hotel_reception_payment_method
+
+    if not isinstance(payout_pm, PaymentMethod):
+        payout_pm = db.get(PaymentMethod, int(payout_pm or 0))
+    if payout_pm is None or not is_hotel_reception_payment_method(payout_pm):
+        return None
+    need = Decimal(str(amount or 0)).quantize(Decimal("0.001"))
+    if need <= 0:
+        return None
+    bal = method_current_balance(db, payout_pm.id)
+    if need <= bal + Decimal("0.0005"):
+        return None
+    shortfall = (need - bal).quantize(Decimal("0.001"))
+    recv = ensure_hotel_reception_payment_methods(db)
+    treas = ensure_hotel_treasury_payment_methods(db)
+    key = _wallet_key(payout_pm.kind)
+    src = treas[key]
+    dst = recv[key]
+    treas_bal = method_current_balance(db, src.id)
+    if shortfall > treas_bal + Decimal("0.0005"):
+        kind_ar = "كاش" if key == "CASH" else "مصرف"
+        raise HotelShiftHandoffError(
+            f"رصيد «{payout_pm.name_ar}» ({bal} د.ل) لا يكفي لـ{context} ({need} د.ل). "
+            f"رصيد «{src.name_ar}» ({treas_bal} د.ل) لا يغطي العجز ({shortfall} د.ل). "
+            f"أضف رصيد {kind_ar} لخزينة الفندق أولاً."
+        )
+    return record_manual_transfer(
+        db,
+        from_payment_method_id=src.id,
+        to_payment_method_id=dst.id,
+        amount=shortfall,
+        user_id=user_id,
+        note=f"تغذية {dst.name_ar} لـ{context} ({shortfall} د.ل)",
+        transfer_type=PaymentTransferType.REFUND_SETTLEMENT,
+    )
+
+
+def hotel_reception_wallet_deficits(db: Session) -> list[tuple[str, Decimal]]:
+    """محافظ استقبال الفندق ذات الرصيد السالب (اسم، رصيد)."""
+    recv = ensure_hotel_reception_payment_methods(db)
+    out: list[tuple[str, Decimal]] = []
+    for key in ("CASH", "BANK"):
+        pm = recv[key]
+        bal = method_current_balance(db, pm.id).quantize(Decimal("0.001"))
+        if bal < -Decimal("0.0005"):
+            out.append((pm.name_ar, bal))
+    return out
+
+
+def reconcile_hotel_reception_wallet_deficits(
+    db: Session,
+    *,
+    user_id: int | None,
+    context: str = "تسوية عجز استقبال",
+) -> list[PaymentTransfer]:
+    """تحويل من خزينة الفندق → استقبال لتصفير أي رصيد سالب على 1114/1124."""
+    recv = ensure_hotel_reception_payment_methods(db)
+    treas = ensure_hotel_treasury_payment_methods(db)
+    done: list[PaymentTransfer] = []
+    for key in ("CASH", "BANK"):
+        pm = recv[key]
+        bal = method_current_balance(db, pm.id).quantize(Decimal("0.001"))
+        if bal >= -Decimal("0.0005"):
+            continue
+        shortfall = (-bal).quantize(Decimal("0.001"))
+        src = treas[key]
+        treas_bal = method_current_balance(db, src.id).quantize(Decimal("0.001"))
+        if shortfall > treas_bal + Decimal("0.0005"):
+            kind_ar = "كاش" if key == "CASH" else "مصرف"
+            raise HotelShiftHandoffError(
+                f"تعذّر {context}: عجز «{pm.name_ar}» {bal} د.ل "
+                f"لكن «{src.name_ar}» يحتوي {treas_bal} د.ل فقط. "
+                f"أضف رصيد {kind_ar} لخزينة الفندق."
+            )
+        tf = record_manual_transfer(
+            db,
+            from_payment_method_id=src.id,
+            to_payment_method_id=pm.id,
+            amount=shortfall,
+            user_id=user_id,
+            note=f"{context} — {shortfall} د.ل إلى {pm.name_ar}",
+            transfer_type=PaymentTransferType.REFUND_SETTLEMENT,
+        )
+        done.append(tf)
+    return done
+
+
 def parse_handoff_amount(raw: str | None) -> Decimal | None:
     s = (raw or "").strip().replace(",", ".")
     if not s:
@@ -402,6 +499,11 @@ def approve_hotel_shift_handoff(
         shift_id=shift_id,
         user_id=user_id,
         note_suffix=note_suffix,
+    )
+    reconcile_hotel_reception_wallet_deficits(
+        db,
+        user_id=user_id,
+        context=f"تسوية بعد اعتماد جلسة فندق #{shift_id}",
     )
     sh.treasury_handoff_at = datetime.now(timezone.utc)
     sh.treasury_handoff_by_id = user_id

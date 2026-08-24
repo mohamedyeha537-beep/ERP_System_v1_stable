@@ -210,12 +210,25 @@ def delete_department(db: Session, dept_id: int) -> None:
     db.delete(dept)
 
 
-def department_employee_counts(db: Session) -> dict[int, int]:
-    rows = db.execute(
+def department_employee_counts(db: Session, domain=None) -> dict[int, int]:
+    from modules.platform.business_domain import BusinessDomain, employee_domain_sql_values
+
+    filter_domain = domain if isinstance(domain, BusinessDomain) or domain is None else None
+    if domain is not None and not isinstance(domain, BusinessDomain):
+        try:
+            filter_domain = BusinessDomain(str(domain).strip().lower())
+        except ValueError:
+            filter_domain = None
+    stmt = (
         select(Employee.department_id, func.count())
         .where(Employee.department_id.isnot(None))
         .group_by(Employee.department_id)
-    ).all()
+    )
+    if filter_domain is not None:
+        stmt = stmt.where(
+            Employee.business_domain.in_(employee_domain_sql_values(filter_domain))
+        )
+    rows = db.execute(stmt).all()
     return {int(r[0]): int(r[1]) for r in rows if r[0] is not None}
 
 

@@ -76,8 +76,14 @@ def build_hotel_shift_close_rows(
     bank_in = (
         activity.booking_payments_bank + activity.meals_settled_bank
     ).quantize(Decimal("0.001"))
-    cash_sub = f"افتتاحي {oc} + قبض الجلسة {cash_in} − مصروف كاش {cx}"
-    bank_sub = f"افتتاحي {ob} + قبض الجلسة {bank_in} − مصروف مصرف {bx}"
+    if cash_in < 0:
+        cash_sub = f"افتتاحي {oc} − صرف/استرداد الجلسة {abs(cash_in)} − مصروف كاش {cx}"
+    else:
+        cash_sub = f"افتتاحي {oc} + قبض الجلسة {cash_in} − مصروف كاش {cx}"
+    if bank_in < 0:
+        bank_sub = f"افتتاحي {ob} − صرف/استرداد الجلسة {abs(bank_in)} − مصروف مصرف {bx}"
+    else:
+        bank_sub = f"افتتاحي {ob} + قبض الجلسة {bank_in} − مصروف مصرف {bx}"
     return [
         HotelShiftCloseRow(
             key="cash",

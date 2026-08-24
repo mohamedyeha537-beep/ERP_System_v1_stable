@@ -7,10 +7,17 @@
       يُسمّى محاسبياً «إجمالي الربح» أو «هامش المساهمة» — يخبرك بكفاءة سعر بيعك مقابل تكلفة الشراء فقط.
     </div>
     {{ stmt_table_open() }}
+    {% if revenue_source == 'hotel' %}
+    {{ stmt_row('+', 'إيراد الإقامة (مستحق)', '+ ' ~ (hotel_accommodation_total|default(0)) ~ ' د.ل', 'مجموع إيجار الحجوزات في الفترة', '/admin/hotel/bookings', '', tone='plus') }}
+    {{ stmt_row('+', 'قبض الحجوزات', '+ ' ~ sales_sum.gross_revenue ~ ' د.ل', 'إيصالات قبض', '/reports/hotel-shifts', sales_sum.invoice_count ~ ' قبض', tone='plus') }}
+    {{ stmt_row('−', 'استرداد للنزلاء', '− ' ~ sales_sum.returns_total ~ ' د.ل', 'إيصالات صرف', '/admin/hotel/bookings', sales_sum.return_count ~ ' صرف', tone='minus') }}
+    {{ stmt_row('=', 'صافي التحصيل', sales_sum.net_revenue ~ ' د.ل', 'قبض − استرداد', '/reports', '', kind='subtotal', tone='plus' if sales_sum.net_revenue >= 0 else 'minus') }}
+    {% else %}
     {{ stmt_row('+', 'إجمالي المبيعات', '+ ' ~ sales_sum.gross_revenue ~ ' د.ل', 'تفاصيل المبيعات والفواتير', '/reports/sales?period=' ~ period, '', tone='plus') }}
     {{ stmt_row('·', 'عدد الفواتير', sales_sum.invoice_count|string, '', '/reports/sales?period=' ~ period, 'فاتورة', kind='indent', tone='neutral') }}
     {{ stmt_row('−', 'المرتجعات', '− ' ~ sales_sum.returns_total ~ ' د.ل', 'سندات المرتجع', '/refunds', sales_sum.return_count ~ ' سند', tone='minus') }}
     {{ stmt_row('+', 'صافي المبيعات', '+ ' ~ sales_sum.net_revenue ~ ' د.ل', 'بعد خصم المرتجعات', '/reports/sales?period=' ~ period, '', tone='plus') }}
+    {% endif %}
     {{ stmt_row('−', 'تكلفة البضاعة المباعة (COGS)', '− ' ~ cogs ~ ' د.ل', 'ربح كل صنف', '/reports/profit?period=' ~ period, '', tone='minus') }}
     {{ stmt_row('=', 'الفرق (الربح الإجمالي)', gross_profit ~ ' د.ل', 'حسبة (١)', '/reports/profit?period=' ~ period, '', kind='subtotal', tone='plus' if gross_profit >= 0 else 'minus') }}
     {{ stmt_table_close() }}

@@ -109,17 +109,14 @@ def employees_list(
         db, only_active=False, department_id=dept_filter, domain=finance_domain
     )
     departments = hr.list_departments(db, only_active=False)
-    dept_counts = hr.department_employee_counts(db)
-    total_employee_count = int(
-        db.scalar(select(func.count()).select_from(Employee)) or 0
+    dept_counts = hr.department_employee_counts(db, domain=finance_domain)
+    total_employee_count = len(
+        hr.list_employees(db, only_active=False, domain=finance_domain)
     )
-    unassigned_count = int(
-        db.scalar(
-            select(func.count())
-            .select_from(Employee)
-            .where(Employee.department_id.is_(None))
+    unassigned_count = len(
+        hr.list_employees(
+            db, only_active=False, department_id=0, domain=finance_domain
         )
-        or 0
     )
     total_active_salaries = hr.total_active_monthly_salaries(db, domain=finance_domain)
     return templates.TemplateResponse(
@@ -142,7 +139,15 @@ def employees_list(
     )
 
 
-def _employee_form_ctx(request: Request, db, error: str | None, emp=None, user=None):
+def _employee_form_ctx(
+    request: Request,
+    db,
+    error: str | None,
+    emp=None,
+    user=None,
+    *,
+    return_department_id: int | None = None,
+):
     hr.ensure_default_departments(db)
     db.flush()
     from modules.platform.business_domain import (
@@ -195,6 +200,7 @@ def _employee_form_ctx(request: Request, db, error: str | None, emp=None, user=N
         "domain_label": domain_label(fin_dom)
         if user
         else "الكل",
+        "return_department_id": return_department_id,
     }
 
 
@@ -217,10 +223,17 @@ def employee_new(
     db: DBSession,
     user: User = Depends(_manage_perm),
     error: str | None = Query(None),
+    department_id: int | None = Query(None),
 ):
     return templates.TemplateResponse(
         "admin_employee_form.html",
-        _employee_form_ctx(request, db, error, None, user=user),
+        _employee_form_ctx(
+            request,
+            db,
+            error,
+            user=user,
+            return_department_id=department_id,
+        ),
     )
 
 
@@ -272,13 +285,21 @@ def employee_edit(
     db: DBSession,
     user: User = Depends(_manage_perm),
     error: str | None = Query(None),
+    department_id: int | None = Query(None),
 ):
     emp = hr.get_employee(db, emp_id)
     if emp is None:
         return RedirectResponse("/admin/employees", status_code=302)
     return templates.TemplateResponse(
         "admin_employee_form.html",
-        _employee_form_ctx(request, db, error, emp, user=user),
+        _employee_form_ctx(
+            request,
+            db,
+            error,
+            emp,
+            user=user,
+            return_department_id=department_id,
+        ),
     )
 
 
@@ -419,7 +440,27 @@ async def employee_save(
                 f"/admin/employees/{emp_id}?error={e}", status_code=302
             )
         return RedirectResponse(f"/admin/employees/new?error={e}", status_code=302)
-    return RedirectResponse(f"/admin/employees?saved=1#emp-{emp.id}", status_code=302)
+    from modules.platform.business_domain import employee_domain_sql_values
+    from urllib.parse import urlencode
+
+    return_dept = (form.get("return_department_id") or "").strip()
+    params: dict[str, str] = {"saved": "1"}
+    if return_dept.isdigit():
+        params["department_id"] = return_dept
+    if finance_domain is not None:
+        visible = employee_domain_sql_values(finance_domain) or []
+        if emp.business_domain not in visible:
+            params["notice"] = (
+                "تم الحفظ — الموظف أصبح في مجال «"
+                + ("فندق" if emp.business_domain == "hotel" else emp.business_domain)
+                + "» ولن يظهر في عرض "
+                + ("المطعم" if finance_domain.value == "restaurant" else "الفندق")
+                + ". بدّل العرض من الشريط العلوي لرؤيته."
+            )
+    return RedirectResponse(
+        f"/admin/employees?{urlencode(params)}#emp-{emp.id}",
+        status_code=302,
+    )
 
 
 @employees_router.get("/{emp_id}/delete", response_class=HTMLResponse)

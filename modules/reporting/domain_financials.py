@@ -48,11 +48,37 @@ class DomainPeriodFinancials:
 
 
 def _hotel_sales_summary(db: Session, start: datetime, end: datetime) -> SalesSummary:
-    from modules.hotel.booking_models import HotelBookingPayment
+    """تحصيلات الفندق: قبض − استرداد (ليس إيراد إقامة مستحق)."""
+    from modules.hotel.booking_models import (
+        HotelBookingPayment,
+        HotelBookingPaymentRefund,
+    )
     from modules.hotel.revenue_stats import hotel_cash_collected
 
-    revenue = hotel_cash_collected(db, start, end)
-    cnt = int(
+    collected = Decimal(
+        str(
+            db.scalar(
+                select(func.coalesce(func.sum(HotelBookingPayment.amount), 0)).where(
+                    HotelBookingPayment.created_at >= start,
+                    HotelBookingPayment.created_at < end,
+                )
+            )
+            or 0
+        )
+    ).quantize(Decimal("0.001"))
+    refunded = Decimal(
+        str(
+            db.scalar(
+                select(func.coalesce(func.sum(HotelBookingPaymentRefund.amount), 0)).where(
+                    HotelBookingPaymentRefund.created_at >= start,
+                    HotelBookingPaymentRefund.created_at < end,
+                )
+            )
+            or 0
+        )
+    ).quantize(Decimal("0.001"))
+    net = hotel_cash_collected(db, start, end)
+    pay_cnt = int(
         db.scalar(
             select(func.count())
             .select_from(HotelBookingPayment)
@@ -63,16 +89,41 @@ def _hotel_sales_summary(db: Session, start: datetime, end: datetime) -> SalesSu
         )
         or 0
     )
-    avg = (revenue / cnt).quantize(Decimal("0.001")) if cnt else Decimal("0")
+    ref_cnt = int(
+        db.scalar(
+            select(func.count())
+            .select_from(HotelBookingPaymentRefund)
+            .where(
+                HotelBookingPaymentRefund.created_at >= start,
+                HotelBookingPaymentRefund.created_at < end,
+            )
+        )
+        or 0
+    )
+    avg = (collected / pay_cnt).quantize(Decimal("0.001")) if pay_cnt else Decimal("0")
     return SalesSummary(
-        invoice_count=cnt,
-        return_count=0,
-        gross_revenue=revenue,
-        returns_total=Decimal("0"),
-        net_revenue=revenue,
-        revenue=revenue,
+        invoice_count=pay_cnt,
+        return_count=ref_cnt,
+        gross_revenue=collected,
+        returns_total=refunded,
+        net_revenue=net,
+        revenue=net,
         avg_basket=avg,
     )
+
+
+def _hotel_accommodation_revenue(db: Session, start: datetime, end: datetime) -> Decimal:
+    """إيراد الإقامة المستحق (مجموع accommodation_total للحجوزات في الفترة)."""
+    from modules.hotel.booking_models import HotelBooking, RecordKind
+
+    total = db.scalar(
+        select(func.coalesce(func.sum(HotelBooking.accommodation_total), 0)).where(
+            HotelBooking.record_kind == RecordKind.BOOKING,
+            HotelBooking.created_at >= start,
+            HotelBooking.created_at < end,
+        )
+    )
+    return Decimal(str(total or 0)).quantize(Decimal("0.001"))
 
 
 def _variable_cost(db: Session, start: datetime, end: datetime, domain) -> Decimal:
@@ -99,14 +150,14 @@ def build_domain_period_financials(
 
     if domain == BusinessDomain.HOTEL:
         sales_sum = _hotel_sales_summary(db, start, end)
-        rev = sales_sum.revenue
+        rev = sales_sum.net_revenue
         return DomainPeriodFinancials(
             sales_sum=sales_sum,
             cogs=_variable_cost(db, start, end, domain),
             revenue_source="hotel",
             net_collected=rev,
-            sales_cash_in=rev,
-            refunds_cash_out=Decimal("0"),
+            sales_cash_in=sales_sum.gross_revenue,
+            refunds_cash_out=sales_sum.returns_total,
             delivery_cash_out=Decimal("0"),
             show_product_profit=False,
         )
@@ -129,15 +180,17 @@ def build_domain_period_financials(
         )
 
     hotel_sum = _hotel_sales_summary(db, start, end)
-    combined_rev = (pos_sum.revenue + hotel_sum.revenue).quantize(Decimal("0.001"))
+    combined_rev = (pos_sum.net_revenue + hotel_sum.net_revenue).quantize(Decimal("0.001"))
     combined_cnt = pos_sum.invoice_count + hotel_sum.invoice_count
     combined = SalesSummary(
         invoice_count=combined_cnt,
-        return_count=pos_sum.return_count,
+        return_count=pos_sum.return_count + hotel_sum.return_count,
         gross_revenue=(pos_sum.gross_revenue + hotel_sum.gross_revenue).quantize(
             Decimal("0.001")
         ),
-        returns_total=pos_sum.returns_total,
+        returns_total=(pos_sum.returns_total + hotel_sum.returns_total).quantize(
+            Decimal("0.001")
+        ),
         net_revenue=combined_rev,
         revenue=combined_rev,
         avg_basket=(combined_rev / combined_cnt).quantize(Decimal("0.001"))
@@ -148,9 +201,9 @@ def build_domain_period_financials(
         sales_sum=combined,
         cogs=_variable_cost(db, start, end, domain),
         revenue_source="combined",
-        net_collected=(net_collected + hotel_sum.revenue).quantize(Decimal("0.001")),
-        sales_cash_in=sales_cash_in,
-        refunds_cash_out=refunds_cash_out,
+        net_collected=(net_collected + hotel_sum.net_revenue).quantize(Decimal("0.001")),
+        sales_cash_in=sales_cash_in + hotel_sum.gross_revenue,
+        refunds_cash_out=refunds_cash_out + hotel_sum.returns_total,
         delivery_cash_out=delivery_cash_out,
         show_product_profit=True,
     )
@@ -161,6 +214,12 @@ def build_profit_report_bundle(
 ) -> dict:
     """حزمة أرقام الربح/التدفق — تُستخدم في hub و profit و comprehensive."""
     fin = build_domain_period_financials(db, start, end, domain=domain)
+    hotel_accommodation_total = Decimal("0")
+    if domain in (BusinessDomain.HOTEL, None):
+        try:
+            hotel_accommodation_total = _hotel_accommodation_revenue(db, start, end)
+        except Exception:  # noqa: BLE001
+            hotel_accommodation_total = Decimal("0")
     inv_purch = inventory_purchases_summary(db, start, end, domain=domain)
     expenses = expenses_summary(db, start, end, domain=domain)
     expenses_for_profit = expenses_total_for_profit(db, start, end, domain=domain)
@@ -199,6 +258,7 @@ def build_profit_report_bundle(
 
     return {
         "sales_sum": fin.sales_sum,
+        "hotel_accommodation_total": hotel_accommodation_total,
         "cogs": fin.cogs,
         "packaging_cogs": packaging_cogs_summary(db, start, end),
         "packaging_breakdown": packaging_cost_breakdown(db, start, end),

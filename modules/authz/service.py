@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import bcrypt
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from infra.config import get_settings
-from modules.authz.models import Permission, Role, User
+from modules.authz.models import Permission, Role, User, user_roles
 from modules.authz.permissions import (
     ADMIN_ROLE_NAME_AR,
     ALL_PERMISSIONS,
@@ -590,3 +590,116 @@ def ensure_purchases_clerk_demo_user(db: Session) -> None:
     if not user.is_active:
         user.is_active = True
     db.flush()
+
+
+class AuthzAdminError(Exception):
+    """خطأ في إدارة المستخدمين من لوحة الأدمن."""
+
+
+def user_has_system_admin_role(user: User | None) -> bool:
+    if user is None:
+        return False
+    return any(
+        (r.name_ar or "").strip() == ADMIN_ROLE_NAME_AR for r in (user.roles or [])
+    )
+
+
+def count_active_system_admins(db: Session) -> int:
+    admin_role = db.execute(
+        select(Role).where(Role.name_ar == ADMIN_ROLE_NAME_AR)
+    ).scalar_one_or_none()
+    if admin_role is None:
+        return 0
+    return int(
+        db.scalar(
+            select(func.count())
+            .select_from(User)
+            .join(user_roles, User.id == user_roles.c.user_id)
+            .where(
+                user_roles.c.role_id == admin_role.id,
+                User.is_active.is_(True),
+            )
+        )
+        or 0
+    )
+
+
+def _validate_username(username: str) -> str:
+    name = (username or "").strip()
+    if len(name) < 2:
+        raise AuthzAdminError("اسم المستخدم يجب أن يكون حرفين على الأقل.")
+    if len(name) > 80:
+        raise AuthzAdminError("اسم المستخدم طويل جداً (80 حرفاً كحد أقصى).")
+    return name
+
+
+def update_user_account(
+    db: Session,
+    user: User,
+    *,
+    username: str,
+    is_active: bool,
+    actor_id: int | None = None,
+) -> None:
+    """تعديل اسم المستخدم وحالة النشاط."""
+    if actor_id is not None and int(actor_id) == int(user.id):
+        if not is_active:
+            raise AuthzAdminError("لا يمكنك تعطيل حسابك أنت.")
+    new_name = _validate_username(username)
+    if new_name != user.username:
+        clash = db.execute(
+            select(User.id).where(
+                User.username == new_name,
+                User.id != user.id,
+            )
+        ).scalar_one_or_none()
+        if clash is not None:
+            raise AuthzAdminError(f"اسم المستخدم «{new_name}» مستخدم مسبقاً.")
+        user.username = new_name
+    if user_has_system_admin_role(user) and not is_active:
+        if count_active_system_admins(db) <= 1:
+            raise AuthzAdminError(
+                "لا يمكن تعطيل آخر مدير نظام نشط — أضف مديراً آخر أولاً."
+            )
+    user.is_active = bool(is_active)
+
+
+def delete_user_account(
+    db: Session,
+    user_id: int,
+    *,
+    actor_id: int | None = None,
+) -> None:
+    """حذف مستخدم نهائياً (مع فك الربط من الموظف)."""
+    from modules.pos_shifts.models import PosShift, PosShiftStatus
+
+    user = db.get(User, user_id)
+    if user is None:
+        return
+    if actor_id is not None and int(actor_id) == int(user.id):
+        raise AuthzAdminError("لا يمكنك حذف حسابك أنت.")
+    if user_has_system_admin_role(user):
+        if count_active_system_admins(db) <= 1:
+            raise AuthzAdminError(
+                "لا يمكن حذف آخر مدير نظام نشط — أضف مديراً آخر أو عطّل الحساب فقط."
+            )
+    shift_count = int(
+        db.scalar(
+            select(func.count()).select_from(PosShift).where(PosShift.user_id == user_id)
+        )
+        or 0
+    )
+    if shift_count > 0:
+        raise AuthzAdminError(
+            f"لا يمكن حذف «{user.username}» — له {shift_count} وردية كاشير مسجّلة. "
+            "عطّل الحساب بدلاً من الحذف."
+        )
+    open_shift = db.scalar(
+        select(PosShift.id).where(
+            PosShift.user_id == user_id,
+            PosShift.status == PosShiftStatus.OPEN,
+        )
+    )
+    if open_shift is not None:
+        raise AuthzAdminError("لا يمكن حذف مستخدم لديه وردية كاشير مفتوحة حالياً.")
+    db.delete(user)

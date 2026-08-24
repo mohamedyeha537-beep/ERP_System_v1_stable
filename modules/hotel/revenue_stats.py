@@ -116,7 +116,14 @@ def hotel_collections_by_payment_method(
             HotelBookingPayment,
             HotelBookingPayment.id == HotelBookingPaymentRefund.payment_id,
         )
-        .join(PaymentMethod, PaymentMethod.id == HotelBookingPayment.payment_method_id)
+        .join(
+            PaymentMethod,
+            PaymentMethod.id
+            == func.coalesce(
+                HotelBookingPaymentRefund.payment_method_id,
+                HotelBookingPayment.payment_method_id,
+            ),
+        )
         .where(
             HotelBookingPaymentRefund.created_at >= start,
             HotelBookingPaymentRefund.created_at < end,

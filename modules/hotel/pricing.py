@@ -121,7 +121,9 @@ def accommodation_segment_for_room(
     if units <= 0:
         return Decimal("0")
     if room is not None and room.nightly_price is not None:
-        return (Decimal(str(room.nightly_price)) * units).quantize(Decimal("0.001"))
+        rp = Decimal(str(room.nightly_price))
+        if rp > 0:
+            return (rp * units).quantize(Decimal("0.001"))
     rt_id = (room.room_type_id if room is not None else None) or room_type_id
     if rt_id:
         return accommodation_total(
@@ -134,3 +136,30 @@ def accommodation_segment_for_room(
             first_chargeable_night=seg_in,
         )
     return Decimal("0")
+
+
+def room_can_be_priced(
+    db: Session,
+    room,
+    *,
+    seg_in: date,
+    seg_out: date,
+) -> bool:
+    """هل يمكن احتساب إيجار للشقة في الفترة (سعر مخصص أو نوع غرفة)؟"""
+    if seg_out <= seg_in:
+        return False
+    if room is None or not getattr(room, "is_active", True):
+        return False
+    rp = Decimal(str(getattr(room, "nightly_price", None) or 0))
+    if rp > 0:
+        return True
+    rt_id = getattr(room, "room_type_id", None)
+    if not rt_id:
+        return False
+    return accommodation_segment_for_room(
+        db,
+        room=room,
+        room_type_id=int(rt_id),
+        seg_in=seg_in,
+        seg_out=seg_out,
+    ) > Decimal("0.0005")

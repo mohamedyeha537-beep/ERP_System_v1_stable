@@ -698,6 +698,53 @@ def _iter_rewritten_sql_chunks(sql_path: Path, *, chunk_size: int = 1024 * 1024)
                     carry = ""
 
 
+def _release_mysql_sessions_before_restore() -> None:
+    """يقطع جلسات التطبيق على القاعدة — يمنع تعليق DROP TABLE أثناء الاستيراد."""
+    try:
+        eng = get_engine()
+        eng.dispose()
+    except Exception:  # noqa: BLE001
+        pass
+    if not is_mysql():
+        return
+    import subprocess
+
+    try:
+        mysql_bin = _resolve_mysql_tool("mysql")
+        url = _sqlalchemy_url()
+        db_name = (url.database or "pos_db").replace("`", "``")
+        user_name = (url.username or "root").replace("'", "''")
+        kill_query = (
+            "SELECT id FROM information_schema.processlist "
+            f"WHERE user = '{user_name}' AND id <> CONNECTION_ID()"
+        )
+        with _mysql_client_cmd(mysql_bin) as (cmd, _url):
+            list_cmd = list(cmd) + ["-N", "-B", "-e", kill_query, url.database or "pos_db"]
+            proc = subprocess.run(
+                list_cmd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            )
+            ids = [
+                int(line.strip())
+                for line in (proc.stdout or "").splitlines()
+                if line.strip().isdigit()
+            ]
+            for pid in ids:
+                with _mysql_client_cmd(mysql_bin) as (kcmd, _u2):
+                    kill_cmd = list(kcmd) + ["-e", f"KILL {pid};", url.database or "pos_db"]
+                    subprocess.run(
+                        kill_cmd,
+                        capture_output=True,
+                        timeout=15,
+                        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                    )
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def restore_from_sql(uploaded_path: Path) -> Path:
     """يستعيد MySQL من ملف mysqldump (.sql أو .sql.gz)."""
     import subprocess
@@ -716,11 +763,7 @@ def restore_from_sql(uploaded_path: Path) -> Path:
 
     safety_path = make_backup()
 
-    try:
-        eng = get_engine()
-        eng.dispose()
-    except Exception:
-        pass
+    _release_mysql_sessions_before_restore()
 
     try:
         mysql_bin = _resolve_mysql_tool("mysql")

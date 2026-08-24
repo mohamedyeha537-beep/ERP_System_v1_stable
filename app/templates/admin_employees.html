@@ -55,7 +55,7 @@
     <h1 style="margin: 0">إدارة الموظفين</h1>
     <p class="muted" style="margin: 0.35rem 0 0">
       عرض: <strong>{{ domain_label }}</strong>
-      {% if finance_domain_filter %} — موظفو {{ domain_label }} فقط{% endif %}
+      {% if finance_domain_filter %} — موظفو {{ domain_label }} فقط (المشتركون يظهرون في المطعم والفندق){% endif %}
     </p>
   </div>
   <div class="row" style="gap: 0.4rem">
@@ -77,10 +77,13 @@
 
 {% if error %}<div class="alert">{{ error }}</div>{% endif %}
 {% if saved %}<div class="alert" style="background:#ecfdf5; border-color:#10b981; color:#065f46">تم الحفظ ✓</div>{% endif %}
+{% if request.query_params.get('notice') %}
+<div class="alert" style="background:#fffbeb; border-color:#f59e0b; color:#92400e">{{ request.query_params.get('notice') }}</div>
+{% endif %}
 
 <div class="hr-stat-bar">
   <div class="hr-stat acc">
-    <div class="label">عدد الموظفين</div>
+    <div class="label">عدد المعروض{% if department_id is not none %} في القسم{% endif %} ({{ domain_label }})</div>
     <div class="value">{{ items|length }}</div>
   </div>
   <div class="hr-stat acc">
@@ -165,7 +168,7 @@
           {% endif %}
         </td>
         <td class="row" style="gap:0.3rem; margin:0">
-          <a class="btn" href="/admin/employees/{{ emp.id }}" style="padding: 0.2rem 0.55rem; font-size: 0.85rem">تحرير</a>
+          <a class="btn" href="/admin/employees/{{ emp.id }}{% if department_id is not none %}?department_id={{ department_id }}{% endif %}" style="padding: 0.2rem 0.55rem; font-size: 0.85rem">تحرير</a>
           <a class="btn" href="/admin/attendance?employee_id={{ emp.id }}" style="padding: 0.2rem 0.55rem; font-size: 0.85rem">سجل الحضور</a>
           <form method="post" action="/admin/employees/{{ emp.id }}/delete" style="display:inline" onsubmit="return confirm('حذف الموظف نهائياً؟ يُحذف الحضور والسلف والخصومات وبنود الرواتب غير المُصروفة.')">
             <button class="btn" type="submit" style="padding:0.2rem 0.55rem; font-size:0.85rem; color:#b91c1c; border-color:#fecaca">حذف</button>

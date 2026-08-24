@@ -596,6 +596,12 @@ def close_shift(
     except Exception as exc:
         raise HotelShiftError("مبالغ المعدود غير صالحة.") from exc
     if cnt_cash < 0 or cnt_bank < 0:
+        if exp_cash < 0 or exp_bank < 0:
+            raise HotelShiftError(
+                "المعدود لا يمكن أن يكون سالباً. "
+                "المتوقع سالب لأن الجلسة فيها استرداد/صرف أكثر من القبض — "
+                "أدخل 0 إذا الدرج فارغ (لا تُدخل سالباً لمطابقة المتوقع)."
+            )
         raise HotelShiftError("المعدود لا يمكن أن يكون سالباً.")
 
     def _int_val(raw, default: int = 0) -> int:

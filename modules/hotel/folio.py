@@ -35,6 +35,140 @@ class BookingCashMovement:
     debit: Decimal = Decimal("0")
     credit: Decimal = Decimal("0")
     running_balance: Decimal = Decimal("0")
+    # وسيلة الدفع/الصرف — للمدفوعات والإرجاعات
+    method_label: str | None = None
+    method_kind: str | None = None  # CASH | BANK | OTHER
+
+
+@dataclass
+class PaymentMeansBreakdown:
+    """تفصيل ما دُفع كاش / مصرف على الحجز (صافي بعد الإرجاعات)."""
+
+    cash_paid: Decimal
+    bank_paid: Decimal
+    other_paid: Decimal
+    cash_refunded: Decimal
+    bank_refunded: Decimal
+    other_refunded: Decimal
+    lines: list[dict]
+
+    @property
+    def cash_net(self) -> Decimal:
+        return (self.cash_paid - self.cash_refunded).quantize(Decimal("0.001"))
+
+    @property
+    def bank_net(self) -> Decimal:
+        return (self.bank_paid - self.bank_refunded).quantize(Decimal("0.001"))
+
+    @property
+    def other_net(self) -> Decimal:
+        return (self.other_paid - self.other_refunded).quantize(Decimal("0.001"))
+
+    @property
+    def total_paid(self) -> Decimal:
+        return (self.cash_paid + self.bank_paid + self.other_paid).quantize(Decimal("0.001"))
+
+    @property
+    def total_refunded(self) -> Decimal:
+        return (self.cash_refunded + self.bank_refunded + self.other_refunded).quantize(
+            Decimal("0.001")
+        )
+
+    @property
+    def total_net(self) -> Decimal:
+        return (self.total_paid - self.total_refunded).quantize(Decimal("0.001"))
+
+
+def _payment_method_meta(db: Session, payment_method_id: int | None) -> tuple[str | None, str | None]:
+    """(اسم الوسيلة، النوع CASH/BANK/OTHER)."""
+    if not payment_method_id:
+        return None, None
+    try:
+        from modules.payments.models import PaymentMethod, PaymentMethodKind
+        from modules.payments.service import payment_method_kind_matches
+
+        pm = db.get(PaymentMethod, int(payment_method_id))
+        if pm is None:
+            return None, None
+        label = (getattr(pm, "name_ar", None) or "").strip() or f"#{pm.id}"
+        if payment_method_kind_matches(pm, PaymentMethodKind.CASH):
+            kind = "CASH"
+        elif payment_method_kind_matches(pm, PaymentMethodKind.BANK):
+            kind = "BANK"
+        else:
+            kind = "OTHER"
+        return label, kind
+    except Exception:  # noqa: BLE001
+        return None, None
+
+
+def build_payment_means_breakdown(
+    db: Session, booking: HotelBooking
+) -> PaymentMeansBreakdown:
+    """يجمع المدفوعات حسب كاش / مصرف لعرضها للاستقبال."""
+    cash_p = bank_p = other_p = Decimal("0")
+    cash_r = bank_r = other_r = Decimal("0")
+    lines: list[dict] = []
+    for pay in sorted(
+        list(getattr(booking, "payments", None) or []),
+        key=lambda p: int(getattr(p, "id", 0) or 0),
+    ):
+        amt = Decimal(str(pay.amount or 0)).quantize(Decimal("0.001"))
+        if amt <= 0:
+            continue
+        label, kind = _payment_method_meta(db, getattr(pay, "payment_method_id", None))
+        kind = kind or "OTHER"
+        if kind == "CASH":
+            cash_p += amt
+        elif kind == "BANK":
+            bank_p += amt
+        else:
+            other_p += amt
+        refunded_sum = Decimal("0")
+        try:
+            for ref in list(getattr(pay, "refunds", None) or []):
+                ramt = Decimal(str(ref.amount or 0)).quantize(Decimal("0.001"))
+                if ramt <= 0:
+                    continue
+                refunded_sum += ramt
+                # الإرجاع يُحسب على وسيلة الصرف إن وُجدت، وإلا وسيلة الدفعة الأصلية
+                r_label, r_kind = _payment_method_meta(
+                    db, getattr(ref, "payment_method_id", None) or pay.payment_method_id
+                )
+                r_kind = r_kind or kind
+                if r_kind == "CASH":
+                    cash_r += ramt
+                elif r_kind == "BANK":
+                    bank_r += ramt
+                else:
+                    other_r += ramt
+                del r_label
+        except Exception:  # noqa: BLE001
+            pass
+        kind_ar = {"CASH": "كاش", "BANK": "مصرف", "OTHER": "أخرى"}.get(kind, "أخرى")
+        lines.append(
+            {
+                "payment_id": int(pay.id),
+                "amount": amt,
+                "refunded": refunded_sum.quantize(Decimal("0.001")),
+                "remaining": (amt - refunded_sum).quantize(Decimal("0.001")),
+                "method_label": label or "—",
+                "method_kind": kind,
+                "method_kind_ar": kind_ar,
+                "is_deposit": bool(getattr(pay, "is_deposit", False)),
+                "is_refunded": bool(getattr(pay, "is_refunded", False)),
+                "created_at": getattr(pay, "created_at", None),
+            }
+        )
+    return PaymentMeansBreakdown(
+        cash_paid=cash_p.quantize(Decimal("0.001")),
+        bank_paid=bank_p.quantize(Decimal("0.001")),
+        other_paid=other_p.quantize(Decimal("0.001")),
+        cash_refunded=cash_r.quantize(Decimal("0.001")),
+        bank_refunded=bank_r.quantize(Decimal("0.001")),
+        other_refunded=other_r.quantize(Decimal("0.001")),
+        lines=lines,
+    )
 
 
 _KIND_SORT = {
@@ -176,12 +310,21 @@ def build_account_ledger(
 
     for row in audits:
         if row.action == "charge_reduction":
-            amt = _parse_decimal(row.new_value)
-            if amt and amt > 0:
-                reduction_amt = amt
+            old_acc = _parse_decimal(row.old_value)
+            new_val = _parse_decimal(row.new_value)
+            if old_acc is not None and new_val is not None and old_acc > new_val:
+                # new_value = إجمالي الإقامة بعد التخفيض
+                reduction_amt = (old_acc - new_val).quantize(Decimal("0.001"))
                 reduction_at = row.created_at
                 reduction_note = (row.reason or "").strip() or "تخفيض مستحقات (مغادرة مبكرة)"
-                old_acc = _parse_decimal(row.old_value)
+                acc_booked = (old_acc - Decimal(str(booking.discount_amount or 0))).quantize(
+                    Decimal("0.001")
+                )
+            elif new_val and new_val > 0:
+                # توافق قديم: new_value = مبلغ التخفيض
+                reduction_amt = new_val
+                reduction_at = row.created_at
+                reduction_note = (row.reason or "").strip() or "تخفيض مستحقات (مغادرة مبكرة)"
                 if old_acc is not None and old_acc > acc_actual:
                     acc_booked = (old_acc - Decimal(str(booking.discount_amount or 0))).quantize(
                         Decimal("0.001")
@@ -211,21 +354,25 @@ def build_account_ledger(
 
     stay_charge = acc_booked if reduction_amt > 0 else acc_actual
     if stay_charge > 0:
-        nights = int(booking.nights or 0)
-        if nights <= 0 and stay_charge > 0:
+        stay_start = getattr(booking, "first_chargeable_night", None) or booking.check_in
+        nights = max(0, (booking.check_out - stay_start).days)
+        if nights <= 0:
             nights = 1
         if reduction_amt > 0 and getattr(booking, "scheduled_check_out", None):
             try:
-                nights = max(0, (booking.planned_check_out - booking.check_in).days) or nights
+                booked_nights = max(0, (booking.planned_check_out - stay_start).days)
+                if booked_nights > nights:
+                    nights = booked_nights
             except Exception:
                 pass
+        per_night = (stay_charge / Decimal(nights)).quantize(Decimal("0.001"))
         movements.append(
             BookingCashMovement(
                 kind="charge",
                 created_at=booking.created_at or getattr(booking, "checked_in_at", None),
                 amount=stay_charge,
                 label=f"مستحق إقامة ({nights} ليلة)",
-                note=f"سعر الليلة {booking.nightly_rate}" if booking.nightly_rate else None,
+                note=f"سعر الليلة {per_night}",
                 debit=stay_charge,
             )
         )
@@ -336,16 +483,25 @@ def build_account_ledger(
         if amt <= 0:
             continue
         gross += amt
+        pm_label, pm_kind = _payment_method_meta(db, getattr(pay, "payment_method_id", None))
+        kind_ar = {"CASH": "كاش", "BANK": "مصرف", "OTHER": "أخرى"}.get(pm_kind or "", "")
+        base_label = "عربون مدفوع" if pay.is_deposit else "مبلغ مدفوع"
+        if kind_ar:
+            base_label = f"{base_label} — {kind_ar}"
+        if pm_label:
+            base_label = f"{base_label} ({pm_label})"
         movements.append(
             BookingCashMovement(
                 kind="payment",
                 created_at=pay.created_at,
                 amount=amt,
-                label="عربون مدفوع" if pay.is_deposit else "مبلغ مدفوع",
+                label=base_label,
                 note=(pay.note or None),
                 is_deposit=bool(pay.is_deposit),
                 payment_id=int(pay.id) if getattr(pay, "id", None) else None,
                 credit=amt,
+                method_label=pm_label,
+                method_kind=pm_kind,
             )
         )
         try:
@@ -357,16 +513,26 @@ def build_account_ledger(
             if ramt <= 0:
                 continue
             refunded += ramt
+            r_pm = getattr(ref, "payment_method_id", None) or pay.payment_method_id
+            r_label, r_kind = _payment_method_meta(db, r_pm)
+            r_kind_ar = {"CASH": "كاش", "BANK": "مصرف", "OTHER": "أخرى"}.get(r_kind or "", "")
+            r_base = "إرجاع للنزيل"
+            if r_kind_ar:
+                r_base = f"{r_base} — {r_kind_ar}"
+            if r_label:
+                r_base = f"{r_base} ({r_label})"
             movements.append(
                 BookingCashMovement(
                     kind="refund",
                     created_at=ref.created_at,
                     amount=ramt,
-                    label="إرجاع نقدي للنزيل (خصم من رصيد المدفوع)",
+                    label=r_base,
                     note=(ref.reason or "").strip() or None,
                     payment_id=int(pay.id) if getattr(pay, "id", None) else None,
                     refund_id=int(ref.id) if getattr(ref, "id", None) else None,
                     debit=ramt,
+                    method_label=r_label,
+                    method_kind=r_kind,
                 )
             )
 
@@ -624,6 +790,41 @@ def allocate_paid_to_sides(
     company_paid = min(p, ct)
     guest_paid = (p - company_paid).quantize(Decimal("0.001"))
     return company_paid, guest_paid
+
+
+def _sum_folio_line_amounts(lines: list[FolioLine]) -> Decimal:
+    return sum((Decimal(str(ln.amount or 0)) for ln in lines), Decimal("0")).quantize(
+        Decimal("0.001")
+    )
+
+
+def _guest_domain_totals(folio: FolioSummary) -> tuple[Decimal, Decimal]:
+    """(مستحقات النزيل — فندق، مستحقات النزيل — مطعم)."""
+    hotel = _sum_folio_line_amounts(side_lines_for_scope(folio.guest_folio, "hotel"))
+    rest = _sum_folio_line_amounts(side_lines_for_scope(folio.guest_folio, "restaurant"))
+    return hotel, rest
+
+
+def _allocate_scoped_guest_paid(
+    folio: FolioSummary,
+    scope: str,
+    guest_scope_total: Decimal,
+) -> Decimal:
+    """يوزّع مدفوعات النزيل بين الفندق والمطعم — لا يُسند كله لحساب الفندق."""
+    _, guest_paid_all = allocate_paid_to_sides(
+        folio.company_total, folio.guest_total, folio.paid
+    )
+    hotel_g, rest_g = _guest_domain_totals(folio)
+    hotel_gp = min(hotel_g, guest_paid_all).quantize(Decimal("0.001"))
+    rest_gp = min(rest_g, max(Decimal("0"), guest_paid_all - hotel_gp)).quantize(
+        Decimal("0.001")
+    )
+    g_total = Decimal(str(guest_scope_total or 0)).quantize(Decimal("0.001"))
+    if scope == "hotel":
+        return min(g_total, hotel_gp).quantize(Decimal("0.001"))
+    if scope == "restaurant":
+        return min(g_total, rest_gp).quantize(Decimal("0.001"))
+    return min(g_total, guest_paid_all).quantize(Decimal("0.001"))
 
 
 def _party_from_totals(side: str, label: str, charges: Decimal, paid: Decimal) -> PartyAccount:
@@ -975,6 +1176,14 @@ def _amt_side(obj, side: str, full: Decimal) -> Decimal:
         return Decimal("0")
     except Exception:  # noqa: BLE001
         return full if side == "GUEST" else Decimal("0")
+
+
+def clear_folio_cache(db: Session) -> None:
+    if hasattr(db, "_folio_build_cache"):
+        try:
+            delattr(db, "_folio_build_cache")
+        except Exception:  # noqa: BLE001
+            setattr(db, "_folio_build_cache", {})
 
 
 def build_folio(
@@ -1392,11 +1601,11 @@ def scoped_party_accounts(folio: FolioSummary, scope: str) -> BookingPartyAccoun
     g_total = sum((Decimal(str(ln.amount or 0)) for ln in g_lines), Decimal("0")).quantize(
         Decimal("0.001")
     )
-    if scope == "restaurant":
-        c_paid = Decimal("0")
-        g_paid = Decimal("0")
-    else:
-        c_paid, g_paid = allocate_paid_to_sides(c_total, g_total, folio.paid)
+    company_paid_all, _ = allocate_paid_to_sides(
+        folio.company_total, folio.guest_total, folio.paid
+    )
+    c_paid = min(c_total, company_paid_all).quantize(Decimal("0.001"))
+    g_paid = _allocate_scoped_guest_paid(folio, scope, g_total)
     return BookingPartyAccounts(
         company=_party_from_totals("COMPANY", "حساب الشركة", c_total, c_paid),
         guest=_party_from_totals("GUEST", "حساب النزيل", g_total, g_paid),
@@ -1414,10 +1623,14 @@ def folio_domain_slices(folio: FolioSummary) -> dict[str, FolioDomainSlice]:
     hotel_total = sum((Decimal(str(ln.amount or 0)) for ln in hotel_lines), Decimal("0")).quantize(
         Decimal("0.001")
     )
-    hotel_paid = Decimal(str(folio.paid or 0)).quantize(Decimal("0.001"))
-    hotel_bal = (hotel_total - hotel_paid).quantize(Decimal("0.001"))
-    rest_paid = Decimal("0")
-    rest_bal = rest_total
+    paid = Decimal(str(folio.paid or 0)).quantize(Decimal("0.001"))
+    hotel_paid = min(hotel_total, paid).quantize(Decimal("0.001"))
+    rem_paid = (paid - hotel_paid).quantize(Decimal("0.001"))
+    rest_paid = min(rest_total, rem_paid).quantize(Decimal("0.001"))
+    surplus = (rem_paid - rest_paid).quantize(Decimal("0.001"))
+    hotel_bal = (hotel_total - hotel_paid - surplus).quantize(Decimal("0.001"))
+    rest_bal = (rest_total - rest_paid).quantize(Decimal("0.001"))
+
     return {
         "hotel": FolioDomainSlice(
             key="hotel",

@@ -206,6 +206,19 @@
   {% endif %}
 
   {% if close_rows and close_rows|length > 0 %}
+  {% set ns_neg = namespace(any=false) %}
+  {% for row in close_rows if row.closable and not row.is_count and (row.expected|float) < -0.0005 %}{% set ns_neg.any = true %}{% endfor %}
+  {% if ns_neg.any %}
+  <div class="card" style="margin:0 0 0.85rem;padding:0.75rem 0.9rem;background:#fff7ed;border:1px solid #fdba74;border-radius:10px">
+    <p style="margin:0;font-weight:700;color:#9a3412">⚠️ جلسة صرف/استرداد — المتوقع سالب</p>
+    <p style="margin:0.4rem 0 0;font-size:0.88rem;line-height:1.55;color:#7c2d12">
+      المتوقع السالب يعني أنك <strong>أرجعت للنزلاء</strong> أكثر مما قبضت في هذه الجلسة.
+      في خانة «المعدود» أدخل <strong>ما في الدرج فعلاً الآن</strong> — غالباً <strong>0</strong> إذا صرفت كل العهدة.
+      <strong>لا تُدخل سالباً</strong> لمطابقة المتوقع؛ النظام يرفض المعدود السالب ولن يُقفل الجلسة.
+      قد يظهر «فائض» في الفرق — يُراجعه أمين الخزينة.
+    </p>
+  </div>
+  {% endif %}
   <div class="shift-close-summary-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.55rem;margin-bottom:0.85rem">
     <div class="card" style="margin:0;padding:0.65rem;background:#fff">
       <div class="muted" style="font-size:0.78rem">🧮 إجمالي المتوقع (كاش+مصرف)</div>
@@ -477,6 +490,7 @@
       var lines = [];
       var cashOk = false;
       var bankOk = false;
+      var blockedNegative = false;
       document.querySelectorAll(".hotel-counted-input").forEach(function (inp) {
         var field = inp.getAttribute("data-field") || "";
         var raw = String(inp.value || "").trim();
@@ -487,12 +501,24 @@
           missing.push(label);
           inp.style.borderColor = "#dc2626";
         } else {
+          var val = num(raw);
+          if (val !== null && val < 0) {
+            blockedNegative = true;
+            inp.style.borderColor = "#dc2626";
+            alert(
+              label + ": المعدود لا يمكن أن يكون سالباً.\n\n"
+              + "إذا كان المتوقع سالباً (جلسة استرداد فقط) أدخل 0 إذا الدرج فارغ."
+            );
+            inp.focus();
+            return;
+          }
           inp.style.borderColor = "";
           lines.push(label + ": " + raw);
           if (field === "cash") cashOk = true;
           if (field === "bank") bankOk = true;
         }
       });
+      if (blockedNegative) return;
       if (missing.length || !cashOk || !bankOk) {
         if (!cashOk) missing.unshift("رصيد الكاش");
         if (!bankOk) missing.unshift("رصيد المصرف");

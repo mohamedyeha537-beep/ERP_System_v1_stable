@@ -9,10 +9,13 @@ from app.jinja_env import templates
 from modules.authz.models import Permission, Role, User
 from modules.authz.permissions import ADMIN_ROLES, ADMIN_USERS
 from modules.authz.service import (
+    AuthzAdminError,
+    delete_user_account,
     get_user_by_username,
     hash_password,
     is_admin_role,
     sync_admin_role_permissions,
+    update_user_account,
     verify_password,
 )
 from modules.authz.ui_blocks import (
@@ -283,7 +286,9 @@ def _apply_user_wallet_access(db, user: User, form) -> None:
 
 
 def _admin_users_template_ctx(
-    request: Request, db, *, users=None, roles=None, error: str | None = None
+    request: Request, db, *, users=None, roles=None, error: str | None = None,
+    notice: str | None = None,
+    current_user_id: int | None = None,
 ) -> dict:
     from modules.authz.pos_wallet_access import (
         default_clerk_send_method_ids,
@@ -312,6 +317,10 @@ def _admin_users_template_ctx(
     }
     if error:
         ctx["error"] = error
+    if notice:
+        ctx["notice"] = notice
+    if current_user_id is not None:
+        ctx["current_user_id"] = current_user_id
     return ctx
 
 
@@ -319,11 +328,17 @@ def _admin_users_template_ctx(
 def admin_users(
     request: Request,
     db: DBSession,
-    _: User = Depends(require_permission(ADMIN_USERS)),
+    actor: User = Depends(require_permission(ADMIN_USERS)),
+    error: str | None = None,
+    notice: str | None = None,
 ):
+    err = (request.query_params.get("error") or error or "").strip() or None
+    msg = (request.query_params.get("notice") or notice or "").strip() or None
     return templates.TemplateResponse(
         "admin_users.html",
-        _admin_users_template_ctx(request, db),
+        _admin_users_template_ctx(
+            request, db, error=err, notice=msg, current_user_id=actor.id
+        ),
     )
 
 
@@ -402,7 +417,9 @@ async def admin_user_roles_save(
     request: Request,
     user_id: int,
     db: DBSession,
-    _: User = Depends(require_permission(ADMIN_USERS)),
+    actor: User = Depends(require_permission(ADMIN_USERS)),
+    username: str = Form(...),
+    is_active: str = Form(""),
     kds_scope: str = Form("ALL"),
     view_scope: str = Form("both"),
     ui_show: list[str] | None = Form(None),
@@ -414,6 +431,21 @@ async def admin_user_roles_save(
     u = db.get(User, user_id)
     if u is None:
         return RedirectResponse("/admin/users", status_code=302)
+    try:
+        update_user_account(
+            db,
+            u,
+            username=username,
+            is_active=is_active == "on",
+            actor_id=actor.id,
+        )
+    except AuthzAdminError as e:
+        from urllib.parse import quote
+
+        return RedirectResponse(
+            f"/admin/users?error={quote(str(e))}",
+            status_code=302,
+        )
     rids = role_ids or []
     u.roles = list(db.scalars(select(Role).where(Role.id.in_(rids))).all()) if rids else []
     parsed_view = parse_user_view_scope(view_scope)
@@ -433,7 +465,43 @@ async def admin_user_roles_save(
     _apply_user_permission_modes(db, u, form_get=lambda k: form.get(k))
     _apply_user_wallet_access(db, u, form)
     db.commit()
-    return RedirectResponse("/admin/users", status_code=302)
+    from urllib.parse import quote
+
+    return RedirectResponse(
+        f"/admin/users?notice={quote('تم تحديث ' + u.username)}",
+        status_code=302,
+    )
+
+
+@admin_router.post("/users/{user_id}/delete", response_class=HTMLResponse)
+def admin_user_delete(
+    user_id: int,
+    db: DBSession,
+    actor: User = Depends(require_permission(ADMIN_USERS)),
+    confirm_username: str = Form(""),
+):
+    from urllib.parse import quote
+
+    u = db.get(User, user_id)
+    if u is None:
+        return RedirectResponse("/admin/users", status_code=302)
+    if (confirm_username or "").strip() != u.username:
+        return RedirectResponse(
+            "/admin/users?error="
+            + quote("يجب كتابة اسم المستخدم بالضبط لتأكيد الحذف."),
+            status_code=302,
+        )
+    try:
+        name = u.username
+        delete_user_account(db, user_id, actor_id=actor.id)
+        db.commit()
+    except AuthzAdminError as e:
+        db.rollback()
+        return RedirectResponse(f"/admin/users?error={quote(str(e))}", status_code=302)
+    return RedirectResponse(
+        f"/admin/users?notice={quote('تم حذف المستخدم ' + name)}",
+        status_code=302,
+    )
 
 
 @admin_router.post("/users/{user_id}/password", response_class=HTMLResponse)
@@ -454,4 +522,9 @@ def admin_user_password_save(
         )
     u.password_hash = hash_password(new_password)
     db.commit()
-    return RedirectResponse("/admin/users", status_code=302)
+    from urllib.parse import quote
+
+    return RedirectResponse(
+        f"/admin/users?notice={quote('تم تغيير كلمة مرور ' + u.username)}",
+        status_code=302,
+    )

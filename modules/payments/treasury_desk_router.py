@@ -73,6 +73,13 @@ def treasury_desk_page(
     session = get_open_treasury_session(db)
     last = get_last_closed_treasury_session(db)
     vaults = gl_dashboard_treasury_cards(db, domain=domain) if is_gl_enabled(db) else []
+    reception_deficits: list[tuple[str, Decimal]] = []
+    try:
+        from modules.hotel.shift_handoff import hotel_reception_wallet_deficits
+
+        reception_deficits = hotel_reception_wallet_deficits(db)
+    except Exception:  # noqa: BLE001
+        reception_deficits = []
     return templates.TemplateResponse(
         "treasury/desk.html",
         {
@@ -86,6 +93,7 @@ def treasury_desk_page(
             "vaults": vaults,
             "finance_domain": domain.value if domain else None,
             "domain_label": domain_label,
+            "reception_deficits": reception_deficits,
             "err": request.query_params.get("err"),
             "ok": request.query_params.get("ok"),
         },
@@ -118,6 +126,32 @@ def _receipts_page(
             "ok": request.query_params.get("ok"),
         },
     )
+
+
+@router.post("/repair-hotel-reception", response_class=HTMLResponse)
+def treasury_repair_hotel_reception(
+    db: DBSession,
+    user: User = Depends(_act),
+):
+    from modules.hotel.shift_handoff import (
+        HotelShiftHandoffError,
+        reconcile_hotel_reception_wallet_deficits,
+    )
+
+    try:
+        reconcile_hotel_reception_wallet_deficits(
+            db,
+            user_id=user.id,
+            context="تسوية إدارية — عجز استقبال الفندق",
+        )
+        db.commit()
+    except (HotelShiftHandoffError, PaymentsError) as exc:
+        db.rollback()
+        return RedirectResponse(
+            f"/pos/treasury/desk?err={quote(str(exc))}",
+            status_code=302,
+        )
+    return RedirectResponse("/pos/treasury/desk?ok=reception_repaired", status_code=302)
 
 
 @router.get("/receipts", response_class=HTMLResponse)

@@ -37,7 +37,9 @@
         class="shift-counted-input hotel-counted-input shift-counted-input--required"
         data-kind="{{ row.kind }}"
         data-field="{{ row.key }}"
-        placeholder="{% if row.key == 'cash' or row.key == 'bank' %}أدخل المعدود بعد العدّ{% else %}أدخل العدد بعد المراجعة{% endif %}"
+        data-expected-negative="{{ '1' if (row.expected|float) < -0.0005 else '0' }}"
+        min="0"
+        placeholder="{% if (row.expected|float) < -0.0005 %}0 — ما في الدرج الآن{% elif row.key == 'cash' or row.key == 'bank' %}أدخل المعدود بعد العدّ{% else %}أدخل العدد بعد المراجعة{% endif %}"
         value=""
         required aria-required="true" autocomplete="off" dir="ltr" />
     </div>

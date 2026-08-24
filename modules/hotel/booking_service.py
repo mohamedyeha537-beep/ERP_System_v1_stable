@@ -43,11 +43,29 @@ from modules.hotel.pricing import (
     accommodation_segment_for_room,
     accommodation_total,
     nightly_rate_for_stay,
+    room_can_be_priced,
 )
 
 
 class BookingError(Exception):
     pass
+
+
+def _require_room_billable_rate(
+    db: Session,
+    room: HotelRoom,
+    *,
+    seg_in: date,
+    seg_out: date,
+    action: str,
+) -> None:
+    if room_can_be_priced(db, room, seg_in=seg_in, seg_out=seg_out):
+        return
+    label = (room.number or room.name_ar or str(room.id)).strip()
+    raise BookingError(
+        f"الشقة {label} بدون سعر إيجار — عيّن «سعر الليلة» أو «نوع الغرفة» "
+        f"له تسعير قبل {action}."
+    )
 
 
 PREPAYMENT_PERCENT_CHOICES = (0, 50, 100)
@@ -1656,6 +1674,16 @@ def available_rooms_for_change(db: Session, booking: HotelBooking) -> list[Hotel
             exclude_booking_id=booking.id,
         ):
             continue
+        stay_end = booking.check_out
+        if stay_end <= booking.check_in:
+            stay_end = booking.check_in + timedelta(days=1)
+        if not room_can_be_priced(
+            db,
+            room,
+            seg_in=getattr(booking, "first_chargeable_night", None) or booking.check_in,
+            seg_out=stay_end,
+        ):
+            continue
         result.append(room)
     return result
 
@@ -1733,6 +1761,13 @@ def create_booking(
         if room is None or (not is_quotation and not is_room_rentable(room)):
             raise BookingError("الغرفة غير جاهزة للحجز (تنظيف أو صيانة أو غير نشطة).")
         if not is_quotation:
+            _require_room_billable_rate(
+                db,
+                room,
+                seg_in=check_in,
+                seg_out=check_out if check_out > check_in else check_in + timedelta(days=1),
+                action="الحجز",
+            )
             conflict = first_room_conflict(
                 db, room_id=room_id, check_in=check_in, check_out=check_out
             )
@@ -1774,6 +1809,11 @@ def create_booking(
             db, room_type_id=room_type_id, check_in=billing_in, check_out=out_for_rate
         )
         acc_total = (rate * units).quantize(Decimal("0.001"))
+
+    if not is_quotation and acc_total <= Decimal("0.0005"):
+        raise BookingError(
+            "لا يمكن إنشاء حجز بإيجار صفر — تحقق من سعر الشقة أو تسعير نوع الغرفة للتواريخ المختارة."
+        )
 
     policy = db.scalar(
         select(HotelCancellationPolicy).where(HotelCancellationPolicy.is_default.is_(True))
@@ -2492,6 +2532,9 @@ def check_out_booking(
                 Decimal("0.001")
             )
         _recalc_payment_status(db, booking)
+        from modules.hotel.folio import clear_folio_cache
+
+        clear_folio_cache(db)
         log_audit(
             db,
             entity_type="booking",
@@ -2528,7 +2571,7 @@ def check_out_booking(
                     if settlement_snapshot is not None
                     else old_acc
                 ),
-                new_value=str(saved_acc),
+                new_value=str(new_acc),
                 reason=(
                     f"تخفيض ليالي ملغاة ({cancelled_n} ليلة)"
                     if cancelled_n is not None
@@ -2615,10 +2658,10 @@ def check_out_booking(
         else:
             raise BookingError(f"لا يمكن Check-out — متبقٍ {balance} د.ل على الحساب.")
 
-    # فائض عند الإقفال: يُحتسب على المستحقات أثناء الإقامة، وعند المغادرة يُسترد نقداً
-    # (لا ترحيل إلى محفظة العميل — الرصيد جهة الشركة أو النزيل فقط)
-    from modules.hotel.folio import build_guest_account
+    # فائض عند الإقفال — من كشف الحساب الموحّد (إقامة + مطعم + خدمات)
+    from modules.hotel.folio import build_guest_account, clear_folio_cache
 
+    clear_folio_cache(db)
     credit = build_guest_account(db, booking.id).amount_credit
     credit = Decimal(str(credit or 0)).quantize(Decimal("0.001"))
     if credit > Decimal("0.001"):
@@ -2758,10 +2801,31 @@ def extend_stay(
         raise BookingError("الغرفة محجوزة في الأيام الإضافية.")
 
     old_out = booking.check_out
+    old_acc = Decimal(str(booking.accommodation_total or 0)).quantize(Decimal("0.001"))
+    stay_start = getattr(booking, "first_chargeable_night", None) or booking.check_in
+    old_nights = max(0, (old_out - stay_start).days)
+    if old_nights <= 0 and old_acc > 0:
+        old_nights = 1
+
     booking.check_out = new_check_out
     booking.scheduled_check_out = new_check_out
-    # نفس مسار التسعير المستخدم في معاينة المغادرة (سعر الشقة / تغيير الغرفة)
-    _apply_stay_pricing(db, booking)
+    new_nights = max(0, (new_check_out - stay_start).days)
+    if new_nights <= 0 and old_acc > 0:
+        new_nights = 1
+    added_nights = new_nights - old_nights
+
+    if old_acc > Decimal("0.0005") and old_nights > 0 and added_nights > 0:
+        per_night = (old_acc / Decimal(old_nights)).quantize(Decimal("0.001"))
+        booking.accommodation_total = (
+            old_acc + per_night * Decimal(added_nights)
+        ).quantize(Decimal("0.001"))
+        if new_nights > 0:
+            booking.nightly_rate = (
+                booking.accommodation_total / Decimal(new_nights)
+            ).quantize(Decimal("0.001"))
+        _recalc_payment_status(db, booking)
+    else:
+        _apply_stay_pricing(db, booking)
     log_audit(
         db,
         entity_type="booking",
@@ -2814,18 +2878,55 @@ def change_departure_date(
         raise BookingError("لا يمكن جعل موعد المغادرة قبل اليوم — سجّل المغادرة إن غادر النزيل.")
 
     old_out = booking.check_out
+    old_acc = Decimal(str(booking.accommodation_total or 0)).quantize(Decimal("0.001"))
     old_nights = max(0, int(booking.nights or 0))
 
     booking.check_out = new_check_out
     booking.scheduled_check_out = new_check_out
-    _apply_stay_pricing(db, booking)
-    new_nights = max(0, int(booking.nights or 0))
+
+    # تخفيض نسبي من الإقامة المسجّلة — لا إعادة تسعير من سعر الشقة (قد يكون 0 أو بلا نوع)
+    if old_acc > Decimal("0.0005"):
+        from modules.hotel.departure_settlement import accommodation_after_early_departure
+
+        new_total = accommodation_after_early_departure(
+            booking,
+            actual_departure=new_check_out,
+            old_check_out=old_out,
+        )
+        booking.accommodation_total = new_total
+        new_nights = max(0, int(booking.nights or 0))
+        if new_nights > 0 and new_total > 0:
+            booking.nightly_rate = (new_total / Decimal(new_nights)).quantize(
+                Decimal("0.001")
+            )
+        else:
+            booking.nightly_rate = Decimal("0")
+        _recalc_payment_status(db, booking)
+    else:
+        _apply_stay_pricing(db, booking)
+        new_nights = max(0, int(booking.nights or 0))
+
     cancelled = max(0, old_nights - new_nights)
 
     note = (reason or "").strip()
     audit_reason = f"ليالي ملغاة={cancelled}"
     if note:
         audit_reason = f"{audit_reason} — {note}"
+
+    new_acc = Decimal(str(booking.accommodation_total or 0)).quantize(Decimal("0.001"))
+    saved_acc = (old_acc - new_acc).quantize(Decimal("0.001"))
+    if saved_acc > Decimal("0.0005"):
+        log_audit(
+            db,
+            entity_type="booking",
+            entity_id=booking.id,
+            action="charge_reduction",
+            field_name="accommodation_total",
+            old_value=str(old_acc),
+            new_value=str(new_acc),
+            reason=f"تخفيض ليالي ملغاة ({cancelled} ليلة) — تقديم موعد المغادرة",
+            user_id=user_id,
+        )
 
     log_audit(
         db,
@@ -2876,6 +2977,20 @@ def change_room(
     if booking.booking_status == BookingStatus.CHECKED_IN:
         eff_date = transfer_date or date.today()
         eff_date = max(booking.check_in, min(eff_date, booking.check_out))
+
+    stay_end = booking.check_out
+    if stay_end <= (getattr(booking, "first_chargeable_night", None) or booking.check_in):
+        stay_end = booking.check_in + timedelta(days=1)
+    seg_in = eff_date if booking.booking_status == BookingStatus.CHECKED_IN else (
+        getattr(booking, "first_chargeable_night", None) or booking.check_in
+    )
+    _require_room_billable_rate(
+        db,
+        new_room,
+        seg_in=seg_in,
+        seg_out=stay_end,
+        action="نقل النزيل إليها",
+    )
 
     new_total, price_delta, avg_rate = _room_change_pricing(
         db, booking, new_room=new_room, transfer_date=eff_date
@@ -3319,16 +3434,46 @@ def refund_payment(
     if pay.is_refunded:
         raise BookingError("الدفعة مستردة بالفعل.")
     amt = Decimal(str(amount)).quantize(Decimal("0.001"))
-    if amt <= 0 or amt > pay.amount:
-        raise BookingError("مبلغ الاسترداد غير صالح.")
+    already = Decimal("0")
+    try:
+        for prev in list(getattr(pay, "refunds", None) or []):
+            already += Decimal(str(prev.amount or 0))
+    except Exception:  # noqa: BLE001
+        already = Decimal("0")
+    already = already.quantize(Decimal("0.001"))
+    remaining = (Decimal(str(pay.amount or 0)) - already).quantize(Decimal("0.001"))
+    if amt <= 0:
+        raise BookingError("مبلغ الاسترداد غير صالح — يجب أن يكون أكبر من صفر.")
+    if remaining <= 0:
+        raise BookingError("هذه الدفعة مستردّة بالكامل مسبقاً.")
+    if amt > remaining:
+        raise BookingError(
+            f"مبلغ الاسترداد غير صالح — المطلوب {amt} د.ل أكبر من المتبقي في الدفعة "
+            f"#{pay.id} ({remaining} د.ل من أصل {pay.amount} د.ل). "
+            "اختر دفعة أكبر، أو وزّع الاسترداد على أكثر من دفعة، "
+            "أو استخدم المغادرة لتوزيع الرصيد تلقائياً."
+        )
     # وسيلة الصرف للنزيل — افتراضياً نفس وسيلة الدفعة إن لم تُحدَّد
     pm_id = payment_method_id if payment_method_id is not None else pay.payment_method_id
     try:
         from modules.authz.models import User
+        from modules.hotel.shift_handoff import (
+            HotelShiftHandoffError,
+            ensure_hotel_reception_funded_for_payout,
+        )
         from modules.payments.service import assert_hotel_payment_method
 
         pay_user = db.get(User, int(user_id)) if user_id else None
-        assert_hotel_payment_method(db, pm_id, user=pay_user)
+        payout_pm = assert_hotel_payment_method(db, pm_id, user=pay_user)
+        ensure_hotel_reception_funded_for_payout(
+            db,
+            payout_pm=payout_pm,
+            amount=amt,
+            user_id=user_id,
+            context="استرداد حجز",
+        )
+    except HotelShiftHandoffError as exc:
+        raise BookingError(str(exc)) from exc
     except Exception as exc:
         raise BookingError(str(exc)) from exc
     shift_id, emp_id = _resolve_hotel_shift_stamp(
@@ -3348,7 +3493,9 @@ def refund_payment(
     from modules.gl.posting import post_hotel_booking_payment_refund_shadow_safe
 
     post_hotel_booking_payment_refund_shadow_safe(db, ref)
-    pay.is_refunded = True
+    # استرداد جزئي: لا نعلّم الدفعة مستردّة إلا بعد استنفادها
+    new_already = (already + amt).quantize(Decimal("0.001"))
+    pay.is_refunded = new_already + Decimal("0.001") >= Decimal(str(pay.amount or 0))
     booking = db.get(HotelBooking, pay.booking_id)
     if booking:
         new_paid = max(

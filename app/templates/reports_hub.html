@@ -95,6 +95,35 @@
   {% endif %}
 
   <div class="stat-grid">
+    {% if revenue_source == 'hotel' %}
+    <div class="card" style="grid-column:1/-1;margin:0 0 0.15rem;padding:0.75rem 0.9rem;background:#eff6ff;border:1px solid #93c5fd;border-radius:10px">
+      <p style="margin:0;font-size:0.88rem;line-height:1.55;color:#1e40af">
+        <strong>تقارير الفندق — ثلاثة مؤشرات منفصلة:</strong>
+        «إيراد الإقامة» = قيمة الليالي المحجوزة · «قبض» = إيصالات قبض · «استرداد» = إيصالات صرف للنزلاء · «صافي التحصيل» = قبض − استرداد.
+        صافي التحصيل <em>لا</em> يساوي عدد الشقق × سعر الليلة إذا وُجد استرداد.
+      </p>
+    </div>
+    <div class="stat-card" title="مجموع accommodation_total للحجوزات في الفترة — ليس التحصيل النقدي">
+      <div class="label">إيراد الإقامة (مستحق)</div>
+      <div class="value">{{ hotel_accommodation_total|default(0) }} د.ل</div>
+      <div class="muted" style="font-size:0.8rem">قيمة الليالي على الحساب</div>
+    </div>
+    <div class="stat-card good">
+      <div class="label">قبض الحجوزات</div>
+      <div class="value">{{ sales_sum.gross_revenue }} د.ل</div>
+      <div class="muted" style="font-size:0.8rem">{{ sales_sum.invoice_count }} إيصال قبض</div>
+    </div>
+    <div class="stat-card warn">
+      <div class="label">استرداد للنزلاء</div>
+      <div class="value">{{ sales_sum.returns_total }} د.ل</div>
+      <div class="muted" style="font-size:0.8rem">{{ sales_sum.return_count }} إيصال صرف</div>
+    </div>
+    <div class="stat-card good" title="قبض − استرداد — ما بقي في الخزينة من تحصيلات الحجز">
+      <div class="label">صافي التحصيل</div>
+      <div class="value">{{ sales_sum.net_revenue }} د.ل</div>
+      <div class="muted" style="font-size:0.8rem">{{ sales_sum.gross_revenue }} − {{ sales_sum.returns_total }}</div>
+    </div>
+    {% else %}
     <div class="stat-card good">
       <div class="label">صافي المبيعات</div>
       <div class="value">{{ sales_sum.net_revenue }} د.ل</div>
@@ -105,6 +134,7 @@
       <div class="value">{{ sales_sum.returns_total }} د.ل</div>
       <div class="muted" style="font-size: 0.8rem">{{ sales_sum.return_count }} سند</div>
     </div>
+    {% endif %}
     <div class="stat-card bad" title="فواتير شراء البضائع التي تُضاف للمخزون">
       <div class="label">فواتير الشراء</div>
       <div class="value">{{ inv_purch.total }} د.ل</div>

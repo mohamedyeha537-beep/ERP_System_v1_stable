@@ -111,7 +111,9 @@ def preview_departure_settlement(
         projected_total = folio_total
         is_early = False if is_late else (is_early and departure < booking.check_out)
     else:
-        denom = bill_nights if bill_nights > 0 else 1
+        denom = _accommodation_bill_nights_from_booking(
+            booking, old_check_out=booking.check_out, old_acc=acc_booked
+        )
         stayed_for_money = 1 if same_day_use else stayed_nights
         stayed_for_money = min(max(stayed_for_money, 0), denom)
         acc_actual = (acc_booked * Decimal(stayed_for_money) / Decimal(denom)).quantize(Q)
@@ -146,21 +148,48 @@ def preview_departure_settlement(
     )
 
 
+def _accommodation_bill_nights_from_booking(
+    booking: HotelBooking,
+    *,
+    old_check_out: date,
+    old_acc: Decimal,
+) -> int:
+    """عدد الليالي التي يُغطّيها accommodation_total — قد يختلف عن فترة التقويم."""
+    stay_start = getattr(booking, "first_chargeable_night", None) or booking.check_in
+    calendar_nights = max(0, (old_check_out - stay_start).days)
+    if calendar_nights <= 0:
+        return 1
+    nightly = Decimal(str(booking.nightly_rate or 0)).quantize(Q)
+    if nightly > 0 and old_acc > 0:
+        priced_nights = int((old_acc / nightly).quantize(Q))
+        if priced_nights < 1:
+            priced_nights = 1
+        if priced_nights < calendar_nights:
+            return priced_nights
+    return calendar_nights
+
+
 def accommodation_after_early_departure(
     booking: HotelBooking,
     *,
     actual_departure: date,
     old_check_out: date,
 ) -> Decimal:
-    """تخفض الإقامة المخزّنة بنسبة الليالي — عند تسجيل المغادرة فقط."""
+    """تخفض الإقامة المخزّنة بنسبة الليالي — عند تقديم/تسجيل المغادرة."""
     old_acc = Decimal(str(booking.accommodation_total or 0)).quantize(Q)
-    bill_nights = max(0, (old_check_out - booking.check_in).days)
+    if old_acc <= 0:
+        return old_acc
+    stay_start = getattr(booking, "first_chargeable_night", None) or booking.check_in
+    calendar_nights = max(0, (old_check_out - stay_start).days)
+    bill_nights = _accommodation_bill_nights_from_booking(
+        booking, old_check_out=old_check_out, old_acc=old_acc
+    )
     if bill_nights <= 0:
         return old_acc
-    if actual_departure == booking.check_in:
+    if actual_departure <= stay_start:
         stayed = 1
     else:
-        stayed = max(0, (actual_departure - booking.check_in).days)
+        stayed = max(0, (actual_departure - stay_start).days)
     stayed = min(max(stayed, 0), bill_nights)
     if stayed <= 0:
         stayed = 1 if old_acc > 0 else 0
