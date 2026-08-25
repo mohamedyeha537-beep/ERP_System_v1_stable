@@ -17,6 +17,7 @@ from modules.hotel.booking_models import (
     HotelInvoiceStatus,
 )
 from modules.hotel.folio import build_folio
+from modules.hotel.models import HotelRoom
 from modules.platform.module_registry import HOTEL_FINANCE, is_module_enabled
 
 
@@ -49,11 +50,12 @@ def issue_checkout_invoice(
         domain="hotel",
     )
     booking.final_invoice_number = inv_num
+    subtotal = (folio.total + folio.discount).quantize(Decimal("0.001"))
     inv = HotelInvoice(
         booking_id=booking_id,
         invoice_number=inv_num,
         status=HotelInvoiceStatus.ISSUED,
-        subtotal=folio.total,
+        subtotal=subtotal,
         discount=folio.discount,
         total=folio.total,
         paid=folio.paid,
@@ -254,9 +256,6 @@ def process_auto_daily_close(db: Session, *, max_days: int = 7) -> int:
             set_setting(db, "hotel_daily_close_last_date", newest_target.isoformat())
 
     return closed_n
-
-
-from modules.hotel.models import HotelRoom
 
 
 def occupancy_stats(db: Session, *, on_date: date, property_id: int = 1) -> dict:

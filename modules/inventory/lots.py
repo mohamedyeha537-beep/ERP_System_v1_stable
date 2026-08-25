@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from modules.catalog.expiry import parse_optional_date
@@ -114,14 +114,19 @@ def list_fifo_lots(
     product_id: int,
     warehouse_id: int | None = None,
 ) -> list[InventoryLot]:
-    """دفعات بكمية متبقية — FIFO حسب ترتيب الاستلام (الأقدم أولاً)."""
+    """دفعات بكمية متبقية — FEFO: الأقرب صلاحيةً ثم الأقدم استلاماً."""
+    today = date.today()
     stmt = (
         select(InventoryLot)
         .where(
             InventoryLot.product_id == product_id,
             InventoryLot.qty_remaining > 0,
+            InventoryLot.expiry_date.is_(None) | (InventoryLot.expiry_date >= today),
         )
-        .order_by(InventoryLot.id.asc())
+        .order_by(
+            func.coalesce(InventoryLot.expiry_date, date(9999, 12, 31)).asc(),
+            InventoryLot.id.asc(),
+        )
     )
     if warehouse_id is not None:
         stmt = stmt.where(InventoryLot.warehouse_id == warehouse_id)

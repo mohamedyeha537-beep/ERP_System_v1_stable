@@ -3,30 +3,26 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
-
 from pathlib import Path
 
-from starlette.datastructures import UploadFile
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
+from starlette.datastructures import UploadFile
 
-from sqlalchemy import func, or_, select, update
 from modules.inventory.models import StockMovementType
 from modules.inventory.service import apply_movement
 from modules.payments.models import (
-    HOTEL_TREASURY_BANK_PM_NAME,
-    HOTEL_TREASURY_CASH_PM_NAME,
+    HOTEL_PURCHASE_CUSTODY_CASH_PM_NAME,
     HOTEL_RECEPTION_BANK_PM_NAME,
     HOTEL_RECEPTION_CASH_PM_NAME,
-    HOTEL_PURCHASE_CUSTODY_CASH_PM_NAME,
-    HOTEL_PURCHASE_CUSTODY_BANK_PM_NAME,
-    RESTAURANT_PURCHASE_CUSTODY_CASH_PM_NAME,
-    RESTAURANT_PURCHASE_CUSTODY_BANK_PM_NAME,
-    ROOM_SETTLE_CLEARING_PM_NAME,
-    PURCHASE_CUSTODY_PM_NAMES,
+    HOTEL_TREASURY_BANK_PM_NAME,
+    HOTEL_TREASURY_CASH_PM_NAME,
     LEGACY_OWNER_CAPITAL_PM_NAME,
     LEGACY_OWNER_DRAW_PM_NAME,
     OWNER_EQUITY_PM_NAME,
+    PURCHASE_CUSTODY_PM_NAMES,
+    RESTAURANT_PURCHASE_CUSTODY_CASH_PM_NAME,
+    ROOM_SETTLE_CLEARING_PM_NAME,
     SUPPLIER_CREDIT_PM_NAME,
     PaymentMethod,
     PaymentMethodDomain,
@@ -757,7 +753,7 @@ def assert_purchase_custody_payment_method(
 
 
 def purchase_user_limited_to_custody(user) -> bool:
-    from modules.authz.permissions import PURCHASES_MANAGE, PURCHASE_INVOICES_MANAGE
+    from modules.authz.permissions import PURCHASE_INVOICES_MANAGE, PURCHASES_MANAGE
     from modules.authz.service import user_has_permission
 
     return user_has_permission(
@@ -1352,7 +1348,6 @@ def record_sale_payment(
     db.add(sp)
     db.flush()
     # ترحيل الخزينة/GL لمبيعات الجلسة يتم عند إقفال الجلسة — ليس بعد كل فاتورة
-    from modules.sales.models import Sale
 
     sale_for_gl = db.get(Sale, int(sale_id))
     defer_shift_gl = bool(
@@ -1407,7 +1402,6 @@ def correct_sale_payment_method(
     user_id: int | None,
 ) -> SalePayment:
     """تصحيح وسيلة دفع فاتورة مغلقة — نقل المبلغ بين الخزائن."""
-    from modules.sales.models import Sale, SaleStatus
 
     sale = db.get(Sale, sale_id)
     if sale is None or sale.status != SaleStatus.COMPLETED:
@@ -2306,6 +2300,21 @@ def delete_purchase(db: Session, purchase_id: int) -> None:
                     warehouse_id=wid,
                     note=f"إلغاء شراء فاتورة #{p.id}",
                 )
+
+    # عكس قيد GL المرتبط بالشراء قبل الحذف
+    from modules.gl.reversal import reverse_by_idempotency_key
+
+    if p.kind == PurchaseKind.INVENTORY:
+        reverse_by_idempotency_key(db, f"purchase:inventory:{p.id}")
+    elif p.kind == PurchaseKind.ASSET:
+        reverse_by_idempotency_key(db, f"purchase:asset:{p.id}")
+    elif p.kind == PurchaseKind.EXPENSE:
+        cat = (p.expense_category or "").strip()
+        if cat == "سلف موظفين":
+            reverse_by_idempotency_key(db, f"purchase:advance:{p.id}")
+        else:
+            reverse_by_idempotency_key(db, f"purchase:expense:{p.id}")
+
     kind = p.kind
     pid = p.id
     db.delete(p)

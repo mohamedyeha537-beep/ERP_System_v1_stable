@@ -17,8 +17,7 @@ from modules.hotel.booking_models import (
 )
 from modules.hotel.models import HotelRoom
 
-
-BLOCKING_STATUSES = (BookingStatus.CONFIRMED, BookingStatus.CHECKED_IN)
+BLOCKING_STATUSES = (BookingStatus.PENDING, BookingStatus.CONFIRMED, BookingStatus.CHECKED_IN)
 OPEN_STAY_STATUSES = (
     BookingStatus.PENDING,
     BookingStatus.CONFIRMED,

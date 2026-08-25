@@ -9,19 +9,21 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from modules.gl.hierarchy import assert_postable_account, build_children_map
 from modules.gl.models import (
     GlJournalEntry,
     GlJournalEntryStatus,
     GlJournalLine,
     GlPaymentMethodMap,
 )
-from modules.gl.hierarchy import assert_postable_account, build_children_map
 from modules.gl.service import (
     entry_date_on_or_after_cutover,
     get_gl_post_mode,
     is_gl_enabled,
     is_posting_date_allowed,
 )
+from modules.hotel.booking_models import HotelBookingPayment, HotelBookingPaymentRefund
+from modules.hr.models import PayrollRun
 from modules.payments.models import (
     PaymentMethod,
     PaymentMethodKind,
@@ -35,8 +37,6 @@ from modules.payments.models import (
 )
 from modules.refunds.models import SaleReturn
 from modules.sales.models import Sale
-from modules.hr.models import PayrollRun
-from modules.hotel.booking_models import HotelBookingPayment, HotelBookingPaymentRefund
 
 logger = logging.getLogger(__name__)
 
@@ -147,11 +147,6 @@ def post_balanced_entry(
     key = (idempotency_key or "").strip()
     if not key:
         raise GlPostingError("مفتاح idempotency مطلوب.")
-    existing_id = db.scalar(
-        select(GlJournalEntry.id).where(GlJournalEntry.idempotency_key == key)
-    )
-    if existing_id is not None:
-        return db.get(GlJournalEntry, int(existing_id))
 
     filtered: list[_LineSpec] = []
     for ln in lines:
@@ -177,6 +172,37 @@ def post_balanced_entry(
         source_id=source_id,
         business_domain=business_domain,
     )
+
+    existing_id = db.scalar(
+        select(GlJournalEntry.id).where(GlJournalEntry.idempotency_key == key)
+    )
+    if existing_id is not None:
+        entry = db.get(GlJournalEntry, int(existing_id))
+        if entry is not None and entry.status != GlJournalEntryStatus.REVERSED:
+            # تحديث القائد الموجود بدلاً من إعادة استخدامه ببيانات قديمة
+            for old_line in list(entry.lines):
+                db.delete(old_line)
+            entry.description_ar = description_ar[:255]
+            entry.entry_date = entry_date
+            entry.post_mode = get_gl_post_mode(db)
+            entry.created_by_id = created_by_id
+            entry.business_domain = entry_dom
+            db.flush()
+            for i, ln in enumerate(filtered, start=1):
+                db.add(
+                    GlJournalLine(
+                        entry_id=entry.id,
+                        account_id=_account_id(db, ln.account_code),
+                        debit=ln.debit,
+                        credit=ln.credit,
+                        memo=(ln.memo or "")[:255] or None,
+                        line_no=i,
+                    )
+                )
+            db.flush()
+            return entry
+        return entry
+
     entry = GlJournalEntry(
         entry_date=entry_date,
         description_ar=description_ar[:255],
@@ -490,9 +516,9 @@ def post_period_depreciation_shadow(
 def post_inventory_purchase_shadow(db: Session, purchase: Purchase) -> None:
     if purchase.kind != PurchaseKind.INVENTORY:
         return
+    from modules.gl.role_maps import role_account_code
     from modules.payments.cost_reference import is_cost_reference_purchase
     from modules.payments.models import PurchaseLineKind
-    from modules.gl.role_maps import role_account_code
 
     if is_cost_reference_purchase(purchase):
         return

@@ -11,12 +11,13 @@ from sqlalchemy.orm import Session
 
 from modules.hotel.audit import log_audit
 from modules.hotel.availability import (
+    NOT_RENTABLE_STATUSES,
     available_rooms_for_type,
     first_room_conflict,
     has_room_conflict,
     is_room_rentable,
-    NOT_RENTABLE_STATUSES,
 )
+from modules.hotel.booking_labels import QUOTATION_NEXT_STATUSES
 from modules.hotel.booking_models import (
     BookingPaymentStatus,
     BookingSource,
@@ -37,7 +38,6 @@ from modules.hotel.booking_models import (
     RecordKind,
     RoomPhysicalStatus,
 )
-from modules.hotel.booking_labels import QUOTATION_NEXT_STATUSES
 from modules.hotel.models import HotelRoom, RoomCharge
 from modules.hotel.pricing import (
     accommodation_segment_for_room,
@@ -1174,8 +1174,9 @@ def list_room_types(db: Session, *, only_active: bool = False) -> list[HotelRoom
 
 
 def room_type_usage(db: Session, room_type_id: int) -> dict[str, int]:
-    from modules.hotel.booking_models import HotelRatePlan
     from sqlalchemy import inspect as sa_inspect
+
+    from modules.hotel.booking_models import HotelRatePlan
 
     table_names = set(sa_inspect(db.bind).get_table_names())
 
@@ -2737,6 +2738,8 @@ def cancel_booking(
 ) -> HotelBooking:
     from modules.hotel.cancellation_flow import (
         CancellationFlowError,
+    )
+    from modules.hotel.cancellation_flow import (
         cancel_booking as _cancel_flow,
     )
 
@@ -2762,6 +2765,8 @@ def mark_no_show(
 ) -> HotelBooking:
     from modules.hotel.cancellation_flow import (
         CancellationFlowError,
+    )
+    from modules.hotel.cancellation_flow import (
         mark_no_show as _no_show_flow,
     )
 
@@ -2812,6 +2817,7 @@ def extend_stay(
     new_nights = max(0, (new_check_out - stay_start).days)
     if new_nights <= 0 and old_acc > 0:
         new_nights = 1
+    booking.nights = new_nights
     added_nights = new_nights - old_nights
 
     if old_acc > Decimal("0.0005") and old_nights > 0 and added_nights > 0:
@@ -2884,6 +2890,12 @@ def change_departure_date(
     booking.check_out = new_check_out
     booking.scheduled_check_out = new_check_out
 
+    # عدد الليالي الفعلي بعد تغيير المغادرة
+    new_nights = max(0, (new_check_out - stay_start).days)
+    if new_nights <= 0 and old_acc > 0:
+        new_nights = 1
+    booking.nights = new_nights
+
     # تخفيض نسبي من الإقامة المسجّلة — لا إعادة تسعير من سعر الشقة (قد يكون 0 أو بلا نوع)
     if old_acc > Decimal("0.0005"):
         from modules.hotel.departure_settlement import accommodation_after_early_departure
@@ -2894,7 +2906,6 @@ def change_departure_date(
             old_check_out=old_out,
         )
         booking.accommodation_total = new_total
-        new_nights = max(0, int(booking.nights or 0))
         if new_nights > 0 and new_total > 0:
             booking.nightly_rate = (new_total / Decimal(new_nights)).quantize(
                 Decimal("0.001")
@@ -2904,7 +2915,6 @@ def change_departure_date(
         _recalc_payment_status(db, booking)
     else:
         _apply_stay_pricing(db, booking)
-        new_nights = max(0, int(booking.nights or 0))
 
     cancelled = max(0, old_nights - new_nights)
 
@@ -3506,7 +3516,7 @@ def refund_payment(
         dep = Decimal(str(booking.deposit_amount or 0))
         if dep > new_paid:
             booking.deposit_amount = new_paid
-        booking.payment_status = BookingPaymentStatus.REFUNDED
+        _recalc_payment_status(db, booking)
     log_audit(
         db,
         entity_type="payment",
