@@ -1,0 +1,188 @@
+============================================================
+تفعيل خدمة SEO Center (وكلاء السيو / n8n الخارجي)
+============================================================
+
+الإجابة المختصرة عن قاعدة البيانات:
+- نعم، هناك تحديث قاعدة بيانات مطلوب (جداول جديدة + أعمدة SEO).
+- ملف SQL الجاهز للرفع والتنفيذ:
+    deploy/seo-agent-schema.sql
+- لا ترفع ملف قاعدة بيانات كامل (.sql dump) إلا إن كنت تعرف ما تفعل.
+- المطلوب: تنفيذ هذا الملف على MySQL عبر phpMyAdmin فقط.
+
+
+------------------------------------------------------------
+ماذا يضيف ملف seo-agent-schema.sql ؟
+------------------------------------------------------------
+
+أ) جداول جديدة (فارغة في البداية — تُملأ من n8n لاحقاً):
+  1) seo_sites
+  2) seo_pages
+  3) seo_crawl_runs
+  4) seo_issues
+  5) seo_suggestions
+  6) seo_fix_requests
+  7) seo_reports
+  8) seo_agent_logs
+
+ب) أعمدة SEO جديدة على جداول موجودة:
+  - products
+  - product_categories
+  - hotel_rooms
+  - hotel_service_catalog
+
+  الأعمدة:
+  seo_title, seo_description, seo_h1, seo_slug, seo_keywords,
+  seo_schema_json, seo_og_title, seo_og_description, seo_og_image,
+  seo_indexable, seo_canonical_url, seo_updated_at
+
+ج) صلاحيات جديدة في جدول permissions:
+  seo:view, seo:review, seo:approve, seo:apply,
+  seo:rollback, seo:production_approve, seo:settings
+
+ملاحظة: عند إعادة تشغيل التطبيق، الكود يحاول أيضاً إنشاء الجداول/الأعمدة
+تلقائياً. تنفيذ SQL يدوياً أوضح وأأمن على السيرفر الحي.
+
+
+------------------------------------------------------------
+الخطوات — Staging (تجريب): https://pos.baytak.ly
+------------------------------------------------------------
+
+الخطوة 1 — رفع الكود
+  - ارفع ملفات المشروع المحدّثة إلى السيرفر (بما فيها مجلد modules/seo
+    وملف deploy/seo-agent-schema.sql).
+  - تأكد أن التطبيق على السيرفر يحتوي المسار:
+      /api/seo/health
+  - إن ظهر {"detail":"SEO Agent module is disabled."} فالمسار موجود
+    والكود مرفوع، ويتبقى التفعيل فقط.
+
+الخطوة 2 — تنفيذ SQL على قاعدة البيانات
+  1. افتح phpMyAdmin على السيرفر.
+  2. اختر قاعدة بيانات التطبيق (نفس قاعدة pos).
+  3. افتح تبويب SQL.
+  4. الصق محتوى الملف:
+       deploy/seo-agent-schema.sql
+  5. اضغط Go / تنفيذ.
+  6. تجاهل أخطاء Duplicate table / Duplicate column إن ظهرت
+     (تعني أن الجدول أو العمود موجود مسبقاً — لا مشكلة).
+
+الخطوة 3 — تعديل ملف .env على السيرفر
+  افتح ملف .env الخاص بالتطبيق وأضف/عدّل:
+
+    SEO_AGENT_ENABLED=true
+    SEO_ENVIRONMENT=staging
+    SEO_AGENT_API_KEY=ضع_هنا_مفتاح_سري_طويل_عشوائي
+    SEO_ALLOW_AUTO_APPLY=false
+    SEO_REQUIRE_PRODUCTION_APPROVAL=true
+    SEO_PUBLIC_BASE_URL=https://pos.baytak.ly
+    SEO_N8N_WEBHOOK_URL=
+    SEO_N8N_CALLBACK_SECRET=
+
+  ملاحظات مهمة:
+  - لا تضع المفتاح الحقيقي داخل الكود أو Git.
+  - غيّر SEO_AGENT_API_KEY إلى قيمة سرية طويلة خاصة بك.
+  - احفظ الملف.
+
+الخطوة 4 — إعادة تشغيل الخدمة
+  من SSH على السيرفر (Linux):
+
+    sudo systemctl restart pos
+
+  (إن كان اسم الخدمة مختلفاً عندك، استخدم الاسم الصحيح)
+
+الخطوة 5 — اختبار الصحة (Health)
+  لا تعتمد على فتح الرابط في المتصفح وحده (يحتاج Headers).
+  من جهازك أو من السيرفر نفّذ:
+
+    curl -s https://pos.baytak.ly/api/seo/health \
+      -H "X-SEO-API-Key: ضع_نفس_المفتاح" \
+      -H "X-SEO-Environment: staging" \
+      -H "X-Request-Id: check-1"
+
+  النتيجة المتوقعة تقريباً:
+    {"ok":true,"module":"seo","enabled":true,"environment":"staging",...}
+
+  معاني الأخطاء الشائعة:
+    503 + disabled     → SEO_AGENT_ENABLED ليس true أو لم يُعد التشغيل
+    401                → المفتاح خطأ أو غير مضبوط في .env
+    403                → X-SEO-Environment لا يطابق SEO_ENVIRONMENT
+    404                → الكود القديم ما زال يعمل / لم يُرفع
+
+الخطوة 6 — لوحة التحكم داخل المنصة
+  1. سجّل الدخول كأدمن على https://pos.baytak.ly
+  2. افتح: https://pos.baytak.ly/admin/seo
+  3. يجب أن ترى البيئة: Staging / Testing
+  4. من القائمة الجانبية يظهر رابط "SEO Center" إن كانت صلاحية seo:view موجودة.
+
+  إن لم تظهر القائمة:
+  - ادخل إدارة الأدوار وأعطِ دور الأدمن صلاحيات seo:*
+  - أو أعد تشغيل التطبيق مرة أخرى (يزامن الصلاحيات تلقائياً غالباً)
+
+الخطوة 7 — اختبار صفحات عامة للفحص
+    curl -s https://pos.baytak.ly/api/seo/public-pages \
+      -H "X-SEO-API-Key: ضع_نفس_المفتاح" \
+      -H "X-SEO-Environment: staging" \
+      -H "X-Request-Id: check-2"
+
+  وأيضاً افتح في المتصفح:
+    https://pos.baytak.ly/robots.txt
+    https://pos.baytak.ly/sitemap.xml
+
+الخطوة 8 — ربط n8n (لاحقاً)
+  - n8n يبقى على سيرفر خارجي (لا يُثبَّت داخل المنصة).
+  - في n8n استخدم نفس الـ Headers الثلاثة أعلاه.
+  - أرسل النتائج إلى:
+      POST /api/seo/crawl-runs
+      POST /api/seo/issues
+      POST /api/seo/suggestions
+      POST /api/seo/reports
+  - التطبيق/الاعتماد يتم من لوحة /admin/seo بواسطة المدير
+    (وليس تعديلاً مباشراً من n8n على قاعدة البيانات).
+
+
+------------------------------------------------------------
+الخطوات — Production (إنتاج): https://baytak.baytak.ly
+------------------------------------------------------------
+
+كرّر نفس الخطوات 1–4 مع اختلاف .env:
+
+    SEO_AGENT_ENABLED=true
+    SEO_ENVIRONMENT=production
+    SEO_AGENT_API_KEY=مفتاح_مختلف_عن_staging_يفضّل
+    SEO_ALLOW_AUTO_APPLY=false
+    SEO_REQUIRE_PRODUCTION_APPROVAL=true
+    SEO_PUBLIC_BASE_URL=https://baytak.baytak.ly
+
+قواعد الإنتاج المهمة:
+  - لا يوجد auto-apply.
+  - التطبيق يتطلب:
+      1) اعتماد عادي (Approve)
+      2) اعتماد إنتاج (Approve Production) → approved_for_production=true
+      3) ثم Apply
+  - أي تطبيق يحفظ rollback قبل التغيير.
+
+
+------------------------------------------------------------
+ملخص الملفات المطلوبة على السيرفر
+------------------------------------------------------------
+
+1) كود التطبيق المحدّث (خصوصاً modules/seo و app/main.py ...)
+2) ملف SQL:
+     deploy/seo-agent-schema.sql   ← نفّذه على MySQL
+3) تعديل .env (متغيرات SEO أعلاه)
+4) إعادة التشغيل: sudo systemctl restart pos
+
+لا تحتاج رفع ملفات قاعدة بيانات أخرى.
+
+
+------------------------------------------------------------
+تحقق سريع بعد التفعيل
+------------------------------------------------------------
+
+[ ] ظهر مسار /api/seo/health (وليس 404)
+[ ] health يرجع ok:true مع المفتاح الصحيح
+[ ] /admin/seo يفتح بعد دخول الأدمن
+[ ] /sitemap.xml يعمل
+[ ] الجداول seo_* موجودة في phpMyAdmin
+[ ] أعمدة seo_* موجودة في products / hotel_rooms ...
+
+انتهى.

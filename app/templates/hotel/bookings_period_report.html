@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block title %}تقرير تأجير الشقق{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/hotel_dashboard.css?v=33" />
+<style>
+  .bk-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(11.5rem, 1fr));
+    gap: 0.75rem;
+    margin-top: 0.85rem;
+  }
+  .bk-kpi {
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    padding: 0.9rem 1rem;
+    background: #fff;
+  }
+  .bk-kpi__label { font-size: 0.82rem; color: #64748b; font-weight: 600; margin: 0 0 0.35rem; }
+  .bk-kpi__value { font-size: 1.35rem; font-weight: 800; margin: 0; line-height: 1.2; }
+  .bk-kpi__hint { font-size: 0.78rem; color: #94a3b8; margin: 0.35rem 0 0; }
+  .bk-kpi--rooms { border-color: #c4b5fd; background: linear-gradient(180deg, #f5f3ff 0%, #fff 55%); }
+  .bk-kpi--value { border-color: #93c5fd; background: linear-gradient(180deg, #eff6ff 0%, #fff 55%); }
+  .bk-kpi--paid { border-color: #86efac; background: linear-gradient(180deg, #ecfdf5 0%, #fff 55%); }
+  .bk-kpi--due { border-color: #fca5a5; background: linear-gradient(180deg, #fef2f2 0%, #fff 55%); }
+  .bk-kpi--due.is-clear { border-color: #86efac; background: linear-gradient(180deg, #ecfdf5 0%, #fff 55%); }
+  .bk-presets { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.65rem 0 0; }
+  .bk-presets a, .bk-presets button {
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    border-radius: 999px;
+    padding: 0.35rem 0.75rem;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-decoration: none;
+    color: inherit;
+  }
+  .bk-presets a.is-active, .bk-presets button.is-active {
+    background: #7c3aed; border-color: #7c3aed; color: #fff;
+  }
+  .bk-meta { display: flex; flex-wrap: wrap; gap: 0.75rem 1.25rem; margin-top: 0.75rem; font-size: 0.88rem; color: #475569; }
+  .bk-meta strong { color: #0f172a; }
+  @media print {
+    .no-print, .hotel-quick-nav { display: none !important; }
+    .bk-kpi { break-inside: avoid; }
+  }
+</style>
+{% endblock %}
+{% block body %}
+{% set active = 'reports' %}
+{% include "_hotel_nav.html" %}
+
+<div class="row no-print" style="justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap">
+  <h1 style="margin:0">تقرير تأجير الشقق</h1>
+  <div style="display:flex;gap:0.45rem;flex-wrap:wrap">
+    <button class="btn" type="button" onclick="window.print()">طباعة</button>
+    <a class="btn" href="/reports/hotel-bookings?period=custom&start={{ date_from }}&end={{ date_to }}">تقرير المالية ←</a>
+    <a class="btn" href="/admin/hotel/reports">رجوع للتقارير</a>
+  </div>
+</div>
+
+<div class="card" style="margin-top:0.85rem">
+  <p class="muted" style="margin:0 0 0.75rem;line-height:1.55;max-width:46rem">
+    اختر يوماً أو نطاقاً لمعرفة <strong>كم شقة مؤجّرة</strong>،
+    <strong>القيمة المالية</strong> لحسابات هذه الشقق،
+    <strong>كم دُفع</strong> و<strong>كم متبقّي</strong>.
+    التقرير يشمل الحجوزات التي تغطي الفترة (ما عدا الملغى / لم يحضر).
+  </p>
+  <form method="get" action="/admin/hotel/reports/bookings" class="row" style="gap:0.65rem;align-items:end;flex-wrap:wrap">
+    <div>
+      <label for="from">من</label>
+      <input id="from" type="date" name="from" value="{{ date_from }}" required />
+    </div>
+    <div>
+      <label for="to">إلى</label>
+      <input id="to" type="date" name="to" value="{{ date_to }}" required />
+    </div>
+    <button class="btn btn-primary" type="submit">عرض التقرير</button>
+  </form>
+  <div class="bk-presets no-print">
+    <a class="{% if preset == 'today' %}is-active{% endif %}" href="/admin/hotel/reports/bookings?from={{ today }}&to={{ today }}">اليوم</a>
+    <a class="{% if preset == 'yesterday' %}is-active{% endif %}" href="/admin/hotel/reports/bookings?from={{ yesterday }}&to={{ yesterday }}">أمس</a>
+    <a class="{% if preset == 'week' %}is-active{% endif %}" href="/admin/hotel/reports/bookings?from={{ week_start }}&to={{ today }}">هذا الأسبوع</a>
+    <a class="{% if preset == 'month' %}is-active{% endif %}" href="/admin/hotel/reports/bookings?from={{ month_start }}&to={{ today }}">هذا الشهر</a>
+  </div>
+</div>
+
+<div class="bk-kpi-grid">
+  <div class="bk-kpi bk-kpi--rooms">
+    <p class="bk-kpi__label">شقق مؤجّرة</p>
+    <p class="bk-kpi__value">{{ summary.room_count }}</p>
+    <p class="bk-kpi__hint">{{ summary.booking_count }} حجز · {{ summary.nights_total }} ليلة</p>
+  </div>
+  <div class="bk-kpi bk-kpi--value">
+    <p class="bk-kpi__label">القيمة المالية</p>
+    <p class="bk-kpi__value">{{ '%.3f'|format(summary.folio_total) }} <small style="font-size:0.7em">د.ل</small></p>
+    <p class="bk-kpi__hint">إقامة {{ '%.3f'|format(summary.accommodation_total) }} د.ل + خدمات/مطعم إن وُجدت</p>
+  </div>
+  <div class="bk-kpi bk-kpi--paid">
+    <p class="bk-kpi__label">المدفوع</p>
+    <p class="bk-kpi__value" style="color:#15803d">{{ '%.3f'|format(summary.paid_total) }} <small style="font-size:0.7em">د.ل</small></p>
+    <p class="bk-kpi__hint">إجمالي ما سُجّل على هذه الحجوزات</p>
+  </div>
+  <div class="bk-kpi bk-kpi--due {% if summary.balance_total <= 0 %}is-clear{% endif %}">
+    <p class="bk-kpi__label">المتبقي</p>
+    <p class="bk-kpi__value" style="color:{% if summary.balance_total > 0 %}#b91c1c{% else %}#15803d{% endif %}">
+      {{ '%.3f'|format(summary.balance_total) }} <small style="font-size:0.7em">د.ل</small>
+    </p>
+    <p class="bk-kpi__hint">{% if summary.balance_total > 0 %}بانتظار التحصيل{% else %}لا متبقي على هذه الحجوزات{% endif %}</p>
+  </div>
+</div>
+
+<div class="bk-meta">
+  <span>مسكّن حالياً: <strong>{{ summary.checked_in_count }}</strong></span>
+  <span>مغادر: <strong>{{ summary.checked_out_count }}</strong></span>
+  <span>وصول في الفترة: <strong>{{ summary.arrivals_count }}</strong></span>
+  <span>مغادرة في الفترة: <strong>{{ summary.departures_count }}</strong></span>
+  <span>الفترة: <strong>{{ date_from }} → {{ date_to }}</strong></span>
+</div>
+
+<div class="card sticky-table-wrap" style="margin-top:1rem">
+  <h2 style="margin-top:0">تفاصيل الحجوزات</h2>
+  {% if rows %}
+  <table style="width:100%;font-size:0.9rem">
+    <thead>
+      <tr>
+        <th>الشقة</th>
+        <th>المرجع</th>
+        <th>النزيل</th>
+        <th>تاريخ الوصول</th>
+        <th>تاريخ المغادرة</th>
+        <th>ليالي</th>
+        <th>الحالة</th>
+        <th>الدفع</th>
+        <th style="text-align:left">القيمة</th>
+        <th style="text-align:left">مدفوع</th>
+        <th style="text-align:left">متبقي</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td><strong>{{ r.room_label or '—' }}</strong></td>
+        <td><a href="/admin/hotel/bookings/{{ r.booking_id }}">{{ r.reference }}</a></td>
+        <td>{{ r.guest_name }}</td>
+        <td style="white-space:nowrap;font-weight:700" dir="ltr">{{ r.check_in }}</td>
+        <td style="white-space:nowrap;font-weight:700" dir="ltr">{{ r.check_out }}</td>
+        <td>{{ r.nights }}</td>
+        <td>{{ r.booking_status_label }}</td>
+        <td>{{ r.payment_status_label }}</td>
+        <td style="text-align:left;white-space:nowrap">
+          {{ '%.3f'|format(r.folio_total) }}
+          {% if r.folio_total != r.accommodation_total %}
+          <div class="muted" style="font-size:0.75rem">إقامة {{ '%.3f'|format(r.accommodation_total) }}</div>
+          {% endif %}
+        </td>
+        <td style="text-align:left;color:#15803d;white-space:nowrap">{{ '%.3f'|format(r.paid_amount) }}</td>
+        <td style="text-align:left;font-weight:800;white-space:nowrap;{% if r.balance > 0 %}color:#b91c1c{% else %}color:#15803d{% endif %}">
+          {{ '%.3f'|format(r.balance) }}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr style="font-weight:800;background:#f8fafc">
+        <td colspan="8">الإجمالي</td>
+        <td style="text-align:left">{{ '%.3f'|format(summary.folio_total) }}</td>
+        <td style="text-align:left;color:#15803d">{{ '%.3f'|format(summary.paid_total) }}</td>
+        <td style="text-align:left;{% if summary.balance_total > 0 %}color:#b91c1c{% else %}color:#15803d{% endif %}">{{ '%.3f'|format(summary.balance_total) }}</td>
+      </tr>
+    </tfoot>
+  </table>
+  {% else %}
+  <p class="muted" style="margin:0">لا توجد شقق مؤجّرة تتقاطع مع هذه الفترة.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,39 @@
+<div class="shift-dest__recipient" id="shift-carry-recipient" {% if _allow_treasury is defined and _allow_treasury %}hidden{% endif %}>
+  <label for="carried_to_employee_id" style="display:block;font-weight:700;margin-bottom:0.35rem">
+    موظف الاستقبال المستلم <span style="color:#b91c1c">*</span>
+  </label>
+  {% if _recipients %}
+  <select id="carried_to_employee_id" name="carried_to_employee_id"
+    style="width:100%;max-width:28rem;padding:0.5rem 0.6rem;border-radius:8px;border:1px solid #94a3b8;background:#fff">
+    <option value="">— اختر الموظف النشط —</option>
+    {% for e in _recipients %}
+    <option value="{{ e.id }}" {% if default_carry_employee_id|default(0) == e.id %}selected{% endif %}>{{ e.name }}</option>
+    {% endfor %}
+  </select>
+  <p class="muted" style="margin:0.35rem 0 0;font-size:0.8rem">يظهر موظفو الاستقبال ذوو الحسابات النشطة فقط.</p>
+  {% else %}
+  <p style="margin:0;color:#b91c1c;font-weight:600">لا يوجد موظف استقبال بحساب نشط. أضف موظفاً من الموارد البشرية أولاً.</p>
+  <input type="hidden" name="carried_to_employee_id" value="" />
+  {% endif %}
+</div>
+<script>
+(function () {
+  var wrap = document.getElementById("shift-carry-recipient");
+  var sel = document.getElementById("carried_to_employee_id");
+  if (!wrap) return;
+  function sync() {
+    var dest = document.querySelector('input[name="close_destination"]:checked')
+      || document.querySelector('input[name="close_destination"][type="hidden"]');
+    var isCarry = dest && dest.value === "NEXT_SHIFT";
+    wrap.hidden = !isCarry;
+    if (sel) {
+      sel.required = !!isCarry;
+      if (!isCarry) sel.value = "";
+    }
+  }
+  document.querySelectorAll('input[name="close_destination"]').forEach(function (el) {
+    el.addEventListener("change", sync);
+  });
+  sync();
+})();
+</script>

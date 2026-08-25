@@ -4,16 +4,17 @@
   <meta charset="utf-8" />
   <title>تقرير الجهات الأمنية</title>
   <style>
-    @page { size: A4 landscape; margin: 12mm; }
+    @page { size: {{ paper_css.size|default('A4 landscape') }}; margin: {{ paper_css.margin|default('12mm') }}; }
     body {
       margin: 0;
       font-family: "Segoe UI", Tahoma, Arial, sans-serif;
       color: #111827;
       background: #f8fafc;
     }
-    .wrap { max-width: 1180px; margin: 0 auto; padding: 1rem; }
+    .wrap { max-width: {{ paper_css.max_width|default('1180px') }}; margin: 0 auto; padding: 1rem; }
     .toolbar {
       display: flex;
+      flex-wrap: wrap;
       justify-content: space-between;
       align-items: center;
       gap: 0.75rem;
@@ -55,8 +56,14 @@
 <body>
   <div class="wrap">
     <div class="toolbar">
-      <a class="btn" href="/admin/hotel/reports">رجوع للتقارير</a>
+      <a class="btn" href="/admin/hotel/reports{% if authority %}?authority_id={{ authority.id }}{% endif %}">رجوع للتقارير</a>
+      <a class="btn" href="/admin/hotel/reports/security.xlsx?from_date={{ from_date }}&to_date={{ to_date }}{% if authority %}&authority_id={{ authority.id }}{% endif %}">تصدير Excel</a>
       <button class="btn btn-primary" type="button" onclick="window.print()">طباعة / حفظ PDF</button>
+      {% if can_choose_paper|default(false) %}
+      {% set form_action = print_form_action %}
+      {% set preserve_params = print_preserve_params|default({}) %}
+      {% include "_print_paper_options.html" %}
+      {% endif %}
     </div>
     <main class="sheet">
       <h1>تقرير الجهات الأمنية</h1>
@@ -73,7 +80,7 @@
             <th>رقم الهوية</th>
             <th>نوع الهوية</th>
             <th>الجنسية</th>
-            <th>العنوان</th>
+            <th>قادم من</th>
             <th>الوصول</th>
             <th>الخروج</th>
             <th>الشقة</th>

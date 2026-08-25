@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     {% set brand = pos_brand(request) %}
-    <title>{{ brand.receipt_title }} #{{ sale.id }}</title>
+    <title>{{ doc_title|default(brand.receipt_title) }} {{ doc_number|default(sale.id) }}</title>
     {# خطوط محلية فقط — يعمل أوفلاين #}
     <style>
       html, body { font-family: "Segoe UI", "Tahoma", "Arial",
@@ -25,28 +25,21 @@
       {% if not embed|default(0) %}
       {% include "_receipt_print_actions.html" %}
       <div class="receipt-actions no-print" style="margin-top:0.35rem;flex-wrap:wrap">
-        {% set back_label = 'رجوع إلى ' ~ brand.pos_label %}
+        {% set back_href = back_href|default('/pos') %}
+        {% set back_label = back_label|default('رجوع إلى ' ~ brand.pos_label) %}
         {% include "_receipt_nav_button.html" %}
         {% if can_edit_invoice|default(false) %}
         <a class="btn btn-primary" href="/sales/invoices/{{ sale.id }}/edit">تعديل الفاتورة</a>
         {% endif %}
+        {% set back_q = ('&back=' ~ (back_href|urlencode)) if back_href and back_href != '/pos' else '' %}
+        {# أوراق المطعم = فاتورة فقط — لا «إيصال قبض» #}
+        <a class="btn" href="/pos/receipt/{{ sale.id }}?doc=invoice{% if embed|default(0) %}&embed=1{% endif %}{{ back_q }}">فاتورة</a>
         {% if can_choose_paper %}
-        <form method="get" action="/pos/receipt/{{ sale.id }}" style="display: inline-flex; gap: 0.35rem; align-items: center; margin-inline-start: auto">
-          {% if request.query_params.get('popup') == '1' %}
-          <input type="hidden" name="popup" value="1" />
-          {% endif %}
-          {% if request.query_params.get('autoprint') == '1' %}
-          <input type="hidden" name="autoprint" value="1" />
-          {% endif %}
-          <label for="paper" class="muted" style="margin: 0">المقاس:</label>
-          <select id="paper" name="paper" onchange="this.form.submit()">
-            {% for code, label in paper_choices %}
-            <option value="{{ code }}" {% if paper == code %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
-        </form>
+        {% set form_action = print_form_action|default('/pos/receipt/' ~ sale.id) %}
+        {% set preserve_params = print_preserve_params|default({}) %}
+        {% include "_print_paper_options.html" %}
         {% else %}
-        <span class="muted no-print" style="margin-inline-start: auto">المقاس: {{ paper }}</span>
+        <span class="muted no-print" style="margin-inline-start: auto">المقاس: {{ paper }}{% if orientation %} · {{ orientation }}{% endif %}</span>
         {% endif %}
       </div>
       {% else %}
@@ -62,8 +55,9 @@
         </div>
         {% endif %}
         <h1 style="margin: 0; font-size: 1.15rem">{{ pos_display_name(request) }}</h1>
-        <p style="margin: 0.25rem 0 0; font-size: 0.95rem; font-weight: 600">{{ brand.receipt_title }}</p>
-        <p style="margin: 0.15rem 0 0; font-size: 0.85rem">رقم: {{ sale.id }} — {{ pos_format_dt(sale.created_at, '%Y-%m-%d %H:%M') }}</p>
+        <p style="margin: 0.25rem 0 0; font-size: 1.05rem; font-weight: 700">{{ doc_title|default('فاتورة') }}</p>
+        <p style="margin: 0.15rem 0 0; font-size: 0.9rem; font-weight: 700; color: #1d4ed8">رقم المستند: {{ doc_number|default(sale.id) }}</p>
+        <p style="margin: 0.15rem 0 0; font-size: 0.85rem">مرجع البيع: {{ sale.id }} — {{ pos_format_dt(sale.created_at, '%Y-%m-%d %H:%M') }}</p>
         {% if sale.table %}
         <p style="margin: 0.15rem 0 0; font-size: 0.95rem; font-weight: 700; color: #1d4ed8">الطاولة: {{ sale.table.name_ar }}</p>
         {% endif %}
@@ -74,9 +68,6 @@
         <p style="margin: 0.15rem 0 0; font-size: 0.88rem; font-weight: 700; color: #9a3412">
           🚚 توصيل — {{ sale.delivery_zone_name or 'منطقة توصيل' }}
         </p>
-        {% endif %}
-        {% if is_room_receipt and room_hint %}
-        <p style="margin: 0.15rem 0 0; font-size: 0.95rem; font-weight: 700; color: #b45309">شقة: {{ room_hint }}</p>
         {% endif %}
         {% include "_receipt_delivery_extra.html" %}
       </header>

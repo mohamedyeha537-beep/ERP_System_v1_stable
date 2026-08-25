@@ -1,7 +1,10 @@
 """Webhook API — استقبال رسائل واتساب/تليجرام الواردة من n8n أو TextMeBot أو مزود خارجي."""
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+import secrets
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -11,6 +14,7 @@ from modules.messaging.inbox_service import record_inbound_message
 from modules.messaging.service import MessagingError
 from modules.settings.service import get_bool, get_setting
 
+LOG = logging.getLogger("messaging.inbound")
 router = APIRouter(prefix="/api/messaging", tags=["messaging-api"])
 
 
@@ -55,8 +59,8 @@ def _verify_inbound_secret(
         raise HTTPException(status_code=503, detail="لم يُضبط مفتاح استقبال الرسائل.")
     provided = (secret_header or "").strip()
     if not provided:
-        provided = (request.query_params.get("secret") or "").strip()
-    if provided != expected:
+        raise HTTPException(status_code=401, detail="مفتاح غير صالح.")
+    if not secrets.compare_digest(provided, expected):
         raise HTTPException(status_code=401, detail="مفتاح غير صالح.")
 
 
@@ -111,7 +115,11 @@ async def messaging_inbound(
                 db, phone=payload.phone, text=payload.text
             )
         except Exception:  # noqa: BLE001
-            pass
+            LOG.exception(
+                "فشل معالجة إجراء واتساب الوارد phone=%s text=%s",
+                payload.phone,
+                (payload.text or "")[:120],
+            )
         db.commit()
     except MessagingError as exc:
         db.rollback()

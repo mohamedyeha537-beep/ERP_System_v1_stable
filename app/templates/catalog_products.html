@@ -86,6 +86,8 @@
       <span class="muted" style="font-size: 0.9rem">إجراء جماعي على المحدّد:</span>
       <button class="btn" type="submit" name="action" value="hide_pos">إخفاء من جلسة البيع</button>
       <button class="btn" type="submit" name="action" value="show_pos">إظهار في جلسة البيع</button>
+      <button class="btn" type="submit" name="action" value="hide_shop">إخفاء من المتجر</button>
+      <button class="btn" type="submit" name="action" value="show_shop">إظهار في المتجر</button>
       <button class="btn" type="submit" name="action" value="stock_only">تحويل إلى مخزني</button>
       <button class="btn" type="submit" name="action" value="deactivate">تعطيل (غير نشط)</button>
       <button class="btn" type="submit" name="action" value="delete" style="color: #b91c1c" onclick="return confirm('حذف الأصناف المحدّدة التي لا حركات عليها؟');">حذف (بدون حركات فقط)</button>
@@ -118,6 +120,7 @@
         <th>الفئة</th>
         <th>النوع</th>
         <th>في POS</th>
+        <th>في الويب</th>
         <th>سعر البيع</th>
         <th>سعر التكلفة</th>
         <th title="سعر البيع − سعر التكلفة">الفارق</th>
@@ -156,6 +159,13 @@
           <span class="muted">—</span>
           {% endif %}
         </td>
+        <td>
+          {% if p.kind.value == 'FINAL_SELLABLE' %}
+          {% if p.show_in_shop %}نعم{% else %}<span class="muted">لا</span>{% endif %}
+          {% else %}
+          <span class="muted">—</span>
+          {% endif %}
+        </td>
         <td>{% if p.sell_price is not none %}{{ pos_money(p.sell_price) }} <span class="money-currency">د.ل</span>{% else %}<span class="muted">—</span>{% endif %}</td>
         <td>{% if pr and pr.unit_cost is not none %}{{ pos_money(pr.unit_cost) }} <span class="money-currency">د.ل</span>{% else %}<span class="muted">—</span>{% endif %}</td>
         <td>
@@ -185,6 +195,7 @@
         <td style="white-space: nowrap">
           <a href="/catalog/products/{{ p.id }}/edit">تعديل</a>
           · <a href="/inventory/products/{{ p.id }}">تتبع</a>
+          · <a href="/reports/product-invoices?period=month&product_id={{ p.id }}&q={{ p.name_ar|urlencode }}" title="فواتير البيع لهذا الصنف">فواتيره</a>
           {% if p.kind.value == 'FINAL_SELLABLE' %}
           · <a href="/catalog/products/{{ p.id }}/bom">التركيبة</a>
           {% else %}

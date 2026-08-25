@@ -16,10 +16,11 @@ from modules.messaging.models import (
     MessageOutbox,
     MessageOutboxStatus,
 )
-from modules.messaging.phone_utils import normalize_whatsapp_phone
+from modules.messaging.phone_utils import normalize_whatsapp_recipient
 from modules.messaging.providers.telegram import send_telegram_message
 from modules.messaging.providers.textmebot import buttons_from_meta, send_textmebot_with_fallback
 from modules.messaging.providers.webhook import send_webhook
+from modules.messaging.send_gap import MIN_SEND_GAP_SEC, wait_send_gap
 from modules.settings.service import get_bool, get_int, get_setting
 
 LOG = logging.getLogger("messaging.outbox")
@@ -61,6 +62,7 @@ class _DispatchJob:
     country_code: str
     admin_phone: str
     telegram_chat_id: str | None
+    send_gap_seconds: int = MIN_SEND_GAP_SEC
 
 
 
@@ -131,8 +133,8 @@ def whatsapp_provider(db: Session) -> str:
 
 
 def send_delay_seconds(db: Session) -> int:
-
-    return max(8, get_int(db, "messaging_send_delay_seconds", 8))
+    """الحد الأدنى بين رسالتين متتاليتين — لا يقل عن 10 ثوانٍ."""
+    return max(MIN_SEND_GAP_SEC, get_int(db, "messaging_send_delay_seconds", MIN_SEND_GAP_SEC))
 
 
 
@@ -304,16 +306,20 @@ def _build_dispatch_job(db: Session, row: MessageOutbox) -> _DispatchJob:
         country_code=_country_code(db),
         admin_phone=(get_setting(db, "messaging_admin_phone") or "").strip(),
         telegram_chat_id=str(telegram_chat_id) if telegram_chat_id else None,
+        send_gap_seconds=send_delay_seconds(db),
     )
 
 
 def _execute_dispatch_job(job: _DispatchJob) -> None:
     """إرسال شبكي فقط — بدون قفل SQLite."""
+    if job.channel == MessageChannel.WHATSAPP.value:
+        # فاصل إلزامي ≥10ث بين أي رسائل واتساب (حتى من مسارات/أحداث مختلفة)
+        wait_send_gap(float(job.send_gap_seconds or MIN_SEND_GAP_SEC))
     if job.channel == MessageChannel.TELEGRAM.value:
         send_telegram_message(job.bot_token, str(job.telegram_chat_id or ""), job.body)
     elif job.channel == MessageChannel.WHATSAPP.value and job.provider == "textmebot":
         phone_raw = job.phone or job.admin_phone
-        recipient = normalize_whatsapp_phone(phone_raw, country_code=job.country_code)
+        recipient = normalize_whatsapp_recipient(phone_raw, country_code=job.country_code)
         send_textmebot_with_fallback(
             base_url=job.textmebot_base_url,
             apikey=job.textmebot_apikey,

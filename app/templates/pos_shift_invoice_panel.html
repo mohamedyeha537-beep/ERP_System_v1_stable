@@ -42,8 +42,8 @@
 
   <div class="pos-shift-invoice-panel__actions">
     {% if can_print %}
-    <a class="btn btn-primary" href="/pos/receipt/{{ sale.id }}?autoprint=1&popup=1" target="_blank" rel="noopener">🖨 طباعة</a>
-    <a class="btn" href="/pos/receipt/{{ sale.id }}?popup=1" target="_blank" rel="noopener">معاينة</a>
+    <a class="btn btn-primary" href="/pos/receipt/{{ sale.id }}?doc=invoice&autoprint=1&popup=1" target="_blank" rel="noopener">🖨 فاتورة نهائية</a>
+    <a class="btn" href="/pos/receipt/{{ sale.id }}?doc=invoice&popup=1" target="_blank" rel="noopener">معاينة</a>
     {% endif %}
     {% if can_change_payment and treasury_pay_methods|length > 0 %}
     <button type="button" class="btn shift-payfix-btn"

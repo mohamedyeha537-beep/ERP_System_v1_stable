@@ -22,6 +22,8 @@
   {% endif %}
   <br />
   <strong>المجال:</strong> عيّن كل حساب «مطعم» أو «فندق» أو «مشترك» — موظف المطعم يرى حسابات المطعم والمشتركة فقط، وموظف الفندق يرى حسابات الفندق والمشتركة فقط.
+  <br />
+  الاسم المعروض في النظام هو <strong>رقم حساب GL + اسمه من شجرة الحسابات</strong> (مثل 1110 — صندوق / خزينة كاش) حتى تتطابق الصفحات كلها.
 </p>
 
 {% if error_message %}
@@ -100,6 +102,7 @@
       <tr>
         <th>#</th>
         <th>الأيقونة</th>
+        <th>حساب GL</th>
         <th>الاسم والإعدادات</th>
         <th>النوع</th>
         <th>المجال</th>
@@ -120,9 +123,21 @@
           <span class="muted" style="font-size:0.75rem">افتراضي</span>
           {% endif %}
         </td>
+        <td style="vertical-align:top;padding-top:0.7rem;white-space:nowrap">
+          {% set gi = (pm_gl_info or {}).get(m.id) %}
+          {% if gi and gi.code %}
+          <strong style="direction:ltr;display:inline-block;font-variant-numeric:tabular-nums">{{ gi.code }}</strong>
+          <div style="font-size:0.85rem;margin-top:0.15rem">{{ gi.name }}</div>
+          {% else %}
+          <span class="muted">—</span>
+          {% endif %}
+        </td>
         <td>
           <form method="post" action="/admin/payment-methods/{{ m.id }}/update" class="pm-edit-form" enctype="multipart/form-data">
-            <input name="name_ar" value="{{ m.name_ar }}" required style="max-width: 14rem" {% if m.is_system %}readonly{% endif %} />
+            <input name="name_ar" value="{{ m.name_ar }}" required style="max-width: 14rem" {% if m.is_system %}readonly{% endif %} title="الاسم التشغيلي الداخلي" />
+            {% if gi and gi.label %}
+            <div class="muted" style="font-size:0.78rem;margin-top:0.2rem;line-height:1.4">يُعرض في النظام: <strong>{{ gi.label }}</strong></div>
+            {% endif %}
             <input name="sort_order" type="number" value="{{ m.sort_order }}" style="max-width: 5rem" title="ترتيب" />
             <select name="kind" style="max-width: 8rem" {% if m.is_system %}disabled{% endif %}>
               {% for code, label in kinds %}

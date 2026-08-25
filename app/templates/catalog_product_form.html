@@ -2,6 +2,11 @@
 {% block title %}{% if product %}تعديل صنف{% else %}صنف جديد{% endif %}{% endblock %}
 {% block body %}
 <h1>{% if product %}تعديل صنف{% else %}صنف جديد{% endif %}</h1>
+{% if product %}
+<p class="no-print" style="margin:-0.35rem 0 0.85rem">
+  <a class="btn" href="/reports/product-invoices?period=month&product_id={{ product.id }}&q={{ product.name_ar|urlencode }}">فواتير هذا الصنف</a>
+</p>
+{% endif %}
 {% if error %}
 <div class="alert">{{ error }}</div>
 {% endif %}
@@ -59,10 +64,38 @@
         />
         يعرض في جلسة البيع (الكاشير)
       </label>
+      <label style="display:flex;align-items:center;gap:0.5rem;font-weight:600;margin-top:0.55rem">
+        <input
+          type="checkbox"
+          id="show_in_shop"
+          name="show_in_shop"
+          value="on"
+          {% if not product or product.show_in_shop %}checked{% endif %}
+        />
+        يعرض في المتجر الإلكتروني (الويب)
+      </label>
       <p class="muted" style="margin:0.35rem 0 0;font-size:0.85rem">
-        ألغِ التحديد لإخفاء الصنف من شاشة نقطة البيع مع بقائه في الأصناف والمخزون والتركيبة.
-        للمكوّنات المخزنية فقط: غيّر النوع إلى «مخزني».
+        يمكنك إظهار/إخفاء الصنف في الكاشير والمتجر بشكل مستقل. إلغاء التحديد يخفيه من الواجهة المختارة مع بقائه في الأصناف والمخزون والتركيبة.
       </p>
+    </div>
+    <div id="hotel-breakfast-block" style="margin: 0.75rem 0;padding:0.75rem 0.85rem;background:#fff7ed;border:1px solid #fdba74;border-radius:10px">
+      <label style="display:flex;align-items:flex-start;gap:0.5rem;font-weight:600;line-height:1.45">
+        <input
+          type="checkbox"
+          id="is_hotel_breakfast"
+          name="is_hotel_breakfast"
+          value="on"
+          {% if product and product.is_hotel_breakfast %}checked{% endif %}
+          style="margin-top:0.2rem"
+        />
+        <span>
+          إفطار مشمول (تكلفة فندق)
+          <span class="muted" style="display:block;font-weight:400;font-size:0.85rem;margin-top:0.2rem">
+            عند تفعيل إعداد الإفطار في الحجز: فاتورة تحتوي هذا الصنف فقط تُسوَّى كتكلفة فندق لا على النزيل.
+            يُكتشف أيضاً تلقائياً إن احتوى اسم الصنف أو الفئة على «إفطار».
+          </span>
+        </span>
+      </label>
     </div>
     <div id="direct-purchase-block" style="margin: 0.75rem 0">
       <label style="display:flex;align-items:center;gap:0.5rem;font-weight:600">

@@ -1,0 +1,30 @@
+{# شريط فرعي لشاشات أمين الخزينة — مطابق لنطاق عمله #}
+{% set pth = request.url.path %}
+{% set _mode = pos_view_mode(request) %}
+<nav class="tdesk-tabs" aria-label="أمين الخزينة">
+  <a href="/pos/treasury/desk" class="{% if pth == '/pos/treasury/desk' %}active{% endif %}">لوحة التحكم</a>
+  {% if _mode != 'restaurant' %}
+  <a href="/pos/treasury/hotel-shifts" class="{% if pth.startswith('/pos/treasury/hotel-shifts') or (pth.startswith('/pos/treasury/receipts') and request.query_params.get('domain') == 'hotel') %}active{% endif %}">تسليم ورديات الاستقبال</a>
+  {% endif %}
+  {% if _mode != 'hotel' %}
+  <a href="/pos/treasury/pos-shifts" class="{% if pth.startswith('/pos/treasury/pos-shifts') or (pth.startswith('/pos/treasury/receipts') and request.query_params.get('domain') == 'restaurant') %}active{% endif %}">تسليم المطعم والكافيه</a>
+  {% endif %}
+  <a href="/pos/treasury/vouchers/in" class="{% if pth.startswith('/pos/treasury/vouchers/in') %}active{% endif %}">سندات القبض</a>
+  <a href="/pos/treasury/pay" class="{% if pth.startswith('/pos/treasury/pay') or pth.startswith('/pos/treasury/vouchers/out') %}active{% endif %}">سندات الصرف</a>
+  {% if pos_is_admin(request) %}
+  <a href="/admin/treasury-pay-categories" class="{% if pth.startswith('/admin/treasury-pay-categories') %}active{% endif %}">بنود المصروف والخدمات</a>
+  {% endif %}
+  <a href="/pos/treasury/custody" class="{% if pth.startswith('/pos/treasury/custody') or pth.startswith('/pos/treasury/advances') %}active{% endif %}">العهد</a>
+  <a href="/admin/expenses" class="{% if pth.startswith('/admin/expenses') %}active{% endif %}">المصروفات</a>
+  <a href="/admin/purchases" class="{% if pth.startswith('/admin/purchases') %}active{% endif %}">المشتريات والفواتير</a>
+  <a href="/admin/payroll" class="{% if pth.startswith('/admin/payroll') %}active{% endif %}">الرواتب</a>
+  <a href="/admin/attendance" class="{% if pth.startswith('/admin/attendance') %}active{% endif %}">الحضور والانصراف</a>
+  <a href="/admin/advances" class="{% if pth.startswith('/admin/advances') %}active{% endif %}">السلف</a>
+  <a href="/admin/bonuses" class="{% if pth.startswith('/admin/bonuses') %}active{% endif %}">المكافآت</a>
+  <a href="/admin/deductions" class="{% if pth.startswith('/admin/deductions') %}active{% endif %}">الخصومات</a>
+  <a href="/admin/shift-variances" class="{% if pth.startswith('/admin/shift-variances') %}active{% endif %}">العجوزات</a>
+  <a href="/pos/treasury/debts" class="{% if pth.startswith('/pos/treasury/debts') or pth.startswith('/admin/hotel/debts') or pth.startswith('/reports/receivables') or pth.startswith('/reports/payables') %}active{% endif %}">الديون والذمم</a>
+  <a href="/pos/treasury/banks" class="{% if pth.startswith('/pos/treasury/banks') or pth == '/pos/treasury' or pth.startswith('/pos/treasury/transfer') %}active{% endif %}">حسابات المصارف</a>
+  <a href="/pos/treasury/session" class="{% if pth.startswith('/pos/treasury/session') %}active{% endif %}">إقفال الخزينة</a>
+  <a href="/pos/treasury/reports" class="{% if pth.startswith('/pos/treasury/reports') or pth.startswith('/reports') %}active{% endif %}">التقارير</a>
+</nav>

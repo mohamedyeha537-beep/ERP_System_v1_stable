@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from modules.hotel.booking_models import BookingPaymentStatus, BookingStatus, HotelBooking
@@ -18,6 +18,7 @@ BOOKING_STATUS_LABELS: dict[str, str] = {
     BookingStatus.CHECKED_OUT.value: "مغادر",
     BookingStatus.CANCELLED.value: "ملغى",
     BookingStatus.NO_SHOW.value: "لم يحضر",
+    BookingStatus.LATE_CANCELLATION.value: "إلغاء متأخر",
 }
 
 PAYMENT_STATUS_LABELS: dict[str, str] = {
@@ -41,19 +42,26 @@ class HotelBookingReportRow:
     payment_status: str
     payment_status_label: str
     accommodation_total: Decimal
+    folio_total: Decimal
     paid_amount: Decimal
     balance: Decimal
+    room_label: str = ""
+    room_id: int | None = None
 
 
 @dataclass
 class HotelBookingsReportSummary:
     booking_count: int
+    room_count: int
     nights_total: int
     accommodation_total: Decimal
+    folio_total: Decimal
     paid_total: Decimal
     balance_total: Decimal
     checked_in_count: int
     checked_out_count: int
+    arrivals_count: int = 0
+    departures_count: int = 0
 
 
 def _period_dates(start: datetime, end: datetime) -> tuple[date, date]:
@@ -74,8 +82,9 @@ def _booking_to_row(db: Session, booking: HotelBooking) -> HotelBookingReportRow
 
     folio = build_folio(db, booking.id)
     acc = folio.accommodation
+    folio_total = folio.total
     paid = folio.paid
-    bal = _booking_balance(db, booking)
+    bal = folio.balance if folio.balance > 0 else Decimal("0")
     nights = max((booking.check_out - booking.check_in).days, 0)
     bs = (
         booking.booking_status.value
@@ -87,6 +96,12 @@ def _booking_to_row(db: Session, booking: HotelBooking) -> HotelBookingReportRow
         if hasattr(booking.payment_status, "value")
         else str(booking.payment_status)
     )
+    room_label = ""
+    room_id = int(booking.room_id) if booking.room_id else None
+    if booking.room is not None:
+        room_label = (
+            booking.room.number or booking.room.name_ar or f"#{booking.room_id}"
+        )
     return HotelBookingReportRow(
         booking_id=int(booking.id),
         reference=str(booking.reference or f"#{booking.id}"),
@@ -99,8 +114,11 @@ def _booking_to_row(db: Session, booking: HotelBooking) -> HotelBookingReportRow
         payment_status=ps,
         payment_status_label=PAYMENT_STATUS_LABELS.get(ps, ps),
         accommodation_total=acc,
+        folio_total=folio_total,
         paid_amount=paid,
         balance=bal,
+        room_label=str(room_label or ""),
+        room_id=room_id,
     )
 
 
@@ -117,24 +135,48 @@ class HotelOpenBalancesSummary:
 def hotel_open_balances(db: Session) -> tuple[list[HotelBookingReportRow], HotelOpenBalancesSummary]:
     """حجوزات نشطة لها رصيد متبقٍ (استحقاق − مدفوع > 0) — بدون تقييد بفترة."""
     today = date.today()
-    bookings = list(
-        db.scalars(
-            select(HotelBooking)
-            .where(
-                HotelBooking.booking_status.notin_(
-                    (BookingStatus.CANCELLED, BookingStatus.NO_SHOW)
-                ),
-            )
-            .order_by(HotelBooking.check_in, HotelBooking.id)
-        ).all()
-    )
-    bookings.sort(key=lambda b: (_booking_balance(db, b), b.check_in), reverse=True)
+    try:
+        bookings = list(
+            db.scalars(
+                select(HotelBooking)
+                .where(
+                    HotelBooking.booking_status.notin_(
+                        (BookingStatus.CANCELLED, BookingStatus.NO_SHOW, BookingStatus.LATE_CANCELLATION)
+                    ),
+                    or_(
+                        HotelBooking.booking_status == BookingStatus.CHECKED_IN,
+                        HotelBooking.payment_status != BookingPaymentStatus.FULLY_PAID,
+                    ),
+                )
+                .order_by(HotelBooking.check_in, HotelBooking.id)
+            ).all()
+        )
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        bookings = list(
+            db.scalars(
+                select(HotelBooking)
+                .where(
+                    HotelBooking.booking_status.notin_(
+                        (BookingStatus.CANCELLED, BookingStatus.NO_SHOW, BookingStatus.LATE_CANCELLATION)
+                    )
+                )
+                .order_by(HotelBooking.check_in, HotelBooking.id)
+            ).all()
+        )
 
     filtered: list[tuple[HotelBooking, HotelBookingReportRow]] = []
     for b in bookings:
-        row = _booking_to_row(db, b)
+        try:
+            row = _booking_to_row(db, b)
+        except Exception:
+            continue
         if row.balance > 0:
             filtered.append((b, row))
+    filtered.sort(key=lambda item: (item[1].balance, item[0].check_in), reverse=True)
     bookings = [b for b, _ in filtered]
     rows = [r for _, r in filtered]
     balance_total = Decimal("0")
@@ -166,7 +208,10 @@ def hotel_open_balances(db: Session) -> tuple[list[HotelBookingReportRow], Hotel
 def hotel_bookings_in_period(
     db: Session, start: datetime, end: datetime
 ) -> tuple[list[HotelBookingReportRow], HotelBookingsReportSummary]:
-    """حجوزات تتقاطع مع الفترة (check_in < end و check_out > start)."""
+    """حجوزات تتقاطع مع الفترة (check_in < end و check_out > start).
+
+    ليوم واحد: الشقق المؤجّرة التي تغطي ذلك اليوم (إشغال ليلي).
+    """
     s_date, e_date = _period_dates(start, end)
     bookings = list(
         db.scalars(
@@ -175,7 +220,7 @@ def hotel_bookings_in_period(
                 HotelBooking.check_in < e_date,
                 HotelBooking.check_out > s_date,
                 HotelBooking.booking_status.notin_(
-                    (BookingStatus.CANCELLED, BookingStatus.NO_SHOW)
+                    (BookingStatus.CANCELLED, BookingStatus.NO_SHOW, BookingStatus.LATE_CANCELLATION)
                 ),
             )
             .order_by(HotelBooking.check_in, HotelBooking.id)
@@ -184,11 +229,15 @@ def hotel_bookings_in_period(
 
     rows: list[HotelBookingReportRow] = []
     acc_total = Decimal("0")
+    folio_total = Decimal("0")
     paid_total = Decimal("0")
     balance_total = Decimal("0")
     nights_total = 0
     checked_in = 0
     checked_out = 0
+    arrivals = 0
+    departures = 0
+    room_ids: set[int] = set()
 
     for b in bookings:
         row = _booking_to_row(db, b)
@@ -196,7 +245,14 @@ def hotel_bookings_in_period(
             checked_in += 1
         if b.booking_status == BookingStatus.CHECKED_OUT:
             checked_out += 1
+        if s_date <= b.check_in < e_date:
+            arrivals += 1
+        if s_date < b.check_out <= e_date:
+            departures += 1
+        if row.room_id:
+            room_ids.add(row.room_id)
         acc_total += row.accommodation_total
+        folio_total += row.folio_total
         paid_total += row.paid_amount
         balance_total += row.balance
         nights_total += row.nights
@@ -204,11 +260,15 @@ def hotel_bookings_in_period(
 
     summary = HotelBookingsReportSummary(
         booking_count=len(rows),
+        room_count=len(room_ids) if room_ids else len(rows),
         nights_total=nights_total,
         accommodation_total=acc_total.quantize(Decimal("0.001")),
+        folio_total=folio_total.quantize(Decimal("0.001")),
         paid_total=paid_total.quantize(Decimal("0.001")),
         balance_total=balance_total.quantize(Decimal("0.001")),
         checked_in_count=checked_in,
         checked_out_count=checked_out,
+        arrivals_count=arrivals,
+        departures_count=departures,
     )
     return rows, summary

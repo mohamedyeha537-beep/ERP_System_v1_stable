@@ -44,6 +44,18 @@ def sale_is_delivery(sale: Sale) -> bool:
     )
 
 
+def sale_allows_split_payment(sale: Sale) -> bool:
+    """الدفع المقسّم (كاش+مصرف) مسموح للطاولة فقط.
+
+    طلبات التوصيل والأونلاين: وسيلة دفع واحدة فقط لتجنب خلط احتساب أجرة التوصيل.
+    """
+    if sale_is_delivery(sale):
+        return False
+    if getattr(sale, "source", None) == SaleSource.ONLINE:
+        return False
+    return True
+
+
 def _kitchen_agg(
     db: Session, sale_ids: list[int]
 ) -> dict[int, dict[str, int]]:

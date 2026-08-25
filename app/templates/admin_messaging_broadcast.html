@@ -92,6 +92,13 @@
       <input name="image_url" dir="ltr" placeholder="https://example.com/promo.jpg" style="width:100%;max-width:36rem;margin-top:0.35rem" />
       <p class="muted" style="font-size:0.85rem;margin-top:0.25rem">يجب أن يكون الرابط عاماً (HTTPS) ليتمكن TextMeBot من تحميله.</p>
     </details>
+    <label style="margin-top:0.5rem">مجموعة العملاء (المجال)</label>
+    <select name="audience_domain" id="broadcast-audience">
+      <option value="all">كل المجالات</option>
+      <option value="restaurant">عملاء المطعم (+ مشتركون)</option>
+      <option value="hotel">عملاء الفندق (+ مشتركون)</option>
+    </select>
+    <p class="muted" style="font-size:0.85rem;margin:0.25rem 0 0">لعروض المطعم اختر «عملاء المطعم» حتى لا تصل لنزلاء الفندق المغادرين. المشترك يظهر في الاثنين إن تعامل مع المجالين.</p>
     <label style="margin-top:0.5rem">المستلمون</label>
     <select name="segment" id="broadcast-segment">
       <option value="opt_in">الموافقون على المراسلات فقط (موصى به)</option>
@@ -130,9 +137,12 @@
 (function () {
   var seg = document.getElementById('broadcast-segment');
   var picker = document.getElementById('phone-list-picker');
+  var audience = document.getElementById('broadcast-audience');
   if (!seg || !picker) return;
   function sync() {
-    picker.style.display = seg.value === 'phone_list' ? 'block' : 'none';
+    var external = seg.value === 'phone_list';
+    picker.style.display = external ? 'block' : 'none';
+    if (audience) audience.disabled = external;
   }
   seg.addEventListener('change', sync);
   sync();

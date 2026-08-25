@@ -24,9 +24,14 @@
   <form method="post" action="/admin/hotel/room-types/save" class="row" style="gap:0.4rem;flex-wrap:wrap;align-items:flex-end">
     <div><label>الاسم *</label><input name="name_ar" placeholder="مثلاً: جناح" required /></div>
     <div><label>رمز</label><input name="code" placeholder="SUITE" /></div>
-    <div><label>بالغون</label><input name="capacity_adults" type="number" value="2" min="1" /></div>
+    <div><label>سعة أساسية (بالغون)</label><input name="capacity_adults" type="number" value="2" min="1" /></div>
     <div><label>أطفال</label><input name="capacity_children" type="number" value="0" min="0" /></div>
+    <div><label>الحد الأقصى</label><input name="max_occupancy" type="number" min="1" placeholder="اختياري" /></div>
+    <div><label>الأسرة</label><input name="beds_description" placeholder="سريران · صالة" /></div>
     <div><label>سعر الليلة (د.ل)</label><input name="base_price" type="number" step="0.001" min="0" placeholder="200" /></div>
+    <label style="display:flex;align-items:center;gap:0.35rem;font-size:0.88rem;padding-bottom:0.35rem">
+      <input type="checkbox" name="allows_extra_bed" value="on" /> سرير إضافي
+    </label>
     <button class="btn btn-primary" type="submit">إضافة النوع</button>
   </form>
 </div>
@@ -56,7 +61,12 @@
     <tr{% if not t.is_active %} style="opacity:0.72;background:#f9fafb"{% endif %}>
       <td><strong>{{ t.name_ar }}</strong></td>
       <td>{{ t.code or '—' }}</td>
-      <td>{{ t.capacity_adults }} بالغ{% if t.capacity_children %} + {{ t.capacity_children }} طفل{% endif %}</td>
+      <td>
+        {{ t.capacity_adults }} بالغ{% if t.capacity_children %} + {{ t.capacity_children }} طفل{% endif %}
+        {% if t.max_occupancy %} · حد {{ t.max_occupancy }}{% endif %}
+        {% if t.allows_extra_bed %} · سرير+{% endif %}
+        {% if t.beds_description %}<br><span class="muted" style="font-size:0.8rem">{{ t.beds_description }}</span>{% endif %}
+      </td>
       <td>{{ '%.3f'|format(t.base_price) }} د.ل</td>
       <td>
         {% if t.is_active %}
@@ -77,9 +87,15 @@
               <input type="hidden" name="type_id" value="{{ t.id }}" />
               <input name="name_ar" value="{{ t.name_ar }}" required />
               <input name="code" value="{{ t.code or '' }}" placeholder="رمز" />
-              <input name="capacity_adults" type="number" value="{{ t.capacity_adults }}" min="1" />
-              <input name="capacity_children" type="number" value="{{ t.capacity_children }}" min="0" />
-              <input name="base_price" type="number" step="0.001" value="{{ t.base_price }}" />
+              <label>سعة أساسية <input name="capacity_adults" type="number" value="{{ t.capacity_adults }}" min="1" /></label>
+              <label>أطفال <input name="capacity_children" type="number" value="{{ t.capacity_children }}" min="0" /></label>
+              <label>الحد الأقصى <input name="max_occupancy" type="number" min="1" value="{{ t.max_occupancy or '' }}" placeholder="بالغون+أطفال" /></label>
+              <label>الأسرة <input name="beds_description" value="{{ t.beds_description or '' }}" placeholder="سريران · صالة" /></label>
+              <label>السعر/ليلة <input name="base_price" type="number" step="0.001" value="{{ t.base_price }}" /></label>
+              <label style="display:flex;align-items:center;gap:0.35rem;font-size:0.88rem">
+                <input type="checkbox" name="allows_extra_bed" value="on"{% if t.allows_extra_bed %} checked{% endif %} />
+                إمكانية سرير إضافي
+              </label>
               <label style="display:flex;align-items:center;gap:0.35rem;font-size:0.88rem">
                 <input type="checkbox" name="is_active" value="on"{% if t.is_active %} checked{% endif %} />
                 متاح للحجز وإعداد الشقق

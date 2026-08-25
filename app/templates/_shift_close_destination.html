@@ -1,0 +1,49 @@
+{# خيار وجهة الإقفال حسب إعداد الأدمن: ترحيل و/أو إقفال عادي #}
+{% set _pol = close_policy if close_policy is defined else none %}
+{% set _allow_carry = _pol.allow_carry if _pol else true %}
+{% set _allow_treasury = _pol.allow_treasury if _pol else true %}
+{% set _recipients = carry_recipients if carry_recipients is defined else [] %}
+{% if not _allow_carry and not _allow_treasury %}
+<div class="shift-dest" id="shift-close-destination" style="border-color:#fecaca;background:#fef2f2">
+  <p class="shift-dest__title" style="color:#b91c1c">الإقفال غير متاح</p>
+  <p class="shift-dest__hint" style="margin-bottom:0">
+    الأدمن أوقف الترحيل والإقفال العادي. لا يمكن إقفال الجلسة حتى يُفعَّل أحدهما من
+    <a href="/admin/settings#hotel-shift-close-policy">إعدادات النظام</a>
+    أو <a href="/admin/hotel/shift/settings">إعدادات الورديات</a>.
+  </p>
+</div>
+{% elif _allow_carry and _allow_treasury %}
+<div class="shift-dest" id="shift-close-destination">
+  <p class="shift-dest__title">كيف تريد إنهاء الجلسة؟ <span style="color:#b91c1c">*</span></p>
+  <p class="shift-dest__hint">
+    <strong>ترحيل للجلسة التالية</strong> إذا كنت تسلّم الدرج للموظف الذي يليك — الرصيد يفتح معه تلقائياً ولا يذهب للخزينة.
+    <strong>إقفال عادي</strong> إذا أردت إدخال المعدود وتسليم الكاش/المصرف لأمين الخزينة كما كان من قبل.
+  </p>
+  <div class="shift-dest__grid">
+    <label class="shift-dest__card">
+      <input type="radio" name="close_destination" value="NEXT_SHIFT" required />
+      <span class="shift-dest__icon" aria-hidden="true">🔁</span>
+      <span class="shift-dest__name">ترحيل للجلسة التالية</span>
+      <span class="shift-dest__desc">الرصيد يبقى في الدرج ويفتح الكاشير التالي بنفس المبلغ. لا يظهر لأمين الخزينة.</span>
+    </label>
+    <label class="shift-dest__card">
+      <input type="radio" name="close_destination" value="TREASURY" required />
+      <span class="shift-dest__icon" aria-hidden="true">🏦</span>
+      <span class="shift-dest__name">إقفال عادي — تسليم الخزينة</span>
+      <span class="shift-dest__desc">أدخل المعدود كما هو معتاد. يُعلَّق الإيراد لاعتماد أمين الخزينة.</span>
+    </label>
+  </div>
+  {% include "_shift_carry_recipient.html" %}
+</div>
+{% elif _allow_carry %}
+<div class="shift-dest" id="shift-close-destination" style="border-color:#67e8f9;background:#ecfeff">
+  <input type="hidden" name="close_destination" value="NEXT_SHIFT" />
+  <p class="shift-dest__title">🔁 ترحيل الرصيد للجلسة التالية</p>
+  <p class="shift-dest__hint">
+    الأدمن أتاح الترحيل فقط. بعد إدخال المعدود يُسلَّم الرصيد للموظف التالي ولا يذهب للخزينة.
+  </p>
+  {% include "_shift_carry_recipient.html" %}
+</div>
+{% else %}
+<input type="hidden" name="close_destination" value="TREASURY" />
+{% endif %}

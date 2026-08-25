@@ -16,26 +16,41 @@
         placeholder="0.000" style="width:100%;padding:0.45rem 0.5rem;margin-bottom:0.55rem" />
 
       <label class="muted" style="font-size:0.78rem;display:block;margin:0 0 0.2rem">التصنيف</label>
-      <select name="category" required style="width:100%;padding:0.45rem 0.5rem;margin-bottom:0.55rem;border-radius:8px;border:1px solid var(--border)">
+      <select name="category" id="pos-shift-expense-category" required
+        style="width:100%;padding:0.45rem 0.5rem;margin-bottom:0.55rem;border-radius:8px;border:1px solid var(--border)">
         {% for key, label in shift_expense_categories %}
         <option value="{{ key }}">{{ label }}</option>
         {% endfor %}
       </select>
 
+      <div id="pos-shift-expense-employee-wrap" hidden style="margin-bottom:0.55rem">
+        <label class="muted" style="font-size:0.78rem;display:block;margin:0 0 0.2rem">الموظف المستفيد من السلفة *</label>
+        <select name="employee_id" id="pos-shift-expense-employee"
+          style="width:100%;padding:0.45rem 0.5rem;border-radius:8px;border:1px solid var(--border)">
+          <option value="">— اختر الموظف —</option>
+          {% for e in shift_expense_employees %}
+          <option value="{{ e.id }}">{{ e.name }}</option>
+          {% endfor %}
+        </select>
+        <p class="muted" style="margin:0.35rem 0 0;font-size:0.78rem;color:#0369a1">
+          تُسجَّل في صفحة السلف وتُخصم من الراتب — ليست قيداً عاماً فقط.
+        </p>
+      </div>
+
       {% if shift_expense_single_wallet %}
       <input type="hidden" name="payment_method_id" value="{{ shift_expense_single_wallet.id }}" />
       <p class="muted" style="margin:0 0 0.55rem;font-size:0.85rem">
-        من: <strong>{{ shift_expense_single_wallet.kind_label }} — {{ shift_expense_single_wallet.name_ar }}</strong>
+        من: <strong>{{ shift_expense_single_wallet.kind_label }} — {{ pos_wallet_label(shift_expense_single_wallet) }}</strong>
       </p>
       {% elif shift_expense_wallet_options and shift_expense_wallet_options|length > 0 %}
-      <label class="muted" style="font-size:0.78rem;display:block;margin:0 0 0.2rem">من أي محفظة؟</label>
+      <label class="muted" style="font-size:0.78rem;display:block;margin:0 0 0.2rem">من أي محفظة مطعم؟</label>
       <select name="payment_method_id" required style="width:100%;padding:0.45rem 0.5rem;margin-bottom:0.55rem;border-radius:8px;border:1px solid var(--border)">
         {% for w in shift_expense_wallet_options %}
-        <option value="{{ w.id }}">{{ w.kind_label }} — {{ w.name_ar }}</option>
+        <option value="{{ w.id }}">{{ w.kind_label }} — {{ pos_wallet_label(w) }}</option>
         {% endfor %}
       </select>
       {% else %}
-      <p class="muted" style="color:#b91c1c;margin:0 0 0.55rem;font-size:0.85rem">لا توجد محفظة كاشير — راجع إعدادات الدفع.</p>
+      <p class="muted" style="color:#b91c1c;margin:0 0 0.55rem;font-size:0.85rem">لا توجد محفظة كاشير مطعم — راجع إعدادات الدفع.</p>
       {% endif %}
 
       <label class="muted" style="font-size:0.78rem;display:block;margin:0 0 0.2rem">الوصف *</label>
@@ -54,10 +69,24 @@
 (function () {
   var modal = document.getElementById("pos-shift-expense-modal");
   if (!modal) return;
+  var advanceKeys = {{ (shift_expense_advance_keys or ['advance']) | tojson }};
+  var catSel = document.getElementById("pos-shift-expense-category");
+  var empWrap = document.getElementById("pos-shift-expense-employee-wrap");
+  var empSel = document.getElementById("pos-shift-expense-employee");
+  function syncEmployeeField() {
+    if (!catSel || !empWrap || !empSel) return;
+    var isAdv = advanceKeys.indexOf(catSel.value) >= 0;
+    empWrap.hidden = !isAdv;
+    empSel.required = isAdv;
+    if (!isAdv) empSel.value = "";
+  }
+  if (catSel) catSel.addEventListener("change", syncEmployeeField);
+  syncEmployeeField();
   function openModal(nextUrl) {
     var next = document.getElementById("pos-shift-expense-next");
     if (next && nextUrl) next.value = nextUrl;
     modal.hidden = false;
+    syncEmployeeField();
     var amt = document.getElementById("pos-shift-expense-amount");
     if (amt) { amt.focus(); amt.select && amt.select(); }
   }

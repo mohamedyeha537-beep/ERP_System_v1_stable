@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% block title %}حوافز ومكافآت الموظفين{% endblock %}
+{% block head_extra %}
+<style>
+  .hr-nav { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 1rem;
+            border-bottom: 1px solid var(--border); padding-bottom: 0.6rem; }
+  .hr-nav a { padding: 0.45rem 0.85rem; border-radius: 8px; border: 1px solid var(--border);
+              background: #fff; color: inherit; text-decoration: none; font-weight: 600; }
+  .hr-nav a.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .hr-nav a:hover { background: #eef2ff; }
+  .pill { display: inline-block; padding: 0.18rem 0.6rem; border-radius: 999px;
+          font-size: 0.78rem; font-weight: 700; }
+  .pill.outstanding { background: #dcfce7; color: #166534; }
+  .pill.settled { background: #dbeafe; color: #1e40af; }
+  .pill.cancelled { background: #fee2e2; color: #b91c1c; }
+  .grant-row { display: grid; grid-template-columns: 2fr 1fr 2fr auto;
+               gap: 0.5rem; align-items: end; }
+  @media (max-width: 900px) { .grant-row { grid-template-columns: 1fr; } }
+  .help { background: #ecfdf5; border-right: 4px solid #10b981; padding: 0.7rem 1rem;
+          border-radius: 8px; color: #065f46; margin-bottom: 1rem; line-height: 1.7; }
+  .emp-summary-row {
+    display: grid; grid-template-columns: 2fr 1fr 1fr auto;
+    gap: 0.5rem; align-items: center; padding: 0.6rem 0.8rem;
+    border-bottom: 1px solid var(--border);
+  }
+</style>
+{% endblock %}
+{% block body %}
+<div class="row" style="justify-content: space-between; align-items: center">
+  <h1 style="margin: 0">حوافز ومكافآت الموظفين</h1>
+</div>
+
+{% if pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}
+<link rel="stylesheet" href="/static/treasury_desk.css?v=1" />
+{% include "treasury/_nav.html" %}
+{% else %}
+{% set hr_nav_active = 'bonuses' %}
+{% include "_hr_nav.html" %}
+{% endif %}
+
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+{% if saved %}<div class="alert" style="background:#ecfdf5; border-color:#10b981; color:#065f46">تم الحفظ ✓</div>{% endif %}
+
+<div class="help">
+  <strong>كيف تعمل الحوافز؟</strong>
+  <ol style="margin: 0.4rem 0">
+    <li><strong>تسجيل مكافأة:</strong> اختر الموظف والمبلغ — لا تُصرف نقداً الآن.</li>
+    <li><strong>إضافة تلقائية للراتب:</strong> عند إنشاء أو مزامنة دفعة رواتب، يُملأ حقل «مكافآت» بمجموع الحوافز القائمة.</li>
+    <li><strong>عند دفع الراتب:</strong> تُعلَّم المكافآت كـ «طُبّقت في راتب» ويُصرف المبلغ ضمن صافي الراتب.</li>
+  </ol>
+</div>
+
+{% if summary %}
+<div class="card">
+  <h2 style="margin-top: 0">مكافآت قائمة بانتظار الراتب</h2>
+  {% for emp, rem, count in summary %}
+  <div class="emp-summary-row">
+    <div>
+      <strong>{{ emp.full_name_ar }}</strong>
+      <span class="muted">— {{ emp.job_title or '' }}</span>
+    </div>
+    <div><span class="pill outstanding">{{ count }} مكافأة</span></div>
+    <div style="font-size: 1.1rem; font-weight: 800; color: #166534">{{ rem }} د.ل</div>
+    <div>
+      <a class="btn" href="/admin/bonuses?employee_id={{ emp.id }}" style="padding: 0.25rem 0.6rem; font-size: 0.85rem">عرض</a>
+    </div>
+  </div>
+  {% endfor %}
+  <div style="display: flex; justify-content: flex-end; padding: 0.7rem 0.8rem; background: #ecfdf5; border-top: 2px solid #10b981; font-weight: 800; font-size: 1.15rem; color: #065f46">
+    الإجمالي: {{ grand_total }} د.ل
+  </div>
+</div>
+{% else %}
+<div class="alert" style="background:#eff6ff; border-color:#93c5fd; color:#1e3a8a">
+  لا توجد مكافآت قائمة حالياً.
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top: 0">تسجيل مكافأة / حافز جديد</h2>
+  <form method="post" action="/admin/bonuses/grant">
+    <div class="grant-row">
+      <div>
+        <label for="emp">الموظف *</label>
+        <select id="emp" name="employee_id" required>
+          <option value="">— اختر —</option>
+          {% for e in employees %}{% if e.is_active %}
+          <option value="{{ e.id }}" {% if selected_id == e.id %}selected{% endif %}>{{ e.full_name_ar }} ({{ e.job_title or 'موظف' }})</option>
+          {% endif %}{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="amt">المبلغ (د.ل) *</label>
+        <input id="amt" name="amount" type="number" step="0.001" min="0.001" required />
+      </div>
+      <div>
+        <label for="note">ملاحظة</label>
+        <input id="note" name="note" placeholder="سبب المكافأة / الحافز" />
+      </div>
+      <div>
+        <button class="btn btn-primary" type="submit">+ تسجيل</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0">سجل الحوافز</h2>
+  <form method="get" action="/admin/bonuses" class="row" style="gap: 0.4rem; align-items: end; margin-bottom: 0.7rem">
+    <div>
+      <label for="fe">الموظف</label>
+      <select id="fe" name="employee_id">
+        <option value="">— الكل —</option>
+        {% for e in employees %}
+        <option value="{{ e.id }}" {% if selected_id == e.id %}selected{% endif %}>{{ e.full_name_ar }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="fo">عرض</label>
+      <select id="fo" name="only_outstanding">
+        <option value="0" {% if not only_outstanding %}selected{% endif %}>الكل</option>
+        <option value="1" {% if only_outstanding %}selected{% endif %}>القائمة فقط</option>
+      </select>
+    </div>
+    <button class="btn btn-primary" type="submit">عرض</button>
+  </form>
+
+  {% if items %}
+  <table>
+    <thead>
+      <tr>
+        <th>التاريخ</th>
+        <th>الموظف</th>
+        <th>المبلغ</th>
+        <th>الحالة</th>
+        <th>ملاحظة</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for b in items %}
+      <tr>
+        <td class="muted" style="font-size:0.85rem">{{ pos_format_dt(b.created_at, '%Y-%m-%d') }}</td>
+        <td>
+          <strong>{{ b.employee.full_name_ar if b.employee else '?' }}</strong>
+        </td>
+        <td style="font-weight:800; color:#166534">{{ b.amount }}</td>
+        <td>
+          <span class="pill {{ b.status.value|lower }}">
+            {{ status_labels.get(b.status.value, b.status.value) }}
+          </span>
+        </td>
+        <td class="muted" style="font-size: 0.82rem">{{ b.note or '—' }}</td>
+        <td>
+          {% if b.status.value == 'OUTSTANDING' %}
+          <form method="post" action="/admin/bonuses/{{ b.id }}/cancel" style="display:inline"
+                onsubmit="return confirm('إلغاء هذه المكافأة؟')">
+            <button class="btn" type="submit" style="padding:0.18rem 0.45rem; font-size:0.8rem; color:#b91c1c; border-color:#fecaca">إلغاء</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted" style="text-align: center; padding: 1.5rem">لا توجد سجلات بهذه الفلاتر.</p>
+  {% endif %}
+</div>
+{% endblock %}

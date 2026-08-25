@@ -41,7 +41,7 @@
   </div>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0.55rem;align-items:end">
     <div><label>الهاتف{% if req %} *{% endif %}</label><input name="staying_guest_phone" dir="ltr" {% if req %}required{% endif %} /></div>
-    <div><label>العنوان{% if req %} *{% endif %}</label><input name="staying_guest_address" {% if req %}required{% endif %} /></div>
+    <div><label>قادم من{% if req %} *{% endif %}</label><input name="staying_guest_address" placeholder="المدينة / الجهة القادم منها" {% if req %}required{% endif %} /></div>
     <div>
       <label>إرفاق الوثيقة{% if req %} *{% endif %}</label>
       <input type="file" name="staying_guest_id_document" accept="image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf" style="font-size:0.82rem;max-width:100%" {% if req %}required{% endif %} />

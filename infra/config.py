@@ -53,6 +53,33 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("INTEGRATION_API_KEY", "integration_api_key"),
     )
+    # قائمة IP/CIDR مفصولة بفواصل — فارغة = لا قيد (للتطوير فقط)
+    integration_api_ip_allowlist: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "INTEGRATION_API_IP_ALLOWLIST", "integration_api_ip_allowlist"
+        ),
+    )
+    online_sync_ip_allowlist: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "ONLINE_SYNC_IP_ALLOWLIST", "online_sync_ip_allowlist"
+        ),
+    )
+    # عند true يُطلب توقيع HMAC-SHA256 للجسم (X-Sync-Signature)
+    online_sync_require_hmac: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "ONLINE_SYNC_REQUIRE_HMAC", "online_sync_require_hmac"
+        ),
+    )
+    # عند true تُرفض استعادة نسخة بلا ملف .sig صالح
+    backup_require_signature: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "BACKUP_REQUIRE_SIGNATURE", "backup_require_signature"
+        ),
+    )
     default_admin_username: str = Field(
         default="admin",
         validation_alias=AliasChoices("DEFAULT_ADMIN_USERNAME", "default_admin_username"),
@@ -73,6 +100,39 @@ class Settings(BaseSettings):
     show_docs: bool = Field(
         default=False,
         validation_alias=AliasChoices("SHOW_DOCS", "show_docs"),
+    )
+    app_env: str = Field(
+        default="development",
+        validation_alias=AliasChoices("APP_ENV", "app_env"),
+    )
+    # ========== مزامنة أوفلاين/أونلاين ==========
+    sync_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("SYNC_ENABLED", "sync_enabled"),
+    )
+    sync_site_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("SYNC_SITE_ID", "sync_site_id"),
+    )
+    online_sync_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("ONLINE_SYNC_URL", "online_sync_url"),
+    )
+    online_sync_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("ONLINE_SYNC_API_KEY", "online_sync_api_key"),
+    )
+    sync_interval_seconds: int = Field(
+        default=60,
+        validation_alias=AliasChoices("SYNC_INTERVAL_SECONDS", "sync_interval_seconds"),
+    )
+    sync_batch_size: int = Field(
+        default=100,
+        validation_alias=AliasChoices("SYNC_BATCH_SIZE", "sync_batch_size"),
+    )
+    sync_pull_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("SYNC_PULL_ENABLED", "sync_pull_enabled"),
     )
 
     @field_validator("database_url")

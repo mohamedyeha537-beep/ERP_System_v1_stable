@@ -140,15 +140,15 @@ def _pay_status(db: Session, sale: Sale) -> tuple[str, str]:
 def _payment_method_label(db: Session, sale: Sale) -> str | None:
     if sale.status != SaleStatus.COMPLETED:
         return None
+    from modules.gl.wallet_labels import label_from_info_map, wallet_gl_info_map
+
+    gl_info = wallet_gl_info_map(db)
     pays = list_sale_payments(db, sale.id)
     names = []
     for p in pays:
-        if p.method:
-            names.append(p.method.name_ar)
-        else:
-            pm = db.get(PaymentMethod, p.payment_method_id)
-            if pm:
-                names.append(pm.name_ar)
+        pm = p.method or db.get(PaymentMethod, p.payment_method_id)
+        if pm:
+            names.append(label_from_info_map(gl_info, pm))
     label = "، ".join(dict.fromkeys(names)) if names else None
     if sale.customer_id:
         from modules.customers.service import loyalty_discount_for_sale

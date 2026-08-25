@@ -107,6 +107,8 @@ def admin_payment_methods(
     domain = _finance_domain_filter(request, user)
     methods = list_payment_methods(db, only_active=False, domain=domain)
     gl_enabled = is_gl_enabled(db)
+    from modules.gl.wallet_labels import wallet_gl_info_map
+
     return templates.TemplateResponse(
         "admin_payment_methods.html",
         {
@@ -119,6 +121,7 @@ def admin_payment_methods(
             "owner_equity_name": OWNER_EQUITY_PM_NAME,
             "error_message": None,
             "gl_enabled": gl_enabled,
+            "pm_gl_info": wallet_gl_info_map(db),
         },
     )
 
@@ -160,6 +163,8 @@ def _render_pm_page(request: Request, db, user: User, error: str, status_code: i
 
     domain = _finance_domain_filter(request, user)
     methods = list_payment_methods(db, only_active=False, domain=domain)
+    from modules.gl.wallet_labels import wallet_gl_info_map
+
     return templates.TemplateResponse(
         "admin_payment_methods.html",
         {
@@ -172,6 +177,7 @@ def _render_pm_page(request: Request, db, user: User, error: str, status_code: i
             "owner_equity_name": OWNER_EQUITY_PM_NAME,
             "error_message": error,
             "gl_enabled": is_gl_enabled(db),
+            "pm_gl_info": wallet_gl_info_map(db),
         },
         status_code=status_code,
     )
@@ -338,26 +344,31 @@ def _get_draft_for_checkout(request: Request, db, user: User) -> Sale | None:
 
 
 def _ensure_sale_referral_from_online(db, sale: Sale) -> None:
-    """يربط إحالة المتجر/الشات بالفاتورة قبل شاشة الدفع إن وُجدت في الجلسة."""
-    if sale.referrer_customer_id:
-        return
-    from modules.messaging.chat_order_service import (
-        is_online_guest_sale,
-        try_apply_session_referral_to_sale,
-        web_chat_session_for_sale,
-    )
-
-    if not is_online_guest_sale(sale):
-        return
-    sess = web_chat_session_for_sale(db, sale.id)
-    if sess is None:
-        return
-    try_apply_session_referral_to_sale(db, sess, sale)
+    """لا يُطبَّق كود الإحالة تلقائياً عند فتح الدفع من الكاشير — يُترك للكاشير إدخاله يدوياً."""
+    _ = (db, sale)
 
 
 def _sale_referral_checkout_info(db, sale: Sale) -> dict:
     from modules.customers.models import Customer
     from modules.customers.referral_service import find_customer_by_referral_code
+    from modules.messaging.chat_order_service import is_online_guest_sale
+
+    if is_online_guest_sale(sale):
+        code = ""
+        label = ""
+        if sale.referrer_customer_id:
+            code = (sale.referral_code_used or "").strip()
+            referrer = db.get(Customer, int(sale.referrer_customer_id))
+            if referrer is not None:
+                parts = [(referrer.name or "").strip(), (referrer.phone or "").strip()]
+                label = " — ".join(p for p in parts if p)
+        return {
+            "referral_code_prefill": code,
+            "referral_referrer_label": label,
+            "referral_on_sale": bool(sale.referrer_customer_id),
+            "referral_from_online": bool(sale.referrer_customer_id),
+        }
+
     from modules.messaging.chat_order_service import load_order_data, web_chat_session_for_sale
 
     code = (sale.referral_code_used or "").strip()
@@ -524,9 +535,9 @@ def _build_checkout_template_ctx(
     from modules.delivery.drivers_service import get_handoff, list_recent_drivers
     from modules.hr.meal_allowance import checkout_employee_options, current_period_label
     from modules.payments.service import list_pos_sale_payment_methods
-    from modules.sales.order_pipeline import sale_is_delivery
+    from modules.sales.order_pipeline import sale_allows_split_payment, sale_is_delivery
 
-    methods = list_pos_sale_payment_methods(db, only_active=True)
+    methods = list_pos_sale_payment_methods(db, only_active=True, user=user)
     meal_period = current_period_label()
     sorted_lines = sort_sale_lines_for_display(db, list(sale.lines))
     loyalty_ctx = _checkout_loyalty_context(db, sale, user)
@@ -540,6 +551,7 @@ def _build_checkout_template_ctx(
     ):
         delivery_cash_method = get_default_cash_method(db)
     show_delivery_driver_button = sale_is_delivery(sale) and bool(sale.lines)
+    allow_split_payment = sale_allows_split_payment(sale)
     op_name = None
     if open_pos_shift and getattr(open_pos_shift, "employee", None) is not None:
         op_name = open_pos_shift.employee.full_name_ar
@@ -560,6 +572,7 @@ def _build_checkout_template_ctx(
         "financial_preview": financial_preview,
         "delivery_cash_method": delivery_cash_method,
         "show_delivery_driver_button": show_delivery_driver_button,
+        "allow_split_payment": allow_split_payment,
         "delivery_handoff": (
             get_handoff(db, sale.id) if show_delivery_driver_button else None
         ),
@@ -833,6 +846,12 @@ async def pos_checkout_submit(
         pm = db.get(PaymentMethod, pm_id)
         if pm is None or not pm.is_active:
             return checkout_fail("أسلوب الدفع غير صالح.")
+        try:
+            from modules.authz.pos_wallet_access import assert_user_may_use_payment_method
+
+            assert_user_may_use_payment_method(user, pm)
+        except PaymentsError as exc:
+            return checkout_fail(str(exc))
 
     proof_fn: str | None = None
     proof_upload = form.get("bank_transfer_proof")
@@ -867,10 +886,18 @@ async def pos_checkout_submit(
             if customer_phone is None:
                 return checkout_fail("لا يوجد رقم هاتف للموظف لاحتساب نقاط الولاء.")
         cust = attach_customer_to_sale(db, sale, phone=customer_phone, name=customer_name)
+        from modules.messaging.chat_order_service import is_online_guest_sale
+
+        online_guest = is_online_guest_sale(sale)
         referral_code = str(form.get("referral_code") or "").strip()
-        if not referral_code:
+        if not referral_code and not online_guest:
             referral_code = (sale.referral_code_used or "").strip()
-        if referral_code and cust is not None and not sale.referrer_customer_id:
+        if (
+            referral_code
+            and cust is not None
+            and not sale.referrer_customer_id
+            and (not online_guest or str(form.get("referral_code") or "").strip())
+        ):
             from modules.customers.referral_service import (
                 ReferralError,
                 apply_referral_to_sale,
@@ -957,6 +984,12 @@ async def pos_checkout_submit(
 
         if amount_due > 0:
             if split_payment:
+                from modules.sales.order_pipeline import sale_allows_split_payment
+
+                if not sale_allows_split_payment(sale):
+                    raise PaymentsError(
+                        "طلبات التوصيل والأونلاين تُدفع بوسيلة واحدة فقط (كاش أو مصرف) — بدون دفع مقسّم."
+                    )
                 split_rows: list[tuple[int, Decimal]] = []
                 for key, value in form.multi_items():
                     sk = str(key)
@@ -984,7 +1017,15 @@ async def pos_checkout_submit(
                     raise PaymentsError(
                         f"مجموع الدفع المقسّم ({split_total}) يجب أن يساوي المبلغ المطلوب ({amount_due})."
                     )
+                from modules.authz.pos_wallet_access import (
+                    assert_user_may_use_payment_method,
+                )
+
                 for split_method_id, split_amount in split_rows:
+                    split_pm = db.get(PaymentMethod, split_method_id)
+                    if split_pm is None or not split_pm.is_active:
+                        raise PaymentsError("أحد أساليب الدفع المقسّم غير صالح.")
+                    assert_user_may_use_payment_method(user, split_pm)
                     record_sale_payment(
                         db,
                         sale.id,
@@ -1194,34 +1235,37 @@ def _parse_datetime_local(raw: str) -> datetime | None:
         return None
 
 
-def _purchase_term_methods(db: DBSession, user: User):
+def _purchase_custody_domain_for_user(request: Request | None, user: User):
+    """مجال عهدة المشتريات حسب نطاق المستخدم (مطعم/فندق)."""
     from modules.payments.models import PaymentMethodDomain
+    from modules.platform.business_domain import BusinessDomain
 
+    if request is not None:
+        dom = _finance_domain_filter(request, user)
+        if dom == BusinessDomain.HOTEL:
+            return PaymentMethodDomain.HOTEL
+        if dom == BusinessDomain.RESTAURANT:
+            return PaymentMethodDomain.RESTAURANT
+    return PaymentMethodDomain.RESTAURANT
+
+
+def _purchase_term_methods(db: DBSession, user: User, request: Request | None = None):
+    # موظف المشتريات يرى خزين/عهد المطعم والفندق معاً (قد يشتري لأي مجال)
     if purchase_user_limited_to_custody(user):
         return list_payment_methods_for_purchase_term_custody(
-            db, only_active=True, domain=PaymentMethodDomain.RESTAURANT
+            db, only_active=True, domain=None
         )
-    return list_payment_methods_for_purchase_term(db, only_active=True)
+    return list_payment_methods_for_purchase_term(db, only_active=True, domain=None)
 
 
-def _purchase_pay_methods(db: DBSession, user: User):
-    from modules.payments.models import PaymentMethodDomain
+def _purchase_pay_methods(db: DBSession, user: User, request: Request | None = None):
+    from modules.payments.service import list_payment_methods_for_purchase_pay
 
-    if purchase_user_limited_to_custody(user):
-        return list_payment_methods_purchase_custody_for_pay(
-            db, only_active=True, domain=PaymentMethodDomain.RESTAURANT
-        )
-    out: list = []
-    seen: set[int] = set()
-    for m in list_payment_methods_main_treasury_for_pay(db, only_active=True):
-        if m.id not in seen:
-            out.append(m)
-            seen.add(m.id)
-    for m in list_payment_methods_purchase_custody_for_pay(db, only_active=True):
-        if m.id not in seen:
-            out.append(m)
-            seen.add(m.id)
-    return out
+    return list_payment_methods_for_purchase_pay(
+        db,
+        only_active=True,
+        custody_only=purchase_user_limited_to_custody(user),
+    )
 
 
 def _assert_purchase_term_pm(db: DBSession, user: User, pm_id: int):
@@ -1256,32 +1300,28 @@ def purchases_list(
     )
     from modules.platform.business_domain import domain_label, purchase_domain_db_values
 
-    s, e = _month_default_range()
-    s_user = _parse_date(start)
-    e_user = _parse_date(end)
-    if s_user is not None:
-        s = s_user
-    if e_user is not None:
-        e = e_user
+    # بدون فترة افتراضية — الكل حتى يختار الأدمن تصفية يدوية
+    s = _parse_date(start)
+    e = _parse_date(end)
     supplier_filter = [x.strip() for x in (suppliers or []) if (x or "").strip()]
     pay_filter = (pay or "all").strip().lower()
     domain = _finance_domain_filter(request, user)
 
     stmt = (
         select(Purchase)
-        .where(
-            Purchase.created_at >= s,
-            Purchase.created_at < e,
-            Purchase.kind == PurchaseKind.INVENTORY,
-        )
+        .where(Purchase.kind == PurchaseKind.INVENTORY)
         .options(
             selectinload(Purchase.lines),
             selectinload(Purchase.method),
             selectinload(Purchase.warehouse),
         )
-        .order_by(Purchase.id.desc())
-        .limit(500)
+        .order_by(Purchase.created_at.desc(), Purchase.id.desc())
+        .limit(2000)
     )
+    if s is not None:
+        stmt = stmt.where(Purchase.created_at >= s)
+    if e is not None:
+        stmt = stmt.where(Purchase.created_at < e)
     domain_vals = purchase_domain_db_values(domain)
     if domain_vals is not None:
         stmt = stmt.where(Purchase.business_domain.in_(domain_vals))
@@ -1303,6 +1343,7 @@ def purchases_list(
             "pay_filter": pay_filter,
             "start": s,
             "end": e,
+            "date_filtered": s is not None or e is not None,
             "error": error,
             "saved": bool(saved),
             "finance_domain_filter": domain,
@@ -1320,7 +1361,7 @@ def purchases_new_page(
 ):
     from modules.inventory.service import get_main_warehouse, list_warehouses
 
-    methods = _purchase_term_methods(db, user)
+    methods = _purchase_term_methods(db, user, request)
     products = list_stockable_products(db)
     warehouses = list_warehouses(db)
     main_wh = get_main_warehouse(db)
@@ -1555,7 +1596,7 @@ async def purchases_create(
     created_at = _parse_datetime_local(purchase_date_raw)
     finance_domain = _finance_domain_filter(request, user)
     try:
-        record_inventory_purchase(
+        purchase = record_inventory_purchase(
             db,
             payment_method_id=pm_id,
             supplier=supplier,
@@ -1587,6 +1628,17 @@ async def purchases_create(
             f"/admin/purchases/new?error={quote(str(e))}",
             status_code=302,
         )
+    # أي صرف نقدي عند الإنشاء → إيصال صرف
+    pm_obj = db.get(PaymentMethod, pm_id)
+    money_out = (
+        not is_supplier_credit_payment_method(pm_obj)
+        or (pay_now_amount is not None and pay_now_amount > 0)
+    )
+    if money_out and purchase is not None:
+        return RedirectResponse(
+            f"/admin/purchases/{purchase.id}/voucher?autoprint=1",
+            status_code=302,
+        )
     return RedirectResponse("/admin/purchases?saved=1", status_code=302)
 
 
@@ -1614,7 +1666,7 @@ def purchases_detail(
     }
     paid = sum_purchase_payments(db, p.id)
     outstanding = purchase_outstanding(db, p)
-    pay_methods = _purchase_pay_methods(db, user)
+    pay_methods = _purchase_pay_methods(db, user, request)
     from modules.payments.cost_reference import (
         effective_purchase_amount,
         is_cost_reference_purchase,
@@ -1689,7 +1741,10 @@ async def purchases_record_payment(
             f"/admin/purchases/{pid}?error={quote(str(e))}",
             status_code=302,
         )
-    return RedirectResponse(f"/admin/purchases/{pid}?saved=1", status_code=302)
+    return RedirectResponse(
+        f"/admin/purchases/{pid}/voucher?autoprint=1",
+        status_code=302,
+    )
 
 
 @purchases_router.post("/{pid}/edit-cost-reference", response_class=HTMLResponse)
@@ -1764,8 +1819,29 @@ def expenses_list(
     if e_user is not None:
         e = e_user
     domain = _finance_domain_filter(request, user)
-    methods = list_payment_methods_for_pay(db, only_active=True, domain=domain)
-    items = list_purchases(db, s, e, kind=PurchaseKind.EXPENSE, domain=domain)
+    from modules.authz.capability import is_treasury_clerk_user
+
+    clerk = is_treasury_clerk_user(user)
+    bals = None
+    if clerk:
+        from modules.payments.treasury_desk import (
+            load_treasury_balances,
+            treasury_pay_methods,
+        )
+
+        methods = treasury_pay_methods(db, domain=domain)
+        bals = load_treasury_balances(db, domain=domain)
+    else:
+        methods = list_payment_methods_for_pay(db, only_active=True, domain=domain)
+
+    items = list_purchases(
+        db,
+        s,
+        e,
+        kind=PurchaseKind.EXPENSE,
+        domain=domain,
+        exclude_loyalty=clerk,
+    )
     total = sum((p.amount for p in items), Decimal("0"))
     from modules.platform.business_domain import domain_label
 
@@ -1783,6 +1859,7 @@ def expenses_list(
             "finance_domain_filter": domain,
             "domain_label": domain_label(domain) if domain else "الكل",
             "domain_choices": _domain_choices(),
+            "bals": bals,
         },
     )
 
@@ -1833,8 +1910,29 @@ async def expenses_add(
             "/admin/expenses?error=" + quote("أسلوب الدفع غير صالح."),
             status_code=302,
         )
+    from modules.authz.capability import is_treasury_clerk_user
+
+    clerk = is_treasury_clerk_user(user)
     domain = _finance_domain_filter(request, user)
-    if domain is not None:
+    charge_domain = (form.get("business_domain") or "").strip() or None
+    if clerk:
+        from modules.payments.treasury_desk import treasury_pay_methods
+
+        if domain is None:
+            from modules.platform.business_domain import BusinessDomain
+
+            domain = BusinessDomain.RESTAURANT
+        charge_domain = domain.value
+        allowed_method_ids = {m.id for m in treasury_pay_methods(db, domain=domain)}
+        if pm_id not in allowed_method_ids:
+            if invoice_image_filename:
+                _unlink_static_relative(_PAYMENTS_WEB_STATIC, invoice_image_filename)
+            return RedirectResponse(
+                "/admin/expenses?error="
+                + quote("هذه الخزينة لا تخص الوضع الحالي. بدّل المطعم/الفندق من الأعلى."),
+                status_code=302,
+            )
+    elif domain is not None:
         allowed_method_ids = {
             m.id for m in list_payment_methods_for_pay(db, only_active=True, domain=domain)
         }
@@ -1848,7 +1946,7 @@ async def expenses_add(
             )
     created_at = _parse_datetime_local(purchase_date)
     try:
-        record_expense(
+        purchase = record_expense(
             db,
             payment_method_id=pm_id,
             amount=amt,
@@ -1860,7 +1958,7 @@ async def expenses_add(
             supplier_invoice_ref=supplier_invoice_ref or None,
             invoice_image_filename=invoice_image_filename,
             filter_domain=domain,
-            business_domain=(form.get("business_domain") or "").strip() or None,
+            business_domain=charge_domain,
         )
         db.commit()
     except PaymentsError as e:
@@ -1871,7 +1969,150 @@ async def expenses_add(
             "/admin/expenses?error=" + quote(str(e)),
             status_code=302,
         )
-    return RedirectResponse("/admin/expenses?saved=1", status_code=302)
+    # أي مبلغ يُصرف → طباعة إيصال صرف
+    return RedirectResponse(
+        f"/admin/expenses/{purchase.id}/voucher?autoprint=1",
+        status_code=302,
+    )
+
+
+def _disbursement_voucher_response(
+    request: Request,
+    db: DBSession,
+    *,
+    pid: int,
+    back_url: str,
+    form_action: str,
+    missing_redirect: str,
+    paper: str | None = None,
+    orientation: str | None = None,
+    autoprint: int = 0,
+):
+    from modules.platform.business_domain import BusinessDomain, domain_label
+    from modules.printing.doc_numbers import PrintDocKind, doc_kind_label, next_doc_number
+    from modules.settings.service import (
+        PAPER_ORIENTATIONS,
+        PAPER_SIZES,
+        get_paper_css,
+        get_receipt_orientation,
+        get_receipt_paper_size,
+        get_setting,
+        normalize_orientation,
+        normalize_paper,
+        set_setting,
+    )
+
+    purchase = db.get(Purchase, pid)
+    if purchase is None:
+        return RedirectResponse(
+            missing_redirect + ("&" if "?" in missing_redirect else "?")
+            + "error="
+            + quote("السند غير موجود"),
+            status_code=302,
+        )
+    domain = getattr(purchase, "business_domain", None)
+    dom = "hotel" if str(domain or "").lower() == "hotel" else "restaurant"
+    bd = BusinessDomain.HOTEL if dom == "hotel" else BusinessDomain.RESTAURANT
+    chosen = normalize_paper(paper, get_receipt_paper_size(db, bd))
+    orient = normalize_orientation(orientation, get_receipt_orientation(db, bd))
+    meta_key = f"disbursement_voucher_{pid}"
+    existing = (get_setting(db, meta_key, "") or "").strip()
+    if not existing:
+        # توافق مع المفتاح السابق للمصروفات
+        existing = (get_setting(db, f"expense_voucher_{pid}", "") or "").strip()
+    if existing:
+        doc_number = existing
+    else:
+        doc_number = next_doc_number(db, PrintDocKind.DISBURSEMENT, domain=dom)
+        set_setting(db, meta_key, doc_number)
+        db.commit()
+    # العلاقة على Purchase اسمها method (وليس payment_method)
+    method = None
+    try:
+        method = purchase.method
+    except Exception:  # noqa: BLE001
+        method = None
+    if method is None and getattr(purchase, "payment_method_id", None):
+        from modules.payments.models import PaymentMethod
+
+        method = db.get(PaymentMethod, int(purchase.payment_method_id))
+    emp = db.get(User, purchase.created_by_id) if purchase.created_by_id else None
+    preserve = {}
+    if autoprint:
+        preserve["autoprint"] = "1"
+    return templates.TemplateResponse(
+        "disbursement_voucher.html",
+        {
+            "request": request,
+            "doc_title": doc_kind_label(PrintDocKind.DISBURSEMENT),
+            "doc_number": doc_number,
+            "amount": float(purchase.amount or 0),
+            "method_name": method.name_ar if method else "—",
+            "charge_domain_label": domain_label(dom),
+            "category": purchase.expense_category or "",
+            "party": purchase.supplier or "",
+            "note": purchase.note or "",
+            "created_at": purchase.created_at,
+            "employee_name": emp.username if emp else "",
+            "store_name": get_setting(db, "store_name", "نقطة البيع"),
+            "back_url": back_url,
+            "paper": chosen,
+            "orientation": orient,
+            "paper_css": get_paper_css(chosen, orient),
+            "paper_choices": PAPER_SIZES,
+            "orientation_choices": PAPER_ORIENTATIONS,
+            "can_choose_paper": True,
+            "print_form_action": form_action,
+            "print_preserve_params": preserve,
+            "autoprint": autoprint,
+        },
+    )
+
+
+@purchases_router.get("/{pid}/voucher", response_class=HTMLResponse)
+def purchases_voucher_print(
+    request: Request,
+    pid: int,
+    db: DBSession,
+    user: User = Depends(_purchases_perm),
+    paper: str | None = Query(None),
+    orientation: str | None = Query(None),
+    autoprint: int = Query(0, ge=0, le=1),
+):
+    return _disbursement_voucher_response(
+        request,
+        db,
+        pid=pid,
+        back_url=f"/admin/purchases/{pid}",
+        form_action=f"/admin/purchases/{pid}/voucher",
+        missing_redirect="/admin/purchases",
+        paper=paper,
+        orientation=orientation,
+        autoprint=autoprint,
+    )
+
+
+@expenses_router.get("/{pid}/voucher", response_class=HTMLResponse)
+def expenses_voucher_print(
+    request: Request,
+    pid: int,
+    db: DBSession,
+    user: User = Depends(_purchase_finance_perm),
+    paper: str | None = Query(None),
+    orientation: str | None = Query(None),
+    autoprint: int = Query(0, ge=0, le=1),
+):
+    return _disbursement_voucher_response(
+        request,
+        db,
+        pid=pid,
+        back_url="/admin/expenses",
+        form_action=f"/admin/expenses/{pid}/voucher",
+        missing_redirect="/admin/expenses",
+        paper=paper,
+        orientation=orientation,
+        autoprint=autoprint,
+    )
 
 
 @expenses_router.post("/{pid}/delete", response_class=HTMLResponse)

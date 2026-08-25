@@ -45,19 +45,19 @@ DEFAULTS: dict[str, str] = {
     # عرض اسم المتجر بجانب الشعار
     "brand_show_name_in_header": "1",
     # نصوص الواجهة والطباعة
-    "brand_pos_label": "نقطة البيع",
-    "brand_header_tagline": "نظام نقطة البيع",
+    "brand_pos_label": "نقطة البيع — بيتك",
+    "brand_header_tagline": "Bayatak — Roof Caffee",
     "brand_footer_tagline": (
-        "نظام نقطة بيع متكامل يعمل أوفلاين بالكامل مع إدارة للمخزون "
-        "والمشتريات والموظفين والرواتب والتقارير المحاسبية."
+        "نظام نقطة بيع متكامل لكافيه روف الفندق: مبيعات، مخزون، فندق، "
+        "موظفون، رواتب، وتقارير محاسبية."
     ),
     "brand_receipt_title": "فاتورة بيع",
-    "brand_receipt_footer_text": "شكراً لتعاملكم معنا",
+    "brand_receipt_footer_text": "شكراً لزيارتكم بيتك — نتمنى لكم يوماً سعيداً",
     # هوية الفندق (منفصلة عن المطعم)
     "brand_hotel_name": "بيتك للشقق الفندقية",
     "brand_hotel_logo_filename": "",
     "brand_hotel_print_logo_filename": "",
-    "brand_hotel_header_tagline": "إدارة الشقق الفندقية",
+    "brand_hotel_header_tagline": "إدارة الشقق والأجنحة الفندقية",
     # أي هوية تُستخدم في تقارير الوضع العام (طباعة/تصدير)
     "brand_reports_identity": "restaurant",  # restaurant | hotel
     # صفحة المتجر الإلكتروني /shop
@@ -65,8 +65,8 @@ DEFAULTS: dict[str, str] = {
     "brand_shop_header_bg_from": "",
     "brand_shop_header_bg_to": "",
     "brand_shop_header_fg": "#ffffff",
-    "brand_shop_subtitle": "اطلب أونلاين — توصيل أو استلام",
-    "brand_shop_store_name": "",
+    "brand_shop_subtitle": "اطلب من كافيه روف بيتك — توصيل أو استلام",
+    "brand_shop_store_name": "Bayatak — Roof Caffee",
     "brand_shop_icon_filename": "",
     "brand_shop_cart_emoji": "🛒",
     # روابط التواصل في هيدر المتجر

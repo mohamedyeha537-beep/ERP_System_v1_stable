@@ -403,7 +403,7 @@ def reject(
 
 
 @router.get("/{tid}/reject", response_class=HTMLResponse)
-def reject_get_fallback(request: Request):
+def reject_get_fallback(request: Request, _: User = Depends(_perm)):
     kind, sid = _parse_section(request)
     return RedirectResponse(
         f"/admin/kds?section={_section_query(kind, sid)}", status_code=302

@@ -218,7 +218,7 @@ def sale_cogs_amount(db: Session, sale: Sale) -> Decimal:
     from modules.reporting.queries import _unit_cost_via_bom, avg_unit_cost_per_product
 
     fifo_total = sale_fifo_cogs(db, sale.id)
-    if fifo_total is not None and fifo_total > 0:
+    if fifo_total is not None:
         return fifo_total
     avg_costs = avg_unit_cost_per_product(db)
     total = _ZERO
@@ -259,7 +259,7 @@ def post_sale_completed_shadow(db: Session, sale: Sale) -> None:
         description_ar=f"إيراد فاتورة #{sale.id}",
         entry_date=_entry_date_from_dt(sale.created_at),
         lines=[
-            _LineSpec(CODE_AR, amount, _ZERO, "ذمم مدينة"),
+            _LineSpec(CODE_AR, amount, _ZERO, "مستحقات عملاء/غرف"),
             _LineSpec(CODE_REVENUE, _ZERO, amount, "إيراد مبيعات"),
         ],
     )
@@ -593,9 +593,12 @@ def post_hotel_booking_payment_refund_shadow(
     if amount <= 0:
         return
     hp = ref.payment
-    if hp is None or hp.payment_method_id is None:
+    if hp is None:
         return
-    cash_code = _cash_account_code_for_pm(db, int(hp.payment_method_id))
+    pm_id = getattr(ref, "payment_method_id", None) or hp.payment_method_id
+    if pm_id is None:
+        return
+    cash_code = _cash_account_code_for_pm(db, int(pm_id))
     booking = hp.booking
     booking_ref = booking.reference if booking is not None else hp.booking_id
     post_balanced_entry(
@@ -616,6 +619,10 @@ def post_hotel_booking_payment_refund_shadow(
 def post_purchase_payment_shadow(db: Session, pp: PurchasePayment) -> None:
     amount = _q(pp.amount)
     if amount <= 0:
+        return
+    purchase = db.get(Purchase, int(pp.purchase_id))
+    if purchase is not None and purchase.kind == PurchaseKind.EXPENSE:
+        # المصروف النقدي يُرحّل مرة واحدة عبر post_expense_shadow (Dr مصروف / Cr نقد)
         return
     cash_code = _cash_account_code_for_pm(db, int(pp.payment_method_id))
     post_balanced_entry(
@@ -711,24 +718,47 @@ def post_payroll_payment_shadow(
 
 
 def post_sale_completed_shadow_safe(db: Session, sale: Sale) -> None:
+    # مبيعات مربوطة بجلسة كاشير: الترحيل عند إقفال الجلسة (لا كل فاتورة)
+    if getattr(sale, "pos_shift_id", None):
+        return
     _safe("sale_completed", post_sale_completed_shadow, db, sale)
     _safe("sale_cogs", post_sale_cogs_shadow, db, sale)
 
 
 def post_sale_cogs_shadow_safe(db: Session, sale: Sale) -> None:
+    if getattr(sale, "pos_shift_id", None):
+        return
     _safe("sale_cogs", post_sale_cogs_shadow, db, sale)
 
 
 def post_sale_payment_shadow_safe(db: Session, sp: SalePayment) -> None:
+    sale = db.get(Sale, int(sp.sale_id)) if sp.sale_id else None
+    if sale is not None and getattr(sale, "pos_shift_id", None):
+        return
     _safe("sale_payment", post_sale_payment_shadow, db, sp)
 
 
 def post_sale_return_shadow_safe(db: Session, sale_return: SaleReturn) -> None:
+    sale = (
+        db.get(Sale, int(sale_return.original_sale_id))
+        if sale_return.original_sale_id
+        else None
+    )
+    if sale is not None and getattr(sale, "pos_shift_id", None):
+        return
     _safe("sale_return", post_sale_return_shadow, db, sale_return)
     _safe("sale_return_cogs", post_sale_return_cogs_shadow, db, sale_return)
 
 
 def post_refund_payment_shadow_safe(db: Session, rp: RefundPayment) -> None:
+    if rp.sale_return_id:
+        from modules.refunds.models import SaleReturn
+
+        sr = db.get(SaleReturn, int(rp.sale_return_id))
+        if sr is not None and sr.original_sale_id:
+            sale = db.get(Sale, int(sr.original_sale_id))
+            if sale is not None and getattr(sale, "pos_shift_id", None):
+                return
     _safe("refund_payment", post_refund_payment_shadow, db, rp)
 
 

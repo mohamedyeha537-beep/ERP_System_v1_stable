@@ -1,0 +1,163 @@
+{# طلب تعديل اتفاقية شركة — يُضمَّن في تفاصيل الحجز. يحتاج company_id و booking_id. #}
+{% if company_id %}
+<div id="agr-change-widget" style="margin-top:0.15rem">
+  <strong style="color:#1e40af">طلب تعديل البنود</strong>
+  <p class="muted" style="margin:0.35rem 0 0.55rem;font-size:0.82rem;line-height:1.5">
+    إذا طلبت الشركة تحمّل بند كان على النزيل (مثل العشاء)، أرسل الطلب مع المرفق الكتابي. بعد موافقة الأدمن يُحتسب البند على حساب الشركة.
+  </p>
+  <p id="agr-change-pending" hidden></p>
+  <div class="agr-grid" id="company-agreement-chips"></div>
+  <div id="agr-change-wrap">
+    <button type="button" class="btn" id="agr-change-open">طلب تعديل الاتفاقية</button>
+    <div id="agr-change-panel" hidden>
+      <div id="agr-change-items"></div>
+      <label for="agr-change-file">طلب الشركة الكتابي (صورة أو PDF)</label>
+      <input type="file" id="agr-change-file" accept=".jpg,.jpeg,.png,.webp,.pdf,image/*,application/pdf" />
+      <label for="agr-change-note">ملاحظة للطلب</label>
+      <textarea id="agr-change-note" rows="2" placeholder="مثال: الشركة طلبت تحمّل وجبة العشاء كتابياً"></textarea>
+      <div style="display:flex;gap:0.45rem;flex-wrap:wrap;margin-top:0.55rem">
+        <button type="button" class="btn btn-primary" id="agr-change-submit">إرسال الطلب للأدمن</button>
+        <button type="button" class="btn" id="agr-change-cancel">إلغاء</button>
+      </div>
+      <p id="agr-change-msg" hidden></p>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var companyId = {{ company_id|int }};
+  var bookingId = {{ (booking_id or 0)|int }};
+  var services = [];
+  function bearerLabel(b) {
+    b = (b || '').toUpperCase();
+    if (b === 'COMPANY') return 'الشركة';
+    if (b === 'SHARED') return 'مشترك';
+    return 'النزيل';
+  }
+  function bearerClass(b) {
+    b = (b || '').toUpperCase();
+    if (b === 'COMPANY') return 'agr-chip--company';
+    if (b === 'SHARED') return 'agr-chip--shared';
+    return 'agr-chip--guest';
+  }
+  function renderItems() {
+    var host = document.getElementById('agr-change-items');
+    if (!host) return;
+    host.innerHTML = '';
+    services.forEach(function (s) {
+      var row = document.createElement('div');
+      row.className = 'agr-change-row';
+      row.setAttribute('data-code', s.code || '');
+      row.setAttribute('data-name', s.name_ar || s.code || '');
+      var cur = (s.bearer || 'GUEST').toUpperCase();
+      row.setAttribute('data-from', cur);
+      row.innerHTML = '<strong>' + (s.name_ar || s.code) + '</strong>'
+        + '<span class="muted">الآن: ' + bearerLabel(cur) + '</span>'
+        + '<select class="agr-change-to">'
+        + '<option value="COMPANY"' + (cur === 'COMPANY' ? ' selected' : '') + '>الشركة</option>'
+        + '<option value="GUEST"' + (cur === 'GUEST' ? ' selected' : '') + '>النزيل</option>'
+        + '<option value="SHARED"' + (cur === 'SHARED' ? ' selected' : '') + '>مشترك</option>'
+        + '</select>';
+      host.appendChild(row);
+    });
+  }
+  function loadPreview() {
+    var chips = document.getElementById('company-agreement-chips');
+    var pendingHint = document.getElementById('agr-change-pending');
+    fetch('/admin/hotel/companies/' + encodeURIComponent(companyId) + '/agreement-preview', {
+      headers: { 'Accept': 'application/json' }
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data || !data.ok) return;
+        services = data.services || [];
+        if (chips) {
+          chips.innerHTML = '';
+          services.forEach(function (s) {
+            var el = document.createElement('div');
+            el.className = 'agr-chip ' + bearerClass(s.bearer);
+            el.innerHTML = '<strong>' + (s.name_ar || s.code) + '</strong><br>' + bearerLabel(s.bearer);
+            chips.appendChild(el);
+          });
+        }
+        if (pendingHint) {
+          var n = parseInt(data.pending_change_requests || 0, 10) || 0;
+          pendingHint.hidden = n < 1;
+          pendingHint.textContent = n > 0 ? ('يوجد ' + n + ' طلب تعديل معلّق بانتظار موافقة الأدمن.') : '';
+        }
+        renderItems();
+      });
+  }
+  var panel = document.getElementById('agr-change-panel');
+  var msg = document.getElementById('agr-change-msg');
+  function showMsg(text, ok) {
+    if (!msg) return;
+    msg.hidden = !text;
+    msg.textContent = text || '';
+    msg.classList.toggle('is-ok', !!ok);
+    msg.classList.toggle('is-err', !ok);
+  }
+  var openBtn = document.getElementById('agr-change-open');
+  if (openBtn && panel) {
+    openBtn.addEventListener('click', function () {
+      panel.hidden = !panel.hidden;
+      if (!panel.hidden) renderItems();
+    });
+  }
+  var cancelBtn = document.getElementById('agr-change-cancel');
+  if (cancelBtn && panel) {
+    cancelBtn.addEventListener('click', function () { panel.hidden = true; });
+  }
+  var submitBtn = document.getElementById('agr-change-submit');
+  if (submitBtn) {
+    submitBtn.addEventListener('click', function () {
+      var items = [];
+      document.querySelectorAll('#agr-change-items .agr-change-row').forEach(function (row) {
+        var sel = row.querySelector('.agr-change-to');
+        var fromB = (row.getAttribute('data-from') || '').toUpperCase();
+        var toB = sel ? (sel.value || '').toUpperCase() : '';
+        if (!toB || toB === fromB) return;
+        items.push({
+          code: row.getAttribute('data-code') || '',
+          name_ar: row.getAttribute('data-name') || '',
+          from_bearer: fromB,
+          to_bearer: toB
+        });
+      });
+      if (!items.length) { showMsg('غيّر بنداً واحداً على الأقل.', false); return; }
+      var fileEl = document.getElementById('agr-change-file');
+      var noteEl = document.getElementById('agr-change-note');
+      var note = noteEl ? (noteEl.value || '').trim() : '';
+      var file = fileEl && fileEl.files && fileEl.files[0] ? fileEl.files[0] : null;
+      if (!file && !note) { showMsg('أرفق طلب الشركة الكتابي أو اكتب ملاحظة.', false); return; }
+      var fd = new FormData();
+      fd.append('items_json', JSON.stringify(items));
+      fd.append('note', note);
+      if (bookingId) fd.append('booking_id', String(bookingId));
+      if (file) fd.append('letter', file);
+      submitBtn.disabled = true;
+      fetch('/admin/hotel/companies/' + encodeURIComponent(companyId) + '/agreement-change-request', {
+        method: 'POST', body: fd, headers: { 'Accept': 'application/json' }
+      })
+        .then(function (r) { return r.json().then(function (d) { return { data: d }; }); })
+        .then(function (res) {
+          submitBtn.disabled = false;
+          if (!res.data || !res.data.ok) {
+            showMsg((res.data && res.data.error) || 'تعذّر إرسال الطلب.', false);
+            return;
+          }
+          showMsg(res.data.message || 'أُرسل الطلب إلى الأدمن.', true);
+          if (fileEl) fileEl.value = '';
+          if (noteEl) noteEl.value = '';
+          loadPreview();
+        })
+        .catch(function () {
+          submitBtn.disabled = false;
+          showMsg('تعذّر الاتصال بالخادم.', false);
+        });
+    });
+  }
+  loadPreview();
+})();
+</script>
+{% endif %}

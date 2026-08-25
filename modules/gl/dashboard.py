@@ -25,6 +25,9 @@ class GlDashboardCard:
     balance: Decimal
     wallet_pm_id: int | None = None
     wallet_names: list[str] | None = None
+    wallet_ops_total: Decimal | None = None
+    wallet_gl_diff: Decimal | None = None
+    gl_book_balance: Decimal | None = None
 
 
 def _card_kind(acc: GlAccount) -> str:
@@ -46,36 +49,49 @@ def _card_kind(acc: GlAccount) -> str:
     return "asset"
 
 
-def _wallet_info(db: Session, account_id: int) -> tuple[int | None, list[str]]:
-    maps = list(
-        db.scalars(
-            select(GlPaymentMethodMap)
-            .where(GlPaymentMethodMap.gl_account_id == account_id)
-            .options(selectinload(GlPaymentMethodMap.payment_method))
-            .order_by(GlPaymentMethodMap.payment_method_id)
-        ).all()
-    )
-    names: list[str] = []
-    first_pm: int | None = None
-    for m in maps:
-        pm = m.payment_method
-        if pm is None:
-            continue
-        if first_pm is None:
-            first_pm = int(pm.id)
-        names.append(str(pm.name_ar))
-    return first_pm, names
-
-
 def gl_dashboard_treasury_cards(db: Session, domain=None) -> list[GlDashboardCard]:
-    """حسابات GL المعروضة في بلوك «الخزينة والذمم» — رصيد من الدفتر وليس المحفظة التشغيلية."""
+    """خزائن النقد = رصيد أسلوب الدفع نفسه المستخدم في التحويل. الذمم من GL."""
     from modules.gl.domain import filter_gl_accounts
+    from modules.payments.service import (
+        ensure_hotel_treasury_payment_methods,
+        list_payment_methods_for_dashboard,
+        payment_method_balances_map,
+    )
+    from modules.payments.shift_handoff_service import ensure_main_treasury_payment_methods
 
     if not is_gl_enabled(db):
         return []
+    ensure_main_treasury_payment_methods(db)
+    ensure_hotel_treasury_payment_methods(db)
     headers = header_account_ids(db)
-    raw = account_balances_map(db, domain=domain)
-    balances = display_balances_map(db, raw)
+    pm_balances = payment_method_balances_map(db)
+    pm_to_gl: dict[int, GlAccount] = {}
+    for m in db.scalars(
+        select(GlPaymentMethodMap).options(selectinload(GlPaymentMethodMap.gl_account))
+    ).all():
+        if m.payment_method_id is not None and m.gl_account is not None:
+            pm_to_gl[int(m.payment_method_id)] = m.gl_account
+
+    cards: list[GlDashboardCard] = []
+    seen_pm: set[int] = set()
+    for pm in list_payment_methods_for_dashboard(db, only_active=True, domain=domain):
+        seen_pm.add(int(pm.id))
+        gl = pm_to_gl.get(int(pm.id))
+        kind = "bank" if pm.kind.value == "BANK" else "cash"
+        cards.append(
+            GlDashboardCard(
+                account_id=int(gl.id) if gl is not None else 0,
+                code=str(gl.code) if gl is not None else "",
+                name_ar=str(gl.name_ar) if gl is not None else str(pm.name_ar),
+                card_kind=kind,
+                balance=Decimal(str(pm_balances.get(int(pm.id), _ZERO))).quantize(
+                    Decimal("0.001")
+                ),
+                wallet_pm_id=int(pm.id),
+                wallet_names=[str(pm.name_ar)],
+            )
+        )
+
     accounts = filter_gl_accounts(
         list(
             db.scalars(
@@ -86,20 +102,25 @@ def gl_dashboard_treasury_cards(db: Session, domain=None) -> list[GlDashboardCar
         ),
         domain,
     )
-    cards: list[GlDashboardCard] = []
+    from modules.gl.hierarchy import display_balances_map
+
+    shown_gl_ids = {int(c.account_id) for c in cards if c.account_id}
+    gl_bals = display_balances_map(db, account_balances_map(db, domain=None))
     for acc in accounts:
         if acc.id in headers or is_header_account(db, int(acc.id)):
             continue
-        pm_id, pm_names = _wallet_info(db, int(acc.id))
+        kind = _card_kind(acc)
+        if kind in ("cash", "bank"):
+            continue
+        if int(acc.id) in shown_gl_ids:
+            continue
         cards.append(
             GlDashboardCard(
                 account_id=int(acc.id),
                 code=str(acc.code),
                 name_ar=str(acc.name_ar),
-                card_kind=_card_kind(acc),
-                balance=balances.get(int(acc.id), _ZERO),
-                wallet_pm_id=pm_id,
-                wallet_names=pm_names or None,
+                card_kind=kind,
+                balance=gl_bals.get(int(acc.id), _ZERO),
             )
         )
     return cards

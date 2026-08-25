@@ -81,11 +81,28 @@ mysqldump -u pos_user -p --single-transaction pos_db > backups/manual.sql
 
 ## 8) الاستعادة
 
-- من الواجهة: ارفع ملف `.sql`
+النسخ الحالية تصل ~90MB. إن بقي nginx على `client_max_body_size 32M` يفشل الرفع بـ 413 قبل أن يصل التطبيق.
+
+على السيرفر (مرة واحدة):
+
+```bash
+# في ملف nginx للموقع:
+#   client_max_body_size 256M;
+#   proxy_read_timeout 1800s;
+#   proxy_send_timeout 1800s;
+sudo nginx -t && sudo systemctl reload nginx
+
+# عميل MySQL إن لم يكن مثبتاً:
+sudo apt update && sudo apt install -y mysql-client
+# أو: sudo apt install -y mariadb-client
+which mysql && which mysqldump
+```
+
+- من الواجهة: ارفع ملف `.sql` / `.sql.gz` — أو اضغط «استعادة» بجانب نسخة موجودة في الجدول (بدون رفع).
 - يدوياً:
 
 ```bash
-mysql -u pos_user -p pos_db < backups/pos-backup-....sql
+mysql -u pos_user -p --default-character-set=utf8mb4 --max-allowed-packet=512M pos_db < backups/pos-backup-....sql
 ```
 
 ## 9) تحقق

@@ -1,0 +1,2 @@
+POS: http://127.0.0.1:8011/
+DB bootstrap starting... (wait for Application startup complete)

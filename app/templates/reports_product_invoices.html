@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button with context %}
+{% block title %}فواتير الصنف{% endblock %}
+{% block body %}
+<h1>فواتير الصنف{% if domain_label %} — {{ domain_label }}{% endif %}</h1>
+{{ reports_nav('product_invoices') }}
+
+<div class="card no-print" style="margin-bottom:0.85rem">
+  <h2 style="margin:0 0 0.55rem;font-size:1rem">بحث بالصنف</h2>
+  <form method="get" action="/reports/product-invoices" class="row" style="gap:0.55rem;align-items:flex-end;flex-wrap:wrap;margin:0">
+    <input type="hidden" name="period" value="{{ period }}" />
+    {% if period == 'custom' %}
+    <input type="hidden" name="start" value="{{ start_str }}" />
+    <input type="hidden" name="end" value="{{ end_str }}" />
+    {% endif %}
+    <div style="flex:1;min-width:220px">
+      <label for="q" class="muted" style="font-size:0.8rem">اسم الصنف / باركود / SKU</label>
+      <input id="q" name="q" value="{{ search_q or '' }}" placeholder="مثال: برجر أو كود الصنف" autofocus style="width:100%" />
+    </div>
+    <button class="btn btn-primary" type="submit">بحث</button>
+    {% if search_q or product_id %}
+    <a class="btn" href="/reports/product-invoices?period={{ period }}">مسح</a>
+    {% endif %}
+  </form>
+  <p class="muted" style="margin:0.45rem 0 0;font-size:0.84rem;line-height:1.5">
+    اعرض كل فواتير البيع المكتملة التي ظهر فيها الصنف، مع فلترة اليوم / الأسبوع / الشهر / السنة أو فترة من–إلى.
+  </p>
+</div>
+
+{{ period_filter('/reports/product-invoices', period, period_labels, start, end, start_str, end_str, extra_params, keep_fields=[('q', search_q), ('product_id', product_id)]) }}
+
+{% if selected_product %}
+{{ report_export_format_help() }}
+<div class="export-bar">
+  <span class="label">Excel (.csv):</span>
+  {% set export_qs = 'period=' ~ period ~ '&product_id=' ~ selected_product.id %}
+  {% if period == 'custom' %}
+    {% set export_qs = export_qs ~ '&start=' ~ start_str ~ '&end=' ~ end_str %}
+  {% endif %}
+  {% if search_q %}
+    {% set export_qs = export_qs ~ '&q=' ~ (search_q|urlencode) %}
+  {% endif %}
+  {{ export_button('/reports/export/product-invoices.csv?' ~ export_qs, 'تنزيل فواتير الصنف') }}
+  <span class="label no-print" style="margin-inline-start:0.75rem">PDF:</span>
+  {{ pdf_export_button() }}
+</div>
+{% endif %}
+
+{% if notice %}
+<div class="alert" style="margin-bottom:0.75rem;{% if selected_product and not need_pick %}border-color:#86efac;background:#f0fdf4;color:#166534{% endif %}">
+  {{ notice }}
+</div>
+{% endif %}
+
+{% if need_pick and matched_products %}
+<div class="card">
+  <h2 style="margin-top:0">اختر الصنف</h2>
+  <table>
+    <thead>
+      <tr><th>الصنف</th><th>SKU</th><th>باركود</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for p in matched_products %}
+      <tr>
+        <td><strong>{{ p.name_ar }}</strong></td>
+        <td dir="ltr">{{ p.sku or '—' }}</td>
+        <td dir="ltr">{{ p.barcode or '—' }}</td>
+        <td>
+          <a class="btn btn-primary" style="padding:0.25rem 0.55rem;font-size:0.85rem"
+             href="/reports/product-invoices?period={{ period }}&product_id={{ p.id }}{% if search_q %}&q={{ search_q|urlencode }}{% endif %}{% if period == 'custom' %}&start={{ start_str }}&end={{ end_str }}{% endif %}">
+            عرض الفواتير
+          </a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if selected_product %}
+<div class="card">
+  <h2 style="margin-top:0">ملخص — {{ selected_product.name_ar }}</h2>
+  <div class="stat-grid">
+    <div class="stat-card"><div class="label">عدد الفواتير</div><div class="value">{{ summary.invoice_count }}</div></div>
+    <div class="stat-card"><div class="label">عدد البنود</div><div class="value">{{ summary.line_count }}</div></div>
+    <div class="stat-card"><div class="label">إجمالي الكمية</div><div class="value">{{ pos_qty(summary.qty_total) }}</div></div>
+    <div class="stat-card good"><div class="label">إجمالي مبيعات الصنف</div><div class="value">{{ summary.amount_total }} د.ل</div></div>
+  </div>
+  <p class="muted" style="margin:0.65rem 0 0;font-size:0.84rem">
+    <a href="/catalog/products/{{ selected_product.id }}/edit">فتح كرت الصنف</a>
+  </p>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">الفواتير</h2>
+  {% if rows %}
+  <table>
+    <thead>
+      <tr>
+        <th>الفاتورة</th>
+        <th>التاريخ</th>
+        <th>الكمية</th>
+        <th>سعر الوحدة</th>
+        <th>إجمالي السطر</th>
+        <th>إجمالي الفاتورة</th>
+        <th>العميل</th>
+        <th>السياق</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td><strong>#{{ r.sale_id }}</strong></td>
+        <td>{{ pos_format_dt(r.sale_at, '%Y-%m-%d %H:%M') }}</td>
+        <td>{{ pos_qty(r.quantity) }}</td>
+        <td>{{ r.unit_price }} د.ل</td>
+        <td style="font-weight:700">{{ r.line_total }} د.ل</td>
+        <td>{{ r.sale_total }} د.ل</td>
+        <td>{{ r.customer_name or '—' }}</td>
+        <td><span class="muted" style="font-size:0.82rem">{{ r.context_type }} · {{ r.source }}</span></td>
+        <td>
+          <a href="/pos/receipt/{{ r.sale_id }}" target="_blank" rel="noopener">عرض</a>
+          {% if pos_perm(request)('sales:edit_invoice') %}
+          · <a href="/sales/invoices/{{ r.sale_id }}/edit">تعديل</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">لا توجد فواتير مكتملة لهذا الصنف في الفترة المحددة.</p>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

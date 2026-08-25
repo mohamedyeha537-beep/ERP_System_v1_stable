@@ -13,13 +13,7 @@
 
 {% if saved %}
 <div class="alert good" style="margin-top:0.75rem">تم تسجيل الدفعة. الحالة الحالية:
-  {% if row.pay_status.value == 'paid' %}
-  <strong>مسدّد بالكامل</strong>
-  {% elif row.pay_status.value == 'partial' %}
-  <strong>مسدّد جزئياً</strong> — المتبقي {{ row.outstanding }} د.ل
-  {% else %}
-  <strong>غير مدفوعة</strong>
-  {% endif %}
+  {{ pos_pay_status_badge(row.pay_status) }}{% if row.pay_status.value == 'partial' %} — المتبقي {{ row.outstanding }} د.ل{% endif %}
 </div>
 {% endif %}
 {% if error %}
@@ -49,13 +43,7 @@
     <span style="font-weight:700;{% if row.outstanding > 0 %}color:#b91c1c{% else %}color:#15803d{% endif %}">{{ row.outstanding }} د.ل</span>
   </p>
   <p><strong>حالة السداد:</strong>
-    {% if row.pay_status.value == 'unpaid' %}
-    <span class="badge bad">{{ status_labels[row.pay_status] }}</span>
-    {% elif row.pay_status.value == 'partial' %}
-    <span class="badge warn">{{ status_labels[row.pay_status] }}</span>
-    {% else %}
-    <span class="badge good">{{ status_labels[row.pay_status] }}</span>
-    {% endif %}
+    {{ pos_pay_status_badge(row.pay_status) }}
   </p>
 </div>
 
@@ -95,28 +83,56 @@
 
 {% if row.outstanding > 0 and pay_methods %}
 <div class="card">
-  <h2 style="margin-top:0">تحصيل من الزبون (كامل أو جزئي)</h2>
-  <form method="post" action="/reports/receivables/invoice/{{ sale.id }}/collect" class="row" style="gap:0.5rem;flex-wrap:wrap;align-items:flex-end">
+  <h2 style="margin-top:0">تسديد الدين</h2>
+  <p class="muted" style="margin-top:0">اختر تسديداً كاملاً أو أدخل مبلغاً جزئياً ثم سجّل التحصيل.</p>
+  <form method="post" action="/reports/receivables/invoice/{{ sale.id }}/collect" id="recv-collect-form" class="row" style="gap:0.5rem;flex-wrap:wrap;align-items:flex-end">
     <div>
       <label>وسيلة التحصيل</label>
       <select name="payment_method_id" required>
         {% for m in pay_methods %}
-        <option value="{{ m.id }}">{{ m.name_ar }}</option>
+        <option value="{{ m.id }}">{{ pos_wallet_label(m) }}</option>
         {% endfor %}
       </select>
     </div>
     <div>
       <label>المبلغ (د.ل) — المتبقي {{ row.outstanding }}</label>
-      <input name="amount" type="text" inputmode="decimal" required
+      <input name="amount" id="recv-amount" type="text" inputmode="decimal" required
         placeholder="كامل أو جزء" style="max-width:9rem" value="{{ row.outstanding }}" />
     </div>
     <div>
       <label>ملاحظة (اختياري)</label>
-      <input name="note" placeholder="اختياري" />
+      <input name="note" placeholder="مثال: دفعة جزئية" />
     </div>
-    <button type="submit" class="btn btn-primary">تسجيل التحصيل</button>
-    <button type="button" class="btn" onclick="var i=document.querySelector('[name=amount]');if(i)i.value='{{ row.outstanding }}'">المبلغ الكامل</button>
+    <div style="display:flex;gap:0.4rem;flex-wrap:wrap;align-items:flex-end">
+      <button type="button" class="btn btn-primary" id="recv-pay-full" title="تعبئة كامل المتبقي ثم تأكيد">تسديد كامل ({{ row.outstanding }})</button>
+      <button type="button" class="btn" id="recv-pay-partial" title="أدخل مبلغاً أقل من المتبقي">تسديد جزئي…</button>
+      <button type="submit" class="btn btn-primary">تسجيل التحصيل</button>
+    </div>
   </form>
+  <script>
+  (function () {
+    var inp = document.getElementById("recv-amount");
+    var full = "{{ row.outstanding }}";
+    var btnFull = document.getElementById("recv-pay-full");
+    var btnPart = document.getElementById("recv-pay-partial");
+    if (btnFull) btnFull.addEventListener("click", function () {
+      if (inp) inp.value = full;
+      if (confirm("تسجيل تسديد كامل بمبلغ " + full + " د.ل؟")) {
+        document.getElementById("recv-collect-form").requestSubmit();
+      }
+    });
+    if (btnPart) btnPart.addEventListener("click", function () {
+      if (!inp) return;
+      var v = prompt("أدخل المبلغ الجزئي (أقل من " + full + " د.ل):", "");
+      if (v == null) return;
+      v = String(v).trim().replace(",", ".");
+      if (!v) return;
+      inp.value = v;
+      inp.focus();
+      inp.select();
+    });
+  })();
+  </script>
 </div>
 {% elif row.outstanding <= 0 %}
 <div class="alert good">هذه الفاتورة مسدّدة بالكامل.</div>

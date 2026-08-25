@@ -6,26 +6,55 @@
   {% if start_str is defined %}<input type="hidden" name="start" value="{{ start_str }}" />{% endif %}
   {% if end_str is defined %}<input type="hidden" name="end" value="{{ end_str }}" />{% endif %}
 
+  {% if bank_declaration is defined and bank_declaration %}
+  <p style="margin:0 0 0.65rem;font-size:0.88rem;line-height:1.55;color:#0369a1">
+    تحويل معلن: <strong>{{ bank_declaration.bank_name }}</strong>
+    · رقم العملية <strong>{{ bank_declaration.bank_ref }}</strong>
+    · {{ '%.3f'|format(bank_declaration.claimed_bank) }} د.ل
+    — الاعتماد أدناه هو الاستلام الفعلي وليس تأكيد التحويل البنكي وحده.
+  </p>
+  {% endif %}
   <p class="muted" style="margin:0 0 0.65rem;font-size:0.88rem;line-height:1.6">
-    <strong>عدّ ما استلمته فعلياً</strong> — إن اختلف عن ما كتبه الكاشير عند الإغلاق، عدّل الرقم قبل الاعتماد.
+    <strong>عدّ ما استلمته فعلياً</strong> — إن استلمت أقل يظهر العجز فوراً ويُسجَّل عند الاعتماد. إعلان التحويل المصرفي اختياري (حوالة فعلية فقط).
     المتوقع من النظام: كاش <strong>{{ pos_money(expected_cash) }}</strong> · مصرف <strong>{{ pos_money(expected_bank) }}</strong> د.ل
+    {% if reception_cash_balance is defined or reception_bank_balance is defined %}
+    <br />
+    رصيد محفظة الاستقبال الآن:
+    كاش <strong style="color:#15803d">{{ pos_money(reception_cash_balance|default(0)) }}</strong>
+    · مصرف <strong style="color:#0369a1">{{ pos_money(reception_bank_balance|default(0)) }}</strong> د.ل
+    {% endif %}
   </p>
 
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.65rem;max-width:28rem">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.65rem;max-width:28rem;direction:rtl">
     <div>
       <label for="hof_cash_{{ shift_id }}">كاش مُستلم (د.ل)</label>
       <input id="hof_cash_{{ shift_id }}" name="handoff_cash" type="number" step="0.001" min="0" required
+        class="js-hof-amt" data-hof-kind="cash"
         value="{{ pos_money_plain(cash_default) }}"
-        style="width:100%;padding:0.45rem;border-radius:8px;border:1px solid var(--border)" />
+        dir="ltr"
+        autocomplete="off"
+        style="width:100%;padding:0.45rem;border-radius:8px;border:1px solid #86efac;background:#f0fdf4" />
       <small class="muted">سجّله الكاشير: {{ pos_money(cash_default) }}</small>
     </div>
     <div>
       <label for="hof_bank_{{ shift_id }}">مصرف مُستلم (د.ل)</label>
       <input id="hof_bank_{{ shift_id }}" name="handoff_bank" type="number" step="0.001" min="0" required
+        class="js-hof-amt" data-hof-kind="bank"
         value="{{ pos_money_plain(bank_default) }}"
-        style="width:100%;padding:0.45rem;border-radius:8px;border:1px solid var(--border)" />
+        dir="ltr"
+        autocomplete="off"
+        style="width:100%;padding:0.45rem;border-radius:8px;border:1px solid #7dd3fc;background:#f0f9ff" />
       <small class="muted">سجّله الكاشير: {{ pos_money(bank_default) }}</small>
     </div>
+  </div>
+  <div id="hof_diff_{{ shift_id }}" class="js-hof-diff" hidden
+    data-claimed-cash="{{ pos_money_plain(cash_default) }}"
+    data-claimed-bank="{{ pos_money_plain(bank_default) }}"
+    data-expected-cash="{{ pos_money_plain(expected_cash) }}"
+    data-expected-bank="{{ pos_money_plain(expected_bank) }}"
+    style="margin-top:0.65rem;padding:0.65rem 0.75rem;border-radius:10px;border:1px solid #fecaca;background:#fef2f2;max-width:28rem">
+    <div style="font-weight:800;margin-bottom:0.25rem" class="js-hof-diff-title">فارق الاستلام</div>
+    <div class="js-hof-diff-body" style="font-size:0.88rem;line-height:1.65"></div>
   </div>
   <div style="margin-top:0.55rem;max-width:28rem">
     <label for="hof_note_{{ shift_id }}">ملاحظة (اختياري — سبب التصحيح)</label>
@@ -34,3 +63,64 @@
   </div>
   <button type="submit" class="btn btn-primary" style="margin-top:0.75rem">✓ اعتماد وتحويل للخزينة</button>
 </form>
+<script>
+(function () {
+  var form = document.currentScript && document.currentScript.previousElementSibling;
+  if (!form || !form.classList || !form.classList.contains("shift-handoff-form")) {
+    form = document.querySelector(".shift-handoff-form");
+  }
+  if (!form) return;
+  var box = form.querySelector(".js-hof-diff");
+  if (!box) return;
+  var cashInp = form.querySelector('[data-hof-kind="cash"]');
+  var bankInp = form.querySelector('[data-hof-kind="bank"]');
+  var body = box.querySelector(".js-hof-diff-body");
+  var title = box.querySelector(".js-hof-diff-title");
+  function num(el, fallback) {
+    var v = parseFloat(String((el && el.value) || "").replace(",", ".")) || 0;
+    if (!el && fallback != null) return fallback;
+    return v;
+  }
+  function attr(name) { return parseFloat(box.getAttribute(name) || "0") || 0; }
+  function money(v) { return (Math.round(v * 1000) / 1000).toFixed(3); }
+  function line(label, diff) {
+    if (Math.abs(diff) < 0.0005) return "";
+    var kind = diff < 0 ? "عجز" : "زيادة";
+    var color = diff < 0 ? "#b91c1c" : "#15803d";
+    return "<div>" + label + ": <strong style=\"color:" + color + "\">" + kind + " " + money(Math.abs(diff)) + " د.ل</strong></div>";
+  }
+  function sync() {
+    var recC = num(cashInp);
+    var recB = num(bankInp);
+    var clC = attr("data-claimed-cash");
+    var clB = attr("data-claimed-bank");
+    var exC = attr("data-expected-cash");
+    var exB = attr("data-expected-bank");
+    var dClaim = (recC - clC) + (recB - clB);
+    var dExp = (recC - exC) + (recB - exB);
+    var html = "";
+    html += line("عن تسليم الكاشير — كاش", recC - clC);
+    html += line("عن تسليم الكاشير — مصرف", recB - clB);
+    html += line("عن المتوقع من النظام — كاش", recC - exC);
+    html += line("عن المتوقع من النظام — مصرف", recB - exB);
+    if (!html) {
+      box.hidden = true;
+      box.style.borderColor = "#86efac";
+      box.style.background = "#f0fdf4";
+      return;
+    }
+    box.hidden = false;
+    var shortage = dClaim < -0.0005 || dExp < -0.0005;
+    box.style.borderColor = shortage ? "#fecaca" : "#86efac";
+    box.style.background = shortage ? "#fef2f2" : "#f0fdf4";
+    if (title) title.textContent = shortage ? "فارق عجز سيُسجَّل عند الاعتماد" : "فارق زيادة سيُسجَّل عند الاعتماد";
+    body.innerHTML = html;
+  }
+  [cashInp, bankInp].forEach(function (el) {
+    if (!el) return;
+    el.addEventListener("input", sync);
+    el.addEventListener("change", sync);
+  });
+  sync();
+})();
+</script>

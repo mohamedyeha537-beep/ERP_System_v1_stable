@@ -1,0 +1,273 @@
+.tdesk { max-width: 92rem; }
+.tdesk .kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.85rem;
+  margin-bottom: 0.25rem;
+}
+.tdesk .kpi-grid-treasury {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  width: 100%;
+}
+.tdesk .kpi {
+  position: relative;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 1rem 1.1rem;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  overflow: hidden;
+}
+.tdesk .kpi:hover { transform: translateY(-2px); box-shadow: 0 14px 28px -22px rgba(15,23,42,0.35); }
+.tdesk .kpi a.kpi-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  margin: -1rem -1.1rem;
+  padding: 1rem 1.1rem;
+  border-radius: 14px;
+}
+.tdesk .kpi a.kpi-link:hover { text-decoration: none; background: linear-gradient(180deg, rgba(59,130,246,0.04), transparent); }
+.tdesk .kpi a.kpi-link::after {
+  content: "↗";
+  position: absolute;
+  inset-inline-end: 0.85rem;
+  inset-block-end: 0.6rem;
+  color: #64748b;
+  font-size: 0.75rem;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.tdesk .kpi:hover a.kpi-link::after { opacity: 0.7; }
+.tdesk .kpi .kpi-icon {
+  position: absolute;
+  inset-inline-end: 0.85rem;
+  inset-block-start: 0.85rem;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: #fff;
+  background: linear-gradient(135deg,#64748b,#475569);
+}
+.tdesk .kpi .kpi-label { color: #64748b; font-size: 0.85rem; padding-inline-end: 2.6rem; }
+.tdesk .kpi .kpi-value { font-size: 1.55rem; font-weight: 700; margin-top: 0.2rem; line-height: 1.15; }
+.tdesk .kpi .kpi-sub { color: #64748b; font-size: 0.78rem; margin-top: 0.3rem; }
+.tdesk .kpi.kpi-cash .kpi-icon { background: linear-gradient(135deg,#16a34a,#15803d); }
+.tdesk .kpi.kpi-bank .kpi-icon { background: linear-gradient(135deg,#2563eb,#1d4ed8); }
+.tdesk .kpi.kpi-ar .kpi-icon { background: linear-gradient(135deg,#dc2626,#991b1b); }
+.tdesk .kpi.kpi-ap .kpi-icon { background: linear-gradient(135deg,#ea580c,#c2410c); }
+.tdesk .kpi.kpi-equity .kpi-icon { background: linear-gradient(135deg,#7c3aed,#5b21b6); }
+.tdesk .kpi.kpi-asset .kpi-icon { background: linear-gradient(135deg,#0ea5e9,#0369a1); }
+.tdesk-vaults {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13.5rem, 1fr));
+  gap: 0.7rem;
+}
+.tdesk-vault {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 0.85rem 0.95rem;
+  background: #fff;
+  border-inline-start: 4px solid #64748b;
+}
+.tdesk-vault:hover { border-color: #93c5fd; box-shadow: 0 2px 10px rgba(15,23,42,0.06); }
+.tdesk-vault.kind-cash { border-inline-start-color: #16a34a; background: linear-gradient(180deg, #f0fdf4, #fff); }
+.tdesk-vault.kind-bank { border-inline-start-color: #2563eb; background: linear-gradient(180deg, #eff6ff, #fff); }
+.tdesk-vault.kind-ar { border-inline-start-color: #d97706; background: linear-gradient(180deg, #fffbeb, #fff); }
+.tdesk-vault.kind-ap { border-inline-start-color: #dc2626; background: linear-gradient(180deg, #fef2f2, #fff); }
+.tdesk-vault.kind-equity { border-inline-start-color: #7c3aed; background: linear-gradient(180deg, #f5f3ff, #fff); }
+.tdesk-vault .code { font-size: 0.78rem; color: #64748b; font-variant-numeric: tabular-nums; direction: ltr; text-align: start; }
+.tdesk-vault .lbl { font-weight: 700; margin-top: 0.15rem; }
+.tdesk-vault .val { font-size: 1.35rem; font-weight: 800; margin-top: 0.35rem; }
+.tdesk-vault .sub { color: #64748b; font-size: 0.75rem; margin-top: 0.25rem; line-height: 1.4; }
+.tdesk-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11.5rem, 1fr));
+  gap: 0.75rem;
+  margin: 0.85rem 0 1rem;
+}
+.tdesk-kpi {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 0.9rem 1rem;
+  background: #fff;
+}
+.tdesk-kpi:hover { border-color: #93c5fd; }
+.tdesk-kpi .lbl { color: #64748b; font-size: 0.82rem; font-weight: 700; }
+.tdesk-kpi .val { font-size: 1.45rem; font-weight: 800; margin-top: 0.2rem; }
+.tdesk-kpi .sub { color: #64748b; font-size: 0.75rem; margin-top: 0.25rem; line-height: 1.4; }
+.tdesk-kpi.warn { border-color: #fcd34d; background: #fffbeb; }
+.tdesk-kpi.alert { border-color: #fca5a5; background: #fef2f2; }
+.tdesk-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 1rem 1.1rem;
+  background: #fff;
+  margin-bottom: 0.85rem;
+}
+.tdesk-card h2 { margin: 0 0 0.75rem; font-size: 1.05rem; }
+.tdesk-action {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: 10px;
+  margin-bottom: 0.45rem;
+  border: 1px solid #e2e8f0;
+}
+.tdesk-action.red { background: #fef2f2; border-color: #fecaca; }
+.tdesk-action.yellow { background: #fffbeb; border-color: #fde68a; }
+.tdesk-action.orange { background: #fff7ed; border-color: #fed7aa; }
+.tdesk-action .ttl { font-weight: 700; }
+.tdesk-mov { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.6rem; }
+.tdesk-mov div { background: #f8fafc; border-radius: 10px; padding: 0.65rem 0.75rem; }
+.tdesk-mov .lbl { color: #64748b; font-size: 0.78rem; }
+.tdesk-mov .val { font-weight: 800; margin-top: 0.15rem; }
+.tdesk-actions-bar { display: flex; flex-wrap: wrap; gap: 0.45rem; margin-top: 0.85rem; }
+.tdesk-tabs { display: flex; gap: 0.4rem; margin: 0.75rem 0; flex-wrap: wrap; }
+.tdesk-tabs a {
+  padding: 0.35rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+.tdesk-tabs a.active { background: #2563eb; color: #fff; border-color: transparent; }
+.tdesk-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.tdesk-table th, .tdesk-table td { padding: 0.5rem 0.4rem; border-bottom: 1px solid #e2e8f0; text-align: start; }
+.tdesk-table th { color: #64748b; font-size: 0.78rem; }
+.tdesk-receive { background: #f8fafc; border-radius: 10px; padding: 0.7rem; margin-top: 0.4rem; }
+.tdesk-receive input, .tdesk-receive textarea, .tdesk-receive select {
+  width: 100%;
+  max-width: 16rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+}
+.tdesk-banner {
+  border-radius: 12px;
+  padding: 0.7rem 0.9rem;
+  margin-bottom: 0.75rem;
+}
+.tdesk-banner.warn { background: #fffbeb; border: 1px solid #fcd34d; }
+.tdesk-banner.ok { background: #f0fdf4; border: 1px solid #86efac; }
+.tdesk-banner.err { background: #fef2f2; border: 1px solid #fca5a5; }
+.tdesk-positions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 0.7rem;
+  margin: 0 0 0.75rem;
+}
+.tdesk-position {
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 0.85rem 1rem;
+  background: #fff;
+  border-inline-start: 4px solid #64748b;
+}
+.tdesk-position.restaurant { border-inline-start-color: #ea580c; background: linear-gradient(180deg, #fff7ed, #fff); }
+.tdesk-position.hotel { border-inline-start-color: #7c3aed; background: linear-gradient(180deg, #f5f3ff, #fff); }
+.tdesk-position.is-charge { box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.28); }
+.tdesk-position .ttl { font-weight: 800; font-size: 0.95rem; }
+.tdesk-position .val { font-size: 1.4rem; font-weight: 800; margin-top: 0.25rem; }
+.tdesk-position .sub { color: #64748b; font-size: 0.78rem; margin-top: 0.25rem; line-height: 1.45; }
+.tdesk-positions-hint { margin: 0 0 0.85rem; font-size: 0.82rem; line-height: 1.55; }
+.tdesk-charge-row { display: flex; flex-wrap: wrap; gap: 0.55rem 1.1rem; margin-bottom: 0.85rem; }
+.tdesk-charge-row label { font-weight: 700; }
+.tdesk-mismatch { display: none; margin-top: 0.7rem; }
+.tdesk-mismatch.show { display: block; }
+.tdesk-pay-types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem 1.1rem;
+  margin-bottom: 0.85rem;
+}
+.tdesk-pay-panel {
+  margin: 0 0 0.85rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid #93c5fd;
+  border-radius: 12px;
+  background: #eff6ff;
+}
+.tdesk-pay-panel-title {
+  font-weight: 800;
+  margin: 0 0 0.55rem;
+  color: #1e3a8a;
+}
+#treasury-pay-form .tdesk-pay-panel { display: none !important; }
+#treasury-pay-form:has(input[name="pay_type"][value="operating"]:checked) .tdesk-pay-panel[data-for~="operating"],
+#treasury-pay-form:has(input[name="pay_type"][value="utility"]:checked) .tdesk-pay-panel[data-for~="utility"],
+#treasury-pay-form:has(input[name="pay_type"][value="salary"]:checked) .tdesk-pay-panel[data-for~="salary"],
+#treasury-pay-form:has(input[name="pay_type"][value="purchase"]:checked) .tdesk-pay-panel[data-for~="purchase"],
+#treasury-pay-form:has(input[name="pay_type"][value="supplier"]:checked) .tdesk-pay-panel[data-for~="supplier"] {
+  display: block !important;
+}
+#treasury-pay-form:has(input[name="pay_type"][value="salary"]:checked) #pay-beneficiary-wrap,
+#treasury-pay-form:has(input[name="pay_type"][value="supplier"]:checked) #pay-beneficiary-wrap,
+#treasury-pay-form:has(input[name="pay_type"][value="purchase"]:checked) #pay-beneficiary-wrap {
+  display: none;
+}
+.tdesk-pay-panel label { display: block; font-weight: 700; font-size: 0.88rem; }
+.tdesk-pay-panel select,
+.tdesk-pay-fields input,
+.tdesk-pay-fields select {
+  display: block;
+  width: 100%;
+  min-width: 12rem;
+  margin-top: 0.3rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+}
+.tdesk-invoice-list {
+  display: grid;
+  gap: 0.45rem;
+}
+.tdesk-invoice {
+  display: grid;
+  grid-template-columns: minmax(7rem, 1.2fr) minmax(6rem, 1fr) auto auto auto;
+  gap: 0.45rem 0.7rem;
+  align-items: center;
+  width: 100%;
+  text-align: start;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.tdesk-invoice:hover { border-color: #93c5fd; }
+.tdesk-invoice[hidden] { display: none; }
+.tdesk-invoice.is-on { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18); background: #eff6ff; }
+.tdesk-invoice .inv-ref { font-weight: 700; }
+.tdesk-invoice .inv-sup,
+.tdesk-invoice .inv-date,
+.tdesk-invoice .inv-st { font-size: 0.82rem; }
+.tdesk-invoice .pay-st { font-weight: 800; }
+.tdesk-invoice .inv-amt { font-weight: 800; }
+.tdesk-salary-break {
+  margin: 0.55rem 0 0;
+  padding: 0.55rem 0.75rem;
+  border-radius: 10px;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  font-size: 0.84rem;
+  line-height: 1.65;
+}
+.tdesk-salary-break strong { font-weight: 800; }
+.tdesk-salary-break .net { color: #15803d; }
+.tdesk-salary-break .cut { color: #b91c1c; }
+@media (max-width: 720px) {
+  .tdesk-invoice { grid-template-columns: 1fr 1fr; }
+}

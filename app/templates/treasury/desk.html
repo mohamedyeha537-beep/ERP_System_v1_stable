@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}لوحة أمين الخزينة{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/treasury_desk.css?v=3" />
+{% endblock %}
+{% block body %}
+<div class="tdesk">
+  <div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem">
+    <h1 style="margin:0">لوحة أمين الخزينة</h1>
+    {% if session %}
+    <span class="muted" style="font-size:0.85rem">يوم مفتوح منذ {{ pos_format_dt(session.opened_at) }}</span>
+    {% endif %}
+  </div>
+  {% include "treasury/_nav.html" %}
+
+  {% if err %}<div class="tdesk-banner err">{{ err }}</div>{% endif %}
+  {% if ok == 'opened' %}<div class="tdesk-banner ok">تم افتتاح يوم الخزينة.</div>{% endif %}
+  {% if ok == 'closed' %}<div class="tdesk-banner ok">تم إقفال يوم الخزينة. إن وُجد فرق سيظهر في العجوزات والزيادات.</div>{% endif %}
+  {% if ok == 'received' %}<div class="tdesk-banner ok">تم الاستلام والتحويل إلى الخزينة.</div>{% endif %}
+  {% if ok == 'reception_repaired' %}<div class="tdesk-banner ok">تمت تسوية عجز محافظ استقبال الفندق — الأرصدة السالبة صُفّرت من خزينة الفندق.</div>{% endif %}
+
+  {% if reception_deficits %}
+  <div class="tdesk-banner err">
+    <strong>⚠️ رصيد سالب في محافظ الاستقبال:</strong>
+    {% for name, bal in reception_deficits %}
+    {{ name }}: {{ pos_money(bal) }} د.ل{% if not loop.last %} · {% endif %}
+    {% endfor %}
+    <p style="margin:0.45rem 0 0;font-size:0.88rem;line-height:1.55">
+      يحدث عادةً بعد استرداد نزلاء دون تغذية محفظة الاستقبال. اضغط التسوية لنقل العجز من خزينة الفندق → الاستقبال.
+    </p>
+    <form method="post" action="/pos/treasury/repair-hotel-reception" style="margin-top:0.55rem"
+          onsubmit="return confirm('تسوية عجز محافظ الاستقبال من خزينة الفندق؟');">
+      <button class="btn btn-primary" type="submit">تسوية عجز الاستقبال</button>
+    </form>
+  </div>
+  {% endif %}
+
+  {% if not session %}
+  <div class="tdesk-banner warn">
+    <strong>يوم الخزينة غير مفتوح.</strong>
+    افتح اليوم حتى تُحسب الاستلامات والمدفوعات على جلستك أنت — لا على موظف الاستقبال.
+    <form method="post" action="/pos/treasury/session/open" style="display:inline;margin-inline-start:0.5rem">
+      <button class="btn btn-primary" type="submit">افتتاح الخزينة</button>
+    </form>
+  </div>
+  {% endif %}
+
+  {% if vaults %}
+  <div class="tdesk-card" id="vaults">
+    <h2>الخزينة والذمم</h2>
+    <p class="muted" style="margin:-0.35rem 0 0.75rem;font-size:0.85rem;line-height:1.55">
+      أرصدة الخزائن — نفس رقم التحويل. اضغط البطاقة لعرض الحركة.
+    </p>
+    {% with cards=vaults %}
+    {% include "_treasury_kpi_cards.html" %}
+    {% endwith %}
+  </div>
+  {% endif %}
+
+  <div class="tdesk-kpis">
+    <a class="tdesk-kpi" href="/pos/treasury?kind=cash">
+      <div class="lbl">💵 النقدية — {{ domain_label or 'مطعم' }}</div>
+      <div class="val">{{ pos_money(bals.hotel_cash if finance_domain == 'hotel' else bals.restaurant_cash) }} <span class="money-currency">د.ل</span></div>
+      <div class="sub">خزينة {{ domain_label or 'المطعم' }} فقط</div>
+    </a>
+    <a class="tdesk-kpi" href="/pos/treasury?kind=bank">
+      <div class="lbl">🏦 المصرف — {{ domain_label or 'مطعم' }}</div>
+      <div class="val">{{ pos_money(bals.hotel_bank if finance_domain == 'hotel' else bals.restaurant_bank) }} <span class="money-currency">د.ل</span></div>
+      <div class="sub">خزينة {{ domain_label or 'المطعم' }} فقط</div>
+    </a>
+    <a class="tdesk-kpi" href="/pos/treasury/custody">
+      <div class="lbl">🛒 عهد المشتريات القائمة</div>
+      <div class="val">{{ pos_money(bals.custody_total) }} <span class="money-currency">د.ل</span></div>
+      <div class="sub">أموال خارج الخزينة — ليست مصروفاً بعد</div>
+    </a>
+    <a class="tdesk-kpi {% if bals.pending_variance_count %}alert{% endif %}" href="/admin/shift-variances">
+      <div class="lbl">⚠️ فروقات معلّقة</div>
+      <div class="val">{{ pos_money(bals.pending_variance_abs) }} <span class="money-currency">د.ل</span></div>
+      <div class="sub">{{ bals.pending_variance_count }} سجل بانتظار قرار إداري</div>
+    </a>
+  </div>
+
+  <div class="tdesk-card">
+    <h2>مطلوب مني الآن</h2>
+    {% if actions %}
+      {% for a in actions %}
+      <div class="tdesk-action {{ a.severity }}">
+        <div class="ttl">{{ a.title }}</div>
+        <a class="btn btn-primary" href="{{ a.href }}">{{ a.button }}</a>
+      </div>
+      {% endfor %}
+    {% else %}
+      <p class="muted" style="margin:0">لا توجد عمليات معلّقة. الخزينة مطابقة لآخر الاعتمادات.</p>
+    {% endif %}
+  </div>
+
+  <div class="tdesk-card">
+    <h2>حركة {% if session %}الجلسة{% else %}اليوم{% endif %}</h2>
+    <div class="tdesk-mov">
+      <div><div class="lbl">استلامات كاش</div><div class="val">{{ pos_money(movement.cash_in) }}</div></div>
+      <div><div class="lbl">استلامات مصرفية</div><div class="val">{{ pos_money(movement.bank_in) }}</div></div>
+      <div><div class="lbl">مدفوعات</div><div class="val">{{ pos_money(movement.payments_out) }}</div></div>
+      <div><div class="lbl">عهد مشتريات</div><div class="val">{{ pos_money(movement.advances_out) }}</div></div>
+    </div>
+    <div class="tdesk-actions-bar">
+      <a class="btn btn-primary" href="/pos/treasury/pay">سند صرف</a>
+      <a class="btn" href="/pos/treasury/vouchers/in">سند قبض</a>
+      <a class="btn" href="/pos/treasury/custody">عهدة</a>
+      <a class="btn" href="/pos/treasury/banks">المصارف</a>
+      <a class="btn" href="/pos/treasury/session">{% if session %}إقفال الخزينة{% else %}افتتاح الخزينة{% endif %}</a>
+    </div>
+  </div>
+</div>
+{% endblock %}

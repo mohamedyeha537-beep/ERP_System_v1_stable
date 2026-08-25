@@ -55,7 +55,14 @@ def portal_create_booking(
         raise BookingError("بوابة الحجز غير متاحة.")
     from modules.customers.service import get_or_create_by_phone
 
-    cust = get_or_create_by_phone(db, phone=guest_phone, name=guest_name)
+    from modules.customers.models import CustomerBusinessDomain
+
+    cust = get_or_create_by_phone(
+        db,
+        phone=guest_phone,
+        name=guest_name,
+        business_domain=CustomerBusinessDomain.HOTEL,
+    )
     booking = create_booking(
         db,
         guest_name=guest_name,

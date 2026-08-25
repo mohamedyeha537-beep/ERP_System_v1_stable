@@ -8,9 +8,15 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from modules.hotel.availability import first_room_conflict, is_room_rentable
+from modules.hotel.availability import (
+    UNAVAILABLE_ROOM_STATUSES,
+    blocking_booking_on_date,
+    first_room_conflict,
+    is_room_rentable,
+    room_stay_availability,
+)
 from modules.hotel.pricing import nightly_rate_for_stay
-from modules.hotel.booking_models import BookingSource, GuestType, RecordKind
+from modules.hotel.booking_models import BookingSource, GuestType, RecordKind, RoomPhysicalStatus
 from modules.hotel.booking_service import StayingGuestInput, create_booking
 from modules.hotel.models import HotelRoom
 from modules.hotel.store_models import RoomMediaKind
@@ -39,6 +45,10 @@ class StoreRoomCard:
     available: bool
     cover_url: str | None
     media_count: int
+    available_from: date | None = None
+    occupied_until: date | None = None
+    status_label: str = ""
+    status_key: str = "available"
 
 
 def _room_nightly(db: Session, room: HotelRoom) -> Decimal:
@@ -77,6 +87,47 @@ def _room_available(
     return first_room_conflict(db, room_id=room.id, check_in=check_in, check_out=check_out) is None
 
 
+def _card_availability(
+    db: Session,
+    room: HotelRoom,
+    *,
+    check_in: date | None,
+    check_out: date | None,
+) -> tuple[bool, date | None, date | None, str, str]:
+    """متاحة؟, من تاريخ, حتى مغادرة, نص الحالة, مفتاح الحالة."""
+    if room.physical_status in UNAVAILABLE_ROOM_STATUSES:
+        return False, None, None, "غير متاحة حالياً (صيانة/خارج الخدمة)", "blocked"
+
+    if check_in and check_out and check_out > check_in:
+        stay = room_stay_availability(
+            db, room_id=room.id, check_in=check_in, check_out=check_out
+        )
+        return (
+            stay.full_stay_ok,
+            stay.available_from,
+            stay.occupied_until,
+            stay.status_label,
+            stay.status_key,
+        )
+
+    # بدون تواريخ بحث: إن كان هناك نزيل اليوم اعرض موعد المغادرة
+    today = date.today()
+    current = blocking_booking_on_date(db, room.id, today)
+    if current is not None:
+        return (
+            False,
+            current.check_out,
+            current.check_out,
+            f"مشغولة الآن — متاحة من {current.check_out.isoformat()}",
+            "booked",
+        )
+    if room.physical_status == RoomPhysicalStatus.DIRTY:
+        return True, today, None, "للتنظيف — تُتاح بعد التجهيز", "dirty"
+    if room.physical_status == RoomPhysicalStatus.CLEANING:
+        return True, today, None, "قيد التنظيف — تُتاح بعد التجهيز", "cleaning"
+    return True, today, None, "متاحة", "available"
+
+
 def list_store_rooms(
     db: Session,
     *,
@@ -92,9 +143,14 @@ def list_store_rooms(
     )
     cards: list[StoreRoomCard] = []
     for room in rooms:
-        avail = _room_available(db, room, check_in=check_in, check_out=check_out)
-        if check_in and check_out and not avail:
+        # نستبعد المعطّلة نهائياً فقط؛ المحجوزة تبقى ظاهرة مع تاريخ الإتاحة
+        if room.physical_status in UNAVAILABLE_ROOM_STATUSES:
             continue
+        if not room.room_type_id:
+            continue
+        avail, from_d, until_d, label, key = _card_availability(
+            db, room, check_in=check_in, check_out=check_out
+        )
         active_media = [m for m in (room.media_items or []) if m.is_active]
         cards.append(
             StoreRoomCard(
@@ -103,8 +159,20 @@ def list_store_rooms(
                 available=avail,
                 cover_url=_room_cover(room),
                 media_count=len(active_media),
+                available_from=from_d,
+                occupied_until=until_d,
+                status_label=label,
+                status_key=key,
             )
         )
+    # المتاحة أولاً ثم الأقرب إتاحة
+    cards.sort(
+        key=lambda c: (
+            0 if c.available else 1,
+            c.available_from or date.max,
+            c.room.number or "",
+        )
+    )
     return cards
 
 
@@ -129,14 +197,17 @@ def quote_stay(
         raise StoreError("تاريخ المغادرة يجب أن يكون بعد الوصول.")
     if not _room_available(db, room, check_in=check_in, check_out=check_out):
         raise StoreError("الشقة غير متاحة في التواريخ المختارة.")
-    nights = max(1, (check_out - check_in).days)
+    from modules.hotel.checkin_stay import booking_billing_start, booking_night_count
+
+    billing_in = booking_billing_start(db, check_in=check_in)
+    nights = booking_night_count(db, check_in=check_in, check_out=check_out)
     if room.nightly_price is not None and Decimal(str(room.nightly_price or 0)) > 0:
         nightly = Decimal(str(room.nightly_price)).quantize(Decimal("0.001"))
     else:
         nightly = nightly_rate_for_stay(
             db,
             room_type_id=room.room_type_id,
-            check_in=check_in,
+            check_in=billing_in,
             check_out=check_out,
         )
     total = (nightly * Decimal(nights)).quantize(Decimal("0.001"))

@@ -20,7 +20,7 @@ __all__ = [
 ]
 
 _SYSTEM_RECIPIENT_TYPES = frozenset(
-    {"admin", "supervisor", "inventory_manager", "hr_manager"}
+    {"admin", "supervisor", "inventory_manager", "hr_manager", "treasury_clerk"}
 )
 
 
@@ -119,6 +119,12 @@ def fallback_system_phone(db: Session, recipient_type: str) -> str | None:
         phones = parse_phone_list(raw)
         if phones:
             return phones[0]
+    if rt == "treasury_clerk":
+        raw = (get_setting(db, "notification_treasury_phones") or "").strip()
+        phones = parse_phone_list(raw)
+        if phones:
+            return phones[0]
+        return None
     return (get_setting(db, "messaging_admin_phone") or "").strip() or None
 
 

@@ -51,6 +51,9 @@ def build_reconciliation(db: Session, domain=None) -> GlReconciliationSummary:
             select(GlPaymentMethodMap).order_by(GlPaymentMethodMap.payment_method_id)
         ).all()
     )
+    from modules.gl.vault_display import mapped_vault_wallet_totals
+
+    vaults = mapped_vault_wallet_totals(db)
     wallet_rows: list[WalletGlRow] = []
     for m in maps:
         pm = m.payment_method
@@ -63,11 +66,11 @@ def build_reconciliation(db: Session, domain=None) -> GlReconciliationSummary:
         ):
             continue
         op = method_current_balance(db, int(pm.id))
-        gl_bal = account_balance(db, int(gl.id), domain=domain)
+        gl_bal = vaults.get(int(gl.id), account_balance(db, int(gl.id), domain=None))
         wallet_rows.append(
             WalletGlRow(
                 payment_method_id=int(pm.id),
-                payment_method_name=pm.name_ar,
+                payment_method_name=f"{gl.code} — {gl.name_ar}" if gl.code else (gl.name_ar or pm.name_ar),
                 gl_account_code=gl.code,
                 gl_account_name=gl.name_ar,
                 operational_balance=op,

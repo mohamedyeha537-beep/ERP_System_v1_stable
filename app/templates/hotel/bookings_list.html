@@ -1,11 +1,146 @@
 ﻿{% extends "base.html" %}
 {% block title %}حجوزات الفندق{% endblock %}
 {% block head_extra %}
-<link rel="stylesheet" href="/static/hotel_dashboard.css?v=12" />
+<link rel="stylesheet" href="/static/hotel_dashboard.css?v=38" />
+<style>
+  .booking-status-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  .booking-status-badge--checked_in {
+    background: #ecfdf5;
+    color: #047857;
+    border-color: #86efac;
+  }
+  .booking-status-badge--checked_out {
+    background: #eef2ff;
+    color: #3730a3;
+    border-color: #a5b4fc;
+  }
+  .booking-status-badge--confirmed {
+    background: #eff6ff;
+    color: #1d4ed8;
+    border-color: #93c5fd;
+  }
+  .booking-status-badge--pending {
+    background: #fffbeb;
+    color: #b45309;
+    border-color: #fcd34d;
+  }
+  .booking-status-badge--cancelled,
+  .booking-status-badge--no_show {
+    background: #fef2f2;
+    color: #b91c1c;
+    border-color: #fecaca;
+  }
+  .booking-status-badge--late_cancellation {
+    background: #fff7ed;
+    color: #c2410c;
+    border-color: #fdba74;
+  }
+  .booking-status-badge--other {
+    background: #f1f5f9;
+    color: #475569;
+    border-color: #e2e8f0;
+  }
+  .booking-debt-bell {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.15rem;
+    margin-inline-start: 0.35rem;
+    min-width: 1.55rem;
+    height: 1.55rem;
+    padding: 0 0.4rem;
+    border-radius: 999px;
+    background: #dc2626;
+    color: #fff;
+    font-size: 0.72rem;
+    font-weight: 800;
+    line-height: 1;
+    vertical-align: middle;
+    box-shadow: 0 2px 8px rgba(220, 38, 38, 0.4);
+    animation: hk-bell-pulse 1.6s ease-in-out infinite;
+  }
+  .booking-debt-bell__ico { font-size: 0.8rem; line-height: 1; }
+  .booking-row--debt {
+    background: #fff7f7;
+  }
+  .booking-row--debt td:first-child {
+    box-shadow: inset -3px 0 0 #dc2626;
+  }
+  .booking-pay--debt {
+    color: #b91c1c;
+    font-weight: 800;
+  }
+  .booking-pay--credit {
+    color: #15803d;
+    font-weight: 800;
+  }
+  .booking-search {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 0.55rem;
+    align-items: end;
+    margin-bottom: 0.85rem;
+    padding: 0.75rem 0.85rem;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+  }
+  .booking-search label {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0;
+    min-width: 0;
+    gap: 0.3rem;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #334155;
+    margin: 0;
+  }
+  .booking-search input {
+    width: 100%;
+    max-width: none;
+    box-sizing: border-box;
+    padding: 0.5rem 0.6rem;
+    border: 1px solid #0f172a;
+    border-radius: 8px;
+    background: #fff;
+    color: #0f172a;
+    font-size: 0.95rem;
+    min-height: 2.4rem;
+  }
+  .booking-search input:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+  }
+  .booking-search__actions {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 0.4rem;
+    flex-wrap: nowrap;
+    padding-bottom: 1px;
+  }
+  @media (max-width: 640px) {
+    .booking-search {
+      flex-wrap: wrap;
+    }
+    .booking-search label {
+      flex: 1 1 calc(50% - 0.55rem);
+    }
+  }
+</style>
 {% endblock %}
 {% block body %}
 <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:0.75rem">
-  <h1 style="margin:0">🏨 حجوزات الشقق{% if room_filter %} — {{ room_filter.name_ar or room_filter.number }}{% endif %}</h1>
+  <h1 style="margin:0">🏨 حجوزات الشقق{% if room_filter %} — {{ room_filter.name_ar or room_filter.number }}{% endif %}{% if scope_filter == 'open' %} — الحالية والمستقبلية{% endif %}</h1>
   <div class="row" style="gap:0.4rem">
     {% if room_filter %}
     <a class="btn btn-primary" href="/admin/hotel/bookings/new{% if room_filter %}?room_id={{ room_filter.id }}{% endif %}">+ حجز جديد</a>
@@ -17,30 +152,121 @@
 {% set active = 'bookings' %}
 {% include "_hotel_nav.html" %}
 {% if room_filter %}
-<p><a class="btn" href="/admin/hotel/bookings">← كل الحجوزات</a> · <a class="btn" href="/admin/hotel/dashboard">لوحة الشقق</a></p>
+<p><a class="btn" href="/admin/hotel/bookings?scope=open">← كل الحجوزات النشطة</a> · <a class="btn" href="/admin/hotel/dashboard">لوحة الشقق</a></p>
 {% endif %}
 {% if error %}<div class="alert">{{ error }}</div>{% endif %}
 {% if saved %}<div class="alert" style="background:#ecfdf5;border-color:#10b981">تم الحفظ ✓</div>{% endif %}
 
+<form class="booking-search" method="get" action="/admin/hotel/bookings" role="search">
+  {% if room_filter %}<input type="hidden" name="room_id" value="{{ room_filter.id }}" />{% endif %}
+  {% if scope_filter %}<input type="hidden" name="scope" value="{{ scope_filter }}" />{% endif %}
+  {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}" />{% endif %}
+  <label>اسم الزبون
+    <input type="search" name="q_name" value="{{ q_name or '' }}" placeholder="الاسم أو الشركة" autocomplete="off" />
+  </label>
+  <label>رقم الحجز
+    <input type="search" name="q_ref" value="{{ q_ref or '' }}" placeholder="مثل EEE2F764" autocomplete="off" dir="ltr" />
+  </label>
+  <label>رقم الهاتف
+    <input type="search" name="q_phone" value="{{ q_phone or '' }}" placeholder="09xxxxxxxx" autocomplete="off" inputmode="tel" dir="ltr" />
+  </label>
+  <div class="booking-search__actions">
+    <button type="submit" class="btn btn-primary">بحث</button>
+    {% if searching %}
+    <a class="btn" href="/admin/hotel/bookings?scope=open">مسح</a>
+    {% endif %}
+  </div>
+</form>
+{% if searching %}
+<p class="muted" style="margin:-0.35rem 0 0.75rem;font-size:0.85rem">
+  نتائج البحث في <strong>كل الحجوزات</strong>
+  {% if q_name %}· الاسم: {{ q_name }}{% endif %}
+  {% if q_ref %}· المرجع: {{ q_ref }}{% endif %}
+  {% if q_phone %}· الهاتف: {{ q_phone }}{% endif %}
+  — {{ items|length }} نتيجة
+</p>
+{% endif %}
+
+<div class="row" style="gap:0.45rem;flex-wrap:wrap;margin-bottom:0.85rem">
+  <a class="btn {% if scope_filter == 'open' and not searching %}btn-primary{% endif %}" href="/admin/hotel/bookings?scope=open">الحالية والمستقبلية</a>
+  <a class="btn {% if status_filter == 'CHECKED_IN' and not searching %}btn-primary{% endif %}" href="/admin/hotel/bookings?status=CHECKED_IN">مسكّن الآن</a>
+  <a class="btn {% if status_filter == 'CONFIRMED' and not searching %}btn-primary{% endif %}" href="/admin/hotel/bookings?status=CONFIRMED">مؤكّد</a>
+  <a class="btn {% if status_filter == 'PENDING' and not searching %}btn-primary{% endif %}" href="/admin/hotel/bookings?status=PENDING">معلّق</a>
+  <a class="btn {% if status_filter == 'CHECKED_OUT' and not searching %}btn-primary{% endif %}" href="/admin/hotel/bookings?status=CHECKED_OUT">مغادر</a>
+  <a class="btn {% if not scope_filter and not status_filter and not searching %}btn-primary{% endif %}" href="/admin/hotel/bookings">الكل (آخر 200)</a>
+</div>
+
 <div class="row" style="gap:1rem;margin-bottom:1rem">
   <div class="card" style="flex:1"><strong>وصول اليوم:</strong> {{ arrivals|length }}</div>
   <div class="card" style="flex:1"><strong>مغادرة اليوم:</strong> {{ departures|length }}</div>
+  <div class="card" style="flex:1"><strong>المعروض:</strong> {{ items|length }}{% if searching %} (بحث){% elif scope_filter == 'open' %} (نشطة){% endif %}</div>
 </div>
 
 <div class="card">
   <table>
-    <thead><tr><th>المرجع</th><th>النزيل</th><th>النوع</th><th>الغرفة</th><th>من</th><th>إلى</th><th>الحالة</th><th>الدفع</th><th></th></tr></thead>
+    <thead><tr><th>المرجع</th><th>النزيل</th><th>النوع</th><th>الغرفة</th><th>تاريخ الوصول</th><th>تاريخ المغادرة</th><th>الحالة</th><th>الحساب (كتلة واحدة)</th><th></th></tr></thead>
     <tbody>
     {% for b in items %}
-    <tr>
+    {% set pay = (booking_pay.get(b.id) if booking_pay is defined and booking_pay else none) %}
+    {% set debt_amt = (pay.due if pay else (booking_debts.get(b.id) if booking_debts is defined and booking_debts else none)) %}
+    {% set credit_amt = (pay.credit if pay else none) %}
+    {% set has_debt = debt_amt is not none and debt_amt > 0 %}
+    {% set has_credit = credit_amt is not none and credit_amt > 0 %}
+    <tr class="{% if has_debt %}booking-row--debt{% endif %}">
       <td><strong>{{ b.reference }}</strong></td>
       <td>{% if b.guest_type.value == 'COMPANY' %}🏢{% else %}👤{% endif %} {{ b.display_name if b.display_name is defined else b.guest_name }}<br><span class="muted">{{ b.guest_phone or '' }}</span></td>
       <td>{{ b.room_type.name_ar if b.room_type else '—' }}</td>
-      <td>{% if b.room %}#{{ b.room.number }}{% else %}—{% endif %}</td>
-      <td>{{ b.check_in }}</td>
-      <td>{{ b.check_out }}</td>
-      <td>{{ b.booking_status.value }}</td>
-      <td>{{ b.payment_status.value }}</td>
+      <td>
+        {% if b.room %}#{{ b.room.number }}{% else %}—{% endif %}
+        {% if has_debt %}
+        <span class="booking-debt-bell" title="إجمالي متبقي {{ '%.3f'|format(debt_amt) }} د.ل (غرفة + مطعم + خدمات)">
+          <span class="booking-debt-bell__ico" aria-hidden="true">🔔</span>
+        </span>
+        {% endif %}
+      </td>
+      <td style="white-space:nowrap;font-weight:700" dir="ltr">{{ b.check_in }}</td>
+      <td style="white-space:nowrap;font-weight:700" dir="ltr">{{ b.check_out }}</td>
+      <td>
+        {% set st = b.booking_status.value %}
+        {% if st == 'CHECKED_IN' %}
+        <span class="booking-status-badge booking-status-badge--checked_in">مسكّن</span>
+        {% elif st == 'CHECKED_OUT' %}
+        <span class="booking-status-badge booking-status-badge--checked_out">مغادر</span>
+        {% elif st == 'CONFIRMED' %}
+        <span class="booking-status-badge booking-status-badge--confirmed">مؤكّد</span>
+        {% elif st == 'PENDING' %}
+        <span class="booking-status-badge booking-status-badge--pending">معلّق</span>
+        {% elif st == 'CANCELLED' %}
+        <span class="booking-status-badge booking-status-badge--cancelled">ملغى</span>
+        {% elif st == 'NO_SHOW' %}
+        <span class="booking-status-badge booking-status-badge--no_show">لم يحضر</span>
+        {% elif st == 'LATE_CANCELLATION' %}
+        <span class="booking-status-badge booking-status-badge--late_cancellation">إلغاء متأخر</span>
+        {% else %}
+        <span class="booking-status-badge booking-status-badge--other">{{ st }}</span>
+        {% endif %}
+      </td>
+      <td class="{% if has_debt %}booking-pay--debt{% elif has_credit %}booking-pay--credit{% endif %}">
+        {% if has_debt %}
+        <span title="إجمالي الدين = إقامة + مطعم + مغسلة + خدمات − المدفوع">
+          🔔 دين {{ '%.3f'|format(debt_amt) }} د.ل
+        </span>
+        <div class="muted" style="font-size:0.72rem;margin-top:0.15rem;font-weight:600;color:#9a3412">غرفة + مطعم + خدمات</div>
+        {% elif has_credit %}
+        <span style="color:#15803d;font-weight:800" title="{% if pay and pay.get('wallet_credit') and pay.get('wallet_credit') > 0 %}يشمل رصيد محفظة العميل المتاح{% else %}رصيد موجب بعد خصم كل الرسوم من المدفوع{% endif %}">
+          رصيد +{{ '%.3f'|format(credit_amt) }} د.ل
+        </span>
+        {% if pay and pay.get('wallet_credit') and pay.get('wallet_credit') > 0 %}
+        <div class="muted" style="font-size:0.72rem;margin-top:0.15rem;font-weight:600;color:#047857">منه محفظة {{ '%.3f'|format(pay.wallet_credit) }}</div>
+        {% endif %}
+        {% else %}
+          {% if b.payment_status.value == 'REFUNDED' %}
+          <span>مسترد</span>
+          {% else %}
+          {{ pos_pay_status_badge(b.payment_status) }}
+          {% endif %}
+        {% endif %}
+      </td>
       <td><a class="btn" href="/admin/hotel/bookings/{{ b.id }}">تفاصيل</a></td>
     </tr>
     {% else %}

@@ -19,6 +19,11 @@ from modules.hotel.models import HotelRoom
 
 
 BLOCKING_STATUSES = (BookingStatus.CONFIRMED, BookingStatus.CHECKED_IN)
+OPEN_STAY_STATUSES = (
+    BookingStatus.PENDING,
+    BookingStatus.CONFIRMED,
+    BookingStatus.CHECKED_IN,
+)
 UNAVAILABLE_ROOM_STATUSES = (
     RoomPhysicalStatus.MAINTENANCE,
     RoomPhysicalStatus.OUT_OF_SERVICE,
@@ -27,6 +32,7 @@ UNAVAILABLE_ROOM_STATUSES = (
 # لا تُعرَض للحجز/الإيجار حتى تُحرَّر من التنظيف أو الصيانة
 NOT_RENTABLE_STATUSES = UNAVAILABLE_ROOM_STATUSES + (
     RoomPhysicalStatus.DIRTY,
+    RoomPhysicalStatus.CLEANING,
     RoomPhysicalStatus.OCCUPIED,
 )
 
@@ -109,6 +115,89 @@ def has_room_conflict(
     ) is not None
 
 
+@dataclass(frozen=True)
+class RoomStayAvailability:
+    """توفر الشقة لفترة مطلوبة — مع تاريخ الإتاحة إن كانت محجوزة."""
+
+    full_stay_ok: bool
+    available_from: date | None
+    occupied_until: date | None
+    status_key: str
+    status_label: str
+
+
+def room_stay_availability(
+    db: Session,
+    *,
+    room_id: int,
+    check_in: date,
+    check_out: date,
+    exclude_booking_id: int | None = None,
+) -> RoomStayAvailability:
+    """
+    إن كانت الفترة محجوزة يُرجع أقرب تاريخ يمكن بدء إقامة بنفس المدة بعده.
+    """
+    if check_out <= check_in:
+        return RoomStayAvailability(
+            full_stay_ok=False,
+            available_from=None,
+            occupied_until=None,
+            status_key="invalid",
+            status_label="تواريخ غير صالحة",
+        )
+    nights = max(1, (check_out - check_in).days)
+    conflict = first_room_conflict(
+        db,
+        room_id=room_id,
+        check_in=check_in,
+        check_out=check_out,
+        exclude_booking_id=exclude_booking_id,
+    )
+    if conflict is None:
+        return RoomStayAvailability(
+            full_stay_ok=True,
+            available_from=check_in,
+            occupied_until=None,
+            status_key="available",
+            status_label="متاحة طوال فترة الإقامة",
+        )
+
+    occupied_until = conflict.check_out
+    candidate = conflict.check_out
+    # نتخطى الحجوزات المتتالية حتى نجد نافذة بطول الإقامة المطلوبة
+    for _ in range(40):
+        end = candidate + timedelta(days=nights)
+        nxt = first_room_conflict(
+            db,
+            room_id=room_id,
+            check_in=candidate,
+            check_out=end,
+            exclude_booking_id=exclude_booking_id,
+        )
+        if nxt is None:
+            return RoomStayAvailability(
+                full_stay_ok=False,
+                available_from=candidate,
+                occupied_until=occupied_until,
+                status_key="booked",
+                status_label=f"محجوزة لهذه الفترة — متاحة من {candidate.isoformat()}",
+            )
+        if nxt.check_out <= candidate:
+            break
+        occupied_until = nxt.check_out
+        candidate = nxt.check_out
+
+    return RoomStayAvailability(
+        full_stay_ok=False,
+        available_from=occupied_until,
+        occupied_until=occupied_until,
+        status_key="booked",
+        status_label=f"محجوزة — أقرب إتاحة من {occupied_until.isoformat()}"
+        if occupied_until
+        else "محجوزة حالياً",
+    )
+
+
 def blocking_booking_on_date(
     db: Session, room_id: int, day: date
 ) -> HotelBooking | None:
@@ -123,6 +212,40 @@ def blocking_booking_on_date(
         )
         .order_by(
             (HotelBooking.booking_status == BookingStatus.CHECKED_IN).desc(),
+            HotelBooking.id.desc(),
+        )
+        .limit(1)
+    )
+
+
+def checked_in_booking_for_room(db: Session, room_id: int) -> HotelBooking | None:
+    """الحجز المسكن حالياً على الشقة — حتى لو يوم المغادرة هو اليوم."""
+    return db.scalar(
+        select(HotelBooking)
+        .where(
+            HotelBooking.room_id == room_id,
+            HotelBooking.booking_status == BookingStatus.CHECKED_IN,
+        )
+        .order_by(HotelBooking.id.desc())
+        .limit(1)
+    )
+
+
+def open_booking_on_date(
+    db: Session, room_id: int, day: date
+) -> HotelBooking | None:
+    """حجز معلّق/مؤكد/مسكن يغطي هذا اليوم — يشمل المعلّق الذي لا يمنع التوفر العام."""
+    return db.scalar(
+        select(HotelBooking)
+        .where(
+            HotelBooking.room_id == room_id,
+            HotelBooking.booking_status.in_(OPEN_STAY_STATUSES),
+            HotelBooking.check_in <= day,
+            HotelBooking.check_out > day,
+        )
+        .order_by(
+            (HotelBooking.booking_status == BookingStatus.CHECKED_IN).desc(),
+            (HotelBooking.booking_status == BookingStatus.CONFIRMED).desc(),
             HotelBooking.id.desc(),
         )
         .limit(1)
@@ -173,9 +296,12 @@ def room_rentability_on_date(
         return False, "محجوزة", "reserved", booking, None
 
     if ps == RoomPhysicalStatus.OCCUPIED:
-        return False, "مشغولة", "occupied", None, None
+        active = checked_in_booking_for_room(db, room.id)
+        return False, "مشغولة", "occupied", active, None
     if ps == RoomPhysicalStatus.DIRTY:
         return False, "للتنظيف", "dirty", None, None
+    if ps == RoomPhysicalStatus.CLEANING:
+        return False, "قيد التنظيف", "cleaning", None, None
 
     upcoming = next_blocking_booking(db, room.id, after_day=day)
     return True, "متاحة", "available", None, upcoming
@@ -271,7 +397,7 @@ def calendar_bookings(
                 HotelBooking.check_in < end,
                 HotelBooking.check_out > start,
                 HotelBooking.booking_status.notin_(
-                    (BookingStatus.CANCELLED, BookingStatus.NO_SHOW)
+                    (BookingStatus.CANCELLED, BookingStatus.NO_SHOW, BookingStatus.LATE_CANCELLATION)
                 ),
             )
             .order_by(HotelBooking.check_in, HotelBooking.id)

@@ -208,8 +208,8 @@
       <div class="pif-cell">
         <label for="payment_method_id">طريقة السداد</label>
         <select id="payment_method_id" name="payment_method_id" required class="pif-control">
-          {% for m in methods if pos_is_main_treasury_wallet(m) or pos_is_supplier_credit_wallet(m) %}
-          <option value="{{ m.id }}" data-kind="{{ m.kind.value }}" data-credit="{% if pos_is_supplier_credit_wallet(m) %}1{% else %}0{% endif %}">{{ m.name_ar }}</option>
+          {% for m in methods if pos_is_purchase_pay_wallet(m) or pos_is_supplier_credit_wallet(m) %}
+          <option value="{{ m.id }}" data-kind="{{ m.kind.value }}" data-credit="{% if pos_is_supplier_credit_wallet(m) %}1{% else %}0{% endif %}">{{ pos_wallet_label(m) }}</option>
           {% endfor %}
         </select>
       </div>
@@ -220,7 +220,7 @@
             <option value="">— لا دفع الآن —</option>
             {% for m in methods %}
             {% if m.name_ar != 'ذمم دائن — مورد (آجل)' %}
-            <option value="{{ m.id }}" data-kind="{{ m.kind.value }}">{{ m.name_ar }}</option>
+            <option value="{{ m.id }}" data-kind="{{ m.kind.value }}">{{ pos_wallet_label(m) }}</option>
             {% endif %}
             {% endfor %}
           </select>

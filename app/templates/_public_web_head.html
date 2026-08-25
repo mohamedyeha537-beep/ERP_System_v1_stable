@@ -30,5 +30,6 @@
 {% if web_mkt.og_description %}
 <meta name="twitter:description" content="{{ web_mkt.og_description }}" />
 {% endif %}
+{% if web_mkt.json_ld %}{{ web_mkt.json_ld }}{% endif %}
 {% if web_mkt.tracking_head %}{{ web_mkt.tracking_head }}{% endif %}
 {% endif %}

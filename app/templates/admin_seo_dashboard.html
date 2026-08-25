@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}SEO Center{% endblock %}
+{% block body %}
+<h1 style="margin-top:0">SEO Center — وكلاء السيو</h1>
+<p class="muted">استقبال نتائج n8n الخارجية · مراجعة · موافقة · تطبيق · Rollback</p>
+
+<div class="card" style="margin-bottom:1rem;border-color:{% if is_production %}#fecaca;background:#fef2f2{% else %}#bbf7d0;background:#f0fdf4{% endif %}">
+  <strong>البيئة الحالية:</strong>
+  <span style="font-size:1.15rem;font-weight:700">
+    {% if is_production %}Production{% else %}Staging / Testing{% endif %}
+  </span>
+  <span class="muted" dir="ltr"> · {{ seo_env }} · {{ seo_base_url or '—' }}</span>
+  <p class="muted" style="margin:0.4rem 0 0;font-size:0.9rem">
+    Enabled={{ seo_enabled }} · Auto-apply={{ seo_allow_auto_apply }} ·
+    Require production approval={{ seo_require_prod_approval }}
+  </p>
+</div>
+
+{% if flash %}<div class="card" style="background:#f0fdf4;margin-bottom:1rem">تم: {{ flash }}</div>{% endif %}
+{% if error %}<div class="card" style="background:#fef2f2;margin-bottom:1rem;color:#b91c1c">{{ error }}</div>{% endif %}
+
+<nav style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1.25rem">
+  <a class="btn btn-primary" href="/admin/seo">لوحة</a>
+  <a class="btn" href="/admin/seo/pages">الصفحات</a>
+  <a class="btn" href="/admin/seo/issues">المشاكل</a>
+  <a class="btn" href="/admin/seo/suggestions">الاقتراحات</a>
+  <a class="btn" href="/admin/seo/reports">التقارير</a>
+  <a class="btn" href="/admin/web-marketing">SEO السطوح</a>
+  <a class="btn" href="/sitemap.xml" target="_blank" rel="noopener">sitemap.xml</a>
+</nav>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:0.75rem;margin-bottom:1.25rem">
+  <div class="card">
+    <strong>آخر Crawl</strong>
+    {% if last_crawl %}
+    <p style="margin:0.35rem 0 0">#{{ last_crawl.id }} · {{ last_crawl.status }} · {{ last_crawl.agent_name }}</p>
+    <p class="muted" style="margin:0;font-size:0.85rem">صفحات={{ last_crawl.pages_scanned }} · مشاكل={{ last_crawl.issues_found }}</p>
+    {% else %}
+    <p class="muted">لا يوجد بعد</p>
+    {% endif %}
+  </div>
+  <div class="card">
+    <strong>مشاكل مفتوحة حسب الشدة</strong>
+    <ul style="margin:0.35rem 0 0;padding-inline-start:1.2rem">
+      {% for k,v in severity_counts.items() %}
+      <li>{{ k }}: {{ v }}</li>
+      {% else %}
+      <li class="muted">لا مشاكل مفتوحة</li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <h2 style="margin-top:0">آخر طلبات الإصلاح</h2>
+  <table class="table">
+    <thead><tr><th>#</th><th>النوع</th><th>الحالة</th><th>Prod</th><th>إجراء</th></tr></thead>
+    <tbody>
+    {% for f in fixes %}
+      <tr>
+        <td>{{ f.id }}</td>
+        <td>{{ f.fix_type }}</td>
+        <td>{{ f.status }}</td>
+        <td>{% if f.approved_for_production %}نعم{% else %}لا{% endif %}</td>
+        <td style="display:flex;gap:0.25rem;flex-wrap:wrap">
+          {% if p('seo:approve') and f.status == 'pending' %}
+          <form method="post" action="/admin/seo/fixes/{{ f.id }}/approve"><button class="btn" type="submit">Approve</button></form>
+          {% endif %}
+          {% if p('seo:production_approve') and not f.approved_for_production %}
+          <form method="post" action="/admin/seo/fixes/{{ f.id }}/approve-production"><button class="btn" type="submit">Approve Prod</button></form>
+          {% endif %}
+          {% if p('seo:apply') and f.status == 'approved' %}
+          <form method="post" action="/admin/seo/fixes/{{ f.id }}/apply"><button class="btn btn-primary" type="submit">Apply</button></form>
+          {% endif %}
+          {% if p('seo:rollback') and f.status == 'applied' %}
+          <form method="post" action="/admin/seo/fixes/{{ f.id }}/rollback"><button class="btn" type="submit">Rollback</button></form>
+          {% endif %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="muted">لا إصلاحات بعد</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <h2 style="margin-top:0">آخر الاقتراحات</h2>
+  <ul>
+  {% for s in suggestions %}
+    <li>#{{ s.id }} · {{ s.suggestion_type }} · {{ s.status }} — {{ (s.suggested_value or '')[:80] }}</li>
+  {% else %}
+    <li class="muted">لا اقتراحات</li>
+  {% endfor %}
+  </ul>
+  <a class="btn" href="/admin/seo/suggestions">عرض الكل</a>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">آخر التقارير</h2>
+  <ul>
+  {% for r in reports %}
+    <li>#{{ r.id }} · {{ r.report_type }} — {{ r.title }}</li>
+  {% else %}
+    <li class="muted">لا تقارير</li>
+  {% endfor %}
+  </ul>
+  <a class="btn" href="/admin/seo/reports">عرض الكل</a>
+</div>
+{% endblock %}

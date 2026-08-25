@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}تقرير تكلفة الإفطار{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/hotel_dashboard.css?v=16" />
+{% endblock %}
+{% block body %}
+{% set active = 'reports' %}
+{% include "_hotel_nav.html" %}
+<div class="row" style="justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap">
+  <h1 style="margin:0">تقرير تكلفة الإفطار</h1>
+  <div style="display:flex;gap:0.45rem;flex-wrap:wrap">
+    <a class="btn" href="/admin/hotel/settings#hotel-breakfast">إعداد الإفطار</a>
+    <a class="btn" href="/admin/hotel/reports">رجوع للتقارير</a>
+  </div>
+</div>
+
+<div class="card" style="margin-top:0.85rem">
+  <p class="muted" style="margin:0 0 0.75rem;line-height:1.55">
+    يعرض فواتير الإفطار المسوّاة كتكلفة على الفندق (بعد زر «تسوية إفطار»)،
+    والفواتير المعلّقة التي تبدو إفطاراً فقط.
+    {% if breakfast_included_enabled %}
+    الوضع الحالي: <strong style="color:#c2410c">إفطار محسوب كتكلفة فندق</strong>.
+    {% else %}
+    الوضع الحالي: <strong>معطّل</strong> — الإفطار يُعامل كوجبة عادية على النزيل.
+    {% endif %}
+  </p>
+  <form method="get" action="/admin/hotel/reports/breakfast" class="row" style="gap:0.65rem;align-items:end;flex-wrap:wrap">
+    <div>
+      <label for="from">من</label>
+      <input id="from" type="date" name="from" value="{{ date_from }}" />
+    </div>
+    <div>
+      <label for="to">إلى</label>
+      <input id="to" type="date" name="to" value="{{ date_to }}" />
+    </div>
+    <button class="btn btn-primary" type="submit">عرض</button>
+  </form>
+</div>
+
+<div class="row" style="gap:0.75rem;margin-top:0.85rem;flex-wrap:wrap">
+  <div class="card" style="flex:1;min-width:12rem;border-color:#fdba74;background:#fff7ed">
+    <div class="muted" style="font-size:0.85rem">تكلفة فندق مسجّلة</div>
+    <div style="font-size:1.35rem;font-weight:800;color:#c2410c">{{ '%.3f' % hotel_cost_total }} د.ل</div>
+  </div>
+  <div class="card" style="flex:1;min-width:12rem">
+    <div class="muted" style="font-size:0.85rem">معلّق (لم يُسوَّ بعد)</div>
+    <div style="font-size:1.35rem;font-weight:800">{{ '%.3f' % pending_total }} د.ل</div>
+  </div>
+  <div class="card" style="flex:1;min-width:12rem;background:#f8fafc">
+    <div class="muted" style="font-size:0.85rem">عدد السجلات</div>
+    <div style="font-size:1.35rem;font-weight:800">{{ rows|length }}</div>
+  </div>
+</div>
+
+<div class="card sticky-table-wrap" style="margin-top:0.85rem">
+  {% if rows %}
+  <table style="width:100%;font-size:0.9rem">
+    <thead>
+      <tr>
+        <th>التاريخ</th>
+        <th>الغرفة</th>
+        <th>الحجز / النزيل</th>
+        <th>الفاتورة</th>
+        <th>الأصناف</th>
+        <th>الحالة</th>
+        <th style="text-align:left">المبلغ</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr {% if r.status == 'hotel_cost' %}style="background:#fff7ed"{% endif %}>
+        <td style="white-space:nowrap">{{ r.at.strftime('%Y-%m-%d %H:%M') if r.at else '—' }}</td>
+        <td>{{ r.room_number }}</td>
+        <td>
+          {% if r.booking_ref %}<strong>{{ r.booking_ref }}</strong>{% else %}—{% endif %}
+          {% if r.guest_name %}<div class="muted" style="font-size:0.8rem">{{ r.guest_name }}</div>{% endif %}
+        </td>
+        <td>{% if r.sale_id %}#{{ r.sale_id }}{% else %}—{% endif %}</td>
+        <td style="max-width:18rem;font-size:0.85rem">{{ r.items_summary }}</td>
+        <td>
+          {% if r.status == 'hotel_cost' %}
+          <span style="color:#c2410c;font-weight:700">تكلفة فندق</span>
+          {% else %}
+          <span class="muted">معلّق</span>
+          {% endif %}
+        </td>
+        <td style="text-align:left;font-weight:700">{{ '%.3f' % r.amount }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted" style="margin:0">لا توجد وجبات إفطار في الفترة المحددة.</p>
+  {% endif %}
+</div>
+{% endblock %}

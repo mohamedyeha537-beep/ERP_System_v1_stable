@@ -2,13 +2,20 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
+from functools import lru_cache
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 DEFAULT_STORE_TIMEZONE = "Africa/Tripoli"
+# ليبيا UTC+2 بدون توقيت صيفي — احتياطي إن لم تتوفر قاعدة المناطق الزمنية (Windows بدون tzdata)
+_FALLBACK_OFFSET = timezone(timedelta(hours=2))
 
 
-def store_timezone() -> ZoneInfo:
-    return ZoneInfo(DEFAULT_STORE_TIMEZONE)
+@lru_cache(maxsize=1)
+def store_timezone() -> ZoneInfo | timezone:
+    try:
+        return ZoneInfo(DEFAULT_STORE_TIMEZONE)
+    except ZoneInfoNotFoundError:
+        return _FALLBACK_OFFSET
 
 
 def ensure_utc(dt: datetime) -> datetime:

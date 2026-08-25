@@ -1,0 +1,15 @@
+{# يتوقع: hr_nav_active — واختياري show_recurring_costs #}
+<nav class="hr-nav">
+  <a href="/admin/employees"{% if hr_nav_active == 'employees' %} class="active"{% endif %}>الموظفون</a>
+  <a href="/admin/departments"{% if hr_nav_active == 'departments' %} class="active"{% endif %}>الأقسام</a>
+  <a href="/admin/work-shifts"{% if hr_nav_active == 'work_shifts' %} class="active"{% endif %}>الورديات</a>
+  <a href="/admin/employee-meals"{% if hr_nav_active == 'meals' %} class="active"{% endif %}>الوجبات</a>
+  <a href="/admin/attendance"{% if hr_nav_active == 'attendance' %} class="active"{% endif %}>الحضور والانصراف</a>
+  <a href="/admin/payroll"{% if hr_nav_active == 'payroll' %} class="active"{% endif %}>الرواتب الشهرية</a>
+  <a href="/admin/bonuses"{% if hr_nav_active == 'bonuses' %} class="active"{% endif %}>حوافز ومكافآت</a>
+  <a href="/admin/deductions"{% if hr_nav_active == 'deductions' %} class="active"{% endif %}>خصومات وعجز</a>
+  <a href="/admin/advances"{% if hr_nav_active == 'advances' %} class="active"{% endif %}>السلف</a>
+  {% if show_recurring_costs %}
+  <a href="/admin/recurring-costs" title="التكاليف الثابتة الأخرى (إيجار/كهرباء)">تكاليف ثابتة أخرى</a>
+  {% endif %}
+</nav>

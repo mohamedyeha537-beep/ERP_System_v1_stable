@@ -86,6 +86,112 @@ def _is_bank_method(name: str | None) -> bool:
     return "مصرف" in (name or "") or "bank" in low
 
 
+@dataclass
+class ShiftRestaurantOrderRow:
+    charge_id: int
+    sale_id: int
+    booking_id: int | None
+    room_number: str
+    guest_name: str
+    amount: Decimal
+    payment_method: str
+    settled_at: datetime | None
+
+
+@dataclass
+class ShiftLaundryOrderRow:
+    service_id: int
+    booking_id: int
+    booking_ref: str
+    guest_name: str
+    name_ar: str
+    quantity: Decimal
+    amount: Decimal
+    created_at: datetime | None
+
+
+def list_shift_restaurant_orders(
+    db: Session, start: datetime, end: datetime
+) -> list[ShiftRestaurantOrderRow]:
+    """وجبات الغرف المُسوّاة خلال نافذة الجلسة."""
+    from modules.hotel.models import HotelRoom
+
+    settled_charges = list(
+        db.scalars(
+            select(RoomCharge)
+            .where(
+                RoomCharge.is_settled.is_(True),
+                RoomCharge.settled_at >= start,
+                RoomCharge.settled_at < end,
+            )
+            .order_by(RoomCharge.settled_at.desc(), RoomCharge.id.desc())
+        ).all()
+    )
+    rows: list[ShiftRestaurantOrderRow] = []
+    for rc in settled_charges:
+        sale = db.get(Sale, rc.sale_id)
+        if sale is None or sale.status != SaleStatus.COMPLETED:
+            continue
+        room = db.get(HotelRoom, rc.room_id)
+        pay_rows = db.execute(
+            select(SalePayment.amount, PaymentMethod.name_ar)
+            .join(PaymentMethod, PaymentMethod.id == SalePayment.payment_method_id)
+            .where(SalePayment.sale_id == sale.id)
+            .order_by(SalePayment.id.asc())
+        ).all()
+        pm_parts: list[str] = []
+        for amt, pm_name in pay_rows:
+            label = (pm_name or "—").strip() or "—"
+            pm_parts.append(f"{label} ({Decimal(str(amt or 0)).quantize(Decimal('0.001'))})")
+        rows.append(
+            ShiftRestaurantOrderRow(
+                charge_id=int(rc.id),
+                sale_id=int(sale.id),
+                booking_id=int(rc.booking_id) if rc.booking_id else None,
+                room_number=(room.number if room else "") or "—",
+                guest_name=(rc.guest_name_snapshot or "").strip() or "—",
+                amount=Decimal(str(sale.total or 0)).quantize(Decimal("0.001")),
+                payment_method=" · ".join(pm_parts) if pm_parts else "—",
+                settled_at=rc.settled_at,
+            )
+        )
+    return rows
+
+
+def list_shift_laundry_orders(
+    db: Session, start: datetime, end: datetime
+) -> list[ShiftLaundryOrderRow]:
+    """طلبات المغسلة المسجّلة خلال نافذة الجلسة."""
+    svc_rows = list(
+        db.scalars(
+            select(HotelBookingService)
+            .where(
+                HotelBookingService.created_at >= start,
+                HotelBookingService.created_at < end,
+            )
+            .order_by(HotelBookingService.created_at.desc(), HotelBookingService.id.desc())
+        ).all()
+    )
+    rows: list[ShiftLaundryOrderRow] = []
+    for svc in svc_rows:
+        if not is_laundry_service(svc.name_ar):
+            continue
+        booking = db.get(HotelBooking, svc.booking_id)
+        rows.append(
+            ShiftLaundryOrderRow(
+                service_id=int(svc.id),
+                booking_id=int(svc.booking_id),
+                booking_ref=(booking.reference if booking else "") or "—",
+                guest_name=(booking.guest_name if booking else "") or "—",
+                name_ar=(svc.name_ar or "").strip() or "مغسلة",
+                quantity=Decimal(str(svc.quantity or 1)),
+                amount=Decimal(str(svc.line_total or 0)).quantize(Decimal("0.001")),
+                created_at=svc.created_at,
+            )
+        )
+    return rows
+
+
 def compute_hotel_shift_activity(
     db: Session, start: datetime, end: datetime
 ) -> HotelShiftActivitySummary:

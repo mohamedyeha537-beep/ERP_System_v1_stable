@@ -28,8 +28,23 @@
 {% block body %}
 {% if error %}<div class="alert no-print">{{ error }}</div>{% endif %}
 {% if saved %}<div class="alert no-print" style="background:#ecfdf5;border-color:#10b981;color:#065f46">تم حفظ التغييرات ✓</div>{% endif %}
+{% if request.query_params.get('reopened') %}<div class="alert no-print" style="background:#eff6ff;border-color:#93c5fd;color:#1d4ed8">أُعيدت الجلسة إلى مسودة. أدخل المعدود ثم أغلق إدارياً.</div>{% endif %}
 {% if request.query_params.get('handoff_revoked') %}<div class="alert no-print" style="background:#fff7ed;border-color:#fdba74;color:#9a3412">تم إلغاء الاعتماد — يمكنك التعديل ثم الاعتماد مجدداً.</div>{% endif %}
-{% if request.query_params.get('handoff') %}<div class="alert no-print" style="background:#ecfdf5;border-color:#10b981;color:#065f46">تم اعتماد وتحويل الإيراد للخزينة الرئيسية ✓</div>{% endif %}
+{% if request.query_params.get('handoff') %}
+<div class="alert no-print" style="background:#ecfdf5;border-color:#10b981;color:#065f46">
+  تم اعتماد وتحويل الإيراد للخزينة الرئيسية ✓
+  {% if request.query_params.get('shortage') %}
+  <div style="margin-top:0.35rem;color:#b91c1c;font-weight:700">
+    عجز مسجّل: {{ request.query_params.get('shortage') }} د.ل — يظهر في فروقات الورديات.
+  </div>
+  {% endif %}
+  {% if request.query_params.get('overage') %}
+  <div style="margin-top:0.35rem;color:#15803d;font-weight:700">
+    زيادة مسجّلة: {{ request.query_params.get('overage') }} د.ل
+  </div>
+  {% endif %}
+</div>
+{% endif %}
 
 <div class="no-print action-bar" style="justify-content:space-between;align-items:flex-start">
   <div>
@@ -157,7 +172,12 @@
   <h2 style="margin-top:0;color:#92400e">جلسة مفتوحة</h2>
   <p class="muted" style="margin:0 0 0.75rem;line-height:1.65">
     الإغلاق العادي يتم من حساب الكاشير (<strong>{{ report.user_label }}</strong>) في
-    <a href="/pos/shift">جلسة الكاشير</a> بعد عدّ النقد.
+    {% if pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}
+    جلسة الكاشير
+    {% else %}
+    <a href="/pos/shift">جلسة الكاشير</a>
+    {% endif %}
+    بعد عدّ النقد.
     {% if can_admin_close %}يمكنك إغلاقها إدارياً من هنا إن لم يعد الكاشير متاحاً.{% endif %}
   </p>
 
@@ -177,16 +197,28 @@
     <summary style="cursor:pointer;font-weight:700;color:#92400e">إغلاق إداري (للمدير)</summary>
     <form method="post" action="/reports/shifts/{{ shift.id }}/admin-close" style="margin-top:0.75rem;display:flex;flex-direction:column;gap:0.55rem;max-width:32rem" onsubmit="return confirm('إغلاق الجلسة #{{ shift.id }} إدارياً؟');">
       <p class="muted" style="margin:0;font-size:0.85rem">
-        اترك المبالغ فارغة لاستخدام المتوقع تلقائياً:
+        أدخل المعدود بعد العدّ (إلزامي). المتوقع للمرجع فقط:
         كاش {{ pos_money(expected_cash) }} · مصرف {{ pos_money(expected_bank) }} د.ل
       </p>
+      {% if not shift.employee_id %}
+      <div>
+        <label for="admin-close-emp">الموظف المسؤول عن الصندوق *</label>
+        <select id="admin-close-emp" name="responsible_employee_id" required>
+          <option value="">— اختر الموظف لربط العجز بالراتب —</option>
+          {% for e in close_employees|default([]) %}
+          <option value="{{ e.id }}">{{ e.full_name_ar }}{% if e.job_title %} — {{ e.job_title }}{% endif %}</option>
+          {% endfor %}
+        </select>
+        <p class="muted" style="margin:0.25rem 0 0;font-size:0.8rem">الجلسة بلا موظف (غالباً إغلاق بأدمن) — اختيار الموظف إلزامي لأي عجز.</p>
+      </div>
+      {% endif %}
       <div>
         <label>كاش معدود (د.ل)</label>
-        <input name="counted_cash" type="number" step="0.001" min="0" placeholder="{{ pos_money_plain(expected_cash) }}" />
+        <input name="counted_cash" type="number" step="0.001" min="0" required placeholder="أدخل المعدود" />
       </div>
       <div>
         <label>مصرف معدود (د.ل)</label>
-        <input name="counted_bank" type="number" step="0.001" min="0" placeholder="{{ pos_money_plain(expected_bank) }}" />
+        <input name="counted_bank" type="number" step="0.001" min="0" required placeholder="أدخل المعدود" />
       </div>
       <div>
         <label>ملاحظة</label>
@@ -244,6 +276,22 @@
   {% endif %}
 </div>
 
+{% if shift.status.value == 'CLOSED' and can_reopen_shift|default(false) %}
+<div class="card no-print" style="margin-top:1rem;border-color:#93c5fd;background:#eff6ff">
+  <h2 style="margin-top:0;color:#1d4ed8">إعادة لمسودة — تعديل المعدود</h2>
+  <p class="muted" style="margin:0 0 0.65rem;font-size:0.88rem;line-height:1.55">
+    تُفتح الجلسة مجدداً لإدخال أرقام العدّ وإعادة الإقفال. لا يعمل إن وُجدت جلسة مفتوحة لنفس الكاشير، أو عجز مُعالَج، أو رصيد مرحّل لجلسة لاحقة.
+  </p>
+  <form method="post" action="/pos/shift/{{ shift.id }}/reopen-draft"
+        onsubmit="return confirm('إعادة الجلسة #{{ shift.id }} إلى مسودة لتعديل المعدود؟');">
+    <input type="hidden" name="next" value="/reports/shifts/{{ shift.id }}" />
+    <label>سبب الإعادة (اختياري)</label>
+    <input name="reason" maxlength="300" placeholder="مثال: نسيت إدخال المعدود عند الإقفال" style="width:100%;max-width:28rem;margin:0.35rem 0 0.65rem" />
+    <button type="submit" class="btn btn-primary">↩ إعادة لمسودة</button>
+  </form>
+</div>
+{% endif %}
+
 {% if shift.status.value == 'CLOSED' %}
 <div class="card" style="margin-top:1rem;border-color:#bfdbfe">
   <h2 style="margin-top:0">اعتماد الخزينة الرئيسية</h2>
@@ -278,6 +326,7 @@
   {% set bank_default = shift.counted_bank if shift.counted_bank is not none else shift_financial.expected_bank %}
   {% set expected_cash = shift_financial.expected_cash_drawer %}
   {% set expected_bank = shift_financial.expected_bank %}
+  {% include "_shift_bank_declare.html" %}
   {% include "_shift_handoff_form.html" %}
   {% else %}
   <p class="muted" style="margin:0">
@@ -328,7 +377,7 @@
 
 <div class="card" style="margin-top:1rem">
   <h2 style="margin-top:0">الفواتير والطلبات ({{ report.sales_count }})</h2>
-  <div style="overflow-x:auto">
+  <div class="sticky-table-wrap">
     <table>
       <thead>
         <tr>

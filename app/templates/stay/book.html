@@ -30,7 +30,7 @@
       {% if prep_pct > 0 %}required{% endif %}
       value="{% if req_pay %}{{ req_pay }}{% elif stay_total %}{{ stay_total }}{% endif %}" />
     <label>وسيلة الدفع{% if prep_pct > 0 %} *{% endif %}</label>
-    <select name="pay_method_id" id="stay-pay-method" {% if prep_pct > 0 %}required{% endif %}><option value="">— اختر —</option>{% for m in methods %}<option value="{{ m.id }}">{{ m.name_ar }}</option>{% endfor %}</select>
+    <select name="pay_method_id" id="stay-pay-method" {% if prep_pct > 0 %}required{% endif %}><option value="">— اختر —</option>{% for m in methods %}<option value="{{ m.id }}">{{ pos_wallet_label(m) }}</option>{% endfor %}</select>
   </div>
   <button class="btn btn-primary" type="submit" style="margin-top:0.75rem">تأكيد الحجز{% if prep_pct > 0 %} والدفع{% endif %}</button>
 </form>

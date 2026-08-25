@@ -129,7 +129,7 @@
 
   function startPoll() {
     if (pollTimer) return;
-    pollTimer = setInterval(pollChatRails, 8000);
+    pollTimer = setInterval(pollChatRails, 20000);
   }
 
   function boot() {

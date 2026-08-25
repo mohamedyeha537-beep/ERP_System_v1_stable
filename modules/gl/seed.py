@@ -17,6 +17,8 @@ from modules.gl.role_maps import OPERATIONAL_ROLES
 from modules.payments.models import (
     HOTEL_TREASURY_BANK_PM_NAME,
     HOTEL_TREASURY_CASH_PM_NAME,
+    HOTEL_RECEPTION_BANK_PM_NAME,
+    HOTEL_RECEPTION_CASH_PM_NAME,
     MAIN_TREASURY_BANK_PM_NAME,
     MAIN_TREASURY_CASH_PM_NAME,
     OWNER_EQUITY_PM_NAME,
@@ -25,6 +27,8 @@ from modules.payments.models import (
 )
 
 HOTEL_WALLET_ACCOUNTS: tuple[tuple[str, str, str, GlAccountType], ...] = (
+    (HOTEL_RECEPTION_CASH_PM_NAME, "1114", "استقبال الفندق — كاش", GlAccountType.ASSET),
+    (HOTEL_RECEPTION_BANK_PM_NAME, "1124", "استقبال الفندق — مصرف", GlAccountType.ASSET),
     (HOTEL_TREASURY_CASH_PM_NAME, "1115", "خزينة الفندق — كاش", GlAccountType.ASSET),
     (HOTEL_TREASURY_BANK_PM_NAME, "1125", "خزينة الفندق — مصرف", GlAccountType.ASSET),
 )
@@ -33,10 +37,14 @@ DEFAULT_ACCOUNTS: tuple[tuple[str, str, GlAccountType, bool], ...] = (
     ("1000", "الأصول", GlAccountType.ASSET, True),
     ("1100", "النقد وما في حكمه", GlAccountType.ASSET, True),
     ("1110", "صندوق / خزينة كاش", GlAccountType.ASSET, True),
+    ("1114", "استقبال الفندق — كاش", GlAccountType.ASSET, True),
+    ("1115", "خزينة الفندق — كاش", GlAccountType.ASSET, True),
     ("1120", "حسابات بنكية", GlAccountType.ASSET, True),
+    ("1124", "استقبال الفندق — مصرف", GlAccountType.ASSET, True),
+    ("1125", "خزينة الفندق — مصرف", GlAccountType.ASSET, True),
     ("1130", "عهدة مشتريات — مطعم — كاش", GlAccountType.ASSET, True),
     ("1132", "عهدة مشتريات — مطعم — مصرف", GlAccountType.ASSET, True),
-    ("1200", "ذمم مدينة (عملاء / غرف)", GlAccountType.ASSET, True),
+    ("1200", "مستحقات لنا على العملاء والغرف (نطالبهم)", GlAccountType.ASSET, True),
     ("1300", "المخزون", GlAccountType.ASSET, True),
     ("2000", "الخصوم", GlAccountType.LIABILITY, True),
     ("2100", "ذمم دائنة — موردين", GlAccountType.LIABILITY, True),
@@ -67,7 +75,11 @@ DEFAULT_ACCOUNTS: tuple[tuple[str, str, GlAccountType, bool], ...] = (
 CHART_PARENT_LINKS: tuple[tuple[str, str], ...] = (
     ("1100", "1000"),
     ("1110", "1100"),
+    ("1114", "1100"),
+    ("1115", "1100"),
     ("1120", "1100"),
+    ("1124", "1100"),
+    ("1125", "1100"),
     ("1130", "1100"),
     ("1132", "1100"),
     ("1200", "1000"),
@@ -105,6 +117,13 @@ DEFAULT_EXPENSE_CATEGORY_MAPS: tuple[tuple[str, str], ...] = (
     ("مستلزمات", "5250"),
     ("تشغيل", "5200"),
     ("أخرى", "5200"),
+    ("أخرى تشغيلية", "5200"),
+    ("إنترنت واتصالات", "5220"),
+    ("غاز", "5220"),
+    ("أخرى خدمات", "5220"),
+    ("راتب موظف", "5300"),
+    ("مكافأة موظف", "5300"),
+    ("صرف موظف", "5300"),
 )
 
 _WALLET_MAP: tuple[tuple[str, str], ...] = (
@@ -140,6 +159,7 @@ def ensure_default_chart_of_accounts(db: Session) -> None:
         _ensure_wallet_maps(db)
         ensure_hotel_wallet_gl_maps(db)
         ensure_hotel_revenue_account(db)
+        _ensure_ar_account_public_label(db)
         _run_hotel_gl_revenue_migration(db)
         from modules.gl.hotel_chart import ensure_purchase_custody_gl_accounts
 
@@ -342,7 +362,6 @@ def ensure_hotel_wallet_gl_maps(db: Session) -> None:
             db.flush()
             code_to_acc[code] = acc
         else:
-            acc.name_ar = label
             acc.account_type = acc_type
             acc.is_active = True
             acc.show_on_dashboard = True
@@ -390,13 +409,33 @@ def ensure_hotel_revenue_account(db: Session) -> None:
             )
         )
     else:
-        acc.name_ar = "إيرادات الإقامة (فندق)"
         acc.account_type = GlAccountType.REVENUE
         acc.is_active = True
         acc.business_domain = account_domain_for_code("4150")
         if acc.parent_id is None and parent is not None:
             acc.parent_id = parent.id
     db.flush()
+
+
+_AR_PUBLIC_LABEL = "مستحقات لنا على العملاء والغرف (نطالبهم)"
+_AR_LEGACY_LABELS = frozenset(
+    {
+        "ذمم مدينة (عملاء / غرف)",
+        "ذمم مدينة",
+        "ذمم مدينة (عملاء)",
+    }
+)
+
+
+def _ensure_ar_account_public_label(db: Session) -> None:
+    """يوضّح اسم 1200 للعامة دون خلطه مع الخزينة (قبض/صرف)."""
+    acc = db.scalar(select(GlAccount).where(GlAccount.code == "1200"))
+    if acc is None:
+        return
+    current = (acc.name_ar or "").strip()
+    if current in _AR_LEGACY_LABELS or not current:
+        acc.name_ar = _AR_PUBLIC_LABEL
+        db.flush()
 
 
 def _run_hotel_gl_revenue_migration(db: Session) -> None:

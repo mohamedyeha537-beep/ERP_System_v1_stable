@@ -1,0 +1,26 @@
+{% if carry_offer %}
+<div class="card" style="border-color:#67e8f9;background:#ecfeff;margin:0 0 1rem;padding:0.9rem 1rem">
+  <p style="margin:0;font-weight:800;color:#0e7490">عهدة مرحلة من الوردية السابقة</p>
+  <p style="margin:0.4rem 0 0;line-height:1.6;font-size:0.92rem">
+    الجلسة <strong>#{{ carry_offer.shift_id }}</strong>
+    {% if carry_offer.cashier_label %} — {{ carry_offer.cashier_label }}{% endif %}
+    {% if carry_offer.already_confirmed_cash or carry_offer.already_confirmed_bank %}
+    <br>أكّدت مسبقاً: كاش <strong>{{ '%.3f'|format(carry_offer.already_confirmed_cash) }}</strong>
+    · مصرف <strong>{{ '%.3f'|format(carry_offer.already_confirmed_bank) }}</strong>
+    {% endif %}
+    {% if carry_offer.remainder_needs_count %}
+    <br>المتبقي للعد: كاش <strong>{{ '%.3f'|format(carry_offer.cash) }}</strong> د.ل
+    · مصرف <strong>{{ '%.3f'|format(carry_offer.bank) }}</strong> د.ل
+    {% else %}
+    <br>لا متبقٍ بعد التسليمات المؤكدة — الافتتاح = ما أكدته.
+    {% endif %}
+    {% if carry_offer.recipient_label %}
+    <br>مُسلَّم إلى: <strong>{{ carry_offer.recipient_label }}</strong>
+    {% endif %}
+  </p>
+  <p class="muted" style="margin:0.4rem 0 0;font-size:0.84rem">
+    أدخل ما عددته أنت فعلياً. رصيد افتتاحك = المبلغ الذي أكدته فقط.
+    أي فرق يُعلَّق للمراجعة ولا يُحمَّل على أحد تلقائياً.
+  </p>
+</div>
+{% endif %}

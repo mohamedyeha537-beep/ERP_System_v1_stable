@@ -1,0 +1,21 @@
+<div id="pos-shift-close-policy" style="margin-top:1rem;padding:0.85rem;border:1px solid #fde68a;border-radius:10px;background:#fffbeb">
+  <h3 style="margin:0 0 0.45rem;color:#b45309">إقفال جلسة المطعم — الترحيل والإقفال العادي</h3>
+  <p class="muted" style="margin:0 0 0.65rem;font-size:0.85rem;line-height:1.55">
+    نفس آلية الفندق: الكاشير التالي يعدّ ويؤكد المبلغ قبل افتتاح جلسته.
+    الترحيل لا يظهر لأمين خزينة المطعم.
+  </p>
+  <label style="display:flex;align-items:flex-start;gap:0.5rem;margin:0.45rem 0">
+    <input type="checkbox" name="pos_shift_allow_next_shift_carry" value="1" {% if pos_shift_allow_next_shift_carry %}checked{% endif %} style="margin-top:0.2rem" />
+    <span>
+      <strong>إتاحة ترحيل رصيد المطعم للجلسة التالية</strong>
+      <span class="muted" style="display:block;font-size:0.82rem;margin-top:0.15rem">تسليم الدرج للكاشير التالي — بدون تحويل للخزينة.</span>
+    </span>
+  </label>
+  <label style="display:flex;align-items:flex-start;gap:0.5rem;margin:0.45rem 0">
+    <input type="checkbox" name="pos_shift_allow_treasury_close" value="1" {% if pos_shift_allow_treasury_close %}checked{% endif %} style="margin-top:0.2rem" />
+    <span>
+      <strong>إتاحة الإقفال العادي (تسليم خزينة المطعم)</strong>
+      <span class="muted" style="display:block;font-size:0.82rem;margin-top:0.15rem">المعدود يُعلَّق لاعتماد أمين الخزينة كما كان من قبل.</span>
+    </span>
+  </label>
+</div>

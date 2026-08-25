@@ -76,7 +76,9 @@ def invoice_edit_form(
             "request": request,
             "modal": modal,
             "user": user,
-            "payment_methods": list_pos_sale_payment_methods(db, only_active=True),
+            "payment_methods": list_pos_sale_payment_methods(
+                db, only_active=True, user=user
+            ),
             "hotel_rooms": list(
                 db.scalars(
                     select(HotelRoom)

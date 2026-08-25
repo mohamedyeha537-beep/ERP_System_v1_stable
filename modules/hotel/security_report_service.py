@@ -18,7 +18,10 @@ from modules.hotel.booking_models import (
 )
 from modules.messaging.models import MessageChannel, MessageOutboxStatus
 from modules.messaging.outbox import enqueue_message, send_outbox_item_now
-from modules.messaging.phone_utils import normalize_whatsapp_phone
+from modules.messaging.phone_utils import (
+    is_whatsapp_group_id,
+    normalize_whatsapp_recipient,
+)
 from modules.settings.service import get_bool, get_int, get_setting
 
 _LIBYAN_RE = re.compile(
@@ -107,7 +110,31 @@ class SecurityGuestRow:
     row_index: int
 
 
-def iter_security_guest_rows(bookings: list[HotelBooking]) -> list[SecurityGuestRow]:
+def _guest_matches_scope(
+    guest: HotelBookingGuest,
+    booking: HotelBooking,
+    scope: SecurityGuestScope | str | None,
+) -> bool:
+    if scope in (None, "", SecurityGuestScope.BOTH, SecurityGuestScope.BOTH.value):
+        return True
+    try:
+        sc = SecurityGuestScope(scope)
+    except ValueError:
+        return True
+    nat = _guest_nationality(guest, booking)
+    if sc == SecurityGuestScope.LIBYAN:
+        return is_libyan_nationality(nat)
+    if sc == SecurityGuestScope.FOREIGN:
+        return bool(nat) and not is_libyan_nationality(nat)
+    return True
+
+
+def iter_security_guest_rows(
+    bookings: list[HotelBooking],
+    *,
+    scope: SecurityGuestScope | str | None = None,
+) -> list[SecurityGuestRow]:
+    """صفوف النزلاء — مع فلترة حسب نطاق الجهة (أجانب / ليبيون / الكل)."""
     rows: list[SecurityGuestRow] = []
     idx = 1
     for booking in bookings:
@@ -125,9 +152,54 @@ def iter_security_guest_rows(bookings: list[HotelBooking]) -> list[SecurityGuest
                 )
             ]
         for guest in guests:
+            if not _guest_matches_scope(guest, booking, scope):
+                continue
             rows.append(SecurityGuestRow(booking=booking, guest=guest, row_index=idx))
             idx += 1
     return rows
+
+
+SECURITY_EXPORT_HEADERS = (
+    "م",
+    "المرجع",
+    "اسم النزيل",
+    "رقم الهوية",
+    "نوع الهوية",
+    "الجنسية",
+    "قادم من",
+    "الوصول",
+    "الخروج",
+    "الشقة",
+    "الهاتف",
+)
+
+
+def security_export_table(
+    bookings: list[HotelBooking],
+    *,
+    scope: SecurityGuestScope | str | None = None,
+) -> tuple[tuple[str, ...], list[list]]:
+    guest_rows = iter_security_guest_rows(bookings, scope=scope)
+    rows: list[list] = []
+    for row in guest_rows:
+        g = row.guest
+        b = row.booking
+        rows.append(
+            [
+                row.row_index,
+                b.reference,
+                g.full_name,
+                g.id_number or "",
+                g.id_type or "",
+                _guest_nationality(g, b) or "",
+                g.address or b.guest_address or "",
+                b.check_in.isoformat() if b.check_in else "",
+                b.check_out.isoformat() if b.check_out else "",
+                _room_label(b),
+                g.phone or b.guest_phone or "",
+            ]
+        )
+    return SECURITY_EXPORT_HEADERS, rows
 
 
 def list_security_authorities(
@@ -177,9 +249,13 @@ def save_security_authority(
         raise SecurityReportError("أدخل بريداً إلكترونياً صالحاً")
     if channel == SecurityContactChannel.WHATSAPP:
         cc = (get_setting(db, "messaging_default_country_code", "218") or "218").strip()
-        contact = normalize_whatsapp_phone(contact, country_code=cc)
-        if len(contact) < 8:
-            raise SecurityReportError("رقم واتساب غير صالح")
+        # رقم فرد (+218...) أو معرّف جروب (12036...@g.us)
+        contact = normalize_whatsapp_recipient(contact, country_code=cc)
+        if is_whatsapp_group_id(contact):
+            if len(contact) < 15:
+                raise SecurityReportError("معرّف جروب واتساب غير صالح")
+        elif len(contact) < 8:
+            raise SecurityReportError("رقم واتساب أو معرّف الجروب غير صالح")
 
     row = db.get(HotelSecurityAuthority, authority_id) if authority_id else None
     if row is None:
@@ -216,7 +292,7 @@ def fetch_security_report_bookings(
                 HotelBooking.check_in <= end,
                 HotelBooking.check_out >= start,
                 HotelBooking.booking_status.notin_(
-                    (BookingStatus.CANCELLED, BookingStatus.NO_SHOW)
+                    (BookingStatus.CANCELLED, BookingStatus.NO_SHOW, BookingStatus.LATE_CANCELLATION)
                 ),
             )
             .order_by(
@@ -248,7 +324,8 @@ def format_report_text(
         lines.append(f"الجهة: {authority.name_ar}")
         lines.append(f"نطاق النزلاء: {guest_scope_label(authority.guest_scope)}")
     lines.append(f"الفترة: {from_date} إلى {to_date}")
-    guest_rows = iter_security_guest_rows(bookings)
+    scope = authority.guest_scope if authority is not None else None
+    guest_rows = iter_security_guest_rows(bookings, scope=scope)
     lines.append(f"عدد الحجوزات: {len(bookings)}")
     lines.append(f"عدد النزلاء: {len(guest_rows)}")
     lines.append("")

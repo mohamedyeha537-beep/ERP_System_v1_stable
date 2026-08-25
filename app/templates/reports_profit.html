@@ -50,9 +50,16 @@
 <div class="card">
   <h2 style="margin-top: 0">صورة الفترة</h2>
   <div class="stat-grid">
+    {% if revenue_source == 'hotel' %}
+    <div class="stat-card"><div class="label">إيراد الإقامة (مستحق)</div><div class="value">{{ hotel_accommodation_total|default(0) }} د.ل</div></div>
+    <div class="stat-card good"><div class="label">قبض الحجوزات</div><div class="value">{{ sales_sum.gross_revenue }} د.ل</div><div class="muted" style="font-size:0.78rem">{{ sales_sum.invoice_count }} قبض</div></div>
+    <div class="stat-card warn"><div class="label">استرداد للنزلاء</div><div class="value">{{ sales_sum.returns_total }} د.ل</div><div class="muted" style="font-size:0.78rem">{{ sales_sum.return_count }} صرف</div></div>
+    <div class="stat-card good"><div class="label">صافي التحصيل</div><div class="value">{{ sales_sum.net_revenue }} د.ل</div></div>
+    {% else %}
     <div class="stat-card good"><div class="label">إجمالي المبيعات</div><div class="value">{{ sales_sum.gross_revenue }} د.ل</div></div>
     <div class="stat-card bad"><div class="label">المرتجعات</div><div class="value">{{ sales_sum.returns_total }} د.ل</div><div class="muted" style="font-size: 0.78rem">{{ sales_sum.return_count }} سند</div></div>
     <div class="stat-card good"><div class="label">صافي المبيعات</div><div class="value">{{ sales_sum.net_revenue }} د.ل</div></div>
+    {% endif %}
     <div class="stat-card bad"><div class="label">تكلفة المباع</div><div class="value">{{ cogs }} د.ل</div><div class="muted" style="font-size: 0.78rem">يشمل مواد التغليف للطلبات الخارجية</div></div>
     {% if packaging_cogs is defined and packaging_cogs > 0 %}
     <div class="stat-card bad"><div class="label">منها: مواد التغليف</div><div class="value">{{ packaging_cogs }} د.ل</div><div class="muted" style="font-size: 0.78rem">أونلاين / استلام / توصيل — لا تظهر في الفاتورة</div></div>

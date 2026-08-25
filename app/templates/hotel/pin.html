@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}دخول وردية الفندق{% endblock %}
+{% block title %}دخول جلسة الفندق{% endblock %}
 {% block head_extra %}
 <style>
   .pin-wrap { max-width: 380px; margin: 2rem auto; text-align: center; }
@@ -23,13 +23,16 @@
 {% endblock %}
 {% block body %}
 <div class="pin-wrap">
-  <h1 style="margin-top:0">وردية الاستقبال</h1>
-  <p class="muted">أدخل الرقم السري — ثم افتح الوردية</p>
+  <h1 style="margin-top:0">جلسة الاستقبال</h1>
+  <p class="muted">أدخل الرقم السري — ثم افتح الجلسة</p>
+  <p class="muted" style="font-size:0.85rem;margin-top:-0.35rem">
+    يُعيَّن الرقم من <strong>الموظفون → موظف الاستقبال</strong> (4 أرقام مثل 1234) وليس من كلمة مرور الحساب.
+  </p>
 
   {% if request.query_params.get('closed') %}
   <div class="alert" style="background:#ecfdf5;border-color:#6ee7b7;margin-bottom:1rem">
-    تم إقفال الوردية #{{ request.query_params.get('closed') }}.
-    <a href="/admin/hotel/shift/{{ request.query_params.get('closed') }}/report">عرض التقرير</a>
+    تم إقفال الجلسة #{{ request.query_params.get('closed') }} مع حفظ مطابقة الكاش/المصرف.
+    <a href="/admin/hotel/shift/{{ request.query_params.get('closed') }}/report">عرض تقرير الجلسة والأرصدة</a>
   </div>
   {% endif %}
 
@@ -65,6 +68,7 @@
   var display = document.getElementById("pinDisplay");
   var input = document.getElementById("pinInput");
   var submit = document.getElementById("pinSubmit");
+  var form = document.getElementById("pinForm");
   function render() {
     var dots = "";
     for (var i = 0; i < maxLen; i++) dots += i < pin.length ? "●" : "○";
@@ -72,14 +76,44 @@
     input.value = pin;
     submit.disabled = pin.length !== maxLen;
   }
+  function addDigit(d) {
+    if (!d || pin.length >= maxLen) return;
+    pin += String(d);
+    render();
+    if (pin.length === maxLen) {
+      // دخول تلقائي بعد 4 أرقام — يقلل أخطاء زر «دخول» المعطّل
+      setTimeout(function () {
+        if (pin.length === maxLen && form) form.submit();
+      }, 120);
+    }
+  }
   document.querySelectorAll("[data-digit]").forEach(function (btn) {
     btn.addEventListener("click", function () {
-      if (pin.length >= maxLen) return;
-      pin += btn.getAttribute("data-digit");
-      render();
+      addDigit(btn.getAttribute("data-digit"));
     });
   });
-  document.getElementById("pinClear").addEventListener("click", function () { pin = ""; render(); });
+  document.getElementById("pinClear").addEventListener("click", function () {
+    pin = "";
+    render();
+  });
+  // قبول الكتابة من لوحة المفاتيح (أرقام لاتينية فقط)
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "Backspace") {
+      pin = pin.slice(0, -1);
+      render();
+      ev.preventDefault();
+      return;
+    }
+    if (ev.key === "Enter" && pin.length === maxLen) {
+      if (form) form.submit();
+      ev.preventDefault();
+      return;
+    }
+    if (/^[0-9]$/.test(ev.key)) {
+      addDigit(ev.key);
+      ev.preventDefault();
+    }
+  });
   render();
 })();
 </script>

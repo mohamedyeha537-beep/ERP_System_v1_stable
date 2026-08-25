@@ -1,0 +1,20 @@
+{# خيارات المقاس والاتجاه للطباعة — يُمرَّر: paper, orientation, paper_choices, orientation_choices, form_action, preserve_params #}
+<form method="get" action="{{ form_action }}" class="no-print print-paper-opts" style="display:inline-flex;flex-wrap:wrap;gap:0.4rem;align-items:center;margin-inline-start:auto">
+  {% for k, v in (preserve_params or {}).items() %}
+  <input type="hidden" name="{{ k }}" value="{{ v }}" />
+  {% endfor %}
+  <label class="muted" style="margin:0;font-size:0.85rem" for="paper">المقاس</label>
+  <select id="paper" name="paper" onchange="this.form.submit()" style="min-width:7rem">
+    {% for code, label in paper_choices %}
+    <option value="{{ code }}" {% if paper == code %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  {% if paper in ('A4', 'A5') %}
+  <label class="muted" style="margin:0;font-size:0.85rem" for="orientation">الاتجاه</label>
+  <select id="orientation" name="orientation" onchange="this.form.submit()" style="min-width:7rem">
+    {% for code, label in orientation_choices %}
+    <option value="{{ code }}" {% if orientation == code %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  {% endif %}
+</form>

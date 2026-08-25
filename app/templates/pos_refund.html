@@ -102,7 +102,7 @@
       {% set original_method = summary.payments[0].method if summary.payments and summary.payments[0].method else None %}
       <p class="muted" style="margin-top:0.75rem">
         رد المبلغ إلى:
-        <strong>{{ original_method.name_ar if original_method else '—' }}</strong>
+        <strong>{{ pos_wallet_label(original_method) if original_method else '—' }}</strong>
       </p>
       {% if original_method %}
       <input type="hidden" name="refund_payment_method_id" value="{{ original_method.id }}" />

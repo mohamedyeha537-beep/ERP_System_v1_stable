@@ -32,12 +32,39 @@ class HotelRoom(Base):
     show_online: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     online_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     floor: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # رقم القفل لنظام البطاقات (8 خانات كما في SDK — مثال: 01020399)
+    # deferred: لا يفشل تحميل الشقة إن لم يُرقَّع العمود بعد
+    lock_no: Mapped[str | None] = mapped_column(
+        String(16), nullable=True, index=True, deferred=True
+    )
+    #: عدد الغرف داخل الوحدة (يظهر كرمز على كرت الشقة)
+    rooms_count: Mapped[int] = mapped_column(Integer, default=1)
+    #: إجمالي الأسرة (زوجية + فردية) — للتوافق مع التقارير القديمة
+    beds_count: Mapped[int] = mapped_column(Integer, default=1)
+    #: أسرة زوجية (رمز 🛏 على الكرت)
+    double_beds_count: Mapped[int] = mapped_column(Integer, default=1)
+    #: أسرة فردية (رمز 🛌 على الكرت)
+    single_beds_count: Mapped[int] = mapped_column(Integer, default=0)
+    #: يظهر رمز رضيع على الكرت عند التفعيل
+    allows_infant: Mapped[bool] = mapped_column(Boolean, default=False)
     guest_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
     physical_status: Mapped[RoomPhysicalStatus] = mapped_column(
         Enum(RoomPhysicalStatus), default=RoomPhysicalStatus.AVAILABLE, index=True
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    seo_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    seo_description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    seo_h1: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    seo_slug: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    seo_keywords: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    seo_schema_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    seo_og_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    seo_og_description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    seo_og_image: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    seo_indexable: Mapped[bool] = mapped_column(Boolean, default=True)
+    seo_canonical_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    seo_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -101,6 +128,11 @@ class RoomCharge(Base):
     settlement_payment_method_id: Mapped[int | None] = mapped_column(
         ForeignKey("payment_methods.id", ondelete="SET NULL"), nullable=True
     )
+    #: توجيه فاتورة المطعم/الخدمات: COMPANY | GUEST | SHARED
+    service_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    folio_side: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    company_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 3), nullable=True)
+    guest_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 3), nullable=True)
 
     room: Mapped[HotelRoom] = relationship("HotelRoom", lazy="selectin")
     sale = relationship("Sale", lazy="selectin")

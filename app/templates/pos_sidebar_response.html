@@ -2,7 +2,7 @@
 <div id="pos-order-status-strip" class="pos-order-status-strip card{% if status_rows|length > 0 %} has-rows{% endif %}" hx-swap-oob="outerHTML">
   {% include "pos_order_status_strip_body.html" %}
 </div>
-<div id="pos-order-hub" class="pos-order-hub-wrap" data-current-ctx="{{ sale.context_type.value if sale and sale.context_type else 'TABLE' }}" data-current-sale-id="{{ sale.id if sale else '' }}" data-refund-sale-prompt="{{ refund_sale_prompt|default('') }}" data-refund-auth-configured="{{ '1' if refund_auth_configured|default(false) else '0' }}" hx-swap-oob="innerHTML">
+<div id="pos-order-hub" class="pos-order-hub-wrap" data-current-ctx="{{ sale.context_type.value if sale and sale.context_type else 'TABLE' }}" data-current-sale-id="{{ sale.id if sale else '' }}" data-refund-sale-prompt="{{ refund_sale_prompt|default('') }}" data-refund-auth-configured="{{ '1' if refund_auth_configured|default(false) else '0' }}" data-pos-refund-otp-required="{{ '1' if pos_refund_otp_required|default(true) else '0' }}" hx-swap-oob="innerHTML">
   {% include "pos_order_hub.html" %}
 </div>
 {% include "pos_sidebar.html" %}

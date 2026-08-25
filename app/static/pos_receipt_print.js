@@ -26,22 +26,55 @@
     }, tone === "ok" ? 5000 : 9000);
   }
 
+  function financialDocQuery(docKind) {
+    // invoice = فاتورة نهائية بعد إقفال الفاتورة · receipt = إيصال قبض لأي دفعة
+    if (docKind === "invoice" || docKind === "final") return "doc=invoice";
+    if (docKind === "receipt" || docKind === "rcp") return "doc=receipt";
+    return "";
+  }
+
   function printPath(saleId, autoprint, docKind) {
     var ap = autoprint !== false ? "1" : "0";
-    var base =
-      docKind === "receipt"
-        ? "/pos/receipt/" + encodeURIComponent(String(saleId))
-        : "/pos/prebill/" + encodeURIComponent(String(saleId));
-    return base + "?autoprint=" + ap + "&embed=1";
+    var kind = docKind || "prebill";
+    if (kind === "prebill" || kind === "kitchen") {
+      return (
+        "/pos/prebill/" +
+        encodeURIComponent(String(saleId)) +
+        "?autoprint=" +
+        ap +
+        "&embed=1"
+      );
+    }
+    var q = financialDocQuery(kind);
+    return (
+      "/pos/receipt/" +
+      encodeURIComponent(String(saleId)) +
+      "?autoprint=" +
+      ap +
+      "&embed=1" +
+      (q ? "&" + q : "")
+    );
   }
 
   function previewPath(saleId, autoprint, docKind) {
     var ap = autoprint !== false ? "1" : "0";
-    var base =
-      docKind === "receipt"
-        ? "/pos/receipt/" + encodeURIComponent(String(saleId))
-        : "/pos/prebill/" + encodeURIComponent(String(saleId));
-    return base + "?autoprint=" + ap;
+    var kind = docKind || "prebill";
+    if (kind === "prebill" || kind === "kitchen") {
+      return (
+        "/pos/prebill/" +
+        encodeURIComponent(String(saleId)) +
+        "?autoprint=" +
+        ap
+      );
+    }
+    var q = financialDocQuery(kind);
+    return (
+      "/pos/receipt/" +
+      encodeURIComponent(String(saleId)) +
+      "?autoprint=" +
+      ap +
+      (q ? "&" + q : "")
+    );
   }
 
   function printViaIframe(path, saleId) {
@@ -82,7 +115,7 @@
 
   global.posReceiptPrint = async function (saleId, autoprint, docKind) {
     if (!saleId) return false;
-    var kind = docKind === "receipt" ? "receipt" : "prebill";
+    var kind = docKind || "prebill";
     toast("جاري تجهيز الطباعة…", "ok");
     var path = printPath(saleId, autoprint, kind);
     var out = await printViaIframe(path, saleId);
@@ -107,13 +140,9 @@
 
   global.posReceiptPreview = function (saleId, docKind) {
     if (!saleId) return;
-    var kind = docKind === "receipt" ? "receipt" : "prebill";
-    var base =
-      kind === "receipt"
-        ? "/pos/receipt/" + encodeURIComponent(String(saleId))
-        : "/pos/prebill/" + encodeURIComponent(String(saleId));
+    var kind = docKind || "prebill";
     window.open(
-      base + "?autoprint=0",
+      previewPath(saleId, false, kind),
       "pos_receipt_preview_" + saleId,
       "noopener,width=480,height=720"
     );
@@ -127,38 +156,12 @@
       return false;
     }
     toast("جاري إرسال الفاتورة على واتساب…", "ok");
-    var iframe = document.createElement("iframe");
-    iframe.setAttribute("title", "فاتورة واتساب");
-    iframe.style.cssText =
-      "position:fixed;width:360px;height:800px;right:0;bottom:0;" +
-      "border:0;opacity:0.01;pointer-events:none;z-index:-1";
-    document.body.appendChild(iframe);
-    var loaded = new Promise(function (resolve) {
-      iframe.onload = function () { resolve(); };
-      iframe.src = "/pos/receipt/" + encodeURIComponent(String(saleId)) + "?embed=1";
-    });
     try {
-      await loaded;
-      await new Promise(function (r) { setTimeout(r, 900); });
-      var doc = iframe.contentDocument || (iframe.contentWindow && iframe.contentWindow.document);
-      var image = "";
-      if (doc && typeof html2canvas === "function") {
-        var root = doc.getElementById("receipt-capture-root");
-        if (root) {
-          var canvas = await html2canvas(root, {
-            scale: 2,
-            useCORS: true,
-            backgroundColor: "#ffffff",
-            logging: false,
-          });
-          image = canvas.toDataURL("image/png");
-        }
-      }
       var res = await fetch("/pos/receipt/" + encodeURIComponent(String(saleId)) + "/send-whatsapp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({ image_png_b64: image || "", phone: phone }),
+        body: JSON.stringify({ phone: phone }),
       });
       var data = {};
       try { data = await res.json(); } catch (e) { data = {}; }
@@ -171,10 +174,6 @@
     } catch (e) {
       toast((e && e.message) || "تعذّر الإرسال على واتساب", "err");
       return false;
-    } finally {
-      setTimeout(function () {
-        if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
-      }, 400);
     }
   };
 })(window);

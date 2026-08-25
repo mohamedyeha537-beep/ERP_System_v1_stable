@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="csrf-token" content="{{ csrf_token(request) }}" />
     {% set brand = pos_brand(request) %}
     <title>{% block title %}{{ brand.pos_label }}{% endblock %} · {{ pos_display_name(request) }}</title>
     <link rel="stylesheet" href="/static/fonts.css?v=1" />
@@ -33,6 +34,8 @@
         min-height: 100vh;
         display: flex;
         flex-direction: column;
+        /* محاذاة رأس الجداول اللاصق مع شريط POS وليس هيدر لوحة التحكم */
+        --header-h: var(--pos-topbar-h);
       }
       .pos-topbar {
         height: var(--pos-topbar-h);
@@ -191,7 +194,7 @@
         padding: 0;
       }
     </style>
-    <link rel="stylesheet" href="/static/app.css" />
+    <link rel="stylesheet" href="/static/app.css?v=32" />
     <script src="/static/vendor/htmx.min.js"></script>
     {% block head_extra %}{% endblock %}
   </head>
@@ -216,6 +219,11 @@
       </summary>
       <div class="pos-brand-dropdown" role="menu">
         <a href="/pos" role="menuitem">الرئيسية</a>
+        {% if pos_can_lock_pos_session(request) %}
+        <form method="post" action="/pos/pin/logout" style="margin:0">
+          <button type="submit" role="menuitem" class="logout" style="width:100%;text-align:inherit;border:none;background:transparent;cursor:pointer;font:inherit;color:inherit;padding:0.55rem 0.85rem">🔒 قفل الجلسة</button>
+        </form>
+        {% endif %}
         <a class="logout" href="/auth/logout" role="menuitem">تسجيل الخروج</a>
       </div>
       </details>
@@ -226,6 +234,11 @@
         {% block pos_topbar %}
         {% if open_pos_shift is defined and open_pos_shift %}
         <span class="pos-shift-meta">#{{ open_pos_shift.id }}</span>
+        {% if pos_can_lock_pos_session(request) %}
+        <form method="post" action="/pos/pin/logout" style="display:inline;margin:0">
+          <button type="submit" class="pos-topbar-btn" title="قفل الجلسة دون إغلاق الوردية">🔒 قفل الجلسة</button>
+        </form>
+        {% endif %}
         <a class="pos-topbar-btn primary" href="/pos/shift">إدارة وإغلاق الجلسة</a>
         <a class="pos-topbar-btn" href="/pos/shift/{{ open_pos_shift.id }}/report" target="_blank">تقرير الجلسة</a>
         {% endif %}
@@ -240,7 +253,8 @@
       {% endif %}
       {% block body %}{% endblock %}
     </main>
-    <script src="/static/pos_guides.js"></script>
+    <script src="/static/pos_guides.js?v=2"></script>
+    <script src="/static/csrf_forms.js?v=1"></script>
     <script>
       (function () {
         var menu = document.querySelector(".pos-brand-menu");

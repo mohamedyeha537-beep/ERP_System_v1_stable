@@ -112,7 +112,7 @@
       <div>
         <div style="font-weight:700;color:#9a3412">أجرة التوصيل نقداً للسائق</div>
         <div style="font-size:0.88rem;color:#7c2d12">
-          ستُخصم تلقائياً من محفظة الكاش{% if delivery_cash_method %} ({{ delivery_cash_method.name_ar }}){% endif %} ولن تُحتسب مبيعاً للمطعم.
+          ستُخصم تلقائياً من محفظة الكاش{% if delivery_cash_method %} ({{ pos_wallet_label(delivery_cash_method) }}){% endif %} ولن تُحتسب مبيعاً للمطعم.
         </div>
       </div>
       <div style="font-weight:800;color:#9a3412">{{ pos_money(sale.delivery_fee) }} <span class="money-currency">د.ل</span></div>
@@ -224,11 +224,12 @@
         <label class="pay-tile" data-pay-tile>
           <input type="radio" name="payment_method_id" value="{{ m.id }}" />
           {% include "_payment_method_icon.html" %}
-          <span class="pay-tile-name">{{ m.name_ar }}</span>
+          <span class="pay-tile-name">{{ pos_wallet_label(m) }}</span>
           <span class="pay-tile-kind">{{ {'CASH': 'كاش', 'BANK': 'مصرف', 'OTHER': 'أخرى'}.get(m.kind.value, '') }}</span>
         </label>
         {% endfor %}
       </div>
+      {% if allow_split_payment|default(true) %}
       <div class="card" id="split-payment-block" style="margin-top:0.85rem;background:#f8fafc;border-color:#cbd5e1">
         <label style="display:flex;align-items:flex-start;gap:0.5rem;font-weight:700;cursor:pointer">
           <input type="checkbox" name="split_payment" id="split-payment-toggle" value="1" style="width:auto;margin-top:0.2rem" />
@@ -243,7 +244,7 @@
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.65rem">
             {% for m in methods %}
             <div>
-              <label style="font-size:0.82rem;color:var(--muted)">{{ m.name_ar }}</label>
+              <label style="font-size:0.82rem;color:var(--muted)">{{ pos_wallet_label(m) }}</label>
               <input class="input split-payment-amount" type="number" step="0.001" min="0" inputmode="decimal"
                      name="split_amount_{{ m.id }}" data-method-kind="{{ m.kind.value }}" placeholder="0.000"
                      style="width:100%;max-width:none" />
@@ -255,6 +256,11 @@
           </p>
         </div>
       </div>
+      {% else %}
+      <p class="muted" style="margin:0.65rem 0 0;font-size:0.84rem;line-height:1.45">
+        طلبات التوصيل والأونلاين: اختر <strong>كاش</strong> أو <strong>مصرف</strong> فقط — بدون دفع مقسّم (لتفادي خلط احتساب التوصيل).
+      </p>
+      {% endif %}
       {% else %}
       <div class="alert">
         لا توجد أساليب دفع مفعّلة. على الأدمن إضافة أسلوب واحد على الأقل من

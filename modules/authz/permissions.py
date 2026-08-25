@@ -18,7 +18,12 @@ ADMIN_USERS = "admin:users"
 ADMIN_SETTINGS = "admin:settings"
 POS_PRINT_CHOOSE_SIZE = "pos:print_choose_size"
 PAYMENTS_MANAGE = "payments:manage"
+TREASURY_HANDOFF_APPROVE = "treasury:handoff_approve"
 TREASURY_HANDOFF_REVOKE = "treasury:handoff_revoke"
+POS_ADMIN_CLOSE_SHIFT = "pos:admin_close_shift"
+POS_SHIFT_REOPEN = "pos:shift_reopen"
+POS_SHORTAGE_DEDUCT = "pos:shortage_deduct"
+HR_PAYROLL_PAY = "hr:payroll:pay"
 PURCHASES_MANAGE = "purchases:manage"
 PURCHASE_INVOICES_MANAGE = "purchases:invoices"
 TABLES_MANAGE = "tables:manage"
@@ -30,12 +35,16 @@ HR_ATTENDANCE = "hr:attendance"
 HOTEL_ROOMS_MANAGE = "hotel:rooms:manage"
 HOTEL_CHARGE = "hotel:charge"
 HOTEL_SETTLE = "hotel:settle"
+HOTEL_SETTLE_TRANSFER = "hotel:settle:transfer"
 HOTEL_BOOKING_VIEW = "hotel:booking:view"
 HOTEL_BOOKING_CREATE = "hotel:booking:create"
 HOTEL_BOOKING_MANAGE = "hotel:booking:manage"
 HOTEL_BOOKING_CHECKIN = "hotel:booking:checkin"
 HOTEL_BOOKING_CHECKOUT = "hotel:booking:checkout"
 HOTEL_BOOKING_CHECKOUT_BALANCE = "hotel:booking:checkout_with_balance"
+HOTEL_DEBTS_VIEW = "hotel:debts:view"
+HOTEL_DEBTS_COLLECT = "hotel:debts:collect"
+HOTEL_COMPANY_CREDIT = "hotel:company_credit"
 HOTEL_HOUSEKEEPING = "hotel:housekeeping"
 HOTEL_FINANCE_CLOSE = "hotel:finance:close_day"
 CUSTOMERS_VIEW = "customers:view"
@@ -56,6 +65,16 @@ MESSAGING_MANAGE = "messaging:manage"
 MESSAGING_SEND = "messaging:send"
 MESSAGING_VIEW = "messaging:view"
 GL_MANAGE = "gl:manage"
+SEO_VIEW = "seo:view"
+SEO_REVIEW = "seo:review"
+SEO_APPROVE = "seo:approve"
+SEO_APPLY = "seo:apply"
+SEO_ROLLBACK = "seo:rollback"
+SEO_PRODUCTION_APPROVE = "seo:production_approve"
+SEO_SETTINGS = "seo:settings"
+MARKETING_ROOM_VIEW = "marketing_room:view"
+MARKETING_ROOM_RUN = "marketing_room:run"
+MARKETING_ROOM_APPROVE = "marketing_room:approve"
 
 ALL_PERMISSIONS: list[tuple[str, str]] = [
     (SALES_CREATE, "إنشاء مبيعات (كاشير)"),
@@ -68,25 +87,40 @@ ALL_PERMISSIONS: list[tuple[str, str]] = [
     (ADMIN_USERS, "إدارة المستخدمين"),
     (ADMIN_SETTINGS, "إدارة إعدادات النظام (الطباعة، اسم المتجر)"),
     (POS_PRINT_CHOOSE_SIZE, "اختيار مقاس الطباعة وقت إصدار الفاتورة"),
-    (PAYMENTS_MANAGE, "إدارة أساليب الدفع (مصارف، خدمات، كاش)"),
+    (PAYMENTS_MANAGE, "إدارة أساليب الدفع والخزينة (مصارف، خدمات، كاش)"),
+    (TREASURY_HANDOFF_APPROVE, "اعتماد إيراد جلسات البيع في الخزينة"),
     (TREASURY_HANDOFF_REVOKE, "إلغاء اعتماد خزينة الجلسة وإعادة الفتح للتعديل"),
+    (POS_ADMIN_CLOSE_SHIFT, "إقفال جلسات البيع المفتوحة إدارياً"),
+    (
+        POS_SHIFT_REOPEN,
+        "إعادة جلسة مغلقة إلى مسودة لتعديل المعدود وإعادة الإقفال",
+    ),
+    (POS_SHORTAGE_DEDUCT, "تطبيق عجز الجلسة كخصم على الراتب"),
     (PURCHASES_MANAGE, "تسجيل المصروفات وإدارة مالية الشراء"),
     (PURCHASE_INVOICES_MANAGE, "تسجيل فواتير الشراء فقط"),
     (TABLES_MANAGE, "إدارة طاولات المطعم/المقهى"),
     (KDS_VIEW, "عرض شاشة المطبخ (KDS) والتعامل مع الطلبات"),
     (BACKUP_MANAGE, "النسخ الاحتياطي والاستعادة وتصفير قاعدة البيانات (خطر)"),
     (HR_VIEW, "عرض الموظفين وسجلات الحضور والرواتب"),
-    (HR_MANAGE, "إدارة الموظفين واعتماد ودفع الرواتب"),
+    (HR_MANAGE, "إدارة الموظفين واعتماد الرواتب والخصومات والسلف"),
+    (HR_PAYROLL_PAY, "صرف/دفع كشوف الرواتب"),
     (HR_ATTENDANCE, "تسجيل الحضور والانصراف"),
     (HOTEL_ROOMS_MANAGE, "إدارة غرف الفندق (للأدمن)"),
     (HOTEL_CHARGE, "قيد فاتورة على حساب غرفة فندق (للكاشير)"),
-    (HOTEL_SETTLE, "تسوية حسابات غرف الفندق وتسجيل الدفع (للاستقبال)"),
+    (HOTEL_SETTLE, "عرض شاشة تسوية حسابات الغرف (فندق↔مطعم)"),
+    (HOTEL_SETTLE_TRANSFER, "تنفيذ تحويل التسوية فندق↔مطعم (كاش/مصرف عبر الخزينة)"),
     (HOTEL_BOOKING_VIEW, "عرض حجوزات الفندق"),
     (HOTEL_BOOKING_CREATE, "إنشاء وتأكيد حجوزات"),
     (HOTEL_BOOKING_MANAGE, "تعديل سعر/خصم/إلغاء حجز"),
     (HOTEL_BOOKING_CHECKIN, "Check-in للنزلاء"),
     (HOTEL_BOOKING_CHECKOUT, "Check-out للنزلاء"),
-    (HOTEL_BOOKING_CHECKOUT_BALANCE, "Check-out مع مبلغ متبقٍ (مشرف)"),
+    (HOTEL_BOOKING_CHECKOUT_BALANCE, "Check-out مع متبقٍ وترحيل دين للذمم (استقبال)"),
+    (HOTEL_DEBTS_VIEW, "عرض قائمة ذمم الحجوزات ومتابعة التحصيل"),
+    (HOTEL_DEBTS_COLLECT, "تحصيل ديون الحجوزات وتسجيل ملاحظات/تذكير"),
+    (
+        HOTEL_COMPANY_CREDIT,
+        "حجز/إسكان على حساب شركة بالدين (محفظة بالسالب ضمن حد الائتمان)",
+    ),
     (HOTEL_HOUSEKEEPING, "تنظيف الغرف (Housekeeping)"),
     (HOTEL_FINANCE_CLOSE, "إقفال يومي فندقي"),
     (CUSTOMERS_VIEW, "عرض قاعدة العملاء وأرصدة نقاط الولاء"),
@@ -107,4 +141,14 @@ ALL_PERMISSIONS: list[tuple[str, str]] = [
     (MESSAGING_SEND, "ردّ على العملاء وإرسال رسائل من صندوق الوارد"),
     (MESSAGING_VIEW, "عرض صندوق الوارد والمحادثات (بدون إرسال)"),
     (GL_MANAGE, "إدارة دفتر الأستاذ العام والتقارير المالية"),
+    (SEO_VIEW, "عرض مركز السيو (SEO Center)"),
+    (SEO_REVIEW, "مراجعة اقتراحات السيو ورفضها"),
+    (SEO_APPROVE, "اعتماد إصلاحات السيو"),
+    (SEO_APPLY, "تطبيق إصلاحات السيو"),
+    (SEO_ROLLBACK, "التراجع عن إصلاحات السيو"),
+    (SEO_PRODUCTION_APPROVE, "اعتماد تطبيق السيو على الإنتاج"),
+    (SEO_SETTINGS, "إعدادات وكلاء السيو"),
+    (MARKETING_ROOM_VIEW, "عرض غرفة وكلاء التسويق"),
+    (MARKETING_ROOM_RUN, "تشغيل خط وكلاء التسويق"),
+    (MARKETING_ROOM_APPROVE, "اعتماد مسودات التسويق"),
 ]

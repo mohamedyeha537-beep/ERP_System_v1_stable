@@ -72,6 +72,38 @@ def refunds_index(
     )
 
 
+@router.post("/sale/{sale_id}/otp-request", response_class=HTMLResponse)
+def refunds_otp_request(
+    request: Request,
+    sale_id: int,
+    db: DBSession,
+    user: User = Depends(_refund_perm),
+):
+    from modules.platform.business_domain import BusinessDomain
+    from modules.security.supervisor_otp import (
+        PURPOSE_POS_REFUND,
+        SupervisorOtpError,
+        request_refund_otp,
+    )
+
+    try:
+        request_refund_otp(
+            db,
+            purpose=PURPOSE_POS_REFUND,
+            domain=BusinessDomain.RESTAURANT,
+            ref_type="sale",
+            ref_id=sale_id,
+            ref_label=f"فاتورة مطعم #{sale_id}",
+            requested_by_user_id=getattr(user, "id", None),
+        )
+    except SupervisorOtpError as exc:
+        return _sale_error_redirect(sale_id, exc)
+    return RedirectResponse(
+        f"/refunds/sale/{sale_id}?saved=otp_sent",
+        status_code=302,
+    )
+
+
 @router.get("/sale/{sale_id}", response_class=HTMLResponse)
 def refunds_sale_detail(
     request: Request,
@@ -93,6 +125,9 @@ def refunds_sale_detail(
     methods = list_payment_methods(db, only_active=True)
     can_override = user_has_permission(user, SALES_REFUND_OVERRIDE)
     can_edit_invoice = user_has_permission(user, SALES_EDIT_INVOICE)
+    from modules.security.supervisor_otp import PURPOSE_POS_REFUND, otp_purpose_required
+
+    pos_refund_otp_required = otp_purpose_required(db, PURPOSE_POS_REFUND)
     return templates.TemplateResponse(
         "refunds_sale_detail.html",
         {
@@ -101,6 +136,7 @@ def refunds_sale_detail(
             "methods": methods,
             "can_override": can_override,
             "can_edit_invoice": can_edit_invoice,
+            "pos_refund_otp_required": pos_refund_otp_required,
             "saved_return_id": request.query_params.get("saved"),
             "error": request.query_params.get("error"),
         },
@@ -115,6 +151,38 @@ async def refunds_create(
     user: User = Depends(_refund_perm),
 ):
     form = await request.form()
+    from modules.platform.business_domain import BusinessDomain, is_system_admin
+    from modules.security.supervisor_otp import (
+        PURPOSE_POS_REFUND,
+        SupervisorOtpError,
+        pos_refund_session_ok,
+        verify_refund_otp,
+        grant_pos_refund_session,
+    )
+
+    if not is_system_admin(user) and not pos_refund_session_ok(request.session, sale_id):
+        from modules.security.supervisor_otp import otp_purpose_required
+
+        if otp_purpose_required(db, PURPOSE_POS_REFUND):
+            otp_code = str(form.get("supervisor_otp") or "").strip()
+            if not otp_code:
+                return _sale_error_redirect(
+                    sale_id,
+                    "أدخل رمز اعتماد مشرف المطعم (OTP واتساب) أو اطلبه أولاً من شاشة الكاشير.",
+                )
+            try:
+                verify_refund_otp(
+                    db,
+                    purpose=PURPOSE_POS_REFUND,
+                    domain=BusinessDomain.RESTAURANT,
+                    ref_type="sale",
+                    ref_id=sale_id,
+                    code=otp_code,
+                )
+                grant_pos_refund_session(request.session, sale_id)
+            except SupervisorOtpError as exc:
+                return _sale_error_redirect(sale_id, exc)
+
     items: list[tuple[int, Decimal]] = []
     line_restock: dict[int, bool] = {}
     for key, value in form.items():

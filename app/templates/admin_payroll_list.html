@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block title %}دفعات الرواتب{% endblock %}
 {% block head_extra %}
+{% if pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}
+<link rel="stylesheet" href="/static/treasury_desk.css?v=1" />
+{% endif %}
 <style>
   .hr-nav { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 1rem;
             border-bottom: 1px solid var(--border); padding-bottom: 0.6rem; }
@@ -21,31 +24,36 @@
   <h1 style="margin: 0">دفعات الرواتب الشهرية{% if domain_label %} — {{ domain_label }}{% endif %}</h1>
 </div>
 
-<nav class="hr-nav">
-  <a href="/admin/employees">الموظفون</a>
-  <a href="/admin/departments">الأقسام</a>
-  <a href="/admin/work-shifts">الورديات</a>
-  <a href="/admin/attendance">الحضور والانصراف</a>
-  <a href="/admin/payroll" class="active">الرواتب الشهرية</a>
-  <a href="/admin/advances">السلف</a>
-</nav>
+{% if pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}
+{% include "treasury/_nav.html" %}
+{% else %}
+{% set hr_nav_active = 'payroll' %}
+{% include "_hr_nav.html" %}
+{% endif %}
 
 {% if error %}<div class="alert">{{ error }}</div>{% endif %}
 {% if saved %}<div class="alert" style="background:#ecfdf5; border-color:#10b981; color:#065f46">تم الحفظ ✓</div>{% endif %}
 
+{% if can_manage_hr|default(true) %}
 <div class="help">
   <strong>كيف تعمل دفعات الرواتب؟</strong>
-  <ol style="margin: 0.4rem 0">
-    <li><strong>إنشاء:</strong> اختر شهراً → ينشئ النظام مسودة دفعة بكل الموظفين النشطين تلقائياً (مع حساب ساعات الحضور والإضافي).</li>
-    <li><strong>تعديل:</strong> يمكنك ضبط أي بند في الدفعة (مكافآت، استقطاعات، سُلف...).</li>
-    <li><strong>اعتماد:</strong> إقفال الدفعة حتى لا تتغير.</li>
-    <li><strong>دفع:</strong> يولّد قيد مصروف موحَّد بإجمالي الرواتب يُخصم من المحفظة المختارة، ويظهر تلقائياً في تقارير المصروفات والأرباح.</li>
+  <ol style="margin: 0.4rem 0 0.6rem; padding-inline-start: 1.25rem">
+    <li><strong>إنشاء:</strong> اختر الشهر → تُنشأ مسودة بكل الموظفين النشطين (راتب أساسي + إضافي من الحضور + مكافآت قائمة).</li>
+    <li><strong>خصم تلقائي للعجز:</strong> أي <strong>عجز جلسة مطعم أو فندق</strong> أو خصم يدوي يُخصم تلقائياً من الراتب — مثال: راتب 2000 وعجز 200 → <strong>صافي الصرف 1800</strong>. راجع تبويب «خصومات وعجز».</li>
+    <li><strong>حوافز:</strong> المكافآت المسجّلة في «حوافز ومكافآت» تُضاف تلقائياً لحقل المكافآت.</li>
+    <li><strong>اعتماد ثم دفع:</strong> الدفع يصرف <strong>صافي الراتب فقط</strong> (بعد السلف والخصم) من المحفظة المختارة.</li>
   </ol>
+  <p style="margin:0;font-size:0.9rem">
+    في القائمة أدناه: <strong>إجمالي قبل الاستقطاعات</strong> = الرواتب قبل الخصم،
+    و<strong>صافي الراتب</strong> = المبلغ الذي سيُصرف فعلياً للموظفين.
+  </p>
 </div>
+{% endif %}
 
+{% if can_manage_hr|default(true) %}
 <div class="card">
   <h2 style="margin-top: 0">إنشاء دفعة جديدة</h2>
-  <form method="post" action="/admin/payroll/new" class="row" style="gap: 0.5rem; align-items: end">
+  <form method="post" action="/admin/payroll/new" class="row" style="gap: 0.5rem; align-items: end" id="payroll-new-form">
     <div>
       <label for="py">السنة</label>
       <input id="py" name="period_year" type="number" min="2020" max="2100" required value="{{ now_year }}" style="max-width: 7rem" />
@@ -67,13 +75,34 @@
         {% endfor %}
       </select>
     </div>
+    {% else %}
+    <input type="hidden" name="business_domain" value="{{ finance_domain_filter.value }}" />
     {% endif %}
-    <button class="btn btn-primary" type="submit">+ إنشاء دفعة</button>
+    <button class="btn btn-primary" type="submit" id="payroll-new-btn">+ إنشاء دفعة</button>
   </form>
+  <p class="muted" style="margin:0.55rem 0 0;font-size:0.85rem">
+    يلزم وجود موظفين نشطين في مجال «{{ domain_label or 'المطعم/الفندق' }}». إن ظهر خطأ بعد الضغط فسيُعرض أعلاه.
+  </p>
 </div>
+<script>
+(function () {
+  var form = document.getElementById('payroll-new-form');
+  var btn = document.getElementById('payroll-new-btn');
+  if (!form || !btn) return;
+  form.addEventListener('submit', function () {
+    btn.disabled = true;
+    btn.textContent = 'جاري الإنشاء…';
+  });
+})();
+</script>
+{% else %}
+<div class="help">
+  أمين الخزينة يشاهد الكشف <strong>المعتمد</strong> وينفّذ الصرف ويؤكده فقط — بلا إنشاء أو تعديل.
+</div>
+{% endif %}
 
 <div class="card">
-  <h2 style="margin-top: 0">آخر الدفعات</h2>
+  <h2 style="margin-top: 0">{% if can_manage_hr|default(true) %}آخر الدفعات{% else %}الكشوف المعتمدة للصرف{% endif %}</h2>
   {% if runs %}
   <table>
     <thead>
@@ -82,7 +111,7 @@
         <th>المجال</th>
         <th>عدد الموظفين</th>
         <th>إجمالي قبل الاستقطاعات</th>
-        <th>صافي الراتب</th>
+        <th>صافي الراتب (ما يُصرف)</th>
         <th>الحالة</th>
         <th>التواريخ</th>
         <th></th>
@@ -105,8 +134,8 @@
           {% if r.paid_at %}<br>دُفعت: {{ pos_format_dt(r.paid_at, '%Y-%m-%d') }}{% endif %}
         </td>
         <td class="row" style="gap:0.3rem; margin:0">
-          <a class="btn" href="/admin/payroll/{{ r.id }}" style="padding:0.2rem 0.55rem; font-size:0.85rem">عرض/تعديل</a>
-          {% if r.status.value != 'PAID' %}
+          <a class="btn" href="/admin/payroll/{{ r.id }}" style="padding:0.2rem 0.55rem; font-size:0.85rem">{% if can_manage_hr|default(true) %}عرض/تعديل{% else %}عرض وصرف{% endif %}</a>
+          {% if can_manage_hr|default(true) and r.status.value != 'PAID' %}
           <form method="post" action="/admin/payroll/{{ r.id }}/delete" style="display:inline" onsubmit="return confirm('حذف الدفعة؟')">
             <button class="btn" type="submit" style="padding:0.2rem 0.55rem; font-size:0.85rem; color:#b91c1c; border-color:#fecaca">حذف</button>
           </form>

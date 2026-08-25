@@ -8,6 +8,38 @@ from fastapi import UploadFile
 _ALLOWED = {".jpg", ".jpeg", ".png", ".webp"}
 _MAX = 2 * 1024 * 1024
 _PRODUCT_UPLOAD_DIR = Path("uploads") / "products"
+_EXT_TO_MIME = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+}
+
+
+def _detect_image_mime(data: bytes) -> str | None:
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def _is_pdf(data: bytes) -> bool:
+    return data.startswith(b"%PDF-")
+
+
+def _assert_image_bytes(data: bytes, ext: str) -> None:
+    detected = _detect_image_mime(data)
+    expected = _EXT_TO_MIME.get(ext.lower())
+    if detected is None or expected is None or detected != expected:
+        raise ValueError("نوع الملف الفعلي غير مسموح (jpg, png, webp).")
+
+
+def _assert_pdf_bytes(data: bytes) -> None:
+    if not _is_pdf(data):
+        raise ValueError("نوع الملف الفعلي غير مسموح (PDF).")
 
 
 def product_image_public_url(image_filename: str | None) -> str | None:
@@ -65,6 +97,7 @@ def save_product_image(upload: UploadFile, static_root: Path) -> str:
     data = upload.file.read()
     if len(data) > _MAX:
         raise ValueError("حجم الصورة يتجاوز 2 ميجابايت.")
+    _assert_image_bytes(data, ext)
     rel_dir = _PRODUCT_UPLOAD_DIR
     out_dir = static_root / rel_dir
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -84,6 +117,7 @@ def save_sale_payment_proof(upload: UploadFile, static_root: Path) -> str:
     data = upload.file.read()
     if len(data) > _MAX:
         raise ValueError("حجم الصورة يتجاوز 2 ميجابايت.")
+    _assert_image_bytes(data, ext)
     rel_dir = Path("uploads") / "sale_payments"
     out_dir = static_root / rel_dir
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -103,6 +137,7 @@ def save_purchase_invoice_image(upload: UploadFile, static_root: Path) -> str:
     data = upload.file.read()
     if len(data) > _MAX:
         raise ValueError("حجم الصورة يتجاوز 2 ميجابايت.")
+    _assert_image_bytes(data, ext)
     rel_dir = Path("uploads") / "purchases" / "supplier_invoices"
     out_dir = static_root / rel_dir
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -122,6 +157,7 @@ def save_purchase_bank_payment_receipt(upload: UploadFile, static_root: Path) ->
     data = upload.file.read()
     if len(data) > _MAX:
         raise ValueError("حجم الصورة يتجاوز 2 ميجابايت.")
+    _assert_image_bytes(data, ext)
     rel_dir = Path("uploads") / "purchases" / "payment_receipts"
     out_dir = static_root / rel_dir
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -143,6 +179,10 @@ def save_web_chat_guide(upload: UploadFile, static_root: Path) -> str:
     max_size = 5 * 1024 * 1024 if ext == ".pdf" else _MAX
     if len(data) > max_size:
         raise ValueError("حجم الملف كبير جداً.")
+    if ext == ".pdf":
+        _assert_pdf_bytes(data)
+    else:
+        _assert_image_bytes(data, ext)
     rel_dir = Path("uploads") / "web_chat_guides"
     out_dir = static_root / rel_dir
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -164,6 +204,10 @@ def save_notification_attachment(upload: UploadFile, static_root: Path) -> str:
     max_size = 5 * 1024 * 1024 if ext == ".pdf" else _MAX
     if len(data) > max_size:
         raise ValueError("حجم الملف كبير جداً.")
+    if ext == ".pdf":
+        _assert_pdf_bytes(data)
+    else:
+        _assert_image_bytes(data, ext)
     rel_dir = Path("uploads") / "notifications"
     out_dir = static_root / rel_dir
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -183,6 +227,7 @@ def save_messaging_campaign_image(upload: UploadFile, static_root: Path) -> str:
     data = upload.file.read()
     if len(data) > _MAX:
         raise ValueError("حجم الصورة يتجاوز 2 ميجابايت.")
+    _assert_image_bytes(data, ext)
     rel_dir = Path("uploads") / "messaging" / "campaigns"
     out_dir = static_root / rel_dir
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -202,6 +247,7 @@ def save_payment_method_icon(upload: UploadFile, static_root: Path) -> str:
     data = upload.file.read()
     if len(data) > _MAX:
         raise ValueError("حجم الصورة يتجاوز 2 ميجابايت.")
+    _assert_image_bytes(data, ext)
     rel_dir = Path("uploads") / "payment_methods"
     out_dir = static_root / rel_dir
     out_dir.mkdir(parents=True, exist_ok=True)

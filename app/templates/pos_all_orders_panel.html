@@ -16,13 +16,15 @@
 
 
 
-  {% if not refund_auth_configured %}
+  {% if (pos_refund_otp_required|default(true)) and not refund_auth_configured %}
 
   <div class="pos-all-orders-warn">
 
-    لم يُضبط <strong>كود تفويض الاسترداد</strong> بعد — من
+    لم يُعيَّن <strong>مشرف مطعم</strong> برقم واتساب بعد — من
 
-    <a href="/admin/settings" target="_blank">إعدادات النظام</a>.
+    <a href="/admin/employees" target="_blank">الموظفين</a>
+
+    (مجال العمل = مطعم + تفعيل مشرف).
 
   </div>
 
@@ -34,7 +36,7 @@
 
   <div class="pos-all-orders-scroll">
 
-    <table class="pos-all-orders-table">
+    <table class="pos-all-orders-table no-sticky-head">
 
       <thead>
 
@@ -164,7 +166,7 @@
 
               data-sale-id="{{ row.id }}"
 
-              title="{% if not refund_auth_configured %}اضبط كود الاسترداد في الإعدادات أولاً{% else %}استرداد الفاتورة{% endif %}">
+              title="{% if not (pos_refund_otp_required|default(true)) %}استرداد مباشرة (OTP معطّل){% elif not refund_auth_configured %}عيّن مشرف مطعم بواتساب أولاً{% else %}استرداد — يتطلب OTP مشرف المطعم{% endif %}">
 
               استرداد
 

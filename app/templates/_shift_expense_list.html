@@ -18,8 +18,8 @@
   {% if request.query_params.get('expense_err') %}
   <p class="muted" style="color:#b91c1c;margin:0 0 0.5rem;font-size:0.88rem">{{ request.query_params.get('expense_err') }}</p>
   {% endif %}
-  <form method="post" action="/pos/shift/expense" class="shift-expense-inline-form"
-    style="display:grid;grid-template-columns:minmax(7rem,0.8fr) minmax(9rem,1fr) minmax(9rem,1fr) minmax(12rem,1.4fr) auto;gap:0.45rem;align-items:end;margin:0 0 0.75rem;padding:0.65rem;border:1px dashed #cbd5e1;border-radius:10px;background:#f8fafc">
+  <form method="post" action="/pos/shift/expense" class="shift-expense-inline-form" id="shift-expense-inline-form"
+    style="display:grid;grid-template-columns:minmax(7rem,0.8fr) minmax(9rem,1fr) minmax(10rem,1.1fr) minmax(9rem,1fr) minmax(12rem,1.4fr) auto;gap:0.45rem;align-items:end;margin:0 0 0.75rem;padding:0.65rem;border:1px dashed #cbd5e1;border-radius:10px;background:#f8fafc">
     <input type="hidden" name="next_url" value="/pos/shift" />
     <div>
       <label class="muted" style="font-size:0.76rem;display:block;margin-bottom:0.18rem">المبلغ</label>
@@ -27,21 +27,30 @@
     </div>
     <div>
       <label class="muted" style="font-size:0.76rem;display:block;margin-bottom:0.18rem">التصنيف</label>
-      <select name="category" required style="width:100%;max-width:none">
+      <select name="category" id="shift-expense-inline-category" required style="width:100%;max-width:none">
         {% for key, label in shift_expense_categories %}
         <option value="{{ key }}">{{ label }}</option>
         {% endfor %}
       </select>
     </div>
+    <div id="shift-expense-inline-employee-wrap" hidden>
+      <label class="muted" style="font-size:0.76rem;display:block;margin-bottom:0.18rem">الموظف (سلفة)</label>
+      <select name="employee_id" id="shift-expense-inline-employee" style="width:100%;max-width:none">
+        <option value="">— اختر —</option>
+        {% for e in shift_expense_employees %}
+        <option value="{{ e.id }}">{{ e.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
     <div>
-      <label class="muted" style="font-size:0.76rem;display:block;margin-bottom:0.18rem">المحفظة</label>
+      <label class="muted" style="font-size:0.76rem;display:block;margin-bottom:0.18rem">المحفظة (مطعم)</label>
       {% if shift_expense_single_wallet %}
       <input type="hidden" name="payment_method_id" value="{{ shift_expense_single_wallet.id }}" />
-      <div class="input" style="box-sizing:border-box;background:#fff">{{ shift_expense_single_wallet.kind_label }} — {{ shift_expense_single_wallet.name_ar }}</div>
+      <div class="input" style="box-sizing:border-box;background:#fff">{{ shift_expense_single_wallet.kind_label }} — {{ pos_wallet_label(shift_expense_single_wallet) }}</div>
       {% else %}
       <select name="payment_method_id" required style="width:100%;max-width:none">
         {% for w in shift_expense_wallet_options %}
-        <option value="{{ w.id }}">{{ w.kind_label }} — {{ w.name_ar }}</option>
+        <option value="{{ w.id }}">{{ w.kind_label }} — {{ pos_wallet_label(w) }}</option>
         {% endfor %}
       </select>
       {% endif %}
@@ -54,6 +63,23 @@
       حفظ المصروف
     </button>
   </form>
+  <script>
+  (function () {
+    var advanceKeys = {{ (shift_expense_advance_keys or ['advance']) | tojson }};
+    var cat = document.getElementById("shift-expense-inline-category");
+    var wrap = document.getElementById("shift-expense-inline-employee-wrap");
+    var emp = document.getElementById("shift-expense-inline-employee");
+    function sync() {
+      if (!cat || !wrap || !emp) return;
+      var isAdv = advanceKeys.indexOf(cat.value) >= 0;
+      wrap.hidden = !isAdv;
+      emp.required = isAdv;
+      if (!isAdv) emp.value = "";
+    }
+    if (cat) cat.addEventListener("change", sync);
+    sync();
+  })();
+  </script>
   {% if shift_expenses and shift_expenses|length > 0 %}
   <table class="table" style="font-size:0.88rem">
     <thead>
@@ -71,7 +97,7 @@
         <td>{% if exp.created_at %}{{ pos_format_dt(exp.created_at, '%H:%M') }}{% else %}—{% endif %}</td>
         <td>{{ exp.expense_category or '—' }}</td>
         <td>{{ exp.note or '—' }}</td>
-        <td>{{ exp.method.name_ar if exp.method else '—' }}</td>
+        <td>{{ pos_wallet_label(exp.method) if exp.method else '—' }}</td>
         <td>{{ pos_money(exp.amount) }}</td>
       </tr>
       {% endfor %}

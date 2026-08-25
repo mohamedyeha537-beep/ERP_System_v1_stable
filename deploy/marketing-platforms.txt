@@ -1,0 +1,29 @@
+منصات الربط لغرفة التسويق
+========================
+
+الآن
+----
+1) OpenAI أو متوافق (نصوص)
+2) fal.ai أو OpenAI Images (صور) — من إعدادات الغرفة
+3) n8n — اختياري
+4) Meta Marketing API — مدير حملات فيسبوك (الوكيل 7)
+   - Access Token + Ad Account ID من /admin/marketing-room/settings
+   - أو دفع الرؤى عبر:
+     POST /api/marketing-room/campaigns/insights
+     Header: X-Marketing-API-Key: <MARKETING_AGENT_API_KEY>
+   - MCP في Cursor: مفيد أثناء الإعداد/الجلب؛ للمتابعة المستمرة استخدم API أو n8n → endpoint أعلاه
+
+لاحقاً
+------
+5) Meta Graph للنشر التلقائي للمنشورات العضوية
+6) منصة فيديو
+7) TikTok / YouTube
+
+دورة التحسين المستمر (مدير الحملات)
+-----------------------------------
+Meta/MCP → تحليل أداء → توجيهات لكل وكيل
+(محتوى / ديزاين / هاشتاج / بياع / نشر) → اعتماد → محتوى أفضل → إعادة القياس
+
+أين تضبط المفاتيح؟
+------------------
+http://127.0.0.1:8012/admin/marketing-room/settings

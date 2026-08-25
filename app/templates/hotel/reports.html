@@ -1,7 +1,71 @@
 {% extends "base.html" %}
 {% block title %}تقارير الفندق{% endblock %}
 {% block head_extra %}
-<link rel="stylesheet" href="/static/hotel_dashboard.css?v=12" />
+<link rel="stylesheet" href="/static/hotel_dashboard.css?v=18" />
+<style>
+  .sec-auth-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 0.65rem;
+    margin: 0.75rem 0 1rem;
+  }
+  .sec-auth-card {
+    display: block;
+    text-align: right;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 0.85rem 1rem;
+    background: #fff;
+    cursor: pointer;
+    transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+    width: 100%;
+    font: inherit;
+    color: inherit;
+  }
+  .sec-auth-card:hover { border-color: #93c5fd; box-shadow: 0 4px 14px rgba(37,99,235,0.08); }
+  .sec-auth-card.is-active {
+    border-color: #2563eb;
+    background: #eff6ff;
+    box-shadow: 0 0 0 2px rgba(37,99,235,0.15);
+  }
+  .sec-auth-card__name { font-weight: 800; font-size: 1rem; margin: 0 0 0.25rem; }
+  .sec-auth-card__meta { font-size: 0.82rem; color: #64748b; line-height: 1.45; }
+  .sec-panel {
+    border: 1px solid #bfdbfe;
+    background: linear-gradient(180deg, #eff6ff 0%, #fff 42%);
+    border-radius: 14px;
+    padding: 1rem;
+    margin-top: 0.25rem;
+  }
+  .sec-panel[hidden] { display: none !important; }
+  .sec-panel__title { margin: 0 0 0.35rem; font-size: 1.05rem; font-weight: 800; }
+  .sec-presets { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.65rem 0; }
+  .sec-presets button {
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    border-radius: 999px;
+    padding: 0.35rem 0.75rem;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+  .sec-presets button.is-active { background: #2563eb; border-color: #2563eb; color: #fff; }
+  .sec-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    margin-top: 0.85rem;
+  }
+  .sec-fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 0.65rem;
+    align-items: end;
+  }
+  .sec-fields label { display: grid; gap: 0.25rem; font-size: 0.88rem; font-weight: 600; }
+  .sec-fields input { height: 2.45rem; box-sizing: border-box; }
+</style>
 {% endblock %}
 {% block body %}
 {% set active = 'reports' %}
@@ -37,102 +101,264 @@
   <h2>إشغال اليوم ({{ today }})</h2>
   <p>الغرف: {{ occ.total_rooms }} · مشغولة: {{ occ.occupied }} · نسبة الإشغال: {{ occ.occupancy_rate }}%</p>
 </div>
+
+<div class="card" style="margin-top:1rem;border-color:#c4b5fd;background:linear-gradient(180deg,#f5f3ff 0%,#fff 60%)">
+  <h2 style="margin-top:0">تقرير تأجير الشقق</h2>
+  <p class="muted" style="margin:0 0 0.75rem;max-width:42rem">
+    لليوم أو لأي فترة: عدد الشقق المؤجّرة، القيمة المالية، المدفوع، والمتبقي — مع تفاصيل كل حجز.
+  </p>
+  <a class="btn btn-primary" href="/admin/hotel/reports/bookings?from={{ today }}&to={{ today }}">تقرير اليوم ←</a>
+  <a class="btn" href="/admin/hotel/reports/bookings" style="margin-inline-start:0.35rem">اختيار فترة</a>
+</div>
+
+<div class="card" style="margin-top:1rem;border-color:#fdba74;background:linear-gradient(180deg,#fff7ed 0%,#fff 60%)">
+  <h2 style="margin-top:0">تكلفة الإفطار المشمول</h2>
+  <p class="muted" style="margin:0 0 0.75rem;max-width:40rem">
+    إجمالي ما سجّله الفندق كتكلفة إفطار (بعد التسوية للمطعم دون تحميل النزيل)،
+    والفواتير المعلّقة التي تبدو إفطاراً فقط.
+  </p>
+  <a class="btn btn-primary" href="/admin/hotel/reports/breakfast">فتح تقرير الإفطار ←</a>
+  <a class="btn" href="/admin/hotel/settings#hotel-breakfast" style="margin-inline-start:0.35rem">إعداد محسوبة / غير محسوبة</a>
+</div>
+
 <div class="card" style="margin-top:1rem">
-  <h2>تقرير الجهات الأمنية</h2>
-  <p class="muted" style="margin-top:0">
-    تصدير بيانات النزلاء حسب الفترة والجهة المختارة. يمكن الطباعة أو حفظ PDF أو الإرسال عبر الوسيلة المحددة في بروفايل الجهة.
-  </p>
-  <p style="margin:0 0 0.75rem">
-    <a href="/admin/hotel/security-authorities">إدارة الجهات الأمنية ←</a>
-  </p>
+  <div style="display:flex;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;align-items:flex-start">
+    <div>
+      <h2 style="margin:0 0 0.35rem">تقرير الجهات الأمنية</h2>
+      <p class="muted" style="margin:0;max-width:42rem">
+        اختر الجهة بالضغط على اسمها — يُجهَّز التقرير حسب نطاقها (أجانب / ليبيون / الاثنان) ورقم واتساب أو البريد المسجّل لها.
+        الفترة الافتراضية هي <strong>اليوم</strong>، ويمكن تغييرها إلى أمس أو أسبوع سابق.
+      </p>
+    </div>
+    <a class="btn btn-primary" href="/admin/hotel/security-authorities">+ إدارة الجهات</a>
+  </div>
+
   {% if security_sent %}
-  <div class="alert" style="background:#ecfdf5;border-color:#10b981;color:#065f46;margin-bottom:0.75rem">
+  <div class="alert" style="background:#ecfdf5;border-color:#10b981;color:#065f46;margin:0.85rem 0 0">
     تم إرسال التقرير إلى {{ security_sent_authority }} عبر {{ security_sent_channel }} ✓
   </div>
   {% endif %}
-  <form id="security-report-form" method="get" action="/admin/hotel/reports/security" target="_blank"
-        style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:0.65rem;align-items:end">
-    <label>من تاريخ
-      <input name="from_date" type="date" value="{{ today }}" required />
-    </label>
-    <label>إلى تاريخ
-      <input name="to_date" type="date" value="{{ today }}" required />
-    </label>
-    <label>الجهة الأمنية
-      <select name="authority_id" id="security_authority_id">
-        <option value="">— الكل (بدون تصفية جنسية) —</option>
-        {% for a in security_authorities %}
-        <option value="{{ a.id }}">{{ a.name_ar }} ({{ a.guest_scope_label }})</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>الإجراء
-      <select name="action" id="security_report_action" required>
-        <option value="print">طباعة</option>
-        <option value="pdf">تصدير PDF</option>
-        <option value="send">إرسال للجهة</option>
-      </select>
-    </label>
-    <input type="hidden" name="print_view" id="security_print_view" value="0" />
-    <button class="btn btn-primary" type="submit" id="security_report_submit">عرض التقرير</button>
-  </form>
-  <form id="security-send-form" method="post" action="/admin/hotel/reports/security/send" style="display:none">
-    <input type="hidden" name="from_date" id="send_from_date" />
-    <input type="hidden" name="to_date" id="send_to_date" />
-    <input type="hidden" name="authority_id" id="send_authority_id" />
-  </form>
-  <p class="muted" style="margin:0.65rem 0 0;font-size:0.85rem">
-    عند اختيار جهة، يُصفّى التقرير تلقائياً حسب نطاق النزلاء المحدّد في بروفايلها (أجانب / ليبيون / الكل).
-    الإرسال يستخدم واتساب أو البريد حسب إعداد الجهة.
+
+  {% if security_authorities %}
+  <div class="sec-auth-grid" id="sec-auth-grid">
+    {% for a in security_authorities %}
+    <button type="button"
+            class="sec-auth-card{% if selected_authority_id == a.id %} is-active{% endif %}"
+            data-id="{{ a.id }}"
+            data-name="{{ a.name_ar }}"
+            data-scope="{{ a.guest_scope_label }}"
+            data-channel="{{ a.contact_channel_label }}"
+            data-contact="{{ a.contact_value }}">
+      <div class="sec-auth-card__name">{{ a.name_ar }}</div>
+      <div class="sec-auth-card__meta">
+        النطاق: {{ a.guest_scope_label }}<br>
+        {{ a.contact_channel_label }}: <span dir="ltr">{{ a.contact_value }}</span>
+      </div>
+    </button>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted" style="margin:0.85rem 0 0">
+    لا توجد جهات نشطة بعد.
+    <a href="/admin/hotel/security-authorities">أنشئ جهة أمنية أولاً ←</a>
   </p>
+  {% endif %}
+
+  <div class="sec-panel" id="sec-panel" {% if not selected_authority_id %}hidden{% endif %}>
+    <h3 class="sec-panel__title" id="sec-panel-title">تجهيز التقرير</h3>
+    <p class="muted" id="sec-panel-meta" style="margin:0 0 0.5rem;font-size:0.88rem"></p>
+
+    <div class="sec-presets" id="sec-presets">
+      <button type="button" data-preset="today" class="is-active">اليوم</button>
+      <button type="button" data-preset="yesterday">أمس</button>
+      <button type="button" data-preset="week">آخر 7 أيام</button>
+      <button type="button" data-preset="custom">فترة مخصّصة</button>
+    </div>
+
+    <form id="security-report-form" method="get" action="/admin/hotel/reports/security" target="_blank">
+      <input type="hidden" name="authority_id" id="security_authority_id" value="{{ selected_authority_id or '' }}" />
+      <input type="hidden" name="print_view" id="security_print_view" value="0" />
+      <div class="sec-fields">
+        <label>من تاريخ
+          <input name="from_date" id="sec_from_date" type="date" value="{{ today }}" required />
+        </label>
+        <label>إلى تاريخ
+          <input name="to_date" id="sec_to_date" type="date" value="{{ today }}" required />
+        </label>
+      </div>
+      <div class="sec-actions">
+        <button class="btn btn-primary" type="submit" data-action="print">عرض وطباعة</button>
+        <button class="btn" type="submit" data-action="pdf">تصدير PDF</button>
+        <button class="btn" type="submit" data-action="excel">تصدير Excel</button>
+        <button class="btn" type="submit" data-action="send" id="sec-send-btn">إرسال للجهة (واتساب/بريد)</button>
+      </div>
+    </form>
+    <form id="security-send-form" method="post" action="/admin/hotel/reports/security/send" style="display:none">
+      <input type="hidden" name="from_date" id="send_from_date" />
+      <input type="hidden" name="to_date" id="send_to_date" />
+      <input type="hidden" name="authority_id" id="send_authority_id" />
+    </form>
+    <p class="muted" style="margin:0.75rem 0 0;font-size:0.82rem">
+      PDF عبر نافذة الطباعة (حفظ كـ PDF). Excel يُنزَّل مباشرة. الإرسال يستخدم رقم واتساب أو البريد المسجّل في بروفايل الجهة.
+    </p>
+  </div>
 </div>
+
 <script>
 (function () {
+  var todayStr = {{ today|tojson }};
+  var grid = document.getElementById('sec-auth-grid');
+  var panel = document.getElementById('sec-panel');
+  var panelTitle = document.getElementById('sec-panel-title');
+  var panelMeta = document.getElementById('sec-panel-meta');
+  var authInput = document.getElementById('security_authority_id');
+  var fromInput = document.getElementById('sec_from_date');
+  var toInput = document.getElementById('sec_to_date');
   var mainForm = document.getElementById('security-report-form');
   var sendForm = document.getElementById('security-send-form');
-  var actionSel = document.getElementById('security_report_action');
   var printView = document.getElementById('security_print_view');
-  var submitBtn = document.getElementById('security_report_submit');
-  function syncAction() {
-    var action = actionSel.value;
-    if (action === 'send') {
-      submitBtn.textContent = 'إرسال للجهة';
-      mainForm.removeAttribute('target');
-    } else if (action === 'pdf') {
-      submitBtn.textContent = 'تصدير PDF';
-      mainForm.setAttribute('target', '_blank');
-      printView.value = '1';
-    } else {
-      submitBtn.textContent = 'طباعة';
-      mainForm.setAttribute('target', '_blank');
-      printView.value = '0';
-    }
+  var presets = document.getElementById('sec-presets');
+
+  function pad(n) { return String(n).padStart(2, '0'); }
+  function fmt(d) {
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
   }
-  actionSel.addEventListener('change', syncAction);
-  syncAction();
-  mainForm.addEventListener('submit', function (e) {
-    if (actionSel.value !== 'send') return;
-    e.preventDefault();
-    var auth = document.getElementById('security_authority_id').value;
-    if (!auth) {
-      alert('اختر الجهة الأمنية قبل الإرسال.');
-      return;
+  function parseISO(s) {
+    var p = (s || '').split('-');
+    return new Date(+p[0], (+p[1] || 1) - 1, +p[2] || 1);
+  }
+  function setPreset(name) {
+    var today = parseISO(todayStr);
+    var from = new Date(today);
+    var to = new Date(today);
+    if (name === 'yesterday') {
+      from.setDate(today.getDate() - 1);
+      to.setDate(today.getDate() - 1);
+    } else if (name === 'week') {
+      from.setDate(today.getDate() - 6);
+    } else if (name === 'custom') {
+      /* keep current values */
+    } else {
+      /* today */
     }
-    document.getElementById('send_from_date').value = mainForm.from_date.value;
-    document.getElementById('send_to_date').value = mainForm.to_date.value;
-    document.getElementById('send_authority_id').value = auth;
-    sendForm.submit();
+    if (name !== 'custom') {
+      fromInput.value = fmt(from);
+      toInput.value = fmt(to);
+    }
+    presets.querySelectorAll('button').forEach(function (b) {
+      b.classList.toggle('is-active', b.getAttribute('data-preset') === name);
+    });
+  }
+
+  function selectAuthority(btn) {
+    if (!btn) return;
+    if (grid) {
+      grid.querySelectorAll('.sec-auth-card').forEach(function (c) {
+        c.classList.toggle('is-active', c === btn);
+      });
+    }
+    authInput.value = btn.getAttribute('data-id') || '';
+    panel.hidden = false;
+    panelTitle.textContent = 'تجهيز تقرير: ' + (btn.getAttribute('data-name') || '');
+    panelMeta.textContent =
+      'النطاق: ' + (btn.getAttribute('data-scope') || '—') +
+      ' · الإرسال عبر ' + (btn.getAttribute('data-channel') || '—') +
+      ' ← ' + (btn.getAttribute('data-contact') || '');
+    setPreset('today');
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  if (grid) {
+    grid.addEventListener('click', function (e) {
+      var btn = e.target.closest('.sec-auth-card');
+      if (btn) selectAuthority(btn);
+    });
+  }
+  if (presets) {
+    presets.addEventListener('click', function (e) {
+      var btn = e.target.closest('button[data-preset]');
+      if (btn) setPreset(btn.getAttribute('data-preset'));
+    });
+  }
+  [fromInput, toInput].forEach(function (el) {
+    if (!el) return;
+    el.addEventListener('change', function () {
+      presets.querySelectorAll('button').forEach(function (b) {
+        b.classList.toggle('is-active', b.getAttribute('data-preset') === 'custom');
+      });
+    });
   });
+
+  if (mainForm) {
+    mainForm.addEventListener('click', function (e) {
+      var btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      var action = btn.getAttribute('data-action');
+      if (action === 'send') {
+        e.preventDefault();
+        if (!authInput.value) {
+          alert('اختر الجهة الأمنية أولاً.');
+          return;
+        }
+        document.getElementById('send_from_date').value = fromInput.value;
+        document.getElementById('send_to_date').value = toInput.value;
+        document.getElementById('send_authority_id').value = authInput.value;
+        if (!confirm('إرسال التقرير إلى الجهة المحددة الآن؟')) return;
+        sendForm.submit();
+        return;
+      }
+      if (action === 'excel') {
+        e.preventDefault();
+        var q = new URLSearchParams({
+          from_date: fromInput.value,
+          to_date: toInput.value,
+          authority_id: authInput.value || ''
+        });
+        window.location.href = '/admin/hotel/reports/security.xlsx?' + q.toString();
+        return;
+      }
+      printView.value = action === 'pdf' ? '1' : '0';
+      mainForm.setAttribute('target', '_blank');
+      mainForm.setAttribute('action', '/admin/hotel/reports/security');
+    });
+  }
+
+  var pre = grid && grid.querySelector('.sec-auth-card.is-active');
+  if (pre) selectAuthority(pre);
 })();
 </script>
+
 {% if finance_on %}
-<div class="card" style="margin-top:1rem">
-  <h2>إقفال يومي</h2>
-  <form method="post" action="/admin/hotel/daily-close">
-    <input name="closing_date" type="date" value="{{ today }}" />
-    <input name="notes" placeholder="ملاحظات" />
-    <button class="btn btn-primary">إقفال اليوم</button>
-  </form>
+<div class="card" style="margin-top:1rem;border-color:#86efac;background:linear-gradient(180deg,#ecfdf5 0%,#fff 50%)">
+  <h2 style="margin-top:0">إقفال يومي — تلقائي</h2>
+  <p class="muted" style="margin:0 0 0.75rem;line-height:1.55;max-width:42rem">
+    النظام يقفل كل يوم تقويمي تلقائياً بعد منتصف الليل (توقيت المحل):
+    اليوم المكتمل = <strong>24 ساعة من 00:00 إلى 23:59</strong>.
+    لا حاجة للضغط يدوياً كل يوم — الزر أدناه للطوارئ أو لإقفال يوم فائت فقط.
+  </p>
+  {% if daily_close_last_date %}
+  <p style="margin:0 0 0.75rem;font-size:0.92rem">
+    آخر يوم أُقفل: <strong>{{ daily_close_last_date }}</strong>
+    {% if daily_close_auto_enabled %}<span style="color:#15803d"> · التلقائي مفعّل</span>{% else %}<span style="color:#b91c1c"> · التلقائي متوقف</span>{% endif %}
+  </p>
+  {% endif %}
+  <p style="margin:0 0 0.65rem;font-size:0.88rem">
+    <a href="/reports/hotel-daily-close?period=month">عرض سجل الإقفال والتقارير ←</a>
+  </p>
+  <details style="margin-top:0.35rem">
+    <summary style="cursor:pointer;font-weight:700;color:#0f766e">إقفال يدوي احتياطي (يوم فائت)</summary>
+    <form method="post" action="/admin/hotel/daily-close" style="margin-top:0.75rem;display:flex;flex-wrap:wrap;gap:0.5rem;align-items:end">
+      <div>
+        <label for="closing_date">اليوم</label>
+        <input id="closing_date" name="closing_date" type="date" value="{{ today }}" />
+      </div>
+      <div>
+        <label for="close_notes">ملاحظات</label>
+        <input id="close_notes" name="notes" placeholder="اختياري" />
+      </div>
+      <button class="btn" type="submit">إقفال هذا اليوم</button>
+    </form>
+  </details>
 </div>
 {% endif %}
 {% endblock %}

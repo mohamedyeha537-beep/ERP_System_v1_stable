@@ -389,8 +389,10 @@ def list_unlinked_room_receivable_rows(
     ]
 
 
-def receivables_summary(db: Session) -> ReceivablesSummary:
-    rows = build_receivable_rows(db)
+def receivables_summary(
+    db: Session, *, context_filter: str | None = None
+) -> ReceivablesSummary:
+    rows = build_receivable_rows(db, context_filter=context_filter)
     total = Decimal("0")
     with_bal = 0
     unpaid = partial = paid = 0

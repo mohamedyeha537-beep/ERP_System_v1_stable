@@ -1,16 +1,15 @@
 {% extends "base.html" %}
 {% block title %}إعدادات الولاء — {{ domain_label | default('المطعم') }}{% endblock %}
 {% block body %}
-<div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; margin-bottom:0.4rem">
+<div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; margin-bottom:0.2rem; flex-wrap:wrap">
   <h1 style="margin:0">⚙️ إعدادات الولاء — {{ domain_label | default('المطعم') }}</h1>
-  <div style="display:flex; gap:0.4rem">
-    <a class="btn" href="/admin/customers">↩ العملاء</a>
-    <a class="btn" href="/admin/hotel/settings">إعدادات الفندق</a>
-  </div>
 </div>
-<p class="muted" style="margin-top:0.2rem">
-  إعدادات الولاء والإحالة الخاصة بـ<strong>{{ domain_label | default('المطعم') }}</strong> (كاشير، طلبات خارجية، توصيل).
-  إعدادات الفندق منفصلة في <a href="/admin/hotel/settings">إعدادات الحجز</a>.
+
+{% set loyalty_nav_active = 'restaurant' %}
+{% include "_loyalty_hub_nav.html" %}
+
+<p class="muted" style="margin-top:0">
+  إعدادات الولاء والإحالة الخاصة بـ<strong>المطعم</strong> (كاشير، طلبات خارجية، توصيل، متجر).
   النقاط تُمنح عند الدفع الفعلي لأي عميل مرتبط برقم هاتف.
 </p>
 

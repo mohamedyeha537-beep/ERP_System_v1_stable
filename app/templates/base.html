@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="csrf-token" content="{{ csrf_token(request) }}" />
     {% set brand = pos_brand(request) %}
     <title>{% block title %}{{ brand.pos_label }}{% endblock %} · {{ pos_display_name(request) }}</title>
     {# خطوط محلية — IBM Plex / Cairo بدون اتصال بالإنترنت #}
@@ -74,7 +75,14 @@
         padding: 0 1rem;
         display: flex;
         align-items: center;
-        gap: 1rem;
+        gap: 0.65rem;
+        width: 100%;
+        box-sizing: border-box;
+      }
+      /* في وضع الإدارة: الهيدر بعرض المحتوى بالكامل حتى حافة البانر */
+      body.admin-layout .header-inner {
+        max-width: none;
+        padding-inline: 1.25rem;
       }
       .brand {
         display: flex;
@@ -118,35 +126,26 @@
       /* Header navigation */
       .header-nav {
         display: flex;
-        gap: 0.1rem;
+        gap: 0.15rem;
         align-items: center;
-        margin-inline-start: 0.75rem;
-        flex: 1;
+        margin-inline-start: 0.35rem;
+        margin-inline-end: 0.35rem;
+        flex: 1 1 auto;
         min-width: 0;
-        overflow-x: auto;
-        overflow-y: hidden;
-        scrollbar-width: none;
-        -ms-overflow-style: none;
+        overflow: visible;
       }
       @media (min-width: 901px) {
-        .header-nav {
-          overflow: visible;
-        }
         .header-inner {
           overflow: visible;
         }
-      }
-      .header-nav::-webkit-scrollbar {
-        display: none;
-        height: 0;
       }
       .header-nav a {
         color: var(--brand-header-fg);
         opacity: 0.78;
         text-decoration: none;
-        padding: 0.4rem 0.55rem;
+        padding: 0.35rem 0.45rem;
         border-radius: 8px;
-        font-size: 0.84rem;
+        font-size: 0.82rem;
         font-weight: 500;
         white-space: nowrap;
         flex-shrink: 0;
@@ -239,8 +238,10 @@
       .user-menu {
         display: flex;
         align-items: center;
-        gap: 0.7rem;
+        gap: 0.55rem;
         margin-inline-start: auto;
+        flex: 0 0 auto;
+        max-width: none;
       }
       .header-bell {
         position: relative;
@@ -414,10 +415,33 @@
         font-size: 0.72rem;
         border: 1px solid rgba(34, 197, 94, 0.3);
       }
+      .offline-pill.is-cloud-offline {
+        background: rgba(245, 158, 11, 0.18);
+        color: #fcd34d;
+        border-color: rgba(245, 158, 11, 0.4);
+      }
+      .offline-pill.is-cloud-offline .dot { background: #f59e0b; }
+      .offline-pill.is-syncing {
+        background: rgba(56, 189, 248, 0.18);
+        color: #7dd3fc;
+        border-color: rgba(56, 189, 248, 0.4);
+      }
+      .offline-pill.is-syncing .dot { background: #38bdf8; }
       .offline-pill .dot {
         width: 6px; height: 6px; border-radius: 50%;
         background: #22c55e;
         animation: pulse 2s infinite;
+      }
+      .header-sync-pill {
+        max-width: 7.5rem;
+        flex-shrink: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .header-sync-pill #header-sync-label {
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
       @keyframes pulse {
         0%, 100% { opacity: 1; }
@@ -597,7 +621,7 @@
         body.admin-layout.admin-sidebar-open .admin-sidebar-close { display: block; }
       }
     </style>
-    <link rel="stylesheet" href="/static/app.css" />
+    <link rel="stylesheet" href="/static/app.css?v=32" />
     <script src="/static/vendor/htmx.min.js"></script>
     {% block head_extra %}{% endblock %}
   </head>
@@ -605,12 +629,14 @@
   {% set p = pos_perm(request) %}
   {% set kiosk = pos_is_kiosk(request) %}
   {% set admin_layout = u and not kiosk and pos_is_admin(request) %}
+  {% set home_url = pos_home_url(request) if pos_home_url is defined else '/' %}
+  {% set hotel_scope_only = pos_is_hotel_scope(request) if pos_is_hotel_scope is defined else false %}
   <body{% if admin_layout %} class="admin-layout"{% endif %}>
     {# ===================== HEADER ===================== #}
     {% if u %}
     <header class="app-header">
       <div class="header-inner">
-        <a class="brand" href="{% if kiosk %}/pos{% else %}/{% endif %}" title="{% if kiosk %}{{ brand.pos_label }}{% else %}الرئيسية{% endif %}">
+        <a class="brand" href="{% if kiosk %}/pos{% else %}{{ home_url }}{% endif %}" title="{% if kiosk %}{{ brand.pos_label }}{% else %}الرئيسية{% endif %}">
           {% if brand.show_logo_in_header %}
           <span class="logo {% if not brand.logo_url %}is-fallback{% endif %}">
             {% if brand.logo_url %}
@@ -649,13 +675,15 @@
           </a>
           {% endif %}
           {% else %}
-          {% set nav_stock = p('inventory:view') or p('warehouses:manage') or p('catalog:write') or p('purchases:manage') or p('purchases:invoices') %}
-          {% set nav_sales = pos_nav_show_restaurant(request) %}
-          {% set nav_hotel = pos_nav_show_hotel(request) %}
+          {% set _clerk = pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}
+          {% set nav_stock = (not _clerk) and (p('inventory:view') or p('warehouses:manage') or p('catalog:write') or p('purchases:manage') or p('purchases:invoices')) %}
+          {% set nav_sales = (not _clerk) and pos_nav_show_restaurant(request) %}
+          {% set nav_hotel = (not _clerk) and pos_nav_show_hotel(request) %}
 
-          <a href="/">الرئيسية</a>
+          <a href="{{ home_url }}">الرئيسية</a>
 
-          {% if nav_hotel %}
+          {# لمستخدمي الفندق فقط: الرئيسية = لوحة الشقق — لا نكرر «الشقق» #}
+          {% if nav_hotel and not hotel_scope_only %}
           <a href="/admin/hotel/dashboard">الشقق</a>
           {% endif %}
 
@@ -704,12 +732,23 @@
         </nav>
 
         <div class="user-menu">
-          {% if pos_is_admin(request) %}
-          <form method="post" action="/admin/view-mode" class="view-mode-form" title="وضع العرض: مطعم أو فندق — الوضع العام من مركز الربح فقط">
-            <select name="mode" onchange="this.form.submit()" aria-label="وضع العرض">
+          {% if p('admin:settings') %}
+          <a href="/admin/sync" id="header-sync-pill" class="offline-pill header-sync-pill" title="حالة العمل أوفلاين والمزامنة" style="text-decoration:none">
+            <span class="dot"></span>
+            <span id="header-sync-label">يعمل أوفلاين</span>
+          </a>
+          {% else %}
+          <span id="header-sync-pill" class="offline-pill header-sync-pill" title="حالة العمل أوفلاين والمزامنة">
+            <span class="dot"></span>
+            <span id="header-sync-label">يعمل أوفلاين</span>
+          </span>
+          {% endif %}
+          {% if pos_can_switch_view_mode(request) %}
+          <form method="post" action="/admin/view-mode" class="view-mode-form">
+            <select name="mode" onchange="this.form.submit()" aria-label="وضع العمل">
               <option value="restaurant"{% if pos_view_mode(request) == 'restaurant' %} selected{% endif %}>مطعم</option>
               <option value="hotel"{% if pos_view_mode(request) == 'hotel' %} selected{% endif %}>فندق</option>
-              {% if pos_view_mode(request) == 'general' %}
+              {% if pos_is_admin(request) and pos_view_mode(request) == 'general' %}
               <option value="general" selected>عام — تقارير</option>
               {% endif %}
             </select>
@@ -734,6 +773,26 @@
           <div class="avatar" title="{{ u.username }}">
             {{ u.username[0]|upper }}
           </div>
+          {% if pos_can_lock_hotel_session(request) %}
+          <a class="header-action" href="/admin/hotel/shift#hotel-close-panel"
+             title="إقفال وردية الاستقبال بعد عدّ الكاش والمصرف — مثل جلسة المطعم"
+             style="text-decoration:none;background:rgba(255,255,255,0.18);font-weight:700">
+            📋 إقفال الوردية
+          </a>
+          <form method="post" action="/admin/hotel/pin/logout" style="display:inline;margin:0">
+            <button type="submit" class="header-action" title="قفل الشاشة فقط — الوردية تبقى مفتوحة حتى إقفالها بعد عدّ الكاش والمصرف من جلسة الفندق"
+                    style="cursor:pointer;border:none;background:rgba(255,255,255,0.12);font:inherit;color:inherit">
+              🔒 قفل الشاشة
+            </button>
+          </form>
+          {% elif pos_can_lock_pos_session(request) %}
+          <form method="post" action="/pos/pin/logout" style="display:inline;margin:0">
+            <button type="submit" class="header-action" title="قفل جلسة الكاشير — يبقى الجهاز جاهزاً لموظف آخر بالرقم السري"
+                    style="cursor:pointer;border:none;background:rgba(255,255,255,0.12);font:inherit;color:inherit">
+              🔒 قفل الجلسة
+            </button>
+          </form>
+          {% endif %}
           <a class="header-action" href="/auth/logout" title="تسجيل الخروج">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
             خروج
@@ -776,10 +835,11 @@
         </div>
         <div class="footer-col">
           <h4>روابط مهمة</h4>
-          {% if p('sales:refund') %}<a href="/refunds">↩ استرداد وترجيع المبيعات</a>{% endif %}
-          {% if p('sales:edit_invoice') %}<a href="/sales/invoices">✎ تعديل الفواتير</a>{% endif %}
+          {% set footer_sales = pos_nav_show_restaurant(request) %}
+          {% if footer_sales and p('sales:refund') %}<a href="/refunds">↩ استرداد وترجيع المبيعات</a>{% endif %}
+          {% if footer_sales and p('sales:edit_invoice') %}<a href="/sales/invoices">✎ تعديل الفواتير</a>{% endif %}
           {% if p('reports:view') %}<a href="/reports">📊 مركز التقارير</a>{% endif %}
-          {% if p('delivery:manage') %}<a href="/admin/delivery-zones">🚚 مناطق التوصيل</a>{% endif %}
+          {% if footer_sales and p('delivery:manage') %}<a href="/admin/delivery-zones">🚚 مناطق التوصيل</a>{% endif %}
           {% if p('messaging:manage') %}<a href="/admin/notifications">🔔 محرك الإشعارات</a>{% endif %}
           {% if p('admin:settings') %}<a href="/admin/settings">⚙ الإعدادات</a>{% endif %}
           {% if p('backup:manage') %}<a href="/admin/backup">💾 نسخ احتياطي</a>{% endif %}
@@ -787,9 +847,9 @@
         <div class="footer-col">
           <h4>الحالة</h4>
           <div style="display:flex; flex-direction:column; gap:0.4rem">
-            <span class="offline-pill">
+            <span class="offline-pill" id="footer-sync-pill">
               <span class="dot"></span>
-              يعمل أوفلاين
+              <span id="footer-sync-label">يعمل أوفلاين</span>
             </span>
             <span style="font-size:0.78rem; opacity:0.7">
               الإصدار: {{ pos_app_version(request) }}
@@ -873,14 +933,80 @@
           })
           .catch(function () {});
       }
-      // غير متزامن بعد الرسم — لا يُعيق فتح الصفحة
-      setTimeout(poll, 400);
-      setInterval(poll, 120000);
+      // بعد اكتمال التحميل — لا ينافس فتح الصفحة
+      setTimeout(poll, 5000);
+      setInterval(poll, 180000);
       document.addEventListener("visibilitychange", function () {
         if (!document.hidden) poll();
       });
     })();
+    (function () {
+      var pill = document.getElementById("header-sync-pill");
+      var label = document.getElementById("header-sync-label");
+      var footerPill = document.getElementById("footer-sync-pill");
+      var footerLabel = document.getElementById("footer-sync-label");
+      if (!pill || !label) return;
+      var syncEnabled = {{ 'true' if pos_sync_enabled(request) else 'false' }};
+      var timer = null;
+      function shortLabel(data) {
+        if (!data) return "أوفلاين";
+        if (!data.enabled) return "أوفلاين";
+        if (!data.configured) return "أوفلاين";
+        if (!data.online) return "بانتظار مزامنة";
+        if (data.pending_count > 0) return "مزامنة (" + data.pending_count + ")";
+        return "متصل";
+      }
+      function apply(data) {
+        var short = shortLabel(data);
+        var full = (data && data.message_ar) || short;
+        label.textContent = short;
+        pill.setAttribute("title", full);
+        if (footerLabel) footerLabel.textContent = full;
+        pill.classList.remove("is-cloud-offline", "is-syncing");
+        if (footerPill) footerPill.classList.remove("is-cloud-offline", "is-syncing");
+        if (data && data.enabled && data.configured && !data.online) {
+          pill.classList.add("is-cloud-offline");
+          if (footerPill) footerPill.classList.add("is-cloud-offline");
+        } else if (data && data.pending_count > 0) {
+          pill.classList.add("is-syncing");
+          if (footerPill) footerPill.classList.add("is-syncing");
+        }
+      }
+      function pollSync() {
+        if (document.hidden) return;
+        fetch("/api/sync/local-status", { credentials: "same-origin" })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            if (!data) return;
+            apply(data);
+            syncEnabled = !!data.enabled;
+          })
+          .catch(function () {});
+      }
+      // بدون مزامنة سحابية: لا نستطلع السيرفر باستمرار
+      if (!syncEnabled) {
+        apply({ enabled: false, configured: false, online: true, pending_count: 0,
+          message_ar: "يعمل محلياً بالكامل بدون إنترنت" });
+        return;
+      }
+      setTimeout(pollSync, 4000);
+      timer = setInterval(pollSync, 60000);
+      window.addEventListener("online", pollSync);
+      document.addEventListener("visibilitychange", function () {
+        if (!document.hidden) pollSync();
+      });
+      window.addEventListener("offline", function () {
+        apply({
+          enabled: true,
+          configured: true,
+          online: false,
+          pending_count: 1,
+          message_ar: "أوفلاين — العمل مستمر محلياً"
+        });
+      });
+    })();
     </script>
-    <script src="/static/pos_guides.js"></script>
+    <script src="/static/pos_guides.js?v=2"></script>
+    <script src="/static/csrf_forms.js?v=1"></script>
   </body>
 </html>

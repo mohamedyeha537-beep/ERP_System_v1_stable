@@ -29,7 +29,24 @@ if TYPE_CHECKING:
 
 
 def _sale_payload(db: Session, sale: Sale, **extra: Any) -> dict[str, Any]:
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
     from modules.customers.models import Customer
+    from modules.sales.models import Sale as SaleModel
+    from modules.sales.models import SaleLine
+
+    # تحميل الأصناف لملخص واتساب
+    try:
+        loaded = db.scalar(
+            select(SaleModel)
+            .where(SaleModel.id == int(sale.id))
+            .options(selectinload(SaleModel.lines).selectinload(SaleLine.product))
+        )
+        if loaded is not None:
+            sale = loaded
+    except Exception:  # noqa: BLE001
+        pass
 
     cust: Customer | None = None
     if sale.customer_id:
@@ -48,6 +65,21 @@ def _sale_payload(db: Session, sale: Sale, **extra: Any) -> dict[str, Any]:
         "order_type": order_type,
         "payment_status": "paid" if sale.status.value == "COMPLETED" else "pending",
     }
+    # ملخص أصناف لواتساب مركز الإشعارات / الكاشير
+    try:
+        item_bits: list[str] = []
+        for line in list(getattr(sale, "lines", None) or [])[:12]:
+            pname = ""
+            if getattr(line, "product", None) is not None:
+                pname = (line.product.name_ar or "").strip()
+            if not pname:
+                continue
+            qty = line.quantity
+            item_bits.append(f"{pname}×{qty}")
+        if item_bits:
+            payload["items_summary"] = " · ".join(item_bits)
+    except Exception:  # noqa: BLE001
+        pass
     payload.update(extra)
     return payload
 
@@ -220,12 +252,46 @@ def emit_pos_shift_closed(
     *,
     shift_id: int,
     cashier_name: str = "",
+    employee_name: str = "",
     shortage: Decimal = Decimal("0"),
+    cash_shortage: Decimal | None = None,
+    bank_shortage: Decimal | None = None,
 ) -> None:
+    """إغلاق جلسة — ويُرسل عجز إن وُجد نقداً و/أو مصرفاً."""
+    emp = (employee_name or cashier_name or "").strip()
+    if cash_shortage is not None or bank_shortage is not None:
+        cash_amt = max(Decimal(str(cash_shortage or 0)), Decimal("0")).quantize(
+            Decimal("0.001")
+        )
+        bank_amt = max(Decimal(str(bank_shortage or 0)), Decimal("0")).quantize(
+            Decimal("0.001")
+        )
+    else:
+        # توافق مع الاستدعاءات القديمة: shortage سالب = عجز كاش
+        cash_amt = (
+            abs(shortage).quantize(Decimal("0.001"))
+            if shortage < 0
+            else Decimal("0.000")
+        )
+        bank_amt = Decimal("0.000")
+    total_short = (cash_amt + bank_amt).quantize(Decimal("0.001"))
+    detail_bits: list[str] = []
+    if cash_amt > 0:
+        detail_bits.append(f"نقداً: {cash_amt} د.ل")
+    if bank_amt > 0:
+        detail_bits.append(f"مصرف: {bank_amt} د.ل")
     payload = {
         "shift_id": shift_id,
-        "cashier_name": cashier_name,
-        "shortage": str(abs(shortage).quantize(Decimal("0.001"))),
+        "cashier_name": emp or cashier_name,
+        "employee_name": emp or cashier_name,
+        "shortage": str(
+            total_short
+            if total_short > 0
+            else abs(shortage).quantize(Decimal("0.001"))
+        ),
+        "cash_shortage": str(cash_amt),
+        "bank_shortage": str(bank_amt),
+        "shortage_detail": " · ".join(detail_bits) if detail_bits else "",
     }
     emit_event_safe(
         db,
@@ -234,7 +300,7 @@ def emit_pos_shift_closed(
         source_id=shift_id,
         payload=payload,
     )
-    if shortage < 0:
+    if total_short > 0:
         emit_event_safe(
             db,
             event_key=POS_CASH_SHORTAGE,
@@ -249,7 +315,7 @@ def emit_pos_shift_closed(
             emit_pos_cash_overage(
                 db,
                 shift_id=shift_id,
-                cashier_name=cashier_name,
+                cashier_name=emp or cashier_name,
                 overage=shortage,
             )
         except Exception:  # noqa: BLE001

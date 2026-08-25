@@ -8,7 +8,6 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from modules.customers.models import Customer
-from modules.receivables.service import build_receivable_rows
 from modules.sales.models import Sale, SaleStatus
 
 
@@ -37,11 +36,18 @@ def customer_stats(db: Session, customer: Customer) -> CustomerStats:
     purchase_count = int(sale_rows[0] or 0)
     sales_total = Decimal(str(sale_rows[1] or 0)).quantize(Decimal("0.001"))
 
-    debt = Decimal("0")
-    for row in build_receivable_rows(db, only_with_balance=True):
-        if row.customer_id == customer.id and row.outstanding > 0:
-            debt += row.outstanding
-    debt = debt.quantize(Decimal("0.001"))
+    from modules.customers.account_balance import (
+        folio_covered_sale_ids_for_customer,
+        hotel_outstanding_for_customer,
+        pos_outstanding_for_customer,
+    )
+
+    covered = folio_covered_sale_ids_for_customer(db, customer)
+    pos_debt = pos_outstanding_for_customer(
+        db, customer, exclude_sale_ids=covered
+    )
+    hotel_debt = hotel_outstanding_for_customer(db, customer)
+    debt = (pos_debt + hotel_debt).quantize(Decimal("0.001"))
 
     return CustomerStats(
         purchase_count=purchase_count,

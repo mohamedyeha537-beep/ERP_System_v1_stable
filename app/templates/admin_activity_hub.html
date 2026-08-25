@@ -149,6 +149,76 @@
     font-size: 0.88rem;
   }
   .activity-mutes li:last-child { border-bottom: none; }
+  .activity-wa-forward {
+    background: #fff;
+    border: 1px solid #bbf7d0;
+    border-radius: 14px;
+    padding: 0.9rem 1rem;
+    margin-bottom: 1rem;
+    background: linear-gradient(180deg, #f0fdf4 0%, #fff 70%);
+  }
+  .activity-wa-forward h3 {
+    margin: 0 0 0.35rem;
+    font-size: 1rem;
+    font-family: var(--pos-font-display, inherit);
+  }
+  .activity-wa-forward__row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1rem;
+    align-items: flex-end;
+  }
+  .activity-wa-forward label { display: block; font-size: 0.85rem; margin-bottom: 0.25rem; }
+  .activity-wa-forward .toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-weight: 700;
+    margin: 0;
+    padding-bottom: 0.35rem;
+    white-space: nowrap;
+  }
+  .activity-wa-forward input[type="text"],
+  .activity-wa-forward input[type="tel"] {
+    min-width: 12rem;
+    padding: 0.4rem 0.55rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+  }
+  .activity-wa-forward__hint { margin: 0.45rem 0 0; font-size: 0.8rem; color: #64748b; }
+  .activity-wa-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 0.65rem 0.85rem;
+    margin-top: 0.75rem;
+  }
+  .activity-wa-grid label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #334155;
+  }
+  .activity-wa-grid input {
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 0.25rem;
+  }
+  .activity-wa-events {
+    margin-top: 0.9rem;
+    padding-top: 0.75rem;
+    border-top: 1px dashed #86efac;
+  }
+  .activity-wa-events h4 {
+    margin: 0 0 0.45rem;
+    font-size: 0.9rem;
+    color: #166534;
+  }
+  .activity-wa-events .field { margin-bottom: 0.55rem; }
+  .activity-wa-events .field small {
+    display: block;
+    color: #64748b;
+    font-size: 0.75rem;
+    margin-top: 0.2rem;
+  }
 </style>
 {% endblock %}
 {% block body %}
@@ -170,6 +240,183 @@
 
 {% if ok %}<div class="alert" style="background:#ecfdf5;margin-bottom:1rem">{{ ok }}</div>{% endif %}
 {% if error %}<div class="alert" style="background:#fef2f2;margin-bottom:1rem">{{ error }}</div>{% endif %}
+
+<section class="activity-wa-forward" aria-label="إرسال واتساب">
+  <h3>واتساب — أرقام حسب القسم</h3>
+  <p class="muted" style="margin:0 0 0.55rem;font-size:0.85rem">
+    اكتب رقم واتساب تحت اسم كل قسم. عدة أرقام: افصل بينها بفاصلة مثل
+    <span dir="ltr">0911111111, 0922222222</span>
+  </p>
+  <form method="post" action="/admin/activity/whatsapp-settings">
+    <div class="activity-wa-forward__row">
+      <label class="toggle-label" title="عند التفعيل تُرسل الإشعارات الجديدة أيضاً إلى واتساب">
+        <input type="checkbox" name="enabled" {% if wa_forward_enabled %}checked{% endif %} />
+        تشغيل الإرسال إلى واتساب
+      </label>
+      <button class="btn btn-primary" type="submit">حفظ الأرقام</button>
+    </div>
+
+    {% set _groups = wa_groups if wa_groups is defined and wa_groups else [
+      ('hotel', 'الفندق والحجوزات'),
+      ('sales', 'المطعم والكاشير'),
+      ('inventory', 'المخزون والمشتريات'),
+      ('finance', 'المالية والخزينة'),
+      ('hr', 'الموارد البشرية'),
+      ('customers', 'العملاء والولاء'),
+      ('messaging', 'الرسائل والشات'),
+      ('system', 'النظام والتنبيهات'),
+      ('events', 'أحداث المنظومة')
+    ] %}
+    {% set _gphones = wa_group_phones if wa_group_phones is defined and wa_group_phones else {} %}
+
+    <input type="hidden" name="action" value="save_groups" />
+    <fieldset style="border:1px solid #86efac;border-radius:12px;padding:0.75rem 0.85rem;margin:0.85rem 0 0;background:#fff">
+      <legend style="padding:0 0.4rem;font-weight:800;color:#166534;font-size:0.92rem">أرقام الأقسام</legend>
+      <div class="activity-wa-grid">
+        {% for gid, glabel in _groups %}
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:0.55rem 0.65rem">
+          <label for="wa-g-{{ gid }}" style="display:block;font-weight:700;margin-bottom:0.3rem">{{ glabel }}</label>
+          <input
+            id="wa-g-{{ gid }}"
+            type="tel"
+            name="phone_group_{{ gid }}"
+            dir="ltr"
+            placeholder="091xxxxxxx, 092xxxxxxx"
+            value="{{ _gphones.get(gid, '') if _gphones is mapping else '' }}"
+            style="width:100%;box-sizing:border-box;min-height:2.4rem;padding:0.45rem 0.55rem;border:1px solid #94a3b8;border-radius:8px;background:#fff"
+          />
+        </div>
+        {% endfor %}
+      </div>
+    </fieldset>
+
+    <details style="margin-top:0.75rem">
+      <summary style="cursor:pointer;font-size:0.85rem;color:#64748b">رقم احتياطي عام (اختياري)</summary>
+      <div style="margin-top:0.45rem">
+        <label for="wa-forward-phone">يُستخدم إن لم يُضبط رقم القسم</label>
+        <input
+          id="wa-forward-phone"
+          type="tel"
+          name="phone"
+          dir="ltr"
+          placeholder="091xxxxxxx"
+          value="{{ wa_forward_phone or '' }}"
+          style="margin-top:0.25rem;min-width:12rem;min-height:2.4rem;padding:0.4rem 0.55rem;border:1px solid #cbd5e1;border-radius:8px"
+        />
+      </div>
+    </details>
+  </form>
+
+  <fieldset id="wa-event-custom" style="border:1px solid #fbbf24;border-radius:12px;padding:0.75rem 0.85rem;margin:0.85rem 0 0;background:#fffbeb">
+    <legend style="padding:0 0.4rem;font-weight:800;color:#92400e;font-size:0.92rem">تخصيص إشعار معيّن — اختر الإشعار + أرقام + الرسالة</legend>
+    <p class="muted" style="margin:0 0 0.65rem;font-size:0.82rem">
+      اختر أي إشعار من القائمة، أدخل الأرقام (فاصلة للفصل)، وعدّل نص الرسالة إن رغبت.
+      المتغيرات المتاحة:
+      <code>{title}</code> · <code>{detail}</code> · <code>{label}</code> · <code>{store_name}</code> · <code>{event_key}</code>
+    </p>
+
+    <form method="post" action="/admin/activity/whatsapp-settings" style="display:grid;gap:0.65rem">
+      <input type="hidden" name="action" value="save_override" />
+      <div>
+        <label for="wa-event-key" style="display:block;font-weight:700;margin-bottom:0.3rem">الإشعار</label>
+        <select
+          id="wa-event-key"
+          name="event_key"
+          required
+          style="width:100%;max-width:40rem;min-height:2.4rem;padding:0.45rem 0.55rem;border:1px solid #94a3b8;border-radius:8px;background:#fff"
+        >
+          <option value="">— اختر الإشعار —</option>
+          {% for ek, elabel in (wa_event_choices or []) %}
+          <option value="{{ ek }}" {% if wa_edit_override and wa_edit_override.event_key == ek %}selected{% endif %}>
+            {{ elabel }} ({{ ek }})
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="wa-event-phones" style="display:block;font-weight:700;margin-bottom:0.3rem">أرقام واتساب (واحد أو أكثر)</label>
+        <input
+          id="wa-event-phones"
+          type="tel"
+          name="event_phones"
+          dir="ltr"
+          required
+          placeholder="091xxxxxxx, 092xxxxxxx, 094xxxxxxx"
+          value="{{ wa_edit_override.phones if wa_edit_override else '' }}"
+          style="width:100%;max-width:40rem;box-sizing:border-box;min-height:2.4rem;padding:0.45rem 0.55rem;border:1px solid #94a3b8;border-radius:8px;background:#fff"
+        />
+      </div>
+      <div>
+        <label for="wa-event-message" style="display:block;font-weight:700;margin-bottom:0.3rem">نص رسالة واتساب</label>
+        <textarea
+          id="wa-event-message"
+          name="event_message"
+          rows="7"
+          dir="rtl"
+          style="width:100%;max-width:40rem;box-sizing:border-box;padding:0.55rem;border:1px solid #94a3b8;border-radius:8px;background:#fff;font:inherit;line-height:1.55"
+        >{{ wa_edit_override.message_body if wa_edit_override else (wa_default_message or '') }}</textarea>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:0.5rem">
+        <button class="btn btn-primary" type="submit">
+          {% if wa_edit_override %}تحديث التخصيص{% else %}إضافة التخصيص{% endif %}
+        </button>
+        {% if wa_edit_override %}
+        <a class="btn" href="/admin/activity#wa-event-custom">إلغاء التعديل</a>
+        {% endif %}
+      </div>
+    </form>
+
+    {% if wa_event_overrides %}
+    <div class="sticky-table-wrap" style="margin-top:1rem">
+      <table style="width:100%;font-size:0.88rem;border-collapse:separate;border-spacing:0">
+        <thead>
+          <tr>
+            <th style="text-align:right;padding:0.4rem;background:#fef3c7">الإشعار</th>
+            <th style="text-align:right;padding:0.4rem;background:#fef3c7">الأرقام</th>
+            <th style="text-align:right;padding:0.4rem;background:#fef3c7;width:9rem"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for o in wa_event_overrides %}
+          <tr style="border-bottom:1px solid #fde68a">
+            <td style="padding:0.45rem;vertical-align:top">
+              <strong>{{ o.label_ar }}</strong>
+              <div class="muted" style="font-size:0.75rem" dir="ltr">{{ o.event_key }}</div>
+            </td>
+            <td style="padding:0.45rem;vertical-align:top" dir="ltr">{{ o.phones }}</td>
+            <td style="padding:0.45rem;vertical-align:top">
+              <div style="display:flex;flex-wrap:wrap;gap:0.3rem">
+                <a class="btn" style="padding:0.2rem 0.45rem;font-size:0.75rem" href="/admin/activity?edit={{ o.event_key|urlencode }}#wa-event-custom">تعديل</a>
+                <form method="post" action="/admin/activity/whatsapp-settings" style="margin:0" onsubmit="return confirm('حذف تخصيص هذا الإشعار؟');">
+                  <input type="hidden" name="action" value="delete_override" />
+                  <input type="hidden" name="event_key" value="{{ o.event_key }}" />
+                  <button class="btn" type="submit" style="padding:0.2rem 0.45rem;font-size:0.75rem;background:#fef2f2;border-color:#fecaca;color:#b91c1c">حذف</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="muted" style="margin:0.75rem 0 0;font-size:0.82rem">لا يوجد تخصيص بعد — اختر إشعاراً وأضف الأرقام أعلاه.</p>
+    {% endif %}
+  </fieldset>
+
+  <p class="activity-wa-forward__hint">
+    {% if wa_forward_enabled %}
+      الحالة: <strong style="color:#15803d">مفعّل</strong>
+      — كل قسم يُرسل إلى أرقامه؛ والإشعار المخصّص إلى أرقامه ورسالته.
+    {% else %}
+      الحالة: <strong>متوقف</strong>
+      — الإشعارات تظهر في هذا المركز فقط دون واتساب.
+    {% endif %}
+    {% if not messaging_enabled %}
+      <br><span style="color:#b45309">ملاحظة: فعّل المراسلات (محرك WhatsApp / إعدادات المراسلة) حتى يعمل الإرسال.</span>
+    {% endif %}
+  </p>
+</section>
 
 {% if unread_total %}
 <div class="alert" style="background:#fff7ed;border-color:#fdba74;margin-bottom:1rem">

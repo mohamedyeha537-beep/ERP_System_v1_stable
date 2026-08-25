@@ -1,26 +1,63 @@
-﻿{% extends "base.html" %}
-{% block title %}وردية الفندق{% endblock %}
+{% extends "base.html" %}
+{% block title %}جلسة الفندق{% endblock %}
 {% block head_extra %}
-<link rel="stylesheet" href="/static/shift_summary.css" />
+<link rel="stylesheet" href="/static/shift_summary.css?v=carry3" />
 <link rel="stylesheet" href="/static/hotel_dashboard.css?v=12" />
+<style>
+  .shift-close-confirm {
+    position: fixed; inset: 0; z-index: 2000;
+    display: flex; align-items: center; justify-content: center; padding: 1rem;
+  }
+  .shift-close-confirm[hidden] { display: none !important; }
+  .shift-close-confirm__backdrop {
+    position: absolute; inset: 0; background: rgba(127, 29, 29, 0.55);
+  }
+  .shift-close-confirm__dialog {
+    position: relative; z-index: 1; max-width: min(440px, 94vw); width: 100%;
+    background: linear-gradient(180deg, #fef2f2 0%, #fff 45%);
+    border: 2px solid #ef4444; border-radius: 14px;
+    padding: 1.25rem 1.35rem 1.15rem;
+    box-shadow: 0 20px 50px rgba(185, 28, 28, 0.35);
+    text-align: center;
+  }
+  .shift-close-confirm__title {
+    margin: 0 0 0.65rem; font-size: 1.15rem; font-weight: 800; color: #b91c1c;
+  }
+  .shift-close-confirm__body {
+    margin: 0 0 0.5rem; line-height: 1.65; color: #7f1d1d; font-size: 0.95rem;
+  }
+  .shift-close-confirm__hint {
+    margin: 0 0 1rem; font-size: 0.82rem; color: #991b1b; opacity: 0.9;
+  }
+  .shift-close-confirm__actions {
+    display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap;
+  }
+  .shift-close-confirm__cancel {
+    background: #fff; border: 1px solid #cbd5e1; color: #334155;
+  }
+  .shift-close-confirm__ok {
+    background: #dc2626; border-color: #b91c1c; color: #fff; font-weight: 700;
+  }
+</style>
 {% endblock %}
 {% block body %}
 <div class="apt-page-header">
   <div>
-    <h1 style="margin:0">🕐 وردية الفندق</h1>
+    <h1 style="margin:0">🕐 جلسة الفندق</h1>
     <p class="muted" style="margin:0.2rem 0 0;font-size:0.88rem">
       {% if current_slot %}{{ current_slot.name_ar }} · {{ shift_window }}{% endif %}
     </p>
   </div>
   <div class="apt-page-header__actions">
     <a class="btn" href="/admin/hotel/dashboard">لوحة الشقق</a>
+    <a class="btn" href="/pos/shift/shortages">سجل العجز</a>
     {% if requires_pin %}
     <form method="post" action="/admin/hotel/pin/logout" style="display:inline">
-      <button class="btn" type="submit">تبديل الموظف</button>
+      <button class="btn" type="submit" title="قفل الشاشة فقط — الوردية تبقى مفتوحة حتى إقفالها بعد عدّ الكاش والمصرف">🔒 قفل الشاشة</button>
     </form>
     {% endif %}
     {% if pos_perm(request)('hotel:finance:close_day') %}
-    <a class="btn" href="/admin/hotel/shift/settings">⚙️ مواعيد الورديات</a>
+    <a class="btn" href="/admin/hotel/shift/settings">⚙️ إعدادات الورديات</a>
     {% endif %}
   </div>
 </div>
@@ -28,10 +65,46 @@
 {% set active = 'shift' %}
 {% include "_hotel_nav.html" %}
 
+{% if saved == 'reopened' %}
+<div class="card" style="border-color:#93c5fd;background:#eff6ff;margin-bottom:1rem">
+  <p style="margin:0;font-weight:700;color:#1d4ed8">أُعيدت الوردية إلى مسودة. أدخل المعدود من جديد ثم أقفِل.</p>
+</div>
+{% endif %}
 {% if saved == 'opened' %}
-<div class="card" style="border-color:#86efac;background:#f0fdf4;margin-bottom:0.75rem"><p style="margin:0">تم فتح الوردية ✓</p></div>
-{% elif saved == 'closed' %}
-<div class="card" style="border-color:#86efac;background:#f0fdf4;margin-bottom:0.75rem"><p style="margin:0">تم إقفال الوردية ✓</p></div>
+<div class="card" style="border-color:#86efac;background:#f0fdf4;margin-bottom:0.75rem"><p style="margin:0">تم افتتاح الجلسة ✓ — يمكنك الآن إدارة الحجوزات والتحصيل على هذه الجلسة.</p></div>
+{% elif closed_shift_id or saved == 'closed' %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4;margin-bottom:0.75rem">
+  <p style="margin:0;font-weight:600">تم إقفال الجلسة{% if closed_shift_id %} #{{ closed_shift_id }}{% endif %} بنجاح ✓</p>
+  {% if closed_shift and closed_shift.close_destination == 'NEXT_SHIFT' %}
+  <p style="margin:0.45rem 0 0;font-size:0.88rem;line-height:1.5;color:#0e7490">
+    رُحّل الرصيد <strong>للوردية التالية</strong> — لا يذهب لخزينة الفندق حتى يختار آخر موظف «ترحيل إلى الخزينة».
+  </p>
+  {% else %}
+  <p style="margin:0.45rem 0 0;font-size:0.88rem;line-height:1.5;color:#166534">
+    المبالغ <strong>معلّقة</strong> على محفظة الاستقبال حتى يعتمدها أمين الخزينة — بعدها تنتقل إلى حساب خزينة الفندق (كاش/مصرف).
+  </p>
+  {% endif %}
+  {% if closed_shift %}
+  {% if closed_shift.cash_difference is not none and closed_shift.cash_difference < 0 %}
+  <p style="margin:0.5rem 0 0;color:#b91c1c;font-size:0.9rem">عجز كاش: {{ '%.3f'|format(closed_shift.cash_difference) }} د.ل (متوقع {{ '%.3f'|format(closed_shift.expected_cash or 0) }} — معدود {{ '%.3f'|format(closed_shift.counted_cash or 0) }}) — <a href="/pos/shift/shortages">عرض في سجل العجز</a></p>
+  {% elif closed_shift.cash_difference is not none and closed_shift.cash_difference > 0 %}
+  <p style="margin:0.5rem 0 0;color:#15803d;font-size:0.9rem">فائض كاش: {{ '%.3f'|format(closed_shift.cash_difference) }} د.ل</p>
+  {% endif %}
+  {% if closed_shift.bank_difference is not none and closed_shift.bank_difference < 0 %}
+  <p style="margin:0.35rem 0 0;color:#b91c1c;font-size:0.9rem">عجز مصرف: {{ '%.3f'|format(closed_shift.bank_difference) }} د.ل</p>
+  {% elif closed_shift.bank_difference is not none and closed_shift.bank_difference > 0 %}
+  <p style="margin:0.35rem 0 0;color:#15803d;font-size:0.9rem">فائض مصرف: {{ '%.3f'|format(closed_shift.bank_difference) }} د.ل</p>
+  {% endif %}
+  <p style="margin:0.65rem 0 0;display:flex;flex-wrap:wrap;gap:0.45rem">
+    <a class="btn btn-primary" href="/admin/hotel/shift/{{ closed_shift_id }}/report">تقرير الجلسة / اعتماد الخزينة</a>
+    <a class="btn" href="/reports/hotel-shifts">قائمة جلسات الفندق</a>
+  </p>
+  {% endif %}
+</div>
+{% elif saved == 'handover' %}
+<div class="card" style="border-color:#67e8f9;background:#ecfeff;margin-bottom:0.75rem"><p style="margin:0">تم تسجيل تسليم العهدة — بانتظار تأكيد المستلم ✓</p></div>
+{% elif saved == 'bank' %}
+<div class="card" style="border-color:#7dd3fc;background:#f0f9ff;margin-bottom:0.75rem"><p style="margin:0">تم حفظ إعلان التحويل المصرفي — بانتظار اعتماد الخزينة ✓</p></div>
 {% elif saved == 'expense' %}
 <div class="card" style="border-color:#86efac;background:#f0fdf4;margin-bottom:0.75rem"><p style="margin:0">تم تسجيل المصروف ✓</p></div>
 {% endif %}
@@ -41,118 +114,305 @@
 
 {% if overdue and open_shift %}
 <div class="fd-alert fd-alert--danger" role="alert">
-  <strong>⚠️ تأخر إقفال الوردية:</strong> مر {{ overdue_minutes }} دقيقة على موعد الإقفال.
+  <strong>⚠️ تأخر إقفال الجلسة:</strong> مر {{ overdue_minutes }} دقيقة على موعد الإقفال.
+</div>
+{% endif %}
+
+{% if open_shift and debt_due_count|default(0) > 0 %}
+<div class="card" style="margin-bottom:0.75rem;background:#fff7ed;border-color:#fdba74">
+  <h2 style="margin:0 0 0.4rem;font-size:1.05rem;color:#9a3412">تذكير تحصيل الذمم لهذه الوردية</h2>
+  <p style="margin:0 0 0.55rem;font-size:0.9rem;line-height:1.55">
+    يوجد <strong>{{ debt_due_count }}</strong> دين يحتاج متابعة/مطالبة اليوم
+    (موعد تذكير حان أو بلا موعد — يُراجع كل وردية).
+  </p>
+  <a class="btn btn-primary" href="/admin/hotel/debts" style="background:#ea580c;border-color:#c2410c">فتح قائمة ذمم الحجوزات</a>
 </div>
 {% endif %}
 
 {% if not open_shift %}
 <div class="card" style="margin-bottom:1rem;background:#eff6ff;border-color:#93c5fd">
-  <h2 style="margin-top:0;font-size:1.05rem">فتح وردية جديدة</h2>
+  <h2 style="margin-top:0;font-size:1.05rem">افتتاح جلسة جديدة</h2>
   {% if requires_pin %}
   <p class="muted">يجب إدخال الرقم السري أولاً.</p>
   <a class="btn btn-primary" href="/admin/hotel/pin">دخول بالرقم السري</a>
   {% else %}
-  <p class="muted">الوردية الحالية: <strong>{{ current_slot.name_ar }}</strong> ({{ shift_window }})</p>
-  <a class="btn btn-primary" href="/admin/hotel/shift/start">فتح الوردية</a>
+  <p class="muted">الوردية الزمنية: <strong>{{ current_slot.name_ar }}</strong> ({{ shift_window }})</p>
+  <a class="btn btn-primary" href="/admin/hotel/shift/start">افتتاح الجلسة</a>
   {% endif %}
 </div>
 {% else %}
 
-<section class="quick-grid hotel-stat-grid" aria-label="ملخص الوردية">
+<div class="card" style="margin-bottom:0.85rem;background:#eff6ff;border-color:#93c5fd">
+  <p style="margin:0;font-size:0.9rem">
+    الجلسة مفتوحة
+    {% if open_shift.employee %} — الموظف: <strong>{{ open_shift.employee.full_name_ar }}</strong>{% endif %}
+    · كل قبض/صرف يُسجَّل على هذه الجلسة
+  </p>
+  <p style="margin:0.45rem 0 0;display:flex;flex-wrap:wrap;gap:0.45rem">
+    <a class="btn btn-primary" href="#hotel-shift-expense" style="background:#dc2626;border-color:#b91c1c">− تسجيل مصروفات</a>
+    <a class="btn" href="/admin/shift-expense-categories">⚙ بنود المصروف</a>
+    <a class="btn" href="/admin/hotel/shift/{{ open_shift.id }}/report">📊 تقرير مالي للجلسة</a>
+    <a class="btn" href="/admin/shift-variances">العجوزات والزيادات</a>
+    <a class="btn" href="/reports/hotel-shifts">كل جلسات الفندق</a>
+  </p>
+</div>
+
+<section class="quick-grid hotel-stat-grid" aria-label="ملخص الجلسة">
   <div class="qlink qlink--static" style="--accent:#22c55e">
     <div class="qicon qicon--stat">{{ '%.0f'|format(summary.total_revenue) }}</div>
-    <div><div class="qtitle">إيراد</div><div class="qhint">تحصيلات الحجز</div></div>
+    <div><div class="qtitle">قبض الجلسة</div><div class="qhint">تحصيلات الحجوزات</div></div>
   </div>
   <div class="qlink qlink--static" style="--accent:#ef4444">
     <div class="qicon qicon--stat">{{ '%.0f'|format(summary.total_expenses) }}</div>
-    <div><div class="qtitle">مصروف</div><div class="qhint">{{ summary.expense_count }} حركة</div></div>
+    <div><div class="qtitle">مصروفات</div><div class="qhint">{{ summary.expense_count }} حركة</div></div>
   </div>
   <div class="qlink qlink--static" style="--accent:#6366f1">
     <div class="qicon qicon--stat">{{ '%.0f'|format(summary.net_total) }}</div>
     <div><div class="qtitle">صافي</div><div class="qhint">{{ summary.payment_count }} قبض</div></div>
   </div>
-  {% if activity %}
-  <div class="qlink qlink--static" style="--accent:#f59e0b">
-    <div class="qicon qicon--stat">{{ activity.meals_settled_count }}</div>
-    <div><div class="qtitle">وجبات</div><div class="qhint">مُسوّاة على الغرف</div></div>
-  </div>
-  <div class="qlink qlink--static" style="--accent:#14b8a6">
-    <div class="qicon qicon--stat">{{ activity.laundry_count }}</div>
-    <div><div class="qtitle">مغسلة</div><div class="qhint">خدمات</div></div>
+  {% if open_shift.opening_cash is not none %}
+  <div class="qlink qlink--static" style="--accent:#0ea5e9">
+    <div class="qicon qicon--stat">{{ '%.0f'|format(open_shift.opening_cash or 0) }}</div>
+    <div><div class="qtitle">افتتاحي كاش</div><div class="qhint">رصيد بداية الجلسة</div></div>
   </div>
   {% endif %}
 </section>
 
-<div class="card" style="margin-bottom:1rem">
-  <h2 style="margin-top:0">إقفال الوردية</h2>
-  <p class="muted" style="font-size:0.88rem">راجع كل بند وأدخل المعدود الفعلي — كاش، مصرف، حجوزات، وجبات، مغسلة، خدمات.</p>
+{% include "_shift_handover_panel.html" %}
+
+<div class="card" id="hotel-close-panel" style="margin-bottom:1rem;border:2px solid #0f766e;background:#f0fdfa">
+  <h2 style="margin-top:0;color:#115e59">إقفال الجلسة — عدّ الكاش والمصرف فقط</h2>
+  <p style="margin:0 0 0.75rem;font-size:0.9rem;line-height:1.55;color:#134e4a">
+    أدخل <strong>المعدود الفعلي</strong> لرصيد الكاش ورصيد المصرف في هذه الجلسة ثم أكّد الإقفال.
+    المتوقع = رصيد الافتتاح + قبض الجلسة − مصروفات الجلسة.
+    {% if handover_progress and handover_progress.rows %}
+    بعد التسليم المسبق أدخل <strong>المتبقي فقط</strong> (حركات بعد آخر تسليم).
+    {% endif %}
+    الوجبات والمغسلة تُدار من صفحة الحجز ولا تُطلب هنا.
+  </p>
+  <p class="muted" style="margin:0 0 0.75rem;font-size:0.86rem;color:#0f766e">
+    ℹ️ «قفل الشاشة» يخفي العمل فقط · «إقفال الوردية» يغلق الجلسة نهائياً بعد العد.
+  </p>
+  {% if open_shift and open_shift.opening_cash is not none %}
+  <p class="muted" style="margin:0 0 0.75rem;font-size:0.86rem">
+    رصيد الكاش الافتتاحي لهذه الجلسة: <strong>{{ '%.3f'|format(open_shift.opening_cash or 0) }} د.ل</strong>
+    {% if open_shift.opening_bank %}
+    · مصرف افتتاحي: <strong>{{ '%.3f'|format(open_shift.opening_bank or 0) }} د.ل</strong>
+    {% endif %}
+    {% if open_shift.received_from_shift_id %}
+    <span style="color:#0e7490"> (مستلم من الجلسة #{{ open_shift.received_from_shift_id }})</span>
+    {% endif %}
+  </p>
+  {% endif %}
+
+  {% if close_rows and close_rows|length > 0 %}
+  {% set ns_neg = namespace(any=false) %}
+  {% for row in close_rows if row.closable and not row.is_count and (row.expected|float) < -0.0005 %}{% set ns_neg.any = true %}{% endfor %}
+  {% if ns_neg.any %}
+  <div class="card" style="margin:0 0 0.85rem;padding:0.75rem 0.9rem;background:#fff7ed;border:1px solid #fdba74;border-radius:10px">
+    <p style="margin:0;font-weight:700;color:#9a3412">⚠️ جلسة صرف/استرداد — المتوقع سالب</p>
+    <p style="margin:0.4rem 0 0;font-size:0.88rem;line-height:1.55;color:#7c2d12">
+      المتوقع السالب يعني أنك <strong>أرجعت للنزلاء</strong> أكثر مما قبضت في هذه الجلسة.
+      في خانة «المعدود» أدخل <strong>ما في الدرج فعلاً الآن</strong> — غالباً <strong>0</strong> إذا صرفت كل العهدة.
+      <strong>لا تُدخل سالباً</strong> لمطابقة المتوقع؛ النظام يرفض المعدود السالب ولن يُقفل الجلسة.
+      قد يظهر «فائض» في الفرق — يُراجعه أمين الخزينة.
+    </p>
+  </div>
+  {% endif %}
+  <div class="shift-close-summary-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.55rem;margin-bottom:0.85rem">
+    <div class="card" style="margin:0;padding:0.65rem;background:#fff">
+      <div class="muted" style="font-size:0.78rem">🧮 إجمالي المتوقع (كاش+مصرف)</div>
+      <div style="font-weight:800;font-size:1.15rem" id="hotel-total-expected">
+        {% set exp_sum = namespace(v=0) %}
+        {% for row in close_rows if row.closable and not row.is_count %}{% set exp_sum.v = exp_sum.v + (row.expected|float) %}{% endfor %}
+        {{ '%.3f'|format(exp_sum.v) }} <small>د.ل</small>
+      </div>
+    </div>
+    <div class="card" style="margin:0;padding:0.65rem;background:#fff">
+      <div class="muted" style="font-size:0.78rem">✅ إجمالي المعدود</div>
+      <div style="font-weight:800;font-size:1.15rem" id="hotel-total-counted">0.000 <small>د.ل</small></div>
+    </div>
+    <div class="card" style="margin:0;padding:0.65rem;background:#fef2f2;border-color:#fecaca">
+      <div class="muted" style="font-size:0.78rem;color:#991b1b">📉 إجمالي العجز</div>
+      <div style="font-weight:800;font-size:1.15rem;color:#b91c1c" id="hotel-total-deficit">0.000 <small>د.ل</small></div>
+    </div>
+    <div class="card" style="margin:0;padding:0.65rem;background:#ecfdf5;border-color:#a7f3d0">
+      <div class="muted" style="font-size:0.78rem;color:#065f46">📈 إجمالي الفائض</div>
+      <div style="font-weight:800;font-size:1.15rem;color:#15803d" id="hotel-total-surplus">0.000 <small>د.ل</small></div>
+    </div>
+  </div>
 
   <form method="post" action="/admin/hotel/shift/close" id="hotel-close-form" style="display:grid;gap:0.75rem">
-    <input type="hidden" name="counted_cash" id="hid-counted-cash" value="0" />
-    <input type="hidden" name="counted_bank" id="hid-counted-bank" value="0" />
-    <input type="hidden" name="counted_bookings" id="hid-counted-bookings" value="0" />
-    <input type="hidden" name="counted_meals" id="hid-counted-meals" value="0" />
-    <input type="hidden" name="counted_laundry" id="hid-counted-laundry" value="0" />
-    <input type="hidden" name="counted_services" id="hid-counted-services" value="0" />
-
     {% include "hotel/_shift_close_sections.html" %}
 
-    <label>ملاحظة الإقفال
-      <textarea name="closing_note" rows="2" placeholder="اختياري"></textarea>
+    <label>بيان الإقفال
+      <textarea name="closing_note" rows="2" required minlength="2" maxlength="400" placeholder="بيان الإغلاق إلزامي — مثال: تسليم الدرج لموظف الليل"></textarea>
     </label>
-    <button class="btn btn-primary" type="submit" style="width:fit-content" id="hotel-close-btn">✓ إقفال الوردية وتأكيد المعدود</button>
+    {% include "_shift_close_destination.html" %}
+    {% if close_policy is defined and not close_policy.any_allowed %}
+    <button class="btn" type="button" disabled style="width:fit-content;font-size:1.05rem;padding:0.65rem 1.2rem" id="hotel-close-btn">الإقفال غير متاح — راجع الأدمن</button>
+    {% elif close_policy is defined and close_policy.allow_carry and not close_policy.allow_treasury %}
+    <button class="btn btn-primary" type="submit" style="width:fit-content;font-size:1.05rem;padding:0.65rem 1.2rem" id="hotel-close-btn">🔁 ترحيل الرصيد للجلسة التالية</button>
+    {% elif close_policy is defined and close_policy.allow_treasury and not close_policy.allow_carry %}
+    <button class="btn btn-primary" type="submit" style="width:fit-content;font-size:1.05rem;padding:0.65rem 1.2rem" id="hotel-close-btn">✓ إقفال عادي بعد تأكيد المعدود</button>
+    {% else %}
+    <button class="btn btn-primary" type="submit" style="width:fit-content;font-size:1.05rem;padding:0.65rem 1.2rem" id="hotel-close-btn">✓ إقفال الجلسة بعد تأكيد المعدود</button>
+    {% endif %}
   </form>
+  {% include "_shift_bank_declare.html" %}
+
+  <div id="hotel-close-confirm-modal" class="shift-close-confirm" hidden aria-hidden="true">
+    <div class="shift-close-confirm__backdrop" data-hotel-close-cancel tabindex="-1"></div>
+    <div class="shift-close-confirm__dialog" role="alertdialog" aria-modal="true" aria-labelledby="hotel-close-confirm-title">
+      <div style="font-size:2rem;line-height:1;margin-bottom:0.35rem" aria-hidden="true">⚠️</div>
+      <h2 id="hotel-close-confirm-title" class="shift-close-confirm__title">هل تريد إقفال جلسة الفندق؟</h2>
+      <p class="shift-close-confirm__body">
+        سيتم <strong>إقفال الجلسة نهائياً</strong> بعد حفظ معدود الكاش والمصرف (مثل المطعم).
+        العجز إن وُجد يُخصم من راتب موظف الوردية تلقائياً.
+      </p>
+      <p class="shift-close-confirm__hint" id="hotel-close-confirm-summary"></p>
+      <p class="shift-close-confirm__hint">Enter لا يُقفل الجلسة — اضغط الزر الأحمر للتأكيد فقط.</p>
+      <div class="shift-close-confirm__actions">
+        <button type="button" class="btn shift-close-confirm__cancel" data-hotel-close-cancel>إلغاء — متابعة العد</button>
+        <button type="button" class="btn shift-close-confirm__ok" id="hotel-close-confirm-ok">نعم، إقفال الجلسة</button>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <div class="card" style="border-color:#fecaca;background:#fef2f2;margin:0">
+    <p style="margin:0;color:#b91c1c;font-weight:600">
+      {{ close_rows_error or "تعذّر تحميل بنود العدّ (كاش/مصرف). لا يمكن الإقفال الآن — حدّث الصفحة أو راجع المدير." }}
+    </p>
+  </div>
+  {% endif %}
 </div>
 
-<div class="card" style="margin-bottom:1rem">
-  <h2 style="margin-top:0">مصروف وردية</h2>
-  <form method="post" action="/admin/hotel/shift/expense" class="row" style="gap:0.5rem;flex-wrap:wrap;align-items:flex-end">
-    <label>المبلغ *<input name="amount" type="number" step="0.001" min="0.001" required /></label>
+<div class="card" id="hotel-shift-expense" style="margin-bottom:1rem;border:2px solid #fecaca;background:#fff7ed;scroll-margin-top:1rem">
+  <h2 style="margin-top:0;color:#9a3412">تسجيل مصروفات الجلسة</h2>
+  <p class="muted" style="margin:0 0 0.75rem;font-size:0.88rem;line-height:1.5">
+    كل بند مربوط بحساب مصروف فعلي في الدليل — يُخصم من الأرباح في الميزانية.
+    بند السلفة يطلب اختيار الموظف ويُخصم من راتبه.
+    <a href="/admin/shift-expense-categories">إدارة البنود من الأدمن</a>
+  </p>
+  {% if shift_expense_categories %}
+  <form method="post" action="/admin/hotel/shift/expense" class="row" id="hotel-shift-expense-form"
+    style="gap:0.5rem;flex-wrap:wrap;align-items:flex-end">
+    <label>المبلغ *<input name="amount" type="number" step="0.001" min="0.001" required placeholder="0.000" /></label>
     <label>وسيلة الدفع *
       <select name="payment_method_id" required>
         <option value="">— اختر —</option>
-        {% for m in methods %}<option value="{{ m.id }}">{{ m.name_ar }}</option>{% endfor %}
+        {% for m in methods %}<option value="{{ m.id }}">{{ pos_wallet_label(m) }}</option>{% endfor %}
       </select>
     </label>
-    <label>البند<input name="category" value="مصروف وردية" /></label>
+    <label>البند *
+      <select name="category" id="hotel-shift-expense-category" required>
+        <option value="">— اختر البند —</option>
+        {% for key, label in shift_expense_categories %}
+        <option value="{{ key }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label id="hotel-shift-expense-employee-wrap" hidden>الموظف (سلفة) *
+      <select name="employee_id" id="hotel-shift-expense-employee">
+        <option value="">— اختر الموظف —</option>
+        {% for e in shift_expense_employees %}
+        <option value="{{ e.id }}">{{ e.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
     <label>ملاحظة<input name="note" placeholder="اختياري" /></label>
-    <button class="btn" type="submit">تسجيل مصروف</button>
+    <button class="btn btn-primary" type="submit" style="background:#dc2626;border-color:#b91c1c;font-weight:700">تسجيل المصروف</button>
   </form>
+  <script>
+  (function () {
+    var advanceKeys = {{ (shift_expense_advance_keys or ['advance']) | tojson }};
+    var cat = document.getElementById("hotel-shift-expense-category");
+    var wrap = document.getElementById("hotel-shift-expense-employee-wrap");
+    var emp = document.getElementById("hotel-shift-expense-employee");
+    function sync() {
+      if (!cat || !wrap || !emp) return;
+      var isAdv = advanceKeys.indexOf(cat.value) >= 0;
+      wrap.hidden = !isAdv;
+      emp.required = isAdv;
+      if (!isAdv) emp.value = "";
+    }
+    if (cat) cat.addEventListener("change", sync);
+    sync();
+  })();
+  </script>
+  {% else %}
+  <p class="muted" style="color:#b91c1c;margin:0">
+    لا بنود مصروف مفعّلة.
+    <a href="/admin/shift-expense-categories">أضف البنود من الإدارة</a>
+    واربط كل بند بحساب مصروف.
+  </p>
+  {% endif %}
   {% if expenses %}
-  <table style="width:100%;margin-top:0.75rem;font-size:0.88rem">
-    <thead><tr><th>الوقت</th><th>البند</th><th>المبلغ</th></tr></thead>
+  <table style="width:100%;margin-top:0.85rem;font-size:0.88rem">
+    <thead><tr><th>الوقت</th><th>البند</th><th>الوسيلة</th><th>المبلغ</th><th>ملاحظة</th></tr></thead>
     <tbody>
     {% for e in expenses %}
     <tr>
       <td>{{ pos_format_dt(e.created_at, '%H:%M') }}</td>
       <td>{{ e.expense_category or '—' }}</td>
-      <td>{{ '%.3f'|format(e.amount) }} د.ل</td>
+      <td>{% if e.method %}{{ pos_wallet_label(e.method) }}{% else %}—{% endif %}</td>
+      <td style="color:#b91c1c;font-weight:700">− {{ '%.3f'|format(e.amount) }} د.ل</td>
+      <td class="muted">{{ e.notes or e.note or '—' }}</td>
     </tr>
     {% endfor %}
     </tbody>
   </table>
+  {% else %}
+  <p class="muted" style="margin:0.75rem 0 0;font-size:0.86rem">لا مصروفات مسجّلة لهذه الجلسة بعد.</p>
   {% endif %}
 </div>
 {% endif %}
 
 {% if recent %}
 <div class="card">
-  <h2 style="margin-top:0">آخر الورديات</h2>
+  <h2 style="margin-top:0">آخر الجلسات <span class="muted" style="font-size:0.85rem;font-weight:500">— الأحدث أولاً</span></h2>
+  <div class="sticky-table-wrap">
   <table style="width:100%;font-size:0.88rem">
-    <thead><tr><th>الوردية</th><th>فتح</th><th>إقفال</th><th>إيراد</th><th>مصروف</th><th></th></tr></thead>
+    <thead>
+      <tr>
+        <th>رقم الوردية</th>
+        <th>تاريخها</th>
+        <th>اسم الموظف</th>
+        <th>وقت فتح الوردية</th>
+        <th>وقت قفل الوردية</th>
+        <th>إيراد</th>
+        <th>مصروف</th>
+        <th></th>
+      </tr>
+    </thead>
     <tbody>
     {% for s in recent %}
     <tr>
-      <td>{{ s.shift_name_ar }}</td>
-      <td>{{ pos_format_dt(s.opened_at, '%Y-%m-%d %H:%M') }}</td>
-      <td>{% if s.closed_at %}{{ pos_format_dt(s.closed_at, '%Y-%m-%d %H:%M') }}{% else %}<span class="hotel-badge hotel-badge--warn">مفتوحة</span>{% endif %}</td>
+      <td>
+        <strong>#{{ s.id }}</strong>
+        <div class="muted" style="font-size:0.78rem">وردية {{ s.shift_number }} — {{ s.shift_name_ar }}</div>
+      </td>
+      <td dir="ltr" style="font-variant-numeric:tabular-nums">{{ pos_format_dt(s.opened_at, '%Y-%m-%d') }}</td>
+      <td>{% if s.employee %}{{ s.employee.full_name_ar }}{% elif s.user %}{{ s.user.username }}{% else %}—{% endif %}</td>
+      <td dir="ltr" style="font-variant-numeric:tabular-nums">{{ pos_format_dt(s.opened_at, '%H:%M:%S') }}</td>
+      <td dir="ltr" style="font-variant-numeric:tabular-nums">{% if s.closed_at %}{{ pos_format_dt(s.closed_at, '%H:%M:%S') }}{% else %}<span class="hotel-badge hotel-badge--warn">مفتوحة</span>{% endif %}</td>
       <td>{% if s.total_revenue is not none %}{{ '%.3f'|format(s.total_revenue) }}{% else %}—{% endif %}</td>
       <td>{% if s.total_expenses is not none %}{{ '%.3f'|format(s.total_expenses) }}{% else %}—{% endif %}</td>
-      <td><a class="btn" href="/admin/hotel/shift/{{ s.id }}/report">تقرير</a></td>
+      <td style="white-space:nowrap">
+        <a class="btn" href="/admin/hotel/shift/{{ s.id }}/report">تقرير</a>
+        {% if s.close_destination == 'NEXT_SHIFT' %}
+        <span class="badge" style="background:#ecfeff;color:#0e7490;font-size:0.72rem;margin-inline-start:0.25rem">وردية تالية{% if s.carried_to_shift_id %} → #{{ s.carried_to_shift_id }}{% endif %}</span>
+        {% elif s.closed_at and not s.treasury_handoff_at %}
+        <span class="badge" style="background:#fef3c7;color:#92400e;font-size:0.72rem;margin-inline-start:0.25rem">بانتظار الخزينة</span>
+        {% elif s.treasury_handoff_at %}
+        <span class="badge" style="background:#dcfce7;color:#166534;font-size:0.72rem;margin-inline-start:0.25rem">مُعتمدة</span>
+        {% endif %}
+      </td>
     </tr>
     {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 {% endif %}
 
@@ -160,53 +420,155 @@
 (function () {
   function num(v) {
     var x = parseFloat(String(v || "").replace(",", "."));
-    return isNaN(x) ? 0 : x;
+    return isNaN(x) ? null : x;
+  }
+  function money(n) {
+    return (Math.round(n * 1000) / 1000).toFixed(3);
   }
   function recalc() {
+    var countedMoney = 0;
+    var expectedMoney = 0;
     document.querySelectorAll(".hotel-counted-input").forEach(function (inp) {
       var row = inp.closest("[data-closable]");
       if (!row) return;
       var expected = num(row.getAttribute("data-expected"));
+      if (expected === null) expected = 0;
       var isCount = row.getAttribute("data-is-count") === "1";
       var counted = num(inp.value);
-      var diff = isCount ? counted - expected : counted - expected;
       var diffEl = row.querySelector(".hotel-close-diff");
-      if (diffEl) {
-        if (isCount) diffEl.textContent = (diff >= 0 ? "+" : "") + diff.toFixed(0);
-        else diffEl.textContent = diff.toFixed(3) + " د.ل";
-        diffEl.style.color = Math.abs(diff) < 0.0005 ? "#15803d" : "#b45309";
+      if (!diffEl) return;
+      if (!isCount) expectedMoney += expected;
+      if (counted === null) {
+        diffEl.textContent = "—";
+        diffEl.style.color = "";
+        return;
       }
+      if (!isCount) countedMoney += counted;
+      var diff = counted - expected;
+      if (isCount) diffEl.textContent = (diff >= 0 ? "+" : "") + diff.toFixed(0);
+      else diffEl.textContent = diff.toFixed(3) + " د.ل";
+      diffEl.style.color = Math.abs(diff) < 0.0005 ? "#15803d" : "#b45309";
     });
+    var deficit = Math.max(0, expectedMoney - countedMoney);
+    var surplus = Math.max(0, countedMoney - expectedMoney);
+    var elC = document.getElementById("hotel-total-counted");
+    var elD = document.getElementById("hotel-total-deficit");
+    var elS = document.getElementById("hotel-total-surplus");
+    if (elC) elC.innerHTML = money(countedMoney) + " <small>د.ل</small>";
+    if (elD) elD.innerHTML = money(deficit) + " <small>د.ل</small>";
+    if (elS) elS.innerHTML = money(surplus) + " <small>د.ل</small>";
   }
   document.querySelectorAll(".hotel-counted-input").forEach(function (inp) {
     inp.addEventListener("input", recalc);
   });
+  recalc();
+
   var form = document.getElementById("hotel-close-form");
+  var modal = document.getElementById("hotel-close-confirm-modal");
+  var summaryEl = document.getElementById("hotel-close-confirm-summary");
+  var pendingSubmit = false;
+
+  function closeModal() {
+    if (!modal) return;
+    modal.hidden = true;
+    modal.setAttribute("aria-hidden", "true");
+  }
+  function openModal(lines) {
+    if (!modal) return;
+    if (summaryEl) summaryEl.textContent = lines.join(" · ");
+    modal.hidden = false;
+    modal.setAttribute("aria-hidden", "false");
+    var ok = document.getElementById("hotel-close-confirm-ok");
+    if (ok) ok.focus();
+  }
+
   if (form) {
     form.addEventListener("submit", function (e) {
-      var map = {
-        cash: "hid-counted-cash",
-        bank: "hid-counted-bank",
-        bookings: "hid-counted-bookings",
-        meals: "hid-counted-meals",
-        laundry: "hid-counted-laundry",
-        services: "hid-counted-services"
-      };
-      var ok = true;
+      if (pendingSubmit) return;
+      e.preventDefault();
+      var missing = [];
+      var lines = [];
+      var cashOk = false;
+      var bankOk = false;
+      var blockedNegative = false;
       document.querySelectorAll(".hotel-counted-input").forEach(function (inp) {
-        var field = inp.getAttribute("data-field");
-        var hid = document.getElementById(map[field] || "");
-        if (hid) hid.value = inp.value || "0";
-        if (!inp.value && inp.value !== "0") ok = false;
+        var field = inp.getAttribute("data-field") || "";
+        var raw = String(inp.value || "").trim();
+        var row = inp.closest("[data-closable]");
+        var nameEl = row ? row.querySelector(".shift-close-wallet-row__name") : null;
+        var label = nameEl ? nameEl.textContent.replace(/\*/g, "").trim() : field;
+        if (raw === "") {
+          missing.push(label);
+          inp.style.borderColor = "#dc2626";
+        } else {
+          var val = num(raw);
+          if (val !== null && val < 0) {
+            blockedNegative = true;
+            inp.style.borderColor = "#dc2626";
+            alert(
+              label + ": المعدود لا يمكن أن يكون سالباً.\n\n"
+              + "إذا كان المتوقع سالباً (جلسة استرداد فقط) أدخل 0 إذا الدرج فارغ."
+            );
+            inp.focus();
+            return;
+          }
+          inp.style.borderColor = "";
+          lines.push(label + ": " + raw);
+          if (field === "cash") cashOk = true;
+          if (field === "bank") bankOk = true;
+        }
       });
-      if (!ok) {
-        e.preventDefault();
-        alert("أدخل المعدود لكل البنود المطلوبة.");
+      if (blockedNegative) return;
+      if (missing.length || !cashOk || !bankOk) {
+        if (!cashOk) missing.unshift("رصيد الكاش");
+        if (!bankOk) missing.unshift("رصيد المصرف");
+        alert("يجب إدخال المعدود للكاش والمصرف قبل الإقفال:\n- " + missing.join("\n- "));
         return;
       }
-      if (!confirm("تأكيد إقفال الوردية والمبالغ المعدودة؟")) {
+      var dest = form.querySelector('input[name="close_destination"]:checked')
+        || form.querySelector('input[name="close_destination"]');
+      if (!dest || !dest.value) {
+        alert("اختر: ترحيل للجلسة التالية أو إقفال عادي للخزينة.");
+        return;
+      }
+      if (dest.value === "NEXT_SHIFT") {
+        var rec = form.querySelector("#carried_to_employee_id");
+        if (!rec || !rec.value) {
+          alert("اختر موظف الاستقبال المستلم قبل الترحيل.");
+          if (rec) rec.focus();
+          return;
+        }
+        var recName = rec.options[rec.selectedIndex] ? rec.options[rec.selectedIndex].text : rec.value;
+        lines.push("الطلب: ترحيل الرصيد للجلسة التالية — المستلم: " + recName);
+      } else {
+        lines.push("الطلب: إقفال عادي وتسليم الخزينة");
+      }
+      openModal(lines);
+    });
+    // منع Enter من إرسال النموذج مباشرة (مثل المطعم)
+    form.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && e.target && e.target.tagName !== "TEXTAREA") {
         e.preventDefault();
       }
+    });
+  }
+
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && modal && !modal.hidden) {
+      e.preventDefault();
+      closeModal();
+    }
+  });
+
+  document.querySelectorAll("[data-hotel-close-cancel]").forEach(function (el) {
+    el.addEventListener("click", closeModal);
+  });
+  var okBtn = document.getElementById("hotel-close-confirm-ok");
+  if (okBtn && form) {
+    okBtn.addEventListener("click", function () {
+      pendingSubmit = true;
+      closeModal();
+      form.submit();
     });
   }
   recalc();
