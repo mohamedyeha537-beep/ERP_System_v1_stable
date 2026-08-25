@@ -187,6 +187,7 @@ def post_balanced_entry(
             entry.post_mode = get_gl_post_mode(db)
             entry.created_by_id = created_by_id
             entry.business_domain = entry_dom
+            entry.status = GlJournalEntryStatus.POSTED
             db.flush()
             for i, ln in enumerate(filtered, start=1):
                 db.add(
