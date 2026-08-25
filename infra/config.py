@@ -74,6 +74,35 @@ class Settings(BaseSettings):
         default=False,
         validation_alias=AliasChoices("SHOW_DOCS", "show_docs"),
     )
+    # ========== مزامنة أوفلاين/أونلاين ==========
+    sync_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("SYNC_ENABLED", "sync_enabled"),
+    )
+    sync_site_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("SYNC_SITE_ID", "sync_site_id"),
+    )
+    online_sync_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("ONLINE_SYNC_URL", "online_sync_url"),
+    )
+    online_sync_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("ONLINE_SYNC_API_KEY", "online_sync_api_key"),
+    )
+    sync_interval_seconds: int = Field(
+        default=60,
+        validation_alias=AliasChoices("SYNC_INTERVAL_SECONDS", "sync_interval_seconds"),
+    )
+    sync_batch_size: int = Field(
+        default=100,
+        validation_alias=AliasChoices("SYNC_BATCH_SIZE", "sync_batch_size"),
+    )
+    sync_pull_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("SYNC_PULL_ENABLED", "sync_pull_enabled"),
+    )
 
     @field_validator("database_url")
     @classmethod

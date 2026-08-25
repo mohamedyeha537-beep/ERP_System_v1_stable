@@ -63,7 +63,7 @@
         <td>{{ p.amount }} د.ل</td>
         <td>{{ p.expense_category or '—' }}</td>
         <td>{{ p.supplier or '—' }}</td>
-        <td>{% if p.method %}{{ p.method.name_ar }}{% endif %}</td>
+        <td>{% if p.method %}{{ pos_wallet_label(p.method) }}{% endif %}</td>
         <td>{{ p.note or '' }}</td>
       </tr>
       {% endfor %}

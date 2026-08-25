@@ -175,6 +175,50 @@
       <input type="checkbox" name="shop_enabled" {% if s.shop_enabled != '0' %}checked{% endif %} style="width:auto" />
       تفعيل المتجر الإلكتروني
     </label>
+    <div style="margin-top:0.85rem;padding:0.85rem;border:1px solid #bbf7d0;border-radius:10px;background:#f0fdf4">
+      <h4 style="margin:0 0 0.45rem;font-size:0.92rem;color:#166534">ساعات عمل الطلبات الأونلاين</h4>
+      <p class="muted" style="font-size:0.82rem;margin:0 0 0.65rem;line-height:1.55">
+        خارج هذه الساعات لا يُقبل الطلب من <a href="/shop" target="_blank" rel="noopener">/shop</a>
+        وتظهر رسالة اعتذار بمواعيد العمل (بتوقيت ليبيا).
+      </p>
+      <label style="display:inline-flex;align-items:center;gap:0.4rem">
+        <input type="checkbox" name="shop_hours_enforce" {% if s.shop_hours_enforce == '1' %}checked{% endif %} style="width:auto" />
+        تفعيل تقييد ساعات العمل
+      </label>
+      <div class="row" style="gap:0.75rem;flex-wrap:wrap;margin-top:0.65rem">
+        <label>من الساعة
+          <input type="time" name="shop_hours_open" value="{{ s.shop_hours_open or '10:00' }}" dir="ltr" style="display:block;margin-top:0.25rem" />
+        </label>
+        <label>إلى الساعة
+          <input type="time" name="shop_hours_close" value="{{ s.shop_hours_close or '23:00' }}" dir="ltr" style="display:block;margin-top:0.25rem" />
+        </label>
+      </div>
+      <p class="muted" style="font-size:0.78rem;margin:0.45rem 0 0.55rem">إن كانت ساعة الإغلاق قبل الافتتاح (مثل 22:00 → 02:00) تُحسب فترة ليلية.</p>
+      <div style="font-size:0.86rem;margin-top:0.35rem">أيام العمل:</div>
+      {% set open_days = (s.shop_hours_open_weekdays or '0,1,2,3,4,5,6').split(',') %}
+      <div class="row" style="gap:0.55rem 0.9rem;flex-wrap:wrap;margin-top:0.35rem;font-size:0.86rem">
+        {% for d, label in [(0,'الاثنين'),(1,'الثلاثاء'),(2,'الأربعاء'),(3,'الخميس'),(4,'الجمعة'),(5,'السبت'),(6,'الأحد')] %}
+        <label style="display:inline-flex;align-items:center;gap:0.3rem">
+          <input type="checkbox" name="shop_hours_open_weekdays" value="{{ d }}" {% if (d|string) in open_days %}checked{% endif %} style="width:auto" />
+          {{ label }}
+        </label>
+        {% endfor %}
+      </div>
+      <label style="display:block;margin-top:0.75rem">رسالة الاعتذار (اختياري)</label>
+      <textarea name="shop_hours_closed_message" rows="3" style="width:100%;max-width:36rem"
+        placeholder="نعتذر، الطلبات متاحة من {open} إلى {close} ({days}).">{{ s.shop_hours_closed_message }}</textarea>
+      <p class="muted" style="font-size:0.78rem;margin:0.35rem 0 0">
+        متغيرات: <code>{open}</code> <code>{close}</code> <code>{hours}</code> <code>{days}</code>
+        — اتركه فارغاً لاستخدام نص افتراضي.
+      </p>
+    </div>
+    <label style="display:block;margin-top:0.75rem">هاتف واتساب لاستلام إشعار طلب أونلاين (المطعم / الكاشير)</label>
+    <input name="shop_online_staff_phone" dir="ltr" value="{{ s.shop_online_staff_phone }}"
+      placeholder="091xxxxxxx, 092xxxxxxx" style="width:100%;max-width:22rem;display:block;margin-top:0.3rem" />
+    <p class="muted" style="font-size:0.82rem;margin:0.35rem 0 0;line-height:1.5">
+      يُرسل واتساب <strong>بأصناف الطلب كاملة</strong> عند طلب من <strong>/shop</strong> أو محادثة الويب — حتى يبدأ الكاشير التحضير قبل فتح الجهاز.
+      عدة أرقام: افصل بفاصلة. إن تُرك فارغاً يُستخدم رقم إدارة المراسلات أعلاه.
+    </p>
     <h3 style="margin:1rem 0 0.5rem;font-size:0.95rem">🤖 شخصية البوت ورسالة الترحيب</h3>
     <p class="muted" style="font-size:0.82rem;margin:0 0 0.65rem;line-height:1.55">
       يظهر اسم البوت أسفل رسائله في صفحة <a href="{{ chat_url }}" target="_blank" rel="noopener">/chat</a>.
@@ -288,7 +332,7 @@
 
         <label>ثوانٍ بين كل رسالة</label>
 
-        <input name="messaging_send_delay_seconds" type="number" min="1" value="{{ s.messaging_send_delay_seconds or '5' }}" style="max-width:6rem" />
+        <input name="messaging_send_delay_seconds" type="number" min="10" value="{{ s.messaging_send_delay_seconds or '10' }}" style="max-width:6rem" />
 
       </div>
 
@@ -312,7 +356,7 @@
 
     <p class="muted" style="font-size:0.85rem;margin-top:0.5rem">
 
-      مثال: 1000 عميل × 5 ثوانٍ ≈ 83 دقيقة — يُرسل تلقائياً عبر الطابور.
+      مثال: 1000 عميل × 10 ثوانٍ ≈ 167 دقيقة — يُرسل تلقائياً عبر الطابور.
 
     </p>
 

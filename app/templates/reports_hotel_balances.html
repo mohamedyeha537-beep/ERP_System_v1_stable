@@ -24,7 +24,35 @@
     <div class="stat-card warn"><div class="label">ديون مفتوحة (حساب الديون)</div><div class="value">{{ open_debts_count }} · {{ open_debts_total }} د.ل</div></div>
     {% endif %}
   </div>
+  {% if pos_perm(request)('hotel:debts:view') %}
+  <p style="margin:0.75rem 0 0">
+    <a class="btn btn-primary" href="/admin/hotel/debts">تحصيل ومتابعة ذمم الحجوزات ←</a>
+  </p>
+  {% endif %}
 </div>
+
+{% if open_debts is defined and open_debts %}
+<div class="card" style="border-color:#fdba74;background:#fff7ed">
+  <h2 style="margin-top:0">ديون مُرحّلة (حساب الديون)</h2>
+  <p class="muted" style="margin-top:0">بعد المغادرة مع ترحيل دين — التحصيل والملاحظات من قائمة الذمم.</p>
+  <table>
+    <thead>
+      <tr><th>الحجز</th><th>النزيل</th><th>المبلغ</th><th>تذكير</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for d in open_debts %}
+      <tr>
+        <td><a href="/admin/hotel/bookings/{{ d.booking_id }}">{{ d.booking.reference if d.booking else d.booking_id }}</a></td>
+        <td>{{ d.booking.guest_name if d.booking else '—' }}</td>
+        <td style="font-weight:700;color:#b91c1c">{{ d.amount_remaining if d.amount_remaining is not none else d.amount }} د.ل</td>
+        <td>{% if d.reminder_at %}{{ d.reminder_at }}{% else %}كل وردية{% endif %}</td>
+        <td><a class="btn btn-sm" href="/admin/hotel/debts">تسوية / متابعة</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
 
 <div class="card">
   <h2 style="margin-top: 0">تفاصيل الذمم</h2>

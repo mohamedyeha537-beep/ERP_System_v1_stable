@@ -9,14 +9,16 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.deps import DBSession, require_permission
+from app.deps import DBSession, require_any_permission, require_permission
 from app.jinja_env import templates
 from modules.authz.models import User
 from modules.authz.permissions import (
+    HOTEL_BOOKING_VIEW,
     HOTEL_CHARGE,
     POS_PRINT_CHOOSE_SIZE,
     SALES_CREATE,
     SALES_EDIT_INVOICE,
+    SALES_PRINT_RECEIPT,
     SALES_VOID_AFTER_KITCHEN,
 )
 from modules.authz.service import user_has_permission
@@ -123,6 +125,61 @@ def _pos_receipt_paper(
     if allow_admin_override and can_choose and paper_param:
         return normalize_paper(paper_param, admin_paper)
     return admin_paper
+
+
+def _safe_receipt_back_href(raw: str | None, *, default: str = "/pos") -> str:
+    """يقبل مساراً داخلياً فقط لزر الرجوع من صفحة الإيصال."""
+    path = (raw or "").strip()
+    if not path.startswith("/") or path.startswith("//"):
+        return default
+    if "://" in path or "\n" in path or "\r" in path or "\\" in path:
+        return default
+    return path[:500]
+
+
+def _receipt_back_label(back_href: str, *, pos_label: str) -> str:
+    href = (back_href or "").strip()
+    if href.startswith("/hotel/settle/room/"):
+        return "رجوع إلى تسوية الشقة"
+    if href.startswith("/hotel/settle"):
+        return "رجوع إلى التسويات"
+    if href.startswith("/admin/hotel/bookings/"):
+        return "رجوع إلى الحجز"
+    if href.startswith("/admin/hotel/"):
+        return "رجوع إلى لوحة الشقق"
+    return f"رجوع إلى {pos_label}"
+
+
+def _sale_is_hotel_folio_invoice(db: DBSession, sale: Sale) -> bool:
+    """فاتورة مطعم ظاهرة على حجز/شقة — يحق للاستقبال عرضها دون صلاحية كاشير."""
+    if getattr(sale, "booking_id", None):
+        return True
+    if getattr(sale, "context_type", None) == SaleContext.ROOM:
+        return True
+    from modules.hotel.models import RoomCharge
+
+    rc = db.scalar(select(RoomCharge).where(RoomCharge.sale_id == sale.id))
+    return rc is not None
+
+
+def _assert_can_print_pos_receipt(db: DBSession, user: User, sale: Sale) -> None:
+    if user_has_permission(user, SALES_CREATE) or user_has_permission(
+        user, SALES_PRINT_RECEIPT
+    ):
+        return
+    if user_has_permission(user, HOTEL_BOOKING_VIEW) and _sale_is_hotel_folio_invoice(
+        db, sale
+    ):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="ليس لديك صلاحية لعرض هذه الفاتورة.",
+    )
+
+
+_receipt_viewer = require_any_permission(
+    SALES_CREATE, SALES_PRINT_RECEIPT, HOTEL_BOOKING_VIEW
+)
 
 
 def _room_receipt_context(db: DBSession, sale: Sale) -> dict:
@@ -242,8 +299,13 @@ def _receipt_delivery_context(
     from modules.payments.service import list_sale_payments
 
     sale_payments = list_sale_payments(db, sale.id)
+    from modules.gl.wallet_labels import label_from_info_map, wallet_gl_info_map
+
+    gl_info = wallet_gl_info_map(db)
     method_names = [
-        p.method.name_ar for p in sale_payments if p.method is not None and p.amount > 0
+        label_from_info_map(gl_info, p.method)
+        for p in sale_payments
+        if p.method is not None and p.amount > 0
     ]
     if method_names:
         payment_method_name = " + ".join(dict.fromkeys(method_names))
@@ -253,7 +315,7 @@ def _receipt_delivery_context(
             if p.amount > 0
         )
     elif sale_payment is not None and sale_payment.method is not None:
-        payment_method_name = sale_payment.method.name_ar
+        payment_method_name = label_from_info_map(gl_info, sale_payment.method)
         payment_is_bank = sale_payment.method.kind == PaymentMethodKind.BANK
     customer = sale.customer
     if customer is None and sale.customer_id:
@@ -374,17 +436,26 @@ POS_REFUND_AUTH_EXP_KEY = "pos_refund_auth_exp"
 POS_REFUND_AUTH_TTL_SEC = 900
 
 
-def _pos_refund_auth_valid(request: Request) -> bool:
-    raw = request.session.get(POS_REFUND_AUTH_EXP_KEY)
-    try:
-        exp = float(raw)
-    except (TypeError, ValueError):
-        return False
-    return exp > time.time()
+def _pos_refund_auth_valid(
+    request: Request, sale_id: int | None = None, db=None
+) -> bool:
+    if db is not None:
+        from modules.security.supervisor_otp import (
+            PURPOSE_POS_REFUND,
+            otp_purpose_required,
+        )
+
+        if not otp_purpose_required(db, PURPOSE_POS_REFUND):
+            return True
+    from modules.security.supervisor_otp import pos_refund_session_ok
+
+    return pos_refund_session_ok(request.session, sale_id)
 
 
-def _set_pos_refund_auth(request: Request) -> None:
-    request.session[POS_REFUND_AUTH_EXP_KEY] = time.time() + POS_REFUND_AUTH_TTL_SEC
+def _set_pos_refund_auth(request: Request, sale_id: int) -> None:
+    from modules.security.supervisor_otp import grant_pos_refund_session
+
+    grant_pos_refund_session(request.session, sale_id)
 
 
 def _open_orders_panel_ctx(
@@ -421,18 +492,29 @@ def _open_orders_panel_ctx(
         from modules.delivery.drivers_service import list_recent_drivers
 
         saved_drivers = list_recent_drivers(db)
-    from modules.settings.refund_auth import refund_auth_configured
+    from modules.security.supervisor_otp import (
+        PURPOSE_POS_REFUND,
+        otp_purpose_required,
+        refund_supervisors_configured,
+    )
+    from modules.platform.business_domain import BusinessDomain
 
     orders_modal = (request.query_params.get("orders") or "").strip().lower() in (
         "1",
         "true",
         "yes",
     )
+    pos_otp_required = otp_purpose_required(db, PURPOSE_POS_REFUND)
 
     return {
         "open_orders_nav": rows,
         "orders_hub_rows": orders_hub,
-        "refund_auth_configured": refund_auth_configured(db),
+        "refund_auth_configured": (
+            refund_supervisors_configured(db, BusinessDomain.RESTAURANT)
+            if pos_otp_required
+            else True
+        ),
+        "pos_refund_otp_required": pos_otp_required,
         "orders_modal": orders_modal,
         "refund_sale_prompt": (request.query_params.get("refund_sale") or "").strip(),
         "sale_sent_kitchen": bool(
@@ -460,7 +542,12 @@ def _pos_orders_hub_ctx(
         list_pos_hub_shift_options,
         list_pos_shift_orders_hub,
     )
-    from modules.settings.refund_auth import refund_auth_configured
+    from modules.security.supervisor_otp import (
+        PURPOSE_POS_REFUND,
+        otp_purpose_required,
+        refund_supervisors_configured,
+    )
+    from modules.platform.business_domain import BusinessDomain
 
     web_chat_pending: list = []
     try:
@@ -487,6 +574,7 @@ def _pos_orders_hub_ctx(
         for m in list_payment_methods_for_pay(db, only_active=True)
         if is_treasury_wallet_method(m)
     ]
+    pos_otp_required = otp_purpose_required(db, PURPOSE_POS_REFUND)
     return {
         "orders_hub_rows": orders_hub,
         "web_chat_pending_orders": web_chat_pending,
@@ -502,7 +590,12 @@ def _pos_orders_hub_ctx(
             db, current_shift_id=_session_pos_shift_id(request)
         ),
         "orders_hub_shift_id": psid,
-        "refund_auth_configured": refund_auth_configured(db),
+        "refund_auth_configured": (
+            refund_supervisors_configured(db, BusinessDomain.RESTAURANT)
+            if pos_otp_required
+            else True
+        ),
+        "pos_refund_otp_required": pos_otp_required,
         "treasury_pay_methods": treasury_pay_methods,
     }
 
@@ -663,6 +756,45 @@ def _cart_lines_ctx(db, sale: Sale | None, request: Request | None = None) -> di
             base["session_room_phone"] = (
                 request.session.get("draft_room_phone") or ""
             )
+            # تعبئة اسم/هاتف نزيل 1 إن اختيرت شقة وبقيت الحقول فارغة (جلسات قديمة)
+            rid_raw = base["session_room_id"]
+            if rid_raw and (
+                not base["session_room_guest"] or not base["session_room_phone"]
+            ):
+                try:
+                    rid = int(rid_raw)
+                except (TypeError, ValueError):
+                    rid = None
+                if rid:
+                    from modules.hotel.booking_models import BookingStatus, HotelBooking
+                    from modules.hotel.booking_service import primary_staying_guest_contact
+                    from modules.hotel.models import HotelRoom
+                    from sqlalchemy import select
+                    from sqlalchemy.orm import joinedload
+
+                    booking = db.scalar(
+                        select(HotelBooking)
+                        .options(joinedload(HotelBooking.guests))
+                        .where(
+                            HotelBooking.room_id == rid,
+                            HotelBooking.booking_status == BookingStatus.CHECKED_IN,
+                        )
+                        .order_by(HotelBooking.id.desc())
+                        .limit(1)
+                    )
+                    gname, gphone = primary_staying_guest_contact(booking)
+                    if not base["session_room_guest"]:
+                        if gname:
+                            base["session_room_guest"] = gname
+                        else:
+                            room = db.get(HotelRoom, rid)
+                            base["session_room_guest"] = (
+                                (room.guest_name or "").strip() if room else ""
+                            )
+                        request.session["draft_room_guest"] = base["session_room_guest"]
+                    if not base["session_room_phone"] and gphone:
+                        base["session_room_phone"] = gphone
+                        request.session["draft_room_phone"] = gphone
         except Exception:  # noqa: BLE001
             base["session_room_id"] = None
     if sale is None:
@@ -704,16 +836,10 @@ def _active_tables(db) -> list[DiningTable]:
 
 
 def _active_rooms(db) -> list:
-    """قائمة الشقق/الغرف النشطة (للسياق ROOM في الـ POS)."""
-    from modules.hotel.models import HotelRoom
+    """شقق مسكونة فقط (CHECKED_IN / OCCUPIED) لسياق ROOM في الـ POS."""
+    from modules.hotel.service import list_occupied_rooms_for_pos
 
-    return list(
-        db.scalars(
-            select(HotelRoom)
-            .where(HotelRoom.is_active.is_(True))
-            .order_by(HotelRoom.number)
-        ).all()
-    )
+    return list_occupied_rooms_for_pos(db)
 
 
 def _get_current_draft(request: Request, db, user: User) -> Sale | None:
@@ -780,18 +906,39 @@ def _category_tree_ids(db, root_id: int) -> set[int]:
 def _root_product_counts(
     db, roots: list[ProductCategory], pos_crit: tuple
 ) -> dict[int, int]:
+    """عدد المنتجات تحت كل جذر — استعلامان بدل N+1 لكل تصنيف."""
+    if not roots:
+        return {}
+    cat_rows = db.execute(
+        select(ProductCategory.id, ProductCategory.parent_id)
+    ).all()
+    children_of: dict[int | None, list[int]] = {}
+    for cid, pid in cat_rows:
+        children_of.setdefault(pid, []).append(int(cid))
+
+    def _tree_ids(root_id: int) -> set[int]:
+        ids: set[int] = {root_id}
+        stack = [root_id]
+        while stack:
+            pid = stack.pop()
+            for cid in children_of.get(pid, ()):
+                if cid not in ids:
+                    ids.add(cid)
+                    stack.append(cid)
+        return ids
+
+    per_cat = {
+        int(cid): int(n or 0)
+        for cid, n in db.execute(
+            select(Product.category_id, func.count())
+            .where(*pos_crit, Product.category_id.is_not(None))
+            .group_by(Product.category_id)
+        ).all()
+        if cid is not None
+    }
     out: dict[int, int] = {}
     for r in roots:
-        tree = _category_tree_ids(db, r.id)
-        n = db.scalar(
-            select(func.count())
-            .select_from(Product)
-            .where(
-                *pos_crit,
-                Product.category_id.in_(tree),
-            )
-        )
-        out[r.id] = int(n or 0)
+        out[r.id] = sum(per_cat.get(cid, 0) for cid in _tree_ids(r.id))
     return out
 
 
@@ -1186,6 +1333,11 @@ def pos_screen(
     db: DBSession,
     user: User = Depends(require_permission(SALES_CREATE)),
 ):
+    from modules.authz.capability import treasury_clerk_desk_redirect
+
+    blocked = treasury_clerk_desk_redirect(user)
+    if blocked is not None:
+        return blocked
     gr = _active_pos_shift_or_redirect(request, db, user)
     if isinstance(gr, RedirectResponse):
         return gr
@@ -1433,13 +1585,20 @@ def pos_lookup_phone(
     if ctx_raw == "TABLE":
         if phone_norm:
             try:
-                from modules.customers.service import CustomersError
+                from modules.customers.service import CustomersError, get_by_phone
 
-                cust = get_or_create_by_phone(db, phone=phone_norm, name=nm or None)
-                sale.customer_id = cust.id
-                if nm and not cust.name:
-                    cust.name = nm
-                feedback = "✓ تم ربط العميل بالفاتورة"
+                existing = get_by_phone(db, phone_norm)
+                if existing is None and not nm:
+                    sale.customer_id = None
+                    feedback = "اسم العميل مطلوب عند تسجيل عميل جديد."
+                else:
+                    cust = get_or_create_by_phone(
+                        db, phone=phone_norm, name=nm or None
+                    )
+                    sale.customer_id = cust.id
+                    if nm and not cust.name:
+                        cust.name = nm
+                    feedback = "✓ تم ربط العميل بالفاتورة"
             except CustomersError as exc:
                 sale.customer_id = None
                 feedback = str(exc)
@@ -2348,6 +2507,54 @@ def pos_order_change_payment(
     return RedirectResponse("/pos", status_code=302)
 
 
+@router.post("/refund-otp/request", response_class=HTMLResponse)
+def pos_refund_otp_request(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(require_permission(SALES_CREATE)),
+    sale_id: str = Form(""),
+):
+    gr = _active_pos_shift_or_redirect(request, db, user)
+    if isinstance(gr, RedirectResponse):
+        return gr
+    try:
+        sid = int((sale_id or "").strip())
+    except ValueError:
+        return RedirectResponse(
+            "/pos?ctx_err=" + quote("رقم الطلب غير صالح.") + "&orders=1",
+            status_code=302,
+        )
+    from modules.platform.business_domain import BusinessDomain
+    from modules.security.supervisor_otp import (
+        PURPOSE_POS_REFUND,
+        SupervisorOtpError,
+        request_refund_otp,
+    )
+
+    try:
+        result = request_refund_otp(
+            db,
+            purpose=PURPOSE_POS_REFUND,
+            domain=BusinessDomain.RESTAURANT,
+            ref_type="sale",
+            ref_id=sid,
+            ref_label=f"فاتورة مطعم #{sid}",
+            requested_by_user_id=getattr(user, "id", None),
+        )
+    except SupervisorOtpError as exc:
+        return RedirectResponse(
+            "/pos?ctx_err=" + quote(str(exc)) + "&orders=1&refund_sale=" + str(sid),
+            status_code=302,
+        )
+    return RedirectResponse(
+        "/pos?orders=1&refund_sale="
+        + str(sid)
+        + "&otp_sent=1&otp_count="
+        + str(result.get("sent_to") or 1),
+        status_code=302,
+    )
+
+
 @router.post("/refund-auth", response_class=HTMLResponse)
 def pos_refund_auth(
     request: Request,
@@ -2366,16 +2573,28 @@ def pos_refund_auth(
             "/pos?ctx_err=" + quote("رقم الطلب غير صالح.") + "&orders=1",
             status_code=302,
         )
-    from modules.settings.refund_auth import RefundAuthError, check_refund_authorization
+    from modules.platform.business_domain import BusinessDomain
+    from modules.security.supervisor_otp import (
+        PURPOSE_POS_REFUND,
+        SupervisorOtpError,
+        verify_refund_otp,
+    )
 
     try:
-        check_refund_authorization(db, refund_code)
-    except RefundAuthError as exc:
+        verify_refund_otp(
+            db,
+            purpose=PURPOSE_POS_REFUND,
+            domain=BusinessDomain.RESTAURANT,
+            ref_type="sale",
+            ref_id=sid,
+            code=refund_code,
+        )
+    except SupervisorOtpError as exc:
         return RedirectResponse(
             "/pos?ctx_err=" + quote(str(exc)) + "&orders=1&refund_sale=" + str(sid),
             status_code=302,
         )
-    _set_pos_refund_auth(request)
+    _set_pos_refund_auth(request, sid)
     return RedirectResponse(f"/pos/refund/{sid}", status_code=302)
 
 
@@ -2389,10 +2608,10 @@ def pos_refund_page(
     gr = _active_pos_shift_or_redirect(request, db, user)
     if isinstance(gr, RedirectResponse):
         return gr
-    if not _pos_refund_auth_valid(request):
+    if not _pos_refund_auth_valid(request, sale_id, db=db):
         return RedirectResponse(
             "/pos?ctx_err="
-            + quote("أدخل كود الاسترداد أولاً من تبويب «جميع الطلبات».")
+            + quote("أدخل رمز اعتماد المشرف (OTP واتساب) أولاً من تبويب «جميع الطلبات».")
             + f"&orders=1&refund_sale={sale_id}",
             status_code=302,
         )
@@ -2442,9 +2661,10 @@ async def pos_refund_create(
     gr = _active_pos_shift_or_redirect(request, db, user)
     if isinstance(gr, RedirectResponse):
         return gr
-    if not _pos_refund_auth_valid(request):
+    if not _pos_refund_auth_valid(request, sale_id, db=db):
         return RedirectResponse(
-            "/pos?ctx_err=" + quote("انتهت صلاحية كود الاسترداد — أدخل الكود مجدداً.")
+            "/pos?ctx_err="
+            + quote("انتهت صلاحية رمز الاعتماد — اطلب رمزاً جديداً من المشرف.")
             + f"&orders=1&refund_sale={sale_id}",
             status_code=302,
         )
@@ -2894,15 +3114,18 @@ def _silent_print_sale(
             from modules.payments.service import list_sale_payments
 
             sale_payments = list_sale_payments(db, sale.id)
+            from modules.gl.wallet_labels import label_from_info_map, wallet_gl_info_map
+
+            gl_info = wallet_gl_info_map(db)
             method_names = [
-                p.method.name_ar
+                label_from_info_map(gl_info, p.method)
                 for p in sale_payments
                 if p.method is not None and p.amount > 0
             ]
             if method_names:
                 payment_method_name = " + ".join(dict.fromkeys(method_names))
             elif sp is not None and sp.method is not None:
-                payment_method_name = sp.method.name_ar
+                payment_method_name = label_from_info_map(gl_info, sp.method)
             from modules.customers.service import build_receipt_loyalty_context
 
             loyalty_ctx = build_receipt_loyalty_context(db, sale, sp)
@@ -2910,9 +3133,16 @@ def _silent_print_sale(
             cashier_name = _prebill_cashier_name(db, user)
             doc_title = "أمر تجهيز - غير مدفوع"
         else:
+            from modules.printing.doc_kind_resolve import restaurant_sale_doc_title
+
             cu = db.get(User, sale.created_by_id) if sale.created_by_id else None
             cashier_name = cu.username if cu else ""
-            doc_title = "فاتورة"
+            room_ctx_sp = _room_receipt_context(db, sale)
+            doc_title = restaurant_sale_doc_title(
+                sale,
+                room_hint=room_hint or room_ctx_sp.get("room_hint"),
+                is_room_receipt=bool(room_ctx_sp.get("is_room_receipt")),
+            )
         printer = get_receipt_printer(db)
         paper_w = printer.paper_width if printer else 80
         text = build_sale_receipt_text(
@@ -2995,14 +3225,30 @@ def print_receipt(
     request: Request,
     sale_id: int,
     db: DBSession,
-    user: User = Depends(require_permission(SALES_CREATE)),
+    user: User = Depends(_receipt_viewer),
     autoprint: int = Query(0, ge=0, le=1),
     paper: str | None = Query(None),
+    orientation: str | None = Query(None),
+    doc: str | None = Query(None),
     embed: int = Query(0, ge=0, le=1),
+    back: str | None = Query(None),
 ):
+    from modules.printing.doc_kind_resolve import (
+        assign_sale_doc_number,
+        resolve_sale_doc_kind,
+        restaurant_sale_doc_title,
+    )
+    from modules.settings.service import (
+        PAPER_ORIENTATIONS,
+        get_receipt_orientation,
+        normalize_orientation,
+    )
+    from modules.platform.business_domain import BusinessDomain
+
     sale = load_completed_sale_for_print(db, sale_id)
     if sale is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="الفاتورة غير موجودة أو غير مكتملة.")
+    _assert_can_print_pos_receipt(db, user, sale)
     sections = build_receipt_sections(db, sale)
     can_choose = user_has_permission(user, POS_PRINT_CHOOSE_SIZE)
     chosen_paper = _pos_receipt_paper(
@@ -3011,7 +3257,12 @@ def print_receipt(
         paper_param=paper,
         allow_admin_override=True,
     )
-    paper_css = get_paper_css(chosen_paper)
+    orient = normalize_orientation(
+        orientation, get_receipt_orientation(db, BusinessDomain.RESTAURANT)
+    )
+    if chosen_paper in ("80mm", "58mm"):
+        orient = "portrait"
+    paper_css = get_paper_css(chosen_paper, orient)
     store_name = get_setting(db, "store_name", "نقطة البيع")
     sale_payment = get_sale_payment(db, sale.id)
     delivery_ctx = _receipt_delivery_context(db, sale, sale_payment)
@@ -3020,7 +3271,67 @@ def print_receipt(
     cashier_name = cashier.username if cashier else ""
     from modules.receipt_whatsapp.service import sale_phone_hint, whatsapp_receipt_ctx
 
-    wa_phone = sale_phone_hint(db, sale)
+    from modules.printing.doc_numbers import DOC_KIND_PREFIX, next_doc_number
+
+    # أوراق المطعم = فاتورة دائماً (مقيدة على شقة أو عادية) — لا إيصال قبض
+    doc_kind = resolve_sale_doc_kind(sale, requested=doc, db=db)
+    doc_title = restaurant_sale_doc_title(
+        sale,
+        room_hint=room_ctx.get("room_hint"),
+        is_room_receipt=bool(room_ctx.get("is_room_receipt")),
+    )
+    try:
+        doc_number = assign_sale_doc_number(db, sale, doc_kind)
+        db.commit()
+    except Exception:  # noqa: BLE001
+        db.rollback()
+        try:
+            doc_number = next_doc_number(db, doc_kind, domain="restaurant")
+            db.commit()
+        except Exception:  # noqa: BLE001
+            db.rollback()
+            prefix = DOC_KIND_PREFIX.get(doc_kind, "DOC")
+            doc_number = f"{prefix}-{sale.id:06d}"
+
+    try:
+        wa_phone = sale_phone_hint(db, sale)
+    except Exception:  # noqa: BLE001
+        wa_phone = ""
+    default_back = "/pos"
+    if sale.booking_id and not user_has_permission(user, SALES_CREATE):
+        default_back = f"/admin/hotel/bookings/{sale.booking_id}"
+    back_href = _safe_receipt_back_href(back, default=default_back)
+    brand = getattr(request.state, "brand", None) or {}
+    pos_label = (
+        brand.get("pos_label") if isinstance(brand, dict) else None
+    ) or "نقطة البيع"
+    back_label = _receipt_back_label(back_href, pos_label=pos_label)
+    preserve = {"doc": getattr(doc_kind, "value", str(doc_kind))}
+    if embed:
+        preserve["embed"] = "1"
+    if autoprint:
+        preserve["autoprint"] = "1"
+    if request.query_params.get("popup") == "1":
+        preserve["popup"] = "1"
+    if back_href != "/pos":
+        preserve["back"] = back_href
+    try:
+        silent_ctx = _receipt_silent_print_ctx(db)
+    except Exception:  # noqa: BLE001
+        silent_ctx = {"silent_print_enabled": False, "receipt_printer_name": None}
+    try:
+        wa_ctx = whatsapp_receipt_ctx(
+            db,
+            domain="pos",
+            phone=wa_phone,
+            send_url=f"/pos/receipt/{sale.id}/send-whatsapp",
+        )
+    except Exception:  # noqa: BLE001
+        wa_ctx = {
+            "whatsapp_receipt_enabled": False,
+            "whatsapp_receipt_phone": "",
+            "whatsapp_send_url": "",
+        }
     return templates.TemplateResponse(
         "receipt_print.html",
         {
@@ -3030,23 +3341,27 @@ def print_receipt(
             "autoprint": autoprint,
             "embed": embed,
             "paper": chosen_paper,
+            "orientation": orient,
             "paper_css": paper_css,
             "paper_choices": PAPER_SIZES,
+            "orientation_choices": PAPER_ORIENTATIONS,
             "can_choose_paper": can_choose,
+            "print_form_action": f"/pos/receipt/{sale.id}",
+            "print_preserve_params": preserve,
+            "doc_kind": getattr(doc_kind, "value", str(doc_kind)),
+            "doc_title": doc_title,
+            "doc_number": doc_number,
             "store_name": store_name,
             "cashier_name": cashier_name,
             "show_paid_stamp": True,
             "silent_print_url": f"/pos/receipt/{sale.id}/silent-print",
             "can_edit_invoice": user_has_permission(user, SALES_EDIT_INVOICE),
+            "back_href": back_href,
+            "back_label": back_label,
             **delivery_ctx,
             **room_ctx,
-            **_receipt_silent_print_ctx(db),
-            **whatsapp_receipt_ctx(
-                db,
-                domain="pos",
-                phone=wa_phone,
-                send_url=f"/pos/receipt/{sale.id}/send-whatsapp",
-            ),
+            **silent_ctx,
+            **wa_ctx,
         },
     )
 
@@ -3056,7 +3371,7 @@ async def pos_receipt_send_whatsapp(
     request: Request,
     sale_id: int,
     db: DBSession,
-    user: User = Depends(require_permission(SALES_CREATE)),
+    user: User = Depends(_receipt_viewer),
 ):
     from modules.receipt_whatsapp.service import ReceiptWhatsAppError, send_pos_receipt_whatsapp
 
@@ -3066,6 +3381,10 @@ async def pos_receipt_send_whatsapp(
             {"ok": False, "error": "الفاتورة غير موجودة أو غير مكتملة."},
             status_code=404,
         )
+    try:
+        _assert_can_print_pos_receipt(db, user, sale)
+    except HTTPException as exc:
+        return JSONResponse({"ok": False, "error": exc.detail}, status_code=exc.status_code)
     image_b64, phone_override = await _read_whatsapp_post_body(request)
     try:
         result = send_pos_receipt_whatsapp(
@@ -3089,7 +3408,7 @@ async def pos_receipt_silent_print(
     request: Request,
     sale_id: int,
     db: DBSession,
-    user: User = Depends(require_permission(SALES_CREATE)),
+    user: User = Depends(_receipt_viewer),
 ):
     sale = load_completed_sale_for_print(db, sale_id)
     if sale is None:
@@ -3097,6 +3416,10 @@ async def pos_receipt_silent_print(
             {"ok": False, "error": "الفاتورة غير موجودة أو غير مكتملة."},
             status_code=404,
         )
+    try:
+        _assert_can_print_pos_receipt(db, user, sale)
+    except HTTPException as exc:
+        return JSONResponse({"ok": False, "error": exc.detail}, status_code=exc.status_code)
     image_b64 = await _read_silent_print_image(request)
     return _silent_print_sale(
         db, request, user, sale, is_prebill=False, image_png_b64=image_b64
@@ -3211,6 +3534,36 @@ def pos_set_context(
                 status_code=302,
             )
         request.session["draft_room_id"] = rid
+        # اسم/هاتف نزيل رقم 1 تلقائياً (للعرض وواتساب — حتى أرقام غير ليبية)
+        guest_name_fill = (room_guest_name or "").strip()
+        guest_phone_fill = (room_guest_phone or "").strip()
+        if not guest_name_fill or not guest_phone_fill:
+            try:
+                from modules.hotel.booking_models import BookingStatus, HotelBooking
+                from modules.hotel.booking_service import primary_staying_guest_contact
+                from sqlalchemy import select
+                from sqlalchemy.orm import joinedload
+
+                booking = db.scalar(
+                    select(HotelBooking)
+                    .options(joinedload(HotelBooking.guests))
+                    .where(
+                        HotelBooking.room_id == rid,
+                        HotelBooking.booking_status == BookingStatus.CHECKED_IN,
+                    )
+                    .order_by(HotelBooking.id.desc())
+                    .limit(1)
+                )
+                gname, gphone = primary_staying_guest_contact(booking)
+                if not guest_name_fill:
+                    guest_name_fill = gname or (room.guest_name or "").strip()
+                if not guest_phone_fill:
+                    guest_phone_fill = gphone
+            except Exception:  # noqa: BLE001
+                if not guest_name_fill:
+                    guest_name_fill = (room.guest_name or "").strip()
+        request.session["draft_room_guest"] = guest_name_fill
+        request.session["draft_room_phone"] = guest_phone_fill
         db.commit()
         return RedirectResponse("/pos", status_code=302)
 
@@ -3464,17 +3817,46 @@ def pos_charge_room(
 
     guest = (guest_name or room_guest_name or "").strip()
     phone = (guest_phone or room_guest_phone or "").strip()
+    if not guest or not phone:
+        try:
+            from modules.hotel.booking_models import BookingStatus, HotelBooking
+            from modules.hotel.booking_service import primary_staying_guest_contact
+            from sqlalchemy import select
+            from sqlalchemy.orm import joinedload
+
+            booking = db.scalar(
+                select(HotelBooking)
+                .options(joinedload(HotelBooking.guests))
+                .where(
+                    HotelBooking.room_id == room_id,
+                    HotelBooking.booking_status == BookingStatus.CHECKED_IN,
+                )
+                .order_by(HotelBooking.id.desc())
+                .limit(1)
+            )
+            gname, gphone = primary_staying_guest_contact(booking)
+            if not guest:
+                guest = gname or (room.guest_name or "").strip()
+            if not phone:
+                phone = gphone
+        except Exception:  # noqa: BLE001
+            if not guest:
+                guest = (room.guest_name or "").strip()
     if guest:
         request.session["draft_room_guest"] = guest
     if phone:
         request.session["draft_room_phone"] = phone
 
     try:
-        from modules.customers.service import attach_customer_to_sale
+        from modules.customers.service import CustomersError, attach_customer_to_sale
 
-        attach_customer_to_sale(
-            db, sale, phone=phone or None, name=guest or None
-        )
+        # نقاط الولاء تحتاج رقم ليبي 09… — لا نمنع القيد إذا الرقم دولي (واتساب)
+        try:
+            attach_customer_to_sale(
+                db, sale, phone=phone or None, name=guest or None
+            )
+        except CustomersError:
+            pass
         complete_sale(db, sale.id, user.id, pos_shift_id=open_shift.id)
         sale.context_type = SaleContext.ROOM
         open_room_charge(

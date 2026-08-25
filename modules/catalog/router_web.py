@@ -521,7 +521,9 @@ async def new_product_submit(
     expiry_tracked: str = Form(""),
     expiry_warn_days: str = Form("7"),
     show_in_pos: str = Form("on"),
+    show_in_shop: str = Form("on"),
     direct_purchase_enabled: str = Form("on"),
+    is_hotel_breakfast: str = Form(""),
     image: UploadFile | None = File(None),
 ):
     ensure_schema_patched()
@@ -577,9 +579,11 @@ async def new_product_submit(
         notes=notes.strip() or None,
         category_id=cat_id,
         show_in_pos=k == ProductKind.FINAL_SELLABLE and show_in_pos == "on",
+        show_in_shop=k == ProductKind.FINAL_SELLABLE and show_in_shop == "on",
         direct_purchase_enabled=(
             k == ProductKind.FINAL_SELLABLE and direct_purchase_enabled == "on"
         ),
+        is_hotel_breakfast=is_hotel_breakfast == "on",
     )
     db.add(p)
     db.flush()
@@ -648,7 +652,9 @@ async def edit_product_submit(
     category_id: str = Form(""),
     is_active: str = Form(""),
     show_in_pos: str = Form(""),
+    show_in_shop: str = Form(""),
     direct_purchase_enabled: str = Form(""),
+    is_hotel_breakfast: str = Form(""),
     expiry_tracked: str = Form(""),
     expiry_warn_days: str = Form("7"),
     image: UploadFile | None = File(None),
@@ -709,11 +715,14 @@ async def edit_product_submit(
 
     assign_product_kitchen_section_from_category(db, p, force=False)
     p.is_active = is_active == "on"
+    p.is_hotel_breakfast = is_hotel_breakfast == "on"
     if k == ProductKind.STOCK_ONLY:
         p.show_in_pos = False
+        p.show_in_shop = False
         p.direct_purchase_enabled = False
     else:
         p.show_in_pos = show_in_pos == "on"
+        p.show_in_shop = show_in_shop == "on"
         p.direct_purchase_enabled = direct_purchase_enabled == "on"
     if image and image.filename:
         try:

@@ -57,11 +57,14 @@
 {% endif %}
 
 <div class="card">
-  <h2 style="margin-top:0">الفواتير ({{ rows|length }})</h2>
+  <h2 style="margin-top:0">الفواتير ({{ rows|length }}) — تسوية ديون الموردين</h2>
+  <p class="muted" style="margin-top:0;font-size:0.9rem">
+    لتسديد أي فاتورة آجلة: افتح <strong>عرض / سداد</strong> وسجّل الدفعة (كامل أو جزئي) على خزينة المشتريات.
+  </p>
   {% if rows %}
   <table>
     <thead>
-      <tr><th>#</th><th>التاريخ</th><th>المورّد</th><th>الإجمالي</th><th>المدفوع</th><th>المتبقي</th><th>الحالة</th><th></th></tr>
+      <tr><th>#</th><th>التاريخ</th><th>المورّد</th><th>الإجمالي</th><th>المدفوع</th><th>المتبقي</th><th>الحالة</th><th>تسوية</th></tr>
     </thead>
     <tbody>
       {% for r in rows %}
@@ -73,11 +76,15 @@
         <td style="color:#16a34a">{{ r.paid_total }} د.ل</td>
         <td style="font-weight:700;{% if r.outstanding > 0 %}color:#b91c1c{% endif %}">{{ r.outstanding }} د.ل</td>
         <td>
-          {% if r.pay_status.value == 'unpaid' %}<span class="badge bad">غير مدفوعة</span>
-          {% elif r.pay_status.value == 'partial' %}<span class="badge warn">جزئية</span>
-          {% else %}<span class="badge good">مدفوعة</span>{% endif %}
+          {{ pos_pay_status_badge(r.pay_status) }}
         </td>
-        <td><a href="/admin/purchases/{{ r.purchase_id }}">عرض / سداد</a></td>
+        <td>
+          {% if r.outstanding > 0 %}
+          <a class="btn btn-sm btn-primary" href="/admin/purchases/{{ r.purchase_id }}">تسوية / سداد</a>
+          {% else %}
+          <a class="btn btn-sm" href="/admin/purchases/{{ r.purchase_id }}">عرض</a>
+          {% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>

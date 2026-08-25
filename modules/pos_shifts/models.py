@@ -70,6 +70,15 @@ class PosShift(Base):
     warehouse_id: Mapped[int | None] = mapped_column(
         ForeignKey("warehouses.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    close_destination: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+    opening_bank: Mapped[Decimal] = mapped_column(
+        Numeric(14, 3), default=Decimal("0"), server_default="0"
+    )
+    received_from_shift_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    carried_to_shift_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    carried_to_employee_id: Mapped[int | None] = mapped_column(
+        ForeignKey("hr_employees.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     user = relationship("User", foreign_keys=[user_id])
     employee = relationship("Employee", foreign_keys=[employee_id])

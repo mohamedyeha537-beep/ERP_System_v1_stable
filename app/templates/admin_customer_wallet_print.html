@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <title>حركة محفظة {{ txn.id }}</title>
+  <style>
+    body { font-family: Tahoma, Arial, sans-serif; padding: 1.2rem; color: #0f172a; }
+    h1 { font-size: 1.15rem; margin: 0 0 0.75rem; }
+    table { width: 100%; border-collapse: collapse; }
+    td { padding: 0.35rem 0; border-bottom: 1px solid #e2e8f0; }
+    td:first-child { color: #64748b; width: 40%; }
+    .amt { font-size: 1.4rem; font-weight: 800; }
+    @media print { button { display: none; } }
+  </style>
+</head>
+<body>
+  <button type="button" onclick="window.print()">طباعة</button>
+  <h1>حركة محفظة — {{ customer.company_name or customer.name or ('عميل #' ~ customer.id) }}</h1>
+  <table>
+    <tr><td>النوع</td><td>{{ kind_ar }}</td></tr>
+    <tr><td>المبلغ</td><td class="amt">{{ '%.3f' % amount_abs }} د.ل</td></tr>
+    <tr><td>رقم الحركة</td><td dir="ltr">W-{{ txn.id }}</td></tr>
+    <tr><td>التاريخ</td><td>{{ pos_format_dt(txn.created_at, '%Y-%m-%d %H:%M') }}</td></tr>
+    <tr><td>الموظف</td><td>{{ employee }}</td></tr>
+    <tr><td>البيان</td><td>{{ txn.note or '—' }}</td></tr>
+    <tr><td>الهاتف</td><td dir="ltr">{{ customer.phone }}</td></tr>
+  </table>
+  <script>window.addEventListener('load', function () { window.print(); });</script>
+</body>
+</html>

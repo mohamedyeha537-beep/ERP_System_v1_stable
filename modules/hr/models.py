@@ -819,3 +819,50 @@ class DeductionRepayment(Base):
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     deduction: Mapped[EmployeeDeduction] = relationship(back_populates="repayments")
+
+
+# =====================================================================
+#                 حوافز ومكافآت مستحقة للموظف
+# =====================================================================
+class BonusStatus(str, enum.Enum):
+    OUTSTANDING = "OUTSTANDING"  # لم تُصرف بعد ضمن راتب
+    SETTLED = "SETTLED"  # طُبّقت عبر دفعة راتب
+    CANCELLED = "CANCELLED"  # ملغاة
+
+
+class EmployeeBonus(Base):
+    """حافز/مكافأة تُضاف تلقائياً إلى بند الراتب عند إنشاء/مزامنة الدفعة.
+
+    لا تُصرف نقداً عند إنشائها؛ تُسدَّد عبر PayrollEntry.bonuses عند دفع الراتب.
+    """
+
+    __tablename__ = "hr_employee_bonuses"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    employee_id: Mapped[int] = mapped_column(
+        ForeignKey("hr_employees.id", ondelete="RESTRICT"), index=True
+    )
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 3), default=Decimal("0"))
+    status: Mapped[BonusStatus] = mapped_column(
+        Enum(BonusStatus), default=BonusStatus.OUTSTANDING, index=True
+    )
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True
+    )
+    settled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    settled_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    payroll_entry_id: Mapped[int | None] = mapped_column(
+        ForeignKey("hr_payroll_entries.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    created_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+    employee: Mapped[Employee] = relationship(lazy="selectin")

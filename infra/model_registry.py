@@ -11,7 +11,9 @@ def import_all_models() -> None:
     import modules.delivery.models  # noqa: F401
     import modules.gl.models  # noqa: F401
     import modules.hotel.booking_models  # noqa: F401
+    import modules.hotel.company_agreement_models  # noqa: F401
     import modules.hotel.models  # noqa: F401
+    import modules.hotel.shift_models  # noqa: F401
     import modules.hotel.store_models  # noqa: F401
     import modules.hr.models  # noqa: F401
     import modules.inventory.models  # noqa: F401
@@ -19,6 +21,10 @@ def import_all_models() -> None:
     import modules.messaging.models  # noqa: F401
     import modules.notifications.models  # noqa: F401
     import modules.payments.models  # noqa: F401
+    import modules.payments.shift_variance_models  # noqa: F401
+    import modules.payments.shift_handover_models  # noqa: F401
+    import modules.payments.treasury_session_models  # noqa: F401
+    import modules.payments.purchase_advance_models  # noqa: F401
     import modules.pos_shifts.models  # noqa: F401
     import modules.printing.models  # noqa: F401
     import modules.refunds.models  # noqa: F401

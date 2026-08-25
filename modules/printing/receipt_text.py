@@ -184,3 +184,95 @@ def build_sale_receipt_text(
         lines.append(_line("التوقيع: _______________________________"))
     lines.append(sep)
     return "\n".join(lines)
+
+
+def build_sale_whatsapp_text(
+    db: Session,
+    sale: Sale,
+    *,
+    store_name: str,
+    customer_name: str = "",
+) -> str:
+    """نص فاتورة كاملة للإرسال على واتساب (بدون صورة)."""
+    from modules.customers.service import build_receipt_loyalty_context
+    from modules.payments.service import sum_sale_payments
+    from modules.refunds.service import sale_outstanding_total
+
+    loyalty = build_receipt_loyalty_context(db, sale)
+    greeting = f"مرحباً {customer_name.strip()}،\n" if (customer_name or "").strip() else "مرحباً،\n"
+    parts: list[str] = [
+        greeting.rstrip(),
+        f"فاتورتكم #{sale.id}",
+        f"— {store_name}",
+        "",
+    ]
+    if sale.table is not None:
+        parts.append(f"الطاولة: {sale.table.name_ar}")
+    if (
+        sale.context_type == SaleContext.EXTERNAL
+        and sale.external_order_type == ExternalOrderType.DELIVERY
+    ):
+        parts.append(f"توصيل — {sale.delivery_zone_name or 'منطقة توصيل'}")
+    if sale.created_at:
+        from app.datetime_local import format_local_dt
+
+        parts.append(format_local_dt(sale.created_at, "%Y-%m-%d %H:%M"))
+    parts.append("")
+    parts.append("تفاصيل الفاتورة:")
+    parts.append("")
+
+    sections = build_receipt_sections(db, sale)
+    for sec in sections:
+        parts.append(f"*{sec.root_title}*")
+        for sg in sec.subgroups:
+            if sg.title:
+                parts.append(sg.title)
+            for ln in sg.lines:
+                if ln.product is None:
+                    continue
+                name = (ln.product.name_ar or "-").strip()
+                qty = format_qty_plain(ln.quantity)
+                unit = format_money_plain(ln.unit_price)
+                total = format_money_plain(ln.line_total)
+                parts.append(f"• {name}")
+                parts.append(f"  {qty} × {unit} = {total} د.ل")
+                note = (getattr(ln, "line_note", None) or "").strip()
+                if note:
+                    parts.append(f"  ↳ {note}")
+        parts.append("")
+
+    total_label = "الإجمالي"
+    if (
+        sale.context_type == SaleContext.EXTERNAL
+        and sale.external_order_type == ExternalOrderType.DELIVERY
+    ):
+        total_label = "قيمة الطلب"
+    if loyalty.get("receipt_show_payment_breakdown"):
+        inv = loyalty.get("receipt_invoice_total_display") or format_money_plain(sale.total)
+        disc = loyalty.get("receipt_loyalty_discount_display") or "0"
+        paid = loyalty.get("receipt_amount_paid_display") or "0"
+        parts.append(f"{total_label}: {inv} د.ل")
+        parts.append(f"خصم نقاط ولاء: −{disc} د.ل")
+        parts.append(f"المدفوع: {paid} د.ل")
+    else:
+        parts.append(f"{total_label}: {format_money_plain(sale.total)} د.ل")
+
+    if (
+        sale.context_type == SaleContext.EXTERNAL
+        and sale.external_order_type == ExternalOrderType.DELIVERY
+    ):
+        fee = sale.delivery_fee or Decimal("0")
+        parts.append(f"أجرة التوصيل: {format_money_plain(fee)} د.ل")
+        cust_total = loyalty.get("receipt_amount_customer_total_display")
+        if not cust_total:
+            cust_total = format_money_plain(sale.total + fee)
+        parts.append(f"الإجمالي على الزبون: {cust_total} د.ل")
+
+    paid_sum = sum_sale_payments(db, sale.id)
+    balance = sale_outstanding_total(db, sale.id)
+    if balance > Decimal("0.0005"):
+        if paid_sum > 0 and not loyalty.get("receipt_show_payment_breakdown"):
+            parts.append(f"المدفوع: {format_money_plain(paid_sum)} د.ل")
+        parts.append(f"المتبقي: {format_money_plain(balance)} د.ل")
+
+    return "\n".join(parts).strip()

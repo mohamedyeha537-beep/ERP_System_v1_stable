@@ -44,14 +44,24 @@
     {% if preview.discount > 0 %}
     <tr><td>خصم</td><td style="text-align:left">− {{ preview.discount }} د.ل</td></tr>
     {% endif %}
-    <tr><th>إجمالي الحساب (فعلي)</th><th style="text-align:left">{{ preview.folio_total_actual }} د.ل</th></tr>
+    <tr><th>إجمالي الحساب (الرسمي)</th><th style="text-align:left">{{ preview.folio_total_actual }} د.ل</th></tr>
     <tr><td>مدفوع</td><td style="text-align:left;color:#16a34a">{{ preview.paid_amount }} د.ل</td></tr>
     {% if preview.refund_due > 0 %}
-    <tr><th style="color:#16a34a">يسترد للنزيل</th><th style="text-align:left;color:#16a34a">{{ preview.refund_due }} د.ل</th></tr>
+    <tr>
+      <th><span style="background:#16a34a;color:#fff;padding:0.1rem 0.4rem;border-radius:4px">رصيد النزيل</span></th>
+      <th style="text-align:left;color:#16a34a">{{ preview.refund_due }} د.ل</th>
+    </tr>
     {% elif preview.balance_due > 0 %}
     <tr><th style="color:#b45309">متبقٍ على النزيل</th><th style="text-align:left;color:#b45309">{{ preview.balance_due }} د.ل</th></tr>
     {% else %}
     <tr><th>الحساب</th><th style="text-align:left">مُسوّى بالكامل</th></tr>
+    {% endif %}
+    {% if preview.is_early_departure and preview.projected_refund_due != preview.refund_due %}
+    <tr>
+      <td colspan="2" class="muted" style="font-size:0.85rem;padding-top:0.65rem">
+        تقدير بعد تسجيل المغادرة المبكرة: حساب {{ preview.projected_folio_total }} د.ل — رصيد متوقع {{ preview.projected_refund_due }} د.ل
+      </td>
+    </tr>
     {% endif %}
   </table>
 

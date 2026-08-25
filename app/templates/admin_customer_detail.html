@@ -12,6 +12,12 @@
 <div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0">تم حفظ كود الإحالة.</p></div>
 {% elif saved == 'wallet' %}
 <div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0">تم تحديث رصيد المحفظة.</p></div>
+{% elif saved == 'agreement_applied' %}
+<div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0">تم تطبيق تعديل الاتفاقية على العقد والحجوزات المفتوحة.</p></div>
+{% elif saved == 'agreement_rejected' %}
+<div class="card" style="border-color:#fde68a; background:#fffbeb"><p style="margin:0">تم رفض طلب تعديل الاتفاقية.</p></div>
+{% elif saved == 'credits_posted' %}
+<div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0">تم ترحيل رصيد الحجوزات المغلقة إلى محفظة الشركة.</p></div>
 {% elif saved %}
 <div class="card" style="border-color:#86efac; background:#f0fdf4"><p style="margin:0">تم الحفظ.</p></div>
 {% endif %}
@@ -22,10 +28,78 @@
 <div class="card" style="border-color:#fecaca; background:#fef2f2"><p style="margin:0; color:#b91c1c">{{ error }}</p></div>
 {% endif %}
 
+{% if customer.customer_type.value == 'COMPANY' %}
+<div class="card" style="margin-bottom:0.75rem;padding:0.85rem">
+  <div class="row" style="gap:0.65rem;flex-wrap:wrap">
+    <button type="button" class="btn btn-primary co-ledger-btn" data-co-panel="receipts" style="flex:1;min-width:10rem;min-height:5.2rem;font-weight:800;font-size:1.05rem">
+      المقبوضات
+      <div class="muted" style="font-size:0.78rem;font-weight:600;margin-top:0.25rem;color:#dbeafe">إيصالات القبض</div>
+    </button>
+    <button type="button" class="btn btn-primary co-ledger-btn" data-co-panel="expenses" style="flex:1;min-width:10rem;min-height:5.2rem;font-weight:800;font-size:1.05rem;background:#b45309;border-color:#b45309">
+      المصروفات
+      <div class="muted" style="font-size:0.78rem;font-weight:600;margin-top:0.25rem;color:#ffedd5">فواتير وصرف</div>
+    </button>
+    <button type="button" class="btn btn-primary co-ledger-btn" data-co-panel="wallet" style="flex:1;min-width:10rem;min-height:5.2rem;font-weight:800;font-size:1.05rem;background:#1d4ed8;border-color:#1d4ed8">
+      رصيد المحفظة
+      <div style="font-size:1.35rem;font-weight:800;margin-top:0.2rem;letter-spacing:0.02em">{{ '%.3f' % stats.wallet_balance }} د.ل</div>
+    </button>
+  </div>
+</div>
+{% if booking_credits %}
+<div class="card" id="booking-credits" style="margin-bottom:0.75rem;border-color:#f59e0b;background:#fffbeb">
+  <h2 style="margin:0 0 0.4rem;font-size:1.05rem;color:#9a3412">فائض على الحجوزات (يُسترد من صفحة الحجز)</h2>
+  <p class="muted" style="margin:0 0 0.65rem;font-size:0.84rem;line-height:1.55">
+    المبلغ يظهر عندما يكون المدفوع على الحجز أكبر من التكاليف.
+    يُحتسب تلقائياً على أي مستحق جديد، وعند المغادرة يُسترد نقداً بإيصال صرف — دون ترحيل إلى المحفظة.
+  </p>
+  <table class="no-sticky-head">
+    <thead>
+      <tr>
+        <th>الحجز</th>
+        <th>الحالة</th>
+        <th>الرصيد</th>
+        <th>أين يجده الموظف</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in booking_credits %}
+      <tr>
+        <td>
+          <a href="/admin/hotel/bookings/{{ r.booking_id }}">{{ r.reference }}</a>
+          {% if r.guest_name %}<div class="muted" style="font-size:0.78rem">{{ r.guest_name }}</div>{% endif %}
+        </td>
+        <td>{{ r.status_ar }}</td>
+        <td><strong>{{ '%.3f' % r.credit }} د.ل</strong></td>
+        <td class="muted" style="font-size:0.8rem">
+          {% if r.is_open %}
+          يُحتسب على مستحقات الحجز — الاسترداد عند المغادرة
+          {% else %}
+          استرداد من صفحة الحجز (إيصال صرف)
+          {% endif %}
+        </td>
+        <td>
+          <a class="btn btn-sm" href="/admin/hotel/bookings/{{ r.booking_id }}#create-disbursement-voucher">فتح الحجز</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% else %}
 <div class="row" style="gap:0.6rem; flex-wrap:wrap; margin-bottom:0.75rem">
   <div class="card" style="flex:1; min-width:150px;text-align:center;background:linear-gradient(135deg,#eff6ff,#dbeafe)">
     <div style="color:#1e40af;font-size:0.85rem">رصيد المحفظة</div>
     <div style="font-size:2rem;font-weight:700;color:#1d4ed8">{{ '%.3f' % stats.wallet_balance }} د.ل</div>
+    {% if money_balance %}
+    <div class="muted" style="font-size:0.78rem;margin-top:0.25rem">
+      صافي الحساب: <strong style="color:{% if money_balance.has_credit %}#047857{% elif money_balance.has_debt %}#b91c1c{% else %}#475569{% endif %}">{{ money_balance.label_ar }}</strong>
+      {% if money_balance.hotel_credit and money_balance.hotel_credit > 0 %}
+      <br />رصيد حجوزات لم يُرحَّل: {{ '%.3f' % money_balance.hotel_credit }} د.ل
+      {% endif %}
+    </div>
+    {% endif %}
   </div>
   <div class="card" style="flex:1; min-width:150px;text-align:center;background:linear-gradient(135deg,#fffbeb,#fef3c7)">
     <div style="color:#92400e;font-size:0.85rem">رصيد النقاط</div>
@@ -102,10 +176,138 @@
     </div>
   </div>
 </div>
+{% endif %}
+
+{% if customer.customer_type.value == 'COMPANY' %}
+
+<div class="card co-ledger-panel" id="co-panel-receipts" hidden>
+  <h2 style="margin-top:0">إيصالات القبض</h2>
+  <table class="no-sticky-head">
+    <thead>
+      <tr>
+        <th>البيان</th>
+        <th>القيمة</th>
+        <th>التاريخ</th>
+        <th>الموظف الذي قبض</th>
+        <th>رقم إيصال القبض</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in company_receipts|default([]) %}
+      <tr>
+        <td>{{ r.title }}</td>
+        <td><strong>{{ '%.3f' % r.amount }} د.ل</strong></td>
+        <td class="muted">{{ pos_format_dt(r.created_at, '%Y-%m-%d %H:%M') }}</td>
+        <td>{{ r.employee }}</td>
+        <td dir="ltr">{{ r.ref_no }}</td>
+        <td>{% if r.print_url %}<a class="btn" href="{{ r.print_url }}" target="_blank" style="padding:0.2rem 0.5rem">طباعة</a>{% endif %}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="muted" style="text-align:center;padding:1rem">لا توجد إيصالات قبض.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card co-ledger-panel" id="co-panel-expenses" hidden>
+  <h2 style="margin-top:0">المصروفات</h2>
+  <p class="muted" style="margin-top:0;font-size:0.82rem">الأحدث أعلى القائمة — الأقدم في الأسفل.</p>
+  <table class="no-sticky-head">
+    <thead>
+      <tr>
+        <th>تفاصيل الصرف</th>
+        <th>رقم الفاتورة</th>
+        <th>القيمة</th>
+        <th>التاريخ والوقت</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in company_expenses|default([]) %}
+      <tr>
+        <td>{{ r.title }}</td>
+        <td dir="ltr">{{ r.ref_no }}</td>
+        <td><strong>{{ '%.3f' % r.amount }} د.ل</strong></td>
+        <td class="muted">{{ pos_format_dt(r.created_at, '%Y-%m-%d %H:%M') }}</td>
+        <td>{% if r.print_url %}<a class="btn" href="{{ r.print_url }}" target="_blank" style="padding:0.2rem 0.5rem">طباعة</a>{% endif %}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="muted" style="text-align:center;padding:1rem">لا توجد مصروفات.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card co-ledger-panel" id="co-panel-wallet" hidden>
+  <div style="text-align:center;padding:0.35rem 0 0.75rem;border-bottom:1px dashed #bfdbfe;margin-bottom:0.75rem">
+    <div class="muted" style="font-size:0.85rem">الرصيد الحالي</div>
+    <div style="font-size:2.1rem;font-weight:800;color:#1d4ed8">{{ '%.3f' % stats.wallet_balance }} د.ل</div>
+  </div>
+  <h3 style="margin:0 0 0.45rem;font-size:1rem">كاش إن / كاش آوت</h3>
+  <table class="no-sticky-head">
+    <thead>
+      <tr>
+        <th>النوع</th>
+        <th>البيان</th>
+        <th>المبلغ</th>
+        <th>التاريخ</th>
+        <th>المرجع</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in company_wallet_ledger|default([]) %}
+      <tr>
+        <td>
+          {% if r.direction == 'IN' %}
+          <span style="color:#047857;font-weight:800">كاش إن</span>
+          {% else %}
+          <span style="color:#b91c1c;font-weight:800">كاش آوت</span>
+          {% endif %}
+        </td>
+        <td>{{ r.title }}</td>
+        <td>
+          <strong style="color:{% if r.direction == 'IN' %}#047857{% else %}#b91c1c{% endif %}">
+            {% if r.direction == 'IN' %}+{% else %}−{% endif %}{{ '%.3f' % r.amount }} د.ل
+          </strong>
+        </td>
+        <td class="muted">{{ pos_format_dt(r.created_at, '%Y-%m-%d %H:%M') }}</td>
+        <td dir="ltr">{{ r.ref_no }}</td>
+        <td>{% if r.print_url %}<a class="btn" href="{{ r.print_url }}" target="_blank" style="padding:0.2rem 0.5rem">طباعة</a>{% endif %}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="muted" style="text-align:center;padding:1rem">لا توجد حركات كاش إن / كاش آوت.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<script>
+(function () {
+  var buttons = document.querySelectorAll('.co-ledger-btn');
+  var panels = {
+    receipts: document.getElementById('co-panel-receipts'),
+    expenses: document.getElementById('co-panel-expenses'),
+    wallet: document.getElementById('co-panel-wallet')
+  };
+  buttons.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var key = btn.getAttribute('data-co-panel');
+      Object.keys(panels).forEach(function (k) {
+        if (panels[k]) panels[k].hidden = (k !== key);
+      });
+      buttons.forEach(function (b) {
+        b.style.boxShadow = (b === btn) ? '0 0 0 3px rgba(15,23,42,0.18)' : '';
+      });
+    });
+  });
+})();
+</script>
+{% endif %}
 
 <script>
 (function () {
-  var codeText = {{ ref_code|tojson }};
+  var codeText = {{ (customer.referral_code or '')|tojson }};
   var copyBtn = document.getElementById("referral-copy-btn");
   if (copyBtn && codeText) {
     copyBtn.addEventListener("click", function () {
@@ -158,6 +360,22 @@
           <option value="COMPANY" {% if customer.customer_type.value == 'COMPANY' %}selected{% endif %}>شركة</option>
         </select>
       </div>
+      <div style="min-width:140px">
+        <label>المجال</label>
+        {% set dom = customer.business_domain.value if customer.business_domain else 'restaurant' %}
+        {% if can_pick_domain %}
+        <select name="business_domain">
+          <option value="restaurant" {% if dom == 'restaurant' %}selected{% endif %}>مطعم</option>
+          <option value="hotel" {% if dom == 'hotel' %}selected{% endif %}>فندق</option>
+          <option value="shared" {% if dom == 'shared' %}selected{% endif %}>مشترك</option>
+        </select>
+        {% else %}
+        <input type="hidden" name="business_domain" value="{{ dom }}" />
+        <div class="muted" style="padding:0.35rem 0">
+          {% if dom == 'hotel' %}فندق{% elif dom == 'shared' %}مشترك{% else %}مطعم{% endif %}
+        </div>
+        {% endif %}
+      </div>
       <div style="flex:1; min-width:160px">
         <label>الهاتف <span style="color:#dc2626">*</span></label>
         <input name="phone" type="tel" value="{{ customer.phone }}" required dir="ltr"
@@ -165,8 +383,8 @@
                title="10 أرقام تبدأ بـ 09 — بدون +218" />
       </div>
       <div style="flex:1; min-width:160px">
-        <label>الاسم</label>
-        <input name="name" value="{{ customer.name or '' }}" />
+        <label>الاسم <span style="color:#dc2626">*</span></label>
+        <input name="name" value="{{ customer.name or '' }}" required placeholder="اسم العميل" />
       </div>
       <div style="flex:1; min-width:160px">
         <label>اسم الشركة</label>
@@ -180,19 +398,245 @@
         <label>ملاحظات</label>
         <input name="notes" value="{{ customer.notes or '' }}" />
       </div>
+      {% if customer.customer_type.value == 'INDIVIDUAL' %}
+      <div style="flex:1; min-width:200px">
+        <label>تابع لشركة</label>
+        <select name="parent_company_id">
+          <option value="">— بدون —</option>
+          {% for co in company_accounts|default([]) %}
+          <option value="{{ co.id }}" {% if customer.parent_company_id == co.id %}selected{% endif %}>
+            {{ co.company_name or co.name or ('شركة #' ~ co.id) }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      {% else %}
+      <input type="hidden" name="parent_company_id" value="" />
+      {% endif %}
       <label style="display:flex;align-items:center;gap:0.3rem">
         <input type="checkbox" name="is_active" {% if customer.is_active %}checked{% endif %} />
         نشط
       </label>
       <button class="btn btn-primary" type="submit">💾 حفظ</button>
     </div>
+    {% if customer.customer_type.value == 'COMPANY' %}
+    <div style="margin-top:0.85rem;padding:0.75rem;border-radius:10px;border:1px solid #93c5fd;background:#eff6ff">
+      <h3 style="margin:0 0 0.5rem;font-size:0.95rem;color:#1e40af">حساب شركة — خصم وائتمان</h3>
+      <p class="muted" style="margin:0 0 0.65rem;font-size:0.8rem;line-height:1.5">
+        محفظة الشركة منفصلة. عند حجز نزيل تحت هذه الشركة يمكن الدفع من محفظتها، وتطبيق الخصم تلقائياً.
+        تفعيل الائتمان يسمح بنزول المحفظة للأحمر ضمن الحد — ويتطلب صلاحية «حجز على حساب شركة بالدين» عند الاستقبال.
+      </p>
+      <div class="row" style="gap:0.65rem;flex-wrap:wrap;align-items:flex-end">
+        <div style="min-width:140px">
+          <label>نسبة خصم الشركة %</label>
+          <input name="company_discount_percent" type="number" step="0.001" min="0" max="100"
+                 value="{{ '%.3f'|format(customer.company_discount_percent or 0) }}" />
+        </div>
+        <div style="min-width:160px">
+          <label>حد الائتمان (د.ل)</label>
+          <input name="company_credit_limit" type="number" step="0.001" min="0"
+                 value="{{ '%.3f'|format(customer.company_credit_limit or 0) }}" />
+        </div>
+        <label style="display:flex;align-items:center;gap:0.35rem;font-weight:700;color:#9a3412">
+          <input type="checkbox" name="allow_company_credit" {% if customer.allow_company_credit %}checked{% endif %} />
+          السماح بالدين على حساب الشركة (ضمن الحد)
+        </label>
+      </div>
+      <div class="row" style="gap:0.65rem;flex-wrap:wrap;align-items:flex-end;margin-top:0.75rem">
+        <div style="min-width:220px;flex:1">
+          <label>تكرار إشعارات/مطالبات الشركة</label>
+          <select name="company_notify_frequency">
+            {% set freq = customer.company_notify_frequency or 'DAILY' %}
+            <option value="DAILY" {% if freq == 'DAILY' %}selected{% endif %}>يومية — لكل حجز عليه رصيد</option>
+            <option value="WEEKLY" {% if freq == 'WEEKLY' %}selected{% endif %}>أسبوعية — لكل حجز</option>
+            <option value="MONTHLY" {% if freq == 'MONTHLY' %}selected{% endif %}>شهرية — لكل حجز</option>
+            <option value="SUMMARY_DAILY" {% if freq == 'SUMMARY_DAILY' %}selected{% endif %}>ملخص يومي لكل حجوزات الشركة</option>
+            <option value="SUMMARY_WEEKLY" {% if freq == 'SUMMARY_WEEKLY' %}selected{% endif %}>ملخص أسبوعي لكل حجوزات الشركة</option>
+            <option value="SUMMARY_MONTHLY" {% if freq == 'SUMMARY_MONTHLY' %}selected{% endif %}>ملخص شهري لكل حجوزات الشركة</option>
+          </select>
+        </div>
+        <div style="min-width:220px;flex:1">
+          <label>مستلم الإشعارات الافتراضي</label>
+          <select name="company_default_notify_to">
+            {% set nto = customer.company_default_notify_to or 'COMPANY' %}
+            <option value="COMPANY" {% if nto == 'COMPANY' %}selected{% endif %}>الشركة / مسؤول الحجز</option>
+            <option value="GUEST1" {% if nto == 'GUEST1' %}selected{% endif %}>النزيل رقم 1 في الشقة</option>
+          </select>
+        </div>
+      </div>
+      <p class="muted" style="margin:0.55rem 0 0;font-size:0.78rem;line-height:1.5">
+        <strong>السقف الائتماني (مصدر واحد):</strong> يُطبَّق من هذا الملف فقط
+        (حد الائتمان + السماح بالدين) على محفظة الشركة <em>ودين الفندق والإقامة والخدمات</em>.
+        عقد «من يدفع» أدناه <strong>لا يكرر</strong> سقفاً ائتمانياً منفصلاً.
+      </p>
+    </div>
+    {% else %}
+    <input type="hidden" name="company_discount_percent" value="0" />
+    <input type="hidden" name="company_credit_limit" value="0" />
+    <input type="hidden" name="company_notify_frequency" value="DAILY" />
+    <input type="hidden" name="company_default_notify_to" value="COMPANY" />
+    {% endif %}
   </form>
+
+  {% if customer.customer_type.value == 'COMPANY' and company_agreement %}
+  <div class="card" id="company-agreement" style="margin-top:0.85rem;border-color:#f59e0b;background:#fffbeb">
+    <h2 style="margin:0 0 0.4rem;font-size:1.05rem;color:#9a3412">عقد الشركة — من يتحمّل كل بند</h2>
+    <p class="muted" style="margin:0 0 0.75rem;font-size:0.82rem;line-height:1.55">
+      حدّد لكل خدمة: الشركة / النزيل / مشترك (شركة حتى حد مبلغ ثم الباقي على النزيل).
+      عند الحجز تُنسخ هذه القواعد تلقائياً. حفظ العقد أو الموافقة على طلب تعديل يحدّث الحجوزات المفتوحة فوراً.
+    </p>
+
+    {% if agreement_change_pending %}
+    <div style="margin:0 0 1rem;padding:0.75rem;border:1px solid #f59e0b;border-radius:10px;background:#fff">
+      <h3 style="margin:0 0 0.45rem;font-size:0.98rem;color:#9a3412">
+        طلبات تعديل الاتفاقية ({{ agreement_change_pending|length }})
+      </h3>
+      <p class="muted" style="margin:0 0 0.65rem;font-size:0.8rem;line-height:1.5">
+        راجع الطلب الكتابي والبنود المطلوبة. الموافقة تغيّر العقد وتُطبَّق على الحجوزات المفتوحة (مثلاً العشاء يصبح على حساب الشركة عند الطلب).
+      </p>
+      {% for req in agreement_change_pending %}
+      <div style="margin-bottom:0.75rem;padding:0.65rem;border:1px solid #fed7aa;border-radius:8px;background:#fffbeb">
+        <div class="muted" style="font-size:0.78rem;margin-bottom:0.4rem">
+          طلب #{{ req.id }}
+          · {{ pos_format_dt(req.created_at, '%Y-%m-%d %H:%M') }}
+          {% if req.booking_id %} · حجز #{{ req.booking_id }}{% endif %}
+        </div>
+        <ul style="margin:0 0 0.5rem;padding-inline-start:1.1rem;font-size:0.88rem;line-height:1.55">
+          {% for it in req.items %}
+          <li>
+            <strong>{{ it.name_ar }}</strong>:
+            {% if it.from_bearer == 'COMPANY' %}الشركة{% elif it.from_bearer == 'SHARED' %}مشترك{% else %}النزيل{% endif %}
+            ←
+            {% if it.to_bearer == 'COMPANY' %}الشركة{% elif it.to_bearer == 'SHARED' %}مشترك{% else %}النزيل{% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+        {% if req.note %}<p style="margin:0 0 0.4rem;font-size:0.85rem">ملاحظة الموظف: {{ req.note }}</p>{% endif %}
+        {% if req.attachment_url %}
+        <p style="margin:0 0 0.5rem;font-size:0.85rem">
+          المرفق:
+          <a href="{{ req.attachment_url }}" target="_blank" rel="noopener">
+            {{ req.attachment_name or 'عرض الطلب الكتابي' }}
+          </a>
+        </p>
+        {% endif %}
+        <div style="display:flex;flex-wrap:wrap;gap:0.45rem;align-items:flex-end">
+          <form method="post" action="/admin/customers/{{ customer.id }}/company-agreement/requests/{{ req.id }}/apply" style="margin:0;display:flex;gap:0.35rem;flex-wrap:wrap;align-items:flex-end">
+            <input name="review_note" placeholder="ملاحظة موافقة (اختياري)" style="min-width:160px" />
+            <button class="btn btn-primary" type="submit" onclick="return confirm('تطبيق البنود الجديدة على العقد والحجوزات المفتوحة؟');">موافقة وتطبيق</button>
+          </form>
+          <form method="post" action="/admin/customers/{{ customer.id }}/company-agreement/requests/{{ req.id }}/reject" style="margin:0;display:flex;gap:0.35rem;flex-wrap:wrap;align-items:flex-end">
+            <input name="review_note" placeholder="سبب الرفض (اختياري)" style="min-width:140px" />
+            <button class="btn" type="submit" style="color:#b91c1c" onclick="return confirm('رفض هذا الطلب؟');">رفض</button>
+          </form>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if agreement_change_history %}
+    <details style="margin:0 0 0.85rem">
+      <summary class="muted" style="cursor:pointer;font-size:0.85rem">سجل طلبات سابقة ({{ agreement_change_history|length }})</summary>
+      <ul style="margin:0.45rem 0 0;padding-inline-start:1.1rem;font-size:0.82rem;line-height:1.55">
+        {% for req in agreement_change_history %}
+        <li>
+          #{{ req.id }} —
+          {% if req.status == 'APPLIED' %}مُطبَّق{% else %}مرفوض{% endif %}
+          · {{ pos_format_dt(req.created_at, '%Y-%m-%d %H:%M') }}
+          {% if req.attachment_url %}
+          · <a href="{{ req.attachment_url }}" target="_blank" rel="noopener">المرفق</a>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% endif %}
+
+    <form method="post" action="/admin/customers/{{ customer.id }}/company-agreement">
+      <div class="row" style="gap:0.65rem;flex-wrap:wrap;align-items:flex-end;margin-bottom:0.75rem">
+        <div style="min-width:160px">
+          <label>اسم العقد</label>
+          <input name="agreement_name" value="{{ company_agreement.name or 'العقد الافتراضي' }}" />
+        </div>
+        <div style="min-width:160px">
+          <label>نوع العقد</label>
+          {% set at = company_agreement.agreement_type or 'STANDARD' %}
+          <select name="agreement_type">
+            <option value="STANDARD" {% if at == 'STANDARD' %}selected{% endif %}>قياسي — بنود حسب الجدول</option>
+            <option value="BOOKING_ONLY" {% if at == 'BOOKING_ONLY' %}selected{% endif %}>حجز فقط — كل التكاليف على النزيل</option>
+            <option value="COMMISSION" {% if at == 'COMMISSION' %}selected{% endif %}>عمولة (وكالة/سياحة)</option>
+          </select>
+        </div>
+        <div style="min-width:140px">
+          <label>شروط السداد</label>
+          <input name="payment_terms" value="{{ company_agreement.payment_terms or '' }}" placeholder="آجل 30 يوماً" />
+        </div>
+        <div style="min-width:100px">
+          <label>عمولة %</label>
+          <input name="commission_percent" type="number" step="0.001" min="0"
+                 value="{{ '%.3f'|format(company_agreement.commission_percent or 0) }}" />
+        </div>
+        <div style="min-width:100px">
+          <label>عمولة ثابتة</label>
+          <input name="commission_fixed" type="number" step="0.001" min="0"
+                 value="{{ '%.3f'|format(company_agreement.commission_fixed or 0) }}" />
+        </div>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="no-sticky-head" style="width:100%;border-collapse:collapse;font-size:0.88rem">
+          <thead>
+            <tr style="background:#ffedd5;text-align:right">
+              <th style="padding:0.4rem;border-bottom:1px solid #fed7aa">البند</th>
+              <th style="padding:0.4rem;border-bottom:1px solid #fed7aa">يتحمّلها</th>
+              <th style="padding:0.4rem;border-bottom:1px solid #fed7aa">حد الشركة (د.ل)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for code, name, default_bearer in service_catalog %}
+            {% set ns = namespace(s=none) %}
+            {% for sv in company_agreement.services %}
+              {% if sv.service_code == code %}{% set ns.s = sv %}{% endif %}
+            {% endfor %}
+            {% set br = (ns.s.bearer if ns.s else default_bearer) %}
+            <tr>
+              <td style="padding:0.35rem;border-bottom:1px solid #fde68a">{{ name }} <span class="muted" style="font-size:0.72rem">({{ code }})</span></td>
+              <td style="padding:0.35rem;border-bottom:1px solid #fde68a">
+                <select name="bearer_{{ code }}" style="min-width:120px">
+                  <option value="COMPANY" {% if br == 'COMPANY' %}selected{% endif %}>الشركة</option>
+                  <option value="GUEST" {% if br == 'GUEST' %}selected{% endif %}>النزيل</option>
+                  <option value="SHARED" {% if br == 'SHARED' %}selected{% endif %}>مشترك (حد ثم نزيل)</option>
+                </select>
+              </td>
+              <td style="padding:0.35rem;border-bottom:1px solid #fde68a">
+                <input name="limit_{{ code }}" type="number" step="0.001" min="0" dir="ltr"
+                       value="{% if ns.s and ns.s.limit_amount is not none %}{{ '%.3f'|format(ns.s.limit_amount) }}{% endif %}"
+                       placeholder="بدون حد" style="max-width:120px" />
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div style="margin-top:0.65rem">
+        <label>ملاحظات العقد</label>
+        <input name="agreement_notes" value="{{ company_agreement.notes or '' }}" />
+      </div>
+      <button class="btn btn-primary" type="submit" style="margin-top:0.65rem">💾 حفظ عقد من يدفع</button>
+    </form>
+  </div>
+  {% endif %}
 
   <div class="card" style="margin-top:0.75rem;background:#f8fafc;border-color:#e2e8f0">
     <h3 style="margin:0 0 0.5rem;font-size:1rem">إدارة السجل</h3>
     <p class="muted" style="font-size:0.85rem;margin:0 0 0.65rem;line-height:1.6">
+      {% if customer.customer_type.value == 'COMPANY' %}
+      <strong>أرشفة</strong> (مُفضّل): يختفي من القائمة ولا يُربط بالكاشير، لكن الفواتير والحجوزات تبقى للتقارير.<br>
+      <strong>حذف نهائي</strong>: يزيل حساب الشركة ويفك ارتباط الفواتير — للسجلات المكررة أو الخاطئة فقط.
+      {% else %}
       <strong>أرشفة</strong> (مُفضّل): يختفي من القائمة ولا يُربط بالكاشير، لكن الفواتير وسجل النقاط يبقى للتقارير.<br>
       <strong>حذف نهائي</strong>: يزيل العميل ونقاطه ويفك ارتباط الفواتير — للسجلات المكررة أو الخاطئة فقط.
+      {% endif %}
     </p>
     <div class="row" style="gap:0.4rem;flex-wrap:wrap">
       {% if customer.is_active %}
@@ -254,6 +698,7 @@
 </div>
 {% endif %}
 
+{% if customer.customer_type.value != 'COMPANY' %}
 <div class="card">
   <h2 style="margin-top:0">💳 تعديل رصيد المحفظة</h2>
   <p class="muted" style="font-size:0.85rem; margin-top:0">
@@ -276,7 +721,7 @@
 
 <div class="card">
   <h2 style="margin-top:0">🧾 آخر الفواتير</h2>
-  <table>
+  <table class="no-sticky-head">
     <thead>
       <tr>
         <th>التاريخ</th>
@@ -300,7 +745,7 @@
 
 <div class="card">
   <h2 style="margin-top:0">📜 سجل المحفظة</h2>
-  <table>
+  <table class="no-sticky-head">
     <thead>
       <tr>
         <th>التاريخ</th>
@@ -350,7 +795,7 @@
 
 <div class="card">
   <h2 style="margin-top:0">📜 سجل النقاط</h2>
-  <table>
+  <table class="no-sticky-head">
     <thead>
       <tr>
         <th>التاريخ</th>
@@ -388,4 +833,5 @@
     </tbody>
   </table>
 </div>
+{% endif %}
 {% endblock %}

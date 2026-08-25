@@ -83,6 +83,9 @@ class Sale(Base):
     referrer_customer_id: Mapped[int | None] = mapped_column(
         ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # إيصال قبض عند التحصيل · فاتورة نهائية عند إقفال البيع
+    receipt_number: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    final_invoice_number: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
 
     lines: Mapped[list["SaleLine"]] = relationship(
         back_populates="sale", cascade="all, delete-orphan", lazy="selectin"

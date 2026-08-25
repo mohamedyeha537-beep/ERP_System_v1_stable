@@ -282,6 +282,8 @@ def bulk_apply_products(db: Session, product_ids: list[int], action: str) -> Bul
     allowed = {
         "hide_pos",
         "show_pos",
+        "hide_shop",
+        "show_shop",
         "stock_only",
         "deactivate",
         "delete",
@@ -311,15 +313,29 @@ def bulk_apply_products(db: Session, product_ids: list[int], action: str) -> Bul
                     continue
                 p.show_in_pos = True
                 result.updated += 1
+            elif action == "hide_shop":
+                if p.kind != ProductKind.FINAL_SELLABLE:
+                    result.skipped += 1
+                    continue
+                p.show_in_shop = False
+                result.updated += 1
+            elif action == "show_shop":
+                if p.kind != ProductKind.FINAL_SELLABLE:
+                    result.skipped += 1
+                    continue
+                p.show_in_shop = True
+                result.updated += 1
             elif action == "stock_only":
                 p.kind = ProductKind.STOCK_ONLY
                 p.show_in_pos = False
+                p.show_in_shop = False
                 p.direct_purchase_enabled = False
                 p.sell_price = None
                 result.updated += 1
             elif action == "deactivate":
                 p.is_active = False
                 p.show_in_pos = False
+                p.show_in_shop = False
                 p.direct_purchase_enabled = False
                 result.updated += 1
             elif action == "delete":

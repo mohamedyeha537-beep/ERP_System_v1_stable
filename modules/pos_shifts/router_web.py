@@ -13,13 +13,26 @@ from app.deps import DBSession, require_any_permission, require_permission
 from app.datetime_local import format_local_dt
 from app.jinja_env import templates
 from modules.authz.models import User
-from modules.authz.permissions import HR_MANAGE, PAYMENTS_MANAGE, PURCHASES_MANAGE, REPORTS_VIEW, SALES_CREATE
+from modules.authz.capability import (
+    can_apply_shortage_deduction,
+    can_reopen_closed_shift,
+    treasury_clerk_desk_redirect,
+)
+from modules.authz.permissions import (
+    HR_MANAGE,
+    PAYMENTS_MANAGE,
+    POS_SHIFT_REOPEN,
+    POS_SHORTAGE_DEDUCT,
+    PURCHASES_MANAGE,
+    REPORTS_VIEW,
+    SALES_CREATE,
+)
 from modules.sales.models import SaleStatus
 from modules.payments.models import PaymentMethodKind
 from modules.payments.service import (
     PaymentsError,
-    list_payment_methods_transfer_sources,
-    list_payment_methods_transfer_targets,
+    list_clerk_transfer_source_methods,
+    list_clerk_transfer_target_methods,
     payment_method_balances_map,
     record_manual_transfer,
 )
@@ -45,11 +58,19 @@ from modules.pos_shifts.service import (
     compute_shift_financial_summary,
     get_shift,
     get_open_shift_for_user,
+    list_active_pos_cashiers,
     list_completed_sales_for_shift,
     open_shift,
+    peek_pending_pos_carry_offer,
     pin_authenticate_for_shift,
     session_pos_employee_id,
     sync_session_pos_shift,
+)
+from modules.payments.shift_handovers import (
+    ShiftHandoverError,
+    declare_bank_transfer,
+    get_bank_declaration,
+    parse_bank_transferred_at,
 )
 from modules.pos_shifts.shortages import (
     backfill_shortages_from_closed_shifts,
@@ -68,7 +89,9 @@ _treasury_view = require_any_permission(PAYMENTS_MANAGE, REPORTS_VIEW)
 _shortage_page_perm = require_any_permission(
     PAYMENTS_MANAGE, REPORTS_VIEW, HR_MANAGE
 )
-_shortage_deduct_perm = require_any_permission(HR_MANAGE, PAYMENTS_MANAGE)
+_shortage_deduct_perm = require_any_permission(
+    POS_SHORTAGE_DEDUCT, HR_MANAGE, PAYMENTS_MANAGE
+)
 _shortage_forgive_perm = require_any_permission(PURCHASES_MANAGE, PAYMENTS_MANAGE)
 
 
@@ -177,17 +200,40 @@ def _render_shift_page(
     if open_s is not None and shift_financial is not None:
         from modules.pos_shifts.close_wallets import build_shift_close_rows
 
-        close_rows = build_shift_close_rows(db, open_s.id)
+        close_rows = build_shift_close_rows(db, open_s.id, user=user)
 
     from modules.pos_shifts.shift_expenses import shift_expense_ui_context
 
-    expense_ctx = shift_expense_ui_context(db, open_s.id if open_s else None)
+    expense_ctx = shift_expense_ui_context(
+        db, open_s.id if open_s else None, user=user
+    )
+
+    close_employees: list = []
+    if open_s is not None and open_s.employee_id is None:
+        try:
+            from modules.hr.service import list_employees
+
+            close_employees = list_employees(db, only_active=True)
+        except Exception:  # noqa: BLE001
+            close_employees = []
 
     open_shift_stale = False
     if open_s is not None:
         from modules.pos_shifts.service import shift_open_age_hours
 
         open_shift_stale = shift_open_age_hours(open_s) >= 24.0
+
+    from modules.payments.shift_carry import load_pos_shift_close_policy
+
+    close_policy = load_pos_shift_close_policy(db)
+    carry_recipients = (
+        list_active_pos_cashiers(
+            db, exclude_employee_id=getattr(open_s, "employee_id", None)
+        )
+        if open_s
+        else []
+    )
+    bank_decl = get_bank_declaration(db, pos_shift_id=open_s.id) if open_s else None
 
     return templates.TemplateResponse(
         "pos_shift.html",
@@ -211,6 +257,14 @@ def _render_shift_page(
             "treasuries": treasuries,
             "close_rows": close_rows,
             "open_shift_stale": open_shift_stale,
+            "close_employees": close_employees,
+            "close_policy": close_policy,
+            "carry_recipients": carry_recipients,
+            "bank_declaration": bank_decl,
+            "bank_declare_action": (
+                f"/pos/shift/{open_s.id}/bank-transfer" if open_s else ""
+            ),
+            "bank_default": preview_expected_bank or 0,
             **expense_ctx,
         },
         status_code=status_code,
@@ -265,10 +319,10 @@ def pos_shift_shortages_page(
                 "wallets_for_forgive_json": json.dumps(
                     wallets_for_forgive, ensure_ascii=False
                 ),
-                "can_deduct_shortage": user_has_permission(user, HR_MANAGE)
-                or user_has_permission(user, PAYMENTS_MANAGE),
+                "can_deduct_shortage": can_apply_shortage_deduction(user),
                 "can_forgive_shortage": user_has_permission(user, PURCHASES_MANAGE)
                 or user_has_permission(user, PAYMENTS_MANAGE),
+                "can_reopen_shift": can_reopen_closed_shift(user),
             },
         )
     except Exception as exc:  # noqa: BLE001
@@ -286,6 +340,39 @@ def pos_shift_shortages_page(
         )
 
 
+@router.post("/shift/{shift_id}/reopen-draft", response_class=HTMLResponse)
+def pos_shift_reopen_draft(
+    shift_id: int,
+    request: Request,
+    db: DBSession,
+    user: User = Depends(require_permission(POS_SHIFT_REOPEN)),
+    reason: str = Form(""),
+    next: str = Form(""),
+):
+    from modules.pos_shifts.service import PosShiftError, reopen_closed_shift_to_draft
+
+    back = (next or "").strip() or "/pos/shift/shortages?kind=all"
+    if not back.startswith("/"):
+        back = "/pos/shift/shortages?kind=all"
+    try:
+        reopen_closed_shift_to_draft(
+            db,
+            shift_id=shift_id,
+            user_id=user.id,
+            admin_username=user.username or "",
+            reason=reason,
+        )
+        db.commit()
+    except PosShiftError as exc:
+        db.rollback()
+        sep = "&" if "?" in back else "?"
+        return RedirectResponse(back + sep + "err=" + quote(str(exc)), status_code=302)
+    return RedirectResponse(
+        f"/reports/shifts/{shift_id}?saved=1&reopened=1",
+        status_code=302,
+    )
+
+
 def _apply_shortage_payroll_deduction(
     db: DBSession,
     *,
@@ -293,66 +380,63 @@ def _apply_shortage_payroll_deduction(
     user: User,
     note: str,
     employee_id_override: int | None = None,
+    next_url: str | None = None,
 ) -> RedirectResponse:
     import logging
-    from datetime import datetime, timezone
 
-    from modules.hr.service import HRError, create_employee_deduction
+    from modules.hr.service import HRError
     from modules.pos_shifts.models import PosShiftShortage
+    from modules.pos_shifts.shortages import convert_open_shortage_to_deduction
 
     _ensure_shortage_db_schema(db)
 
+    def _ok_redirect(amt: Decimal) -> RedirectResponse:
+        dest = (next_url or "").strip()
+        if dest.startswith("/admin/deductions"):
+            return RedirectResponse(
+                "/admin/deductions?saved=1&employee_id="
+                + quote(str(employee_id_override or "")),
+                status_code=302,
+            )
+        return RedirectResponse(
+            "/pos/shift/shortages?kind=all&ok=deduct&amt=" + quote(str(amt)),
+            status_code=302,
+        )
+
+    def _err_redirect(msg: str) -> RedirectResponse:
+        dest = (next_url or "").strip()
+        if dest.startswith("/admin/deductions"):
+            return RedirectResponse(
+                "/admin/deductions?error=" + quote(msg),
+                status_code=302,
+            )
+        return RedirectResponse(
+            "/pos/shift/shortages?kind=all&err=" + quote(msg),
+            status_code=302,
+        )
+
     s = db.get(PosShiftShortage, shortage_id)
     if s is None or (s.shortage_amount or Decimal("0")) <= 0:
-        return RedirectResponse(
-            "/pos/shift/shortages?kind=all&err="
-            + quote("هذا العجز غير موجود أو تمت معالجته مسبقاً."),
-            status_code=302,
-        )
+        return _err_redirect("هذا العجز غير موجود أو تمت معالجته مسبقاً.")
     if not s.employee_id and not employee_id_override:
-        return RedirectResponse(
-            "/pos/shift/shortages?kind=all&err="
-            + quote(
-                "اختر الموظف الذي يُخصم من راتبه، أو اربط الكاشier بموظف في الموارد البشرية."
-            ),
-            status_code=302,
+        return _err_redirect(
+            "اختر الموظف الذي يُخصم من راتبه، أو اربط الكاشير بموظف في الموارد البشرية."
         )
-    emp_id = int(s.employee_id or employee_id_override)
     if s.payroll_deduction_id:
-        return RedirectResponse(
-            "/pos/shift/shortages?kind=all&err="
-            + quote("تم تسجيل خصم راتب لهذا العجز مسبقاً."),
-            status_code=302,
-        )
+        return _err_redirect("تم تسجيل خصم راتب لهذا العجز مسبقاً.")
     amt = Decimal(str(s.shortage_amount)).quantize(Decimal("0.001"))
     try:
-        ded = create_employee_deduction(
+        convert_open_shortage_to_deduction(
             db,
-            employee_id=emp_id,
-            amount=amt,
-            note=(note or f"عجز {shortage_kind_label_ar(s.kind)} جلسة #{s.shift_id}").strip(),
-            source_type="POS_SHIFT_SHORTAGE",
-            source_id=s.id,
+            s,
             resolved_by_id=user.id,
+            note=(note or "").strip() or None,
+            employee_id_override=employee_id_override,
         )
-    except HRError as exc:
-        return RedirectResponse(
-            "/pos/shift/shortages?kind=all&err=" + quote(str(exc)),
-            status_code=302,
-        )
-    if s.employee_id is None:
-        s.employee_id = emp_id
-    if s.original_shortage_amount is None:
-        s.original_shortage_amount = amt
-    s.resolved_action = "DEDUCT"
-    s.resolved_note = (note or "").strip() or None
-    s.resolved_at = datetime.now(timezone.utc)
-    s.resolved_by_id = user.id
-    s.payroll_deduction_id = ded.id
-    s.shortage_amount = Decimal("0.000")
-    try:
-        db.flush()
         db.commit()
+    except HRError as exc:
+        db.rollback()
+        return _err_redirect(str(exc))
     except Exception as exc:  # noqa: BLE001
         db.rollback()
         logging.getLogger("pos_shifts").exception("shortage payroll deduct failed")
@@ -362,14 +446,8 @@ def _apply_shortage_payroll_deduction(
                 "قاعدة البيانات تحتاج تحديثاً. أوقف الخادم ثم شغّله من جديد "
                 "(restart-server.bat) وحاول مرة أخرى."
             )
-        return RedirectResponse(
-            "/pos/shift/shortages?kind=all&err=" + quote(msg),
-            status_code=302,
-        )
-    return RedirectResponse(
-        "/pos/shift/shortages?kind=all&ok=deduct&amt=" + quote(str(amt)),
-        status_code=302,
-    )
+        return _err_redirect(msg)
+    return _ok_redirect(amt)
 
 
 @router.get("/shift/shortages/{shortage_id}/deduct", response_class=HTMLResponse)
@@ -393,13 +471,19 @@ def pos_shift_shortage_deduct(
     user: User = Depends(_shortage_deduct_perm),
     note: str = Form(""),
     employee_id: str = Form(""),
+    next: str = Form(""),
 ):
     eid: int | None = None
     raw = (employee_id or "").strip()
     if raw.isdigit() and int(raw) > 0:
         eid = int(raw)
     return _apply_shortage_payroll_deduction(
-        db, shortage_id=shortage_id, user=user, note=note, employee_id_override=eid
+        db,
+        shortage_id=shortage_id,
+        user=user,
+        note=note,
+        employee_id_override=eid,
+        next_url=(next or "").strip() or None,
     )
 
 
@@ -545,6 +629,9 @@ def pos_shift_page(
     closed: str | None = Query(None),
     err: str | None = Query(None),
 ):
+    blocked = treasury_clerk_desk_redirect(user)
+    if blocked is not None:
+        return blocked
     if is_cashier_kiosk_user(user) and get_open_shift_for_user(db, user.id) is None:
         return RedirectResponse("/pos/pin", status_code=302)
     if need and get_open_shift_for_user(db, user.id) is None:
@@ -574,6 +661,9 @@ def pos_shift_start_page(
     user: User = Depends(_pos_perm),
     err: str | None = Query(None),
 ):
+    blocked = treasury_clerk_desk_redirect(user)
+    if blocked is not None:
+        return blocked
     if get_open_shift_for_user(db, user.id) is not None:
         return RedirectResponse("/pos", status_code=302)
     if requires_pos_pin(user) and session_pos_employee_id(request) is None:
@@ -588,6 +678,13 @@ def pos_shift_start_page(
 
     branches = list_sales_deduction_warehouses(db)
     default_wh = getattr(user, "warehouse_id", None)
+    emp_id = session_pos_employee_id(request)
+    if not emp_id:
+        from modules.hr.service import get_employee_by_user_id
+
+        linked = get_employee_by_user_id(db, user.id)
+        emp_id = linked.id if linked is not None else None
+    carry = peek_pending_pos_carry_offer(db, employee_id=emp_id)
     return templates.TemplateResponse(
         "pos_shift_start.html",
         {
@@ -599,6 +696,7 @@ def pos_shift_start_page(
             "no_float_checked": False,
             "branch_warehouses": branches,
             "default_warehouse_id": default_wh,
+            "carry_offer": carry,
         },
     )
 
@@ -612,6 +710,8 @@ def _submit_shift_start(
     opening_note: str,
     no_opening_float: str,
     warehouse_id: str = "",
+    received_cash: str = "",
+    received_bank: str = "",
 ) -> RedirectResponse | HTMLResponse:
     if get_open_shift_for_user(db, user.id) is not None:
         return RedirectResponse("/pos", status_code=302)
@@ -646,11 +746,19 @@ def _submit_shift_start(
                 "no_float_checked": no_float,
                 "branch_warehouses": list_sales_deduction_warehouses(db),
                 "default_warehouse_id": warehouse_id.strip() or getattr(user, "warehouse_id", None),
+                "carry_offer": peek_pending_pos_carry_offer(db, employee_id=emp_id),
             },
             status_code=400,
         )
 
-    if no_float:
+    carry_pending = peek_pending_pos_carry_offer(db, employee_id=emp_id)
+    if carry_pending:
+        oc = Decimal("0")
+        if not (received_cash or "").strip() or not (received_bank or "").strip():
+            return _render_err(
+                "يوجد رصيد مرحّل. أدخل الكاش والمصرف الذي عددتهما فعلياً."
+            )
+    elif no_float:
         oc = Decimal("0")
     else:
         raw = (opening_cash or "").strip()
@@ -667,6 +775,8 @@ def _submit_shift_start(
     if warehouse_id.strip().isdigit():
         wh_id = int(warehouse_id.strip())
 
+    rec_cash = received_cash.strip() if (received_cash or "").strip() else None
+    rec_bank = received_bank.strip() if (received_bank or "").strip() else None
     try:
         sh = open_shift(
             db,
@@ -675,8 +785,11 @@ def _submit_shift_start(
             opening_note=opening_note,
             opening_cash=oc,
             warehouse_id=wh_id,
+            received_cash=rec_cash,
+            received_bank=rec_bank,
         )
-        if oc > 0:
+        carried = getattr(sh, "received_from_shift_id", None)
+        if oc > 0 and not carried:
             issue_opening_float_transfer(
                 db, shift_id=sh.id, amount=oc, user_id=user.id
             )
@@ -698,6 +811,8 @@ def pos_shift_start_submit(
     opening_note: str = Form(""),
     no_opening_float: str = Form(""),
     warehouse_id: str = Form(""),
+    received_cash: str = Form(""),
+    received_bank: str = Form(""),
 ):
     return _submit_shift_start(
         request,
@@ -707,6 +822,8 @@ def pos_shift_start_submit(
         opening_note=opening_note,
         no_opening_float=no_opening_float,
         warehouse_id=warehouse_id,
+        received_cash=received_cash,
+        received_bank=received_bank,
     )
 
 
@@ -733,6 +850,7 @@ def pos_shift_expense_record(
     category: str = Form(...),
     note: str = Form(...),
     payment_method_id: str = Form(""),
+    employee_id: str = Form(""),
     next_url: str = Form("/pos/shift"),
 ):
     from infra.sqlite_patch import patch_sqlite_schema
@@ -766,8 +884,12 @@ def pos_shift_expense_record(
     raw_pm = (payment_method_id or "").strip()
     if raw_pm.isdigit() and int(raw_pm) > 0:
         pm_id = int(raw_pm)
+    emp_id: int | None = None
+    raw_emp = (employee_id or "").strip()
+    if raw_emp.isdigit() and int(raw_emp) > 0:
+        emp_id = int(raw_emp)
     try:
-        record_shift_expense(
+        expense = record_shift_expense(
             db,
             shift_id=open_s.id,
             user_id=user.id,
@@ -775,6 +897,7 @@ def pos_shift_expense_record(
             category_key=category,
             note=note,
             payment_method_id=pm_id,
+            employee_id=emp_id,
         )
         db.commit()
     except PosShiftError as exc:
@@ -783,7 +906,11 @@ def pos_shift_expense_record(
             _shift_expense_redirect(next_url, err=str(exc)),
             status_code=302,
         )
-    return RedirectResponse(_shift_expense_redirect(next_url, ok="1"), status_code=302)
+    # أي مبلغ يُصرف من الوردية → إيصال صرف (مسار الكاشير)
+    return RedirectResponse(
+        f"/pos/shift/expense/{expense.id}/voucher?autoprint=1",
+        status_code=302,
+    )
 
 
 def _shift_expense_redirect(next_url: str, *, err: str | None = None, ok: str | None = None) -> str:
@@ -798,43 +925,177 @@ def _shift_expense_redirect(next_url: str, *, err: str | None = None, ok: str | 
     return base
 
 
+@router.get("/shift/expense/{pid}/voucher", response_class=HTMLResponse)
+def pos_shift_expense_voucher(
+    request: Request,
+    pid: int,
+    db: DBSession,
+    user: User = Depends(_pos_perm),
+    paper: str | None = Query(None),
+    orientation: str | None = Query(None),
+    autoprint: int = Query(0, ge=0, le=1),
+):
+    """إيصال صرف لمصروف الوردية — متاح للكاشير."""
+    import logging
+
+    from modules.platform.business_domain import BusinessDomain
+    from modules.printing.doc_numbers import PrintDocKind, doc_kind_label, next_doc_number
+    from modules.payments.models import PaymentMethod, Purchase
+    from modules.settings.service import (
+        PAPER_ORIENTATIONS,
+        PAPER_SIZES,
+        get_paper_css,
+        get_receipt_orientation,
+        get_receipt_paper_size,
+        get_setting,
+        normalize_orientation,
+        normalize_paper,
+        set_setting,
+    )
+
+    log = logging.getLogger("pos.shift.expense_voucher")
+    try:
+        purchase = db.get(Purchase, pid)
+        if purchase is None:
+            return RedirectResponse(
+                "/pos/shift?expense_err=" + quote("المصروف غير موجود"),
+                status_code=302,
+            )
+        # يسمح لمن سجّل المصروف أو من يدير المشتريات
+        if purchase.created_by_id != user.id and not user_has_permission(
+            user, PURCHASES_MANAGE
+        ):
+            return RedirectResponse(
+                "/pos/shift?expense_err=" + quote("لا صلاحية لعرض هذا الإيصال."),
+                status_code=302,
+            )
+        chosen = normalize_paper(
+            paper, get_receipt_paper_size(db, BusinessDomain.RESTAURANT)
+        )
+        orient = normalize_orientation(
+            orientation, get_receipt_orientation(db, BusinessDomain.RESTAURANT)
+        )
+        meta_key = f"disbursement_voucher_{pid}"
+        existing = (get_setting(db, meta_key, "") or "").strip() or (
+            get_setting(db, f"expense_voucher_{pid}", "") or ""
+        ).strip()
+        if existing:
+            doc_number = existing
+        else:
+            doc_number = next_doc_number(
+                db, PrintDocKind.DISBURSEMENT, domain="restaurant"
+            )
+            set_setting(db, meta_key, doc_number)
+            db.commit()
+
+        # العلاقة على Purchase اسمها method (وليس payment_method)
+        method = None
+        try:
+            method = purchase.method
+        except Exception:  # noqa: BLE001
+            method = None
+        if method is None and purchase.payment_method_id:
+            method = db.get(PaymentMethod, int(purchase.payment_method_id))
+
+        preserve = {"autoprint": "1"} if autoprint else {}
+        return templates.TemplateResponse(
+            "disbursement_voucher.html",
+            {
+                "request": request,
+                "doc_title": doc_kind_label(PrintDocKind.DISBURSEMENT),
+                "doc_number": doc_number,
+                "amount": float(purchase.amount or 0),
+                "method_name": method.name_ar if method else "—",
+                "category": purchase.expense_category or "",
+                "party": purchase.supplier or "",
+                "note": purchase.note or "",
+                "created_at": purchase.created_at,
+                "employee_name": user.username,
+                "store_name": get_setting(db, "store_name", "نقطة البيع"),
+                "back_url": "/pos/shift",
+                "paper": chosen,
+                "orientation": orient,
+                "paper_css": get_paper_css(chosen, orient),
+                "paper_choices": PAPER_SIZES,
+                "orientation_choices": PAPER_ORIENTATIONS,
+                "can_choose_paper": True,
+                "print_form_action": f"/pos/shift/expense/{pid}/voucher",
+                "print_preserve_params": preserve,
+                "autoprint": autoprint,
+            },
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.exception("expense voucher failed pid=%s", pid)
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return RedirectResponse(
+            "/pos/shift?expense_err="
+            + quote(f"تعذّر فتح إيصال الصرف: {str(exc)[:120]}"),
+            status_code=302,
+        )
+
+
 @router.post("/shift/close", response_class=HTMLResponse)
 def pos_shift_close(
     request: Request,
     db: DBSession,
     user: User = Depends(_pos_perm),
-    counted_cash: str = Form(...),
+    counted_cash: str = Form(""),
     counted_bank: str = Form(""),
     counted_room: str = Form(""),
     closing_note: str = Form(""),
+    responsible_employee_id: str = Form(""),
+    close_destination: str = Form(""),
+    carried_to_employee_id: str = Form(""),
 ):
+    from modules.authz.pos_wallet_access import (
+        user_may_use_pos_bank,
+        user_may_use_pos_cash,
+    )
+    from modules.pos_shifts.service import compute_expected_bank, compute_expected_cash
+
     sid = request.session.get("pos_shift_id")
     try:
         shift_id = int(sid) if sid is not None else 0
     except (TypeError, ValueError):
         shift_id = 0
-    try:
-        cc = _parse_money(counted_cash)
-    except (InvalidOperation, ValueError):
-        return RedirectResponse(
-            "/pos/shift?err=" + quote("المبلغ المعدود (كاش) غير صالح."),
-            status_code=302,
-        )
+    if not user_may_use_pos_cash(user):
+        cc = compute_expected_cash(db, shift_id)
+    else:
+        cash_raw = (counted_cash or "").strip()
+        if not cash_raw:
+            return RedirectResponse(
+                "/pos/shift?err="
+                + quote("أدخل المبلغ المعدود للكاش بعد عدّ الدرج — لا يمكن الإقفال والخانة فارغة."),
+                status_code=302,
+            )
+        try:
+            cc = _parse_money(cash_raw)
+        except (InvalidOperation, ValueError):
+            return RedirectResponse(
+                "/pos/shift?err=" + quote("المبلغ المعدود (كاش) غير صالح."),
+                status_code=302,
+            )
     cb: Decimal | None = None
-    bank_raw = (counted_bank or "").strip()
-    if not bank_raw:
-        return RedirectResponse(
-            "/pos/shift?err="
-            + quote("أدخل المبلغ المعدود لخزينة المصرف بعد مراجعة فواتير المصرف."),
-            status_code=302,
-        )
-    try:
-        cb = _parse_money(bank_raw)
-    except (InvalidOperation, ValueError):
-        return RedirectResponse(
-            "/pos/shift?err=" + quote("رصيد المصرف المعدود غير صالح."),
-            status_code=302,
-        )
+    if not user_may_use_pos_bank(user):
+        cb = compute_expected_bank(db, shift_id)
+    else:
+        bank_raw = (counted_bank or "").strip()
+        if not bank_raw:
+            return RedirectResponse(
+                "/pos/shift?err="
+                + quote("أدخل المبلغ المعدود لخزينة المصرف بعد مراجعة فواتير المصرف."),
+                status_code=302,
+            )
+        try:
+            cb = _parse_money(bank_raw)
+        except (InvalidOperation, ValueError):
+            return RedirectResponse(
+                "/pos/shift?err=" + quote("رصيد المصرف المعدود غير صالح."),
+                status_code=302,
+            )
     room_raw = (counted_room or "").strip()
     if not room_raw:
         return RedirectResponse(
@@ -851,6 +1112,15 @@ def pos_shift_close(
             "/pos/shift?err=" + quote("إجمالي فواتير الشقق غير صالح."),
             status_code=302,
         )
+    if len((closing_note or "").strip()) < 2:
+        return RedirectResponse(
+            "/pos/shift?err=" + quote("أدخل بيان الإغلاق — الوصف إلزامي قبل إقفال الجلسة."),
+            status_code=302,
+        )
+    emp_raw = (responsible_employee_id or "").strip()
+    emp_id: int | None = None
+    if emp_raw.isdigit() and int(emp_raw) > 0:
+        emp_id = int(emp_raw)
     try:
         close_shift(
             db,
@@ -860,6 +1130,13 @@ def pos_shift_close(
             counted_bank=cb,
             counted_room=cr,
             closing_note=closing_note,
+            responsible_employee_id=emp_id,
+            close_destination=close_destination,
+            carried_to_employee_id=(
+                int(carried_to_employee_id)
+                if (carried_to_employee_id or "").strip().isdigit()
+                else None
+            ),
         )
         db.commit()
     except PosShiftError as e:
@@ -869,6 +1146,41 @@ def pos_shift_close(
     if is_cashier_kiosk_user(user):
         return RedirectResponse(f"/pos/pin?closed={shift_id}", status_code=302)
     return RedirectResponse(f"/pos/shift?closed={shift_id}", status_code=302)
+
+
+@router.post("/shift/{shift_id}/bank-transfer")
+def pos_shift_bank_declare(
+    shift_id: int,
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_pos_perm),
+    bank_amount: str = Form(""),
+    bank_name: str = Form(""),
+    bank_ref: str = Form(""),
+    bank_transferred_at: str = Form(""),
+):
+    sh = get_shift(db, shift_id)
+    if sh is None:
+        return RedirectResponse("/pos/shift?err=" + quote("الجلسة غير موجودة"), status_code=302)
+    try:
+        declare_bank_transfer(
+            db,
+            domain="restaurant",
+            pos_shift_id=sh.id,
+            from_employee_id=sh.employee_id,
+            amount=Decimal(str(bank_amount or "0")),
+            bank_name=bank_name,
+            bank_ref=bank_ref,
+            transferred_at=parse_bank_transferred_at(bank_transferred_at),
+            user_id=user.id,
+        )
+        db.commit()
+    except (ShiftHandoverError, InvalidOperation) as e:
+        db.rollback()
+        return RedirectResponse("/pos/shift?err=" + quote(str(e)), status_code=302)
+    if sh.status == PosShiftStatus.CLOSED:
+        return RedirectResponse(f"/pos/shift/{sh.id}/report?saved=1", status_code=302)
+    return RedirectResponse("/pos/shift?saved=bank", status_code=302)
 
 
 @router.get("/shift/{shift_id}/export.csv")
@@ -1174,6 +1486,22 @@ def pos_treasury_page(
         acc = db.get(PaymentMethod, selected_pm_id)
         if acc is None or not acc.show_on_dashboard:
             selected_pm_id = None
+    if selected_pm_id is None:
+        from modules.payments.service import ensure_hotel_treasury_payment_methods
+        from modules.payments.shift_handoff_service import ensure_main_treasury_payment_methods
+        from modules.platform.business_domain import BusinessDomain, resolve_finance_domain
+
+        domain = resolve_finance_domain(user, request.session)
+        if domain == BusinessDomain.HOTEL:
+            hotels = ensure_hotel_treasury_payment_methods(db)
+            selected_pm_id = int(
+                hotels["BANK"].id if pm_kind == PaymentMethodKind.BANK else hotels["CASH"].id
+            )
+        else:
+            mains = ensure_main_treasury_payment_methods(db)
+            selected_pm_id = int(
+                mains["BANK"].id if pm_kind == PaymentMethodKind.BANK else mains["CASH"].id
+            )
 
     try:
         if selected_pm_id is not None:
@@ -1195,7 +1523,11 @@ def pos_treasury_page(
             entries = [e for e in entries if e.direction == "OUT"]
     except Exception as exc:
         log.exception("treasury page failed: %s", exc)
-        label = "خزينة الكاش" if pm_kind == PaymentMethodKind.CASH else "خزينة المصرف"
+        label = (
+            "الخزينة الرئيسية — كاش"
+            if pm_kind == PaymentMethodKind.CASH
+            else "الخزينة الرئيسية — مصرف"
+        )
         return templates.TemplateResponse(
             "pos_treasury.html",
             {
@@ -1213,8 +1545,13 @@ def pos_treasury_page(
                 "filter_day": filter_day.isoformat() if filter_day else "",
                 "store_name": get_setting(db, "store_name", "نقطة البيع"),
                 "page_error": "تعذّر تحميل حركة الخزينة. راجع سجل السيرفر أو أعد التشغيل.",
+                "can_edit_ledger_note": False,
+                "note_saved": False,
+                "note_error": "",
             },
         )
+
+    from modules.platform.business_domain import is_system_admin
 
     return templates.TemplateResponse(
         "pos_treasury.html",
@@ -1233,15 +1570,55 @@ def pos_treasury_page(
             "filter_day": filter_day.isoformat() if filter_day else "",
             "store_name": get_setting(db, "store_name", "نقطة البيع"),
             "page_error": None,
+            "can_edit_ledger_note": is_system_admin(user),
+            "note_saved": request.query_params.get("saved") == "note",
+            "note_error": request.query_params.get("error") or "",
         },
     )
+
+
+@router.post("/treasury/note", response_class=HTMLResponse)
+def pos_treasury_note_save(
+    request: Request,
+    db: DBSession,
+    user: User = Depends(_treasury_manage),
+    source_kind: str = Form(...),
+    source_id: str = Form(...),
+    statement: str = Form(...),
+    kind: str = Form("cash"),
+    dir: str = Form("all"),
+    day: str = Form(""),
+    pm: str = Form(""),
+):
+    from modules.payments.treasury_service import update_ledger_statement
+    from modules.platform.business_domain import is_system_admin
+
+    qs = f"/pos/treasury?kind={quote(kind)}&dir={quote(dir)}"
+    if day.strip():
+        qs += "&day=" + quote(day.strip())
+    if pm.strip().isdigit():
+        qs += "&pm=" + quote(pm.strip())
+    if not is_system_admin(user):
+        return RedirectResponse(qs + "&error=" + quote("تحرير البيان للأدمن فقط."), status_code=302)
+    try:
+        update_ledger_statement(
+            db,
+            source_kind=source_kind,
+            source_id=int(source_id),
+            statement=statement,
+        )
+        db.commit()
+    except (PaymentsError, ValueError) as exc:
+        db.rollback()
+        return RedirectResponse(qs + "&error=" + quote(str(exc)), status_code=302)
+    return RedirectResponse(qs + "&saved=note", status_code=302)
 
 
 @router.get("/treasury/transfer", response_class=HTMLResponse)
 def pos_treasury_transfer_page(
     request: Request,
     db: DBSession,
-    _: User = Depends(_treasury_view),
+    user: User = Depends(_treasury_view),
     kind: str = Query("cash"),
     error: str | None = Query(None),
     ok: str | None = Query(None),
@@ -1254,8 +1631,10 @@ def pos_treasury_transfer_page(
     except ValueError:
         pm_kind = PaymentMethodKind.CASH
     try:
-        sources = list_payment_methods_transfer_sources(db, only_active=True)
-        targets = list_payment_methods_transfer_targets(db, only_active=True)
+        sources = list_clerk_transfer_source_methods(
+            db, user, request.session, only_active=True
+        )
+        targets = list_clerk_transfer_target_methods(db, user, only_active=True)
         all_balances = payment_method_balances_map(db)
         balances = {
             m.id: all_balances.get(m.id, Decimal("0"))
@@ -1274,8 +1653,13 @@ def pos_treasury_transfer_page(
                 "error": error,
                 "ok": ok,
                 "page_error": "تعذّر تحميل صفحة التحويل. راجع سجل السيرفر أو أعد تشغيل التطبيق.",
+                "clerk_sources_only": True,
             },
         )
+    from modules.authz.capability import is_treasury_clerk_user
+    from modules.platform.business_domain import is_system_admin
+
+    clerk_sources_only = is_treasury_clerk_user(user) and not is_system_admin(user)
     return templates.TemplateResponse(
         "pos_treasury_transfer.html",
         {
@@ -1287,6 +1671,7 @@ def pos_treasury_transfer_page(
             "error": error,
             "ok": ok,
             "page_error": None,
+            "clerk_sources_only": clerk_sources_only,
         },
     )
 
@@ -1300,6 +1685,7 @@ def pos_treasury_transfer_submit(
     to_payment_method_id: str = Form(...),
     amount: str = Form(...),
     note: str = Form(""),
+    bank_ref: str = Form(""),
     kind: str = Form("cash"),
 ):
     try:
@@ -1315,6 +1701,26 @@ def pos_treasury_transfer_submit(
             status_code=302,
         )
     try:
+        allowed_from = {
+            int(m.id)
+            for m in list_clerk_transfer_source_methods(
+                db, user, request.session, only_active=True
+            )
+        }
+        allowed_to = {
+            int(m.id)
+            for m in list_clerk_transfer_target_methods(db, user, only_active=True)
+        }
+        if from_id not in allowed_from:
+            raise PaymentsError(
+                "هذا الحساب غير مسموح للتحويل منه على حسابك — راجع الإدارة."
+            )
+        if to_id not in allowed_to:
+            raise PaymentsError(
+                "هذا الحساب غير مسموح للتحويل إليه على حسابك — راجع الإدارة."
+            )
+        if len((note or "").strip()) < 3:
+            raise PaymentsError("أدخل ملاحظة التحويل (سبب التحويل إلزامي — 3 أحرف على الأقل).")
         record_manual_transfer(
             db,
             from_payment_method_id=from_id,
@@ -1322,6 +1728,7 @@ def pos_treasury_transfer_submit(
             amount=amt,
             user_id=user.id,
             note=note,
+            bank_ref=bank_ref,
         )
         db.commit()
     except PaymentsError as e:

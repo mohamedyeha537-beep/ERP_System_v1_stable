@@ -12,6 +12,7 @@ _EXPECTED: dict[str, set[str]] = {
     "product_categories": {
         "color_hex",
         "show_in_pos",
+        "show_in_shop",
         "kitchen_section_id",
         "delete_protected",
         "routing_mode",
@@ -19,7 +20,10 @@ _EXPECTED: dict[str, set[str]] = {
     },
     "products": {
         "show_in_pos",
+        "show_in_shop",
         "kitchen_department_id",
+        "kitchen_section_id",
+        "sales_warehouse_id",
         "image_filename",
         "line_modifier_presets",
         "expiry_tracked",
@@ -30,6 +34,9 @@ _EXPECTED: dict[str, set[str]] = {
         "bom_markup_pct",
         "reference_unit_cost",
         "direct_purchase_enabled",
+    },
+    "bom_lines": {
+        "packaging_only",
     },
     "hr_employees": {
         "department_id",

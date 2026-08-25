@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% from "_reports_macros.html" import reports_nav with context %}
+{% block title %}تفاصيل التحويل #{{ tf.id }}{% endblock %}
+{% block body %}
+<h1>تفاصيل التحويل #{{ tf.id }}</h1>
+{{ reports_nav('transactions') }}
+<p class="muted" style="margin-top:-0.25rem">
+  <a href="/reports/transactions?kind=transfer">← سجل العمليات — التحويلات</a>
+</p>
+
+{% if note_saved %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4;margin-bottom:0.75rem">
+  <p style="margin:0">تم حفظ البيان.</p>
+</div>
+{% endif %}
+{% if note_error %}
+<div class="card" style="border-color:#fecaca;background:#fef2f2;margin-bottom:0.75rem">
+  <p style="margin:0;color:#b91c1c">{{ note_error }}</p>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0">بيانات المعاملة</h2>
+  <table>
+    <tbody>
+      <tr><th style="width:11rem">النوع</th><td>{{ type_label }}</td></tr>
+      <tr>
+        <th>التاريخ والوقت</th>
+        <td dir="ltr" style="font-variant-numeric:tabular-nums">
+          {{ pos_format_dt(tf.created_at, '%Y-%m-%d %H:%M:%S') if tf.created_at else '—' }}
+        </td>
+      </tr>
+      <tr><th>الموظف</th><td>{{ employee_name or '—' }}</td></tr>
+      <tr><th>من حساب</th><td>{{ from_name }}</td></tr>
+      <tr><th>إلى حساب</th><td>{{ to_name }}</td></tr>
+      <tr><th>المبلغ</th><td><strong>{{ pos_money(tf.amount) }}</strong> <span class="money-currency">د.ل</span></td></tr>
+      <tr>
+        <th>البيان / الملاحظة</th>
+        <td>
+          {% if tf.note %}
+          {{ tf.note }}
+          {% else %}
+          <span style="color:#b45309">بدون بيان — يمكن للأدمن إضافته</span>
+          {% endif %}
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+{% if can_edit_note %}
+<div class="card">
+  <h2 style="margin-top:0">تحرير البيان (أدمن)</h2>
+  <p class="muted" style="margin-top:0;font-size:0.88rem">
+    أضف أو عدّل وصف التحويل إن لم يكتبه الموظف — يظهر للمراجع في التقرير.
+  </p>
+  <form method="post" action="/reports/transactions/note" class="row" style="gap:0.5rem;align-items:flex-end;flex-wrap:wrap">
+    <input type="hidden" name="source_kind" value="transfer" />
+    <input type="hidden" name="source_id" value="{{ tf.id }}" />
+    <input type="hidden" name="next" value="/reports/transactions/transfer/{{ tf.id }}" />
+    <div style="flex:1;min-width:16rem">
+      <label>البيان / الملاحظة</label>
+      <textarea name="statement" required minlength="2" maxlength="400" rows="3"
+                placeholder="سبب التحويل"
+                style="width:100%;padding:0.45rem;border-radius:8px;border:1px solid var(--border)">{{ tf.note or '' }}</textarea>
+    </div>
+    <button class="btn btn-primary" type="submit">حفظ البيان</button>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

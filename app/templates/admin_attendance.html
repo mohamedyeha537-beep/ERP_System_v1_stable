@@ -74,14 +74,13 @@
   </div>
 </div>
 
-<nav class="hr-nav">
-  <a href="/admin/employees">الموظفون</a>
-  <a href="/admin/departments">الأقسام</a>
-  <a href="/admin/work-shifts">الورديات</a>
-  <a href="/admin/attendance" class="active">الحضور والانصراف</a>
-  <a href="/admin/payroll">الرواتب الشهرية</a>
-  <a href="/admin/advances">السلف</a>
-</nav>
+{% if pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}
+<link rel="stylesheet" href="/static/treasury_desk.css?v=1" />
+{% include "treasury/_nav.html" %}
+{% else %}
+{% set hr_nav_active = 'attendance' %}
+{% include "_hr_nav.html" %}
+{% endif %}
 
 <div class="help">
   يُحسب <strong>التأخير</strong> و<strong>الانصراف المبكر</strong> و<strong>الساعات الإضافية</strong> تلقائياً عند تسجيل الانصراف
@@ -349,10 +348,10 @@
         <td>{% if r.check_out %}{{ r.attendance_status_label }}{% else %}—{% endif %}</td>
         <td>{% if r.check_out and r.late_minutes %}{{ r.late_minutes }} د{% else %}—{% endif %}</td>
         <td>{{ attendance_ot_cell(r) }}</td>
-        <td>{{ attendance_approval_cell(r, can_manage) }}</td>
+        <td>{{ attendance_approval_cell(r, can_adjust if can_adjust is defined else can_manage) }}</td>
         <td class="muted">{{ r.notes or '—' }}</td>
         <td style="white-space:nowrap">
-          {% if can_manage and r.check_out %}
+          {% if (can_adjust if can_adjust is defined else can_manage) and r.check_out %}
           {{ attendance_adjust_dialog(r, emp.full_name_ar if emp else '?') }}
           {% endif %}
           {% if can_record %}
@@ -423,10 +422,10 @@
         <td>{% if r.check_out %}{{ r.attendance_status_label }}{% else %}—{% endif %}</td>
         <td>{% if r.check_out and r.late_minutes %}{{ r.late_minutes }} د{% else %}—{% endif %}</td>
         <td>{{ attendance_ot_cell(r) }}</td>
-        <td>{{ attendance_approval_cell_compact(r, can_manage) }}</td>
+        <td>{{ attendance_approval_cell_compact(r, can_adjust if can_adjust is defined else can_manage) }}</td>
         <td class="muted">{{ r.notes or '—' }}</td>
         <td>
-          {% if can_manage and r.check_out %}
+          {% if (can_adjust if can_adjust is defined else can_manage) and r.check_out %}
           {% set emp = employees|selectattr('id','equalto',r.employee_id)|first %}
           {{ attendance_adjust_dialog(r, selected_emp.full_name_ar if selected_emp else (emp.full_name_ar if emp else '?')) }}
           {% endif %}

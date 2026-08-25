@@ -1,0 +1,13 @@
+{# وضعية المطعم والفندق — الرصيد التشغيلي لكل نشاط قبل الصرف #}
+<div class="tdesk-positions" {% if highlight_domain is defined and highlight_domain %}data-highlight="{{ highlight_domain }}"{% endif %}>
+  <div class="tdesk-position restaurant" data-domain="restaurant">
+    <div class="ttl">وضعية المطعم</div>
+    <div class="val">{{ pos_money(bals.restaurant_total) }} <span class="money-currency">د.ل</span></div>
+    <div class="sub">كاش {{ pos_money(bals.restaurant_cash) }} · مصرف {{ pos_money(bals.restaurant_bank) }}</div>
+  </div>
+  <div class="tdesk-position hotel" data-domain="hotel">
+    <div class="ttl">وضعية الفندق</div>
+    <div class="val">{{ pos_money(bals.hotel_total) }} <span class="money-currency">د.ل</span></div>
+    <div class="sub">كاش {{ pos_money(bals.hotel_cash) }} · مصرف {{ pos_money(bals.hotel_bank) }}</div>
+  </div>
+</div>

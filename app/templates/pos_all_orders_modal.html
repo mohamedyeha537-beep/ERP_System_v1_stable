@@ -4,7 +4,7 @@
 
 
 
-<dialog id="pos-all-orders-dialog" class="pos-all-orders-dialog" data-refund-auth-configured="{{ '1' if refund_auth_configured|default(false) else '0' }}">
+<dialog id="pos-all-orders-dialog" class="pos-all-orders-dialog" data-refund-auth-configured="{{ '1' if refund_auth_configured|default(false) else '0' }}" data-pos-refund-otp-required="{{ '1' if pos_refund_otp_required|default(true) else '0' }}">
 
   <div class="pos-all-orders-dialog-header">
 

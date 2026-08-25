@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% from "_reports_macros.html" import reports_nav, period_filter, export_button, report_export_format_help, pdf_export_button with context %}
+{% block title %}سجل العمليات — الكل{% endblock %}
+{% block body %}
+<h1>سجل العمليات{% if domain_label %} — {{ domain_label }}{% endif %}</h1>
+<p class="muted" style="margin-top:-0.35rem">
+  مبيعات · مقبوضات · مشتريات · مصروفات · تحويلات بين الحسابات — الأحدث في الأعلى. ملاحظة التحويل تظهر هنا حتى يعرف المراجع سبب البند.
+</p>
+{{ reports_nav('transactions') }}
+{{ period_filter(
+  '/reports/transactions',
+  period, period_labels, start, end, start_str, end_str,
+  extra_params=('&kind=' ~ kind ~ ('&q=' ~ (q|urlencode) if q else '')),
+  keep_fields=[('kind', kind), ('q', q)]
+) }}
+
+<div class="card no-print" style="margin-bottom:0.75rem">
+  <form method="get" action="/reports/transactions" class="row" style="gap:0.55rem;flex-wrap:wrap;align-items:flex-end;margin:0">
+    <input type="hidden" name="period" value="{{ period }}" />
+    {% if period == 'custom' %}
+    <input type="hidden" name="start" value="{{ start_str }}" />
+    <input type="hidden" name="end" value="{{ end_str }}" />
+    {% endif %}
+    <div>
+      <label class="muted" style="font-size:0.8rem">نوع العملية</label>
+      <select name="kind" class="input" style="min-width:9rem">
+        {% for code, label in kind_options %}
+        <option value="{{ code }}" {% if kind == code %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div style="flex:1;min-width:14rem">
+      <label class="muted" style="font-size:0.8rem">بحث بالاسم أو المرجع</label>
+      <input class="input" name="q" value="{{ q }}" placeholder="اسم الزبون / النزيل / المورد / رقم فاتورة…" style="width:100%" />
+    </div>
+    <button type="submit" class="btn btn-primary">عرض</button>
+    {% if q or kind != 'all' %}
+    <a class="btn" href="/reports/transactions?period={{ period }}{% if period == 'custom' %}&start={{ start_str }}&end={{ end_str }}{% endif %}">مسح التصفية</a>
+    {% endif %}
+  </form>
+</div>
+
+{{ report_export_format_help() }}
+<div class="export-bar">
+  <span class="label">تصدير:</span>
+  {{ export_button('/reports/export/transactions.xlsx?' ~ export_qs, 'Excel (.xlsx)') }}
+  {{ export_button('/reports/export/transactions.csv?' ~ export_qs, 'CSV') }}
+  <span class="label no-print" style="margin-inline-start:0.75rem">PDF:</span>
+  {{ pdf_export_button() }}
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">ملخص الفترة (حسب التصفية)</h2>
+  <div class="stat-grid">
+    <div class="stat-card"><div class="label">عدد العمليات</div><div class="value">{{ summary.total_count }}</div></div>
+    <div class="stat-card good"><div class="label">مبيعات</div><div class="value">{{ summary.sales_total }} د.ل</div></div>
+    <div class="stat-card good"><div class="label">مقبوضات</div><div class="value">{{ summary.receipts_total }} د.ل</div></div>
+    <div class="stat-card"><div class="label">مشتريات</div><div class="value">{{ summary.purchases_total }} د.ل</div></div>
+    <div class="stat-card bad"><div class="label">مصروفات</div><div class="value">{{ summary.expenses_total }} د.ل</div></div>
+    <div class="stat-card bad"><div class="label">مرتجعات</div><div class="value">{{ summary.refunds_total }} د.ل</div></div>
+    <div class="stat-card"><div class="label">تحويلات بين الحسابات</div><div class="value">{{ summary.transfers_total }} د.ل</div></div>
+  </div>
+</div>
+
+{% if note_saved %}
+<div class="card" style="border-color:#86efac;background:#f0fdf4;margin-bottom:0.75rem">
+  <p style="margin:0">تم حفظ البيان.</p>
+</div>
+{% endif %}
+{% if note_error %}
+<div class="card" style="border-color:#fecaca;background:#fef2f2;margin-bottom:0.75rem">
+  <p style="margin:0;color:#b91c1c">{{ note_error }}</p>
+</div>
+{% endif %}
+
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem">
+    <h2 style="margin:0">العمليات <span class="muted" style="font-size:0.85rem;font-weight:400">({{ total }} — صفحة {{ page }} / {{ total_pages }})</span></h2>
+    <span class="muted" style="font-size:0.82rem">الأحدث في الأعلى</span>
+  </div>
+{% if rows %}
+  <div class="table-scroll">
+  <table class="recv-click-table">
+    <thead>
+      <tr>
+        <th>النوع</th>
+        <th>التاريخ والوقت</th>
+        <th>المرجع</th>
+        <th>الاسم / الطرف</th>
+        <th>الموظف</th>
+        <th>المبلغ</th>
+        <th>طريقة الدفع</th>
+        <th>البيان / الملاحظة</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr class="click-row" data-href="{{ r.detail_url }}">
+        <td>
+          {% if r.kind == 'sale' %}<span class="badge" style="background:#dbeafe;color:#1d4ed8">{{ r.kind_label }}</span>
+          {% elif r.kind == 'receipt' %}<span class="badge" style="background:#dcfce7;color:#15803d">{{ r.kind_label }}</span>
+          {% elif r.kind == 'purchase' %}<span class="badge" style="background:#ffedd5;color:#c2410c">{{ r.kind_label }}</span>
+          {% elif r.kind == 'expense' %}<span class="badge" style="background:#fee2e2;color:#b91c1c">{{ r.kind_label }}</span>
+          {% elif r.kind == 'transfer' %}<span class="badge" style="background:#e0e7ff;color:#3730a3">{{ r.kind_label }}</span>
+          {% else %}<span class="badge" style="background:#fce7f3;color:#9d174d">{{ r.kind_label }}</span>
+          {% endif %}
+        </td>
+        <td dir="ltr" style="font-variant-numeric:tabular-nums;white-space:nowrap">{{ pos_format_dt(r.created_at, '%Y-%m-%d %H:%M:%S') if r.created_at else '—' }}</td>
+        <td><strong>{{ r.ref }}</strong></td>
+        <td>{{ r.party_name }}</td>
+        <td>{{ r.employee_name or '—' }}</td>
+        <td style="font-weight:800;{% if r.kind == 'transfer' %}color:#3730a3{% elif r.signed_amount < 0 %}color:#b91c1c{% else %}color:#15803d{% endif %}">
+          {% if r.kind == 'transfer' %}{{ r.amount }} د.ل
+          {% elif r.signed_amount < 0 %}−{{ r.amount }} د.ل
+          {% else %}+{{ r.amount }} د.ل{% endif %}
+        </td>
+        <td>{{ r.method_name }}</td>
+        <td style="font-size:0.85rem;max-width:18rem;{% if r.kind == 'transfer' %}font-weight:600;color:#1e293b;white-space:normal{% else %}color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis{% endif %}">
+          {% if r.note %}{{ r.note }}
+          {% else %}<span style="color:#b45309">بدون بيان</span>{% endif %}
+          {% if can_edit_note and r.source_kind == 'transfer' %}
+          <form method="post" action="/reports/transactions/note" class="no-print" style="display:flex;gap:0.3rem;align-items:center;margin-top:0.35rem" onclick="event.stopPropagation()">
+            <input type="hidden" name="source_kind" value="transfer" />
+            <input type="hidden" name="source_id" value="{{ r.source_id }}" />
+            <input type="hidden" name="next" value="/reports/transactions?period={{ period }}&kind={{ kind }}&page={{ page }}{% if q %}&q={{ q|urlencode }}{% endif %}{% if period == 'custom' %}&start={{ start_str }}&end={{ end_str }}{% endif %}" />
+            <input name="statement" required minlength="2" maxlength="400" value="{{ r.note or '' }}"
+                   placeholder="أضف / عدّل البيان" style="width:12rem;padding:0.3rem" />
+            <button class="btn" type="submit" style="padding:0.25rem 0.5rem;font-size:0.8rem">حفظ</button>
+          </form>
+          {% endif %}
+        </td>
+        <td><a class="btn" href="{{ r.detail_url }}" onclick="event.stopPropagation()">تفاصيل</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
+  {% if total_pages > 1 %}
+  <div class="row no-print" style="justify-content:center;gap:0.5rem;margin-top:0.85rem;flex-wrap:wrap">
+    {% if page > 1 %}
+    <a class="btn" href="/reports/transactions?period={{ period }}&kind={{ kind }}&page={{ page - 1 }}{% if q %}&q={{ q|urlencode }}{% endif %}{% if period == 'custom' %}&start={{ start_str }}&end={{ end_str }}{% endif %}">→ السابق</a>
+    {% endif %}
+    <span class="muted" style="align-self:center">صفحة {{ page }} من {{ total_pages }}</span>
+    {% if page < total_pages %}
+    <a class="btn" href="/reports/transactions?period={{ period }}&kind={{ kind }}&page={{ page + 1 }}{% if q %}&q={{ q|urlencode }}{% endif %}{% if period == 'custom' %}&start={{ start_str }}&end={{ end_str }}{% endif %}">التالي ←</a>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% else %}
+  <p class="muted">لا توجد عمليات مطابقة للفترة أو البحث.</p>
+  {% endif %}
+</div>
+
+<style>
+  .badge { display:inline-block; padding:0.15rem 0.5rem; border-radius:6px; font-size:0.8rem; font-weight:700; }
+  .recv-click-table tr.click-row { cursor: pointer; }
+  .recv-click-table tr.click-row:hover { background: #f8fafc; }
+  @media print {
+    .no-print { display: none !important; }
+    .reports-nav { display: none !important; }
+  }
+</style>
+<script>
+document.querySelectorAll("tr.click-row[data-href]").forEach(function (tr) {
+  tr.addEventListener("click", function (e) {
+    if (e.target.closest("a,button,input,select")) return;
+    var href = tr.getAttribute("data-href");
+    if (href) window.location.href = href;
+  });
+});
+</script>
+{% endblock %}

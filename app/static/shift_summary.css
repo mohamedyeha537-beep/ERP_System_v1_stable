@@ -352,34 +352,59 @@
 
 .shift-close-wallet-row__box--counted {
 
-  background: #ecfdf5;
+  background: #fff;
 
-  border-color: #bbf7d0;
+  border-color: #94a3b8;
+
+  padding: 0.4rem 0.5rem;
 
 }
 
 
 
-.shift-counted-input {
+.shift-counted-input,
+.hotel-counted-input {
 
   width: 100%;
 
-  border: none;
+  box-sizing: border-box;
 
-  background: transparent;
+  border: 1px solid #0f172a;
 
-  font-size: 0.95rem;
+  background: #fff;
 
-  font-weight: 800;
+  font-size: 1.05rem;
+
+  font-weight: 700;
 
   font-variant-numeric: tabular-nums;
 
-  color: #15803d;
+  color: #0f172a;
 
-  padding: 0;
+  caret-color: #0f172a;
+
+  cursor: text;
+
+  padding: 0.45rem 0.55rem;
+
+  border-radius: 8px;
 
   outline: none;
 
+  min-height: 2.4rem;
+
+}
+
+.shift-counted-input::placeholder,
+.hotel-counted-input::placeholder {
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.shift-counted-input:focus,
+.hotel-counted-input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
 }
 
 
@@ -715,5 +740,17 @@
   body.pos-shift-printing .shift-close-extra { display: none !important; }
 
 }
+
+.shift-dest { margin: 1rem 0 0.35rem; padding: 0.85rem 0.95rem; border: 1px solid #c7d2fe; border-radius: 12px; background: #eef2ff; }
+.shift-dest__title { margin: 0; font-weight: 800; font-size: 1rem; }
+.shift-dest__hint { margin: 0.4rem 0 0.75rem; font-size: 0.84rem; line-height: 1.55; color: #334155; }
+.shift-dest__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.65rem; }
+.shift-dest__card { display: flex; flex-direction: column; gap: 0.25rem; padding: 0.75rem 0.85rem; border: 2px solid #cbd5e1; border-radius: 12px; background: #fff; cursor: pointer; }
+.shift-dest__card:has(input:checked) { border-color: #4f46e5; background: #eef2ff; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15); }
+.shift-dest__icon { font-size: 1.35rem; }
+.shift-dest__name { font-weight: 800; }
+.shift-dest__desc { font-size: 0.8rem; line-height: 1.45; color: #475569; }
+.shift-dest__card input { margin-inline-end: 0.35rem; }
+.shift-dest__recipient { margin-top: 0.85rem; padding-top: 0.75rem; border-top: 1px dashed #a5b4fc; }
 
 

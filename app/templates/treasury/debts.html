@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}الديون والذمم{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/treasury_desk.css?v=1" />
+{% endblock %}
+{% block body %}
+<div class="tdesk">
+  <h1 style="margin:0">الديون والذمم</h1>
+  {% include "treasury/_nav.html" %}
+  <p class="muted" style="margin:0 0 0.75rem;font-size:0.86rem;line-height:1.55">
+    تسجيل تحصيل أو سداد المبالغ المعتمدة ومتابعة الأرصدة. لا يُنشأ دين جديد من هنا — التحصيل والسداد فقط.
+  </p>
+
+  {% set _mode = pos_view_mode(request) %}
+  <div class="tdesk-kpis">
+    {% if _mode != 'restaurant' %}
+    <a class="tdesk-kpi" href="/admin/hotel/debts">
+      <div class="lbl">ذمم الحجوزات</div>
+      <div class="val" style="font-size:1.1rem">تحصيل</div>
+      <div class="sub">إقامة وخدمات الفندق المعتمدة على النزيل أو الشركة</div>
+    </a>
+    {% endif %}
+    {% if _mode != 'hotel' %}
+    <a class="tdesk-kpi" href="/reports/receivables?balance_only=1">
+      <div class="lbl">ديون العملاء</div>
+      <div class="val" style="font-size:1.1rem">تحصيل</div>
+      <div class="sub">ذمم المبيعات ومتابعة أرصدة الزبائن</div>
+    </a>
+    <a class="tdesk-kpi" href="/reports/payables?balance_only=1">
+      <div class="lbl">ذمم دائنة</div>
+      <div class="val" style="font-size:1.1rem">سداد</div>
+      <div class="sub">موردون ومبالغ معتمدة للدفع</div>
+    </a>
+    {% endif %}
+    <a class="tdesk-kpi" href="/hotel/settle">
+      <div class="lbl">تسوية الغرف</div>
+      <div class="val" style="font-size:1.1rem">مطعم ↔ فندق</div>
+      <div class="sub">
+        {% if _mode == 'restaurant' %}
+        عرض الدين المطلوب من الفندق — التحويل من وضع الفندق فقط
+        {% else %}
+        تحويل معتمد عبر الخزينة إلى المطعم
+        {% endif %}
+      </div>
+    </a>
+  </div>
+</div>
+{% endblock %}

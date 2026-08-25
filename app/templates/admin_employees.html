@@ -55,31 +55,35 @@
     <h1 style="margin: 0">إدارة الموظفين</h1>
     <p class="muted" style="margin: 0.35rem 0 0">
       عرض: <strong>{{ domain_label }}</strong>
-      {% if finance_domain_filter %} — موظفو {{ domain_label }} فقط{% endif %}
+      {% if finance_domain_filter %} — موظفو {{ domain_label }} فقط (المشتركون يظهرون في المطعم والفندق){% endif %}
     </p>
   </div>
   <div class="row" style="gap: 0.4rem">
     <a class="btn" href="/admin/employees/export.csv" style="background:#ecfdf5; color:#065f46; border:1px solid #10b981; font-weight:700">📤 تصدير CSV</a>
+    {% if not (pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request)) %}
     <a class="btn btn-primary" href="/admin/employees/new">+ موظف جديد</a>
+    {% endif %}
   </div>
 </div>
 
-<nav class="hr-nav">
-  <a href="/admin/employees" class="active">الموظفون</a>
-  <a href="/admin/departments">الأقسام</a>
-  <a href="/admin/work-shifts">الورديات</a>
-  <a href="/admin/attendance">الحضور والانصراف</a>
-  <a href="/admin/payroll">الرواتب الشهرية</a>
-  <a href="/admin/advances">السلف</a>
-  <a href="/admin/recurring-costs" title="التكاليف الثابتة الأخرى (إيجار/كهرباء)">تكاليف ثابتة أخرى</a>
-</nav>
+{% if pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}
+<link rel="stylesheet" href="/static/treasury_desk.css?v=1" />
+{% include "treasury/_nav.html" %}
+{% else %}
+{% set hr_nav_active = 'employees' %}
+{% set show_recurring_costs = true %}
+{% include "_hr_nav.html" %}
+{% endif %}
 
 {% if error %}<div class="alert">{{ error }}</div>{% endif %}
 {% if saved %}<div class="alert" style="background:#ecfdf5; border-color:#10b981; color:#065f46">تم الحفظ ✓</div>{% endif %}
+{% if request.query_params.get('notice') %}
+<div class="alert" style="background:#fffbeb; border-color:#f59e0b; color:#92400e">{{ request.query_params.get('notice') }}</div>
+{% endif %}
 
 <div class="hr-stat-bar">
   <div class="hr-stat acc">
-    <div class="label">عدد الموظفين</div>
+    <div class="label">عدد المعروض{% if department_id is not none %} في القسم{% endif %} ({{ domain_label }})</div>
     <div class="value">{{ items|length }}</div>
   </div>
   <div class="hr-stat acc">
@@ -153,13 +157,18 @@
         <td>
           {% if emp.is_pos_cashier %}
           <span class="pill pos">كاشير</span>
+          {% if emp.is_pos_supervisor %}
+          <span style="display:inline-block;margin-inline-start:0.35rem;padding:0.05rem 0.4rem;border-radius:999px;background:#fef3c7;color:#92400e;font-size:0.72rem;font-weight:700">
+            مشرف {{ 'فندق' if (emp.business_domain or '') == 'hotel' else 'مطعم' }}
+          </span>
+          {% endif %}
           {% if emp.pos_pin_hash %}<span class="muted" style="font-size:0.78rem"> · PIN ✓</span>{% else %}<span style="color:#b91c1c;font-size:0.78rem"> · بدون PIN</span>{% endif %}
           {% else %}
           <span class="muted">—</span>
           {% endif %}
         </td>
         <td class="row" style="gap:0.3rem; margin:0">
-          <a class="btn" href="/admin/employees/{{ emp.id }}" style="padding: 0.2rem 0.55rem; font-size: 0.85rem">تحرير</a>
+          <a class="btn" href="/admin/employees/{{ emp.id }}{% if department_id is not none %}?department_id={{ department_id }}{% endif %}" style="padding: 0.2rem 0.55rem; font-size: 0.85rem">تحرير</a>
           <a class="btn" href="/admin/attendance?employee_id={{ emp.id }}" style="padding: 0.2rem 0.55rem; font-size: 0.85rem">سجل الحضور</a>
           <form method="post" action="/admin/employees/{{ emp.id }}/delete" style="display:inline" onsubmit="return confirm('حذف الموظف نهائياً؟ يُحذف الحضور والسلف والخصومات وبنود الرواتب غير المُصروفة.')">
             <button class="btn" type="submit" style="padding:0.2rem 0.55rem; font-size:0.85rem; color:#b91c1c; border-color:#fecaca">حذف</button>

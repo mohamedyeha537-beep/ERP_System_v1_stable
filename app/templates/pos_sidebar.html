@@ -67,12 +67,12 @@
 {% if sale.lines %}
 <div class="pos-print-row no-print" style="display:flex;gap:0.35rem;flex-wrap:wrap;margin:0.35rem 0">
   <button type="button" class="btn btn-primary pos-receipt-print-btn" data-sale-id="{{ sale.id }}"
-     data-doc-kind="{% if sale.status.value == 'COMPLETED' %}receipt{% else %}prebill{% endif %}"
+     data-doc-kind="{% if sale.status.value == 'COMPLETED' %}invoice{% else %}prebill{% endif %}"
      style="flex:1;min-width:7rem;font-weight:700;padding:0.4rem 0.55rem">
     🖨 طباعة
   </button>
   <button type="button" class="btn pos-receipt-preview-btn" data-sale-id="{{ sale.id }}"
-     data-doc-kind="{% if sale.status.value == 'COMPLETED' %}receipt{% else %}prebill{% endif %}"
+     data-doc-kind="{% if sale.status.value == 'COMPLETED' %}invoice{% else %}prebill{% endif %}"
      style="flex:1;min-width:7rem;padding:0.4rem 0.55rem">
     معاينة
   </button>
@@ -156,15 +156,15 @@
 
 {% elif ctx == 'ROOM' %}
 <form method="post" action="/pos/charge-room" id="charge-room-form" style="margin-top:0.5rem">
-  <label style="display:block;font-size:0.78rem;color:var(--muted);margin:0 0 0.2rem">هاتف النزيل (لنقاط الولاء)</label>
+  <label style="display:block;font-size:0.78rem;color:var(--muted);margin:0 0 0.2rem">هاتف نزيل رقم 1 (واتساب / ولاء ليبي)</label>
   <input class="input" type="tel" name="room_guest_phone" dir="ltr"
          value="{{ session_room_phone|default('') }}"
-         placeholder="09xxxxxxxx" autocomplete="tel"
+         placeholder="09xxxxxxxx أو +9665…" autocomplete="tel"
          style="width:100%;padding:0.4rem 0.5rem;border:1px solid var(--border);border-radius:6px;font-size:0.92rem;margin-bottom:0.35rem" />
-  <label style="display:block;font-size:0.78rem;color:var(--muted);margin:0 0 0.2rem">اسم النزيل (اختياري)</label>
+  <label style="display:block;font-size:0.78rem;color:var(--muted);margin:0 0 0.2rem">اسم نزيل رقم 1</label>
   <input class="input" type="text" name="room_guest_name"
          value="{{ session_room_guest|default('') }}"
-         placeholder="اسم النزيل"
+         placeholder="اسم النزيل رقم 1"
          style="width:100%;padding:0.4rem 0.5rem;border:1px solid var(--border);border-radius:6px;font-size:0.92rem;margin-bottom:0.35rem" />
   <label style="display:block;font-size:0.78rem;color:var(--muted);margin:0 0 0.2rem">ملاحظة (اختياري)</label>
   <input class="input" type="text" name="note"

@@ -1,0 +1,59 @@
+{# بطاقات الخزينة والذمم — نفس شكل لوحة الأدمن #}
+{% set _clerk = pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}
+{% set _p = perm if perm is defined else none %}
+{% set _can_wallet = _clerk or (_p and (_p('payments:manage') or _p('reports:view'))) %}
+{% set _can_gl = _clerk or (_p and (_p('gl:manage') or _p('payments:manage') or _p('reports:view'))) %}
+{% set _can_ar = _clerk or (_p and (_p('reports:view') or _p('hotel:debts:view') or _p('hotel:debts:collect'))) %}
+<div class="kpi-grid kpi-grid-treasury">
+  {% for card in cards %}
+  <div class="kpi kpi-{{ card.card_kind }}" title="{{ card.name_ar }}">
+    {% if card.card_kind == 'ar' and _can_ar %}
+    <a class="kpi-link" href="{% if pos_reports_show_hotel_sections(request) and not pos_reports_show_pos_sections(request) %}/admin/hotel/debts{% elif _clerk %}/pos/treasury/debts{% else %}/reports/receivables?balance_only=1{% endif %}">
+    {% elif card.card_kind == 'ap' and _can_gl %}
+    <a class="kpi-link" href="/reports/payables">
+    {% elif card.wallet_pm_id and _can_wallet %}
+    <a class="kpi-link" href="/pos/treasury?pm={{ card.wallet_pm_id }}&kind={{ 'bank' if card.card_kind == 'bank' else 'cash' }}">
+    {% elif card.account_id and _can_gl %}
+    <a class="kpi-link" href="/admin/gl/accounts/{{ card.account_id }}">
+    {% else %}
+    <div class="kpi-link" style="cursor:default">
+    {% endif %}
+      <div class="kpi-icon">
+        {% if card.card_kind == 'bank' %}
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 21h18"></path><path d="M5 21V7l7-4 7 4v14"></path><path d="M9 9h1"></path><path d="M14 9h1"></path>
+        </svg>
+        {% elif card.card_kind in ('ar', 'ap') %}
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
+        </svg>
+        {% else %}
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="2" y="6" width="20" height="12" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line><circle cx="12" cy="14" r="2"></circle>
+        </svg>
+        {% endif %}
+      </div>
+      <div class="kpi-label">{% if card.code %}<span style="direction:ltr;font-variant-numeric:tabular-nums;font-size:0.78rem;color:var(--muted)">{{ card.code }}</span> — {% endif %}{{ card.name_ar }}</div>
+      <div class="kpi-value">{{ card.balance }} <span style="font-size:0.65em;color:var(--muted)">د.ل</span></div>
+      <div class="kpi-sub">
+        {% if card.card_kind == 'ar' %}
+        ذمم الزبائن — اضغط لعرض الديون والتحصيل (كامل / جزئي)
+        {% elif card.wallet_pm_id %}
+        اضغط لعرض الحركة — نفس رقم التحويل
+        {% else %}
+        اضغط للتفاصيل
+        {% endif %}
+      </div>
+    {% if (card.card_kind == 'ar' and _can_ar) or (card.card_kind == 'ap' and _can_gl) or (card.wallet_pm_id and _can_wallet) or (card.account_id and _can_gl) %}
+    </a>
+    {% else %}
+    </div>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="card" style="grid-column:1/-1">
+    <p style="margin:0">لا حسابات خزينة معروضة.</p>
+  </div>
+  {% endfor %}
+</div>

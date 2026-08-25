@@ -33,6 +33,9 @@
 <div class="card">
   <form method="post" action="/admin/employees/save" style="display: flex; flex-direction: column; gap: 1rem">
     {% if emp %}<input type="hidden" name="id" value="{{ emp.id }}" />{% endif %}
+    {% if return_department_id is not none %}
+    <input type="hidden" name="return_department_id" value="{{ return_department_id }}" />
+    {% endif %}
 
     <h2 style="margin: 0 0 0.4rem">المعلومات الأساسية</h2>
     <div class="grid-2">
@@ -58,27 +61,30 @@
         </select>
         <a href="/admin/departments" style="font-size:0.82rem;margin-top:0.2rem">إدارة الأقسام</a>
       </div>
-      {% if not finance_domain_filter %}
       <div class="field">
         <label for="emp-domain">مجال العمل *</label>
-        <select id="emp-domain" name="business_domain">
+        <select id="emp-domain" name="business_domain" required>
           {% for code, label in domain_choices %}
           <option value="{{ code }}"
             {% if emp and (emp.business_domain or 'restaurant') == code %}selected
-            {% elif not emp and code == 'restaurant' %}selected{% endif %}>{{ label }}</option>
+            {% elif not emp and finance_domain_filter and finance_domain_filter.value == code %}selected
+            {% elif not emp and not finance_domain_filter and code == 'restaurant' %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
         </select>
+        <small class="muted">
+          استقبال الفندق: <strong>فندق</strong>. كاشير: <strong>مطعم</strong>.
+          أمين الخزينة: <strong>المطعم والفندق</strong> حتى يستلم من الطرفين.
+        </small>
       </div>
-      {% else %}
-      <input type="hidden" name="business_domain" value="{{ finance_domain_filter.value }}" />
-      {% endif %}
       <div class="field">
         <label for="nid">الرقم الوطني</label>
         <input id="nid" name="national_id" value="{{ emp.national_id if emp else '' }}" />
       </div>
       <div class="field">
-        <label for="phone">الهاتف</label>
-        <input id="phone" name="phone" value="{{ emp.phone if emp else '' }}" />
+        <label for="phone">الهاتف / واتساب</label>
+        <input id="phone" name="phone" value="{{ emp.phone if emp else '' }}"
+               placeholder="مثال: 91xxxxxxx" dir="ltr" />
+        <small class="muted">مطلوب إذا كان الموظف مشرفاً — يُرسل عليه OTP اعتماد الاسترداد</small>
       </div>
     </div>
 
@@ -160,10 +166,36 @@
       </div>
     </div>
 
-    <h2 style="margin: 0.4rem 0">نقطة البيع (كاشير)</h2>
+    <h2 style="margin: 0.4rem 0">الرقم السري للوردية (4 أرقام)</h2>
     <div class="help" style="background:#eff6ff;border-color:#3b82f6;color:#1e3a8a">
-      فعّل «كاشير نقطة بيع» وحدّد رقماً سرياً من <strong>4 أرقام</strong> — يُستخدم لبدء جلسة البيع بعد تسجيل الدخول للنظام.
+      رقم واحد يُستخدم لـ
+      <strong>جلسة الكاشير</strong>
+      و/أو
+      <strong>جلسة استقبال الفندق</strong>
+      حسب التفعيل بالأسفل.
+      {% if emp and emp.pos_pin_hash %}
+      <br />الحالة الآن: <strong style="color:#15803d">✓ رقم سري محفوظ</strong>
+      {% if linked_username %} · مربوط بحساب <strong dir="ltr">{{ linked_username }}</strong>{% endif %}
+      {% else %}
+      <br /><strong style="color:#b91c1c">⚠ لا يوجد رقم سري محفوظ بعد</strong> — أدخله واحفظ وإلا لن يعمل الدخول.
+      {% endif %}
     </div>
+    <div class="grid-2">
+      <div class="field">
+        <label for="pos_pin">رقم سري جديد (4 أرقام لاتينية 0-9)</label>
+        <input id="pos_pin" name="pos_pin" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="off" placeholder="مثال: 1234" dir="ltr" style="letter-spacing:0.25em;font-size:1.15rem;font-weight:700" />
+        <small class="muted">اتركه فارغاً للإبقاء على الرقم الحالي. اكتب أرقاماً إنجليزية فقط.</small>
+      </div>
+      {% if emp and emp.pos_pin_hash %}
+      <div class="field">
+        <label>
+          <input type="checkbox" name="clear_pos_pin" value="on" /> حذف الرقم السري الحالي
+        </label>
+      </div>
+      {% endif %}
+    </div>
+
+    <h2 style="margin: 0.4rem 0">نقطة البيع (كاشير)</h2>
     <div class="grid-2">
       <div class="field">
         <label>
@@ -173,30 +205,22 @@
         </label>
       </div>
       <div class="field">
-        <label for="pos_pin">رقم سري جديد (4 أرقام)</label>
-        <input id="pos_pin" name="pos_pin" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="new-password" placeholder="مثال: 1234" />
-        <small class="muted">اتركه فارغاً للإبقاء على الرقم الحالي</small>
-      </div>
-      {% if emp and emp.pos_pin_hash %}
-      <div class="field">
         <label>
-          <input type="checkbox" name="clear_pos_pin" value="on" /> حذف الرقم السري الحالي
-        </label>
-      </div>
-      {% endif %}
-      <div class="field">
-        <label>
-          <input type="checkbox" name="is_pos_supervisor" value="on"
+          <input type="checkbox" name="is_pos_supervisor" value="on" id="is_pos_supervisor"
             {% if emp and emp.is_pos_supervisor %}checked{% endif %} />
-          مشرف نقطة بيع (اعتماد مسح/إلغاء بعد المطبخ)
+          مشرف اعتماد (استرداد عبر OTP واتساب + إلغاء بعد المطبخ)
         </label>
-        <small class="muted">يستخدم نفس PIN أعلاه عند طلب كود المشرف من الكاشier</small>
+        <small class="muted">
+          حسب <strong>مجال العمل</strong>: مشرف المطعم يستلم رموز استرداد المطعم فقط،
+          ومشرف الفندق يستلم رموز استرداد الفندق فقط.
+          رقم الهاتف/واتساب <strong>مطلوب</strong> عند التفعيل.
+        </small>
       </div>
     </div>
 
     <h2 style="margin: 0.4rem 0">وردية الفندق (استقبال)</h2>
     <div class="help" style="background:#f0fdf4;border-color:#86efac;color:#166534">
-      فعّل «موظف استقبال فندق» مع مجال <strong>فندق</strong> ورقم سري — يُستخدم لفتح وردية الاستقبال مثل جلسة الكاشير.
+      مطلوب: مجال العمل = <strong>فندق</strong> + تفعيل هذا الخيار + الرقم السري أعلاه — لفتح وردية الاستقبال.
     </div>
     <div class="field">
       <label>
@@ -208,7 +232,7 @@
 
     <h2 style="margin: 0.4rem 0">حساب دخول النظام (اختياري)</h2>
     <p class="muted" style="font-size:0.88rem;margin:0 0 0.5rem">
-      كلمة مرور الحساب = دخول الجهاز. الرقم السري أعلاه = بداية وردية الكاشير على نقطة البيع.
+      كلمة مرور الحساب = دخول الجهاز. الرقم السري أعلاه = بداية وردية الكاشير / الاستقبال.
     </p>
     {% if not emp or not emp.user_id %}
     <div class="field" style="margin-bottom:0.5rem">
@@ -225,6 +249,23 @@
       <div class="field">
         <label for="pos_password">كلمة مرور الحساب</label>
         <input id="pos_password" name="pos_password" type="password" autocomplete="new-password" />
+      </div>
+    </div>
+    <div class="field" style="margin:0.75rem 0 0.5rem">
+      <label>
+        <input type="checkbox" name="create_treasury_user" id="createTreasuryUser" value="on" />
+        إنشاء حساب أمين خزينة (مطعم + فندق — استلام ورديات الطرفين)
+      </label>
+      <small class="muted">بعد الإنشاء يمكن من «المستخدمون» منح أو منع وظائف معيّنة لهذا الحساب.</small>
+    </div>
+    <div id="treasuryUserFields" class="grid-2" style="display:none">
+      <div class="field">
+        <label for="treasury_username">اسم المستخدم</label>
+        <input id="treasury_username" name="treasury_username" placeholder="مثال: treasury_ahmed" autocomplete="username" />
+      </div>
+      <div class="field">
+        <label for="treasury_password">كلمة مرور الحساب</label>
+        <input id="treasury_password" name="treasury_password" type="password" autocomplete="new-password" />
       </div>
     </div>
     {% elif linked_username %}
@@ -265,11 +306,26 @@
 </div>
 <script>
 (function () {
-  var cb = document.getElementById("createPosUser");
-  var box = document.getElementById("posUserFields");
-  if (!cb || !box) return;
-  function sync() { box.style.display = cb.checked ? "grid" : "none"; }
-  cb.addEventListener("change", sync);
+  var posCb = document.getElementById("createPosUser");
+  var posBox = document.getElementById("posUserFields");
+  var trCb = document.getElementById("createTreasuryUser");
+  var trBox = document.getElementById("treasuryUserFields");
+  var domainSel = document.getElementById("emp-domain");
+  function sync() {
+    if (posBox) posBox.style.display = posCb && posCb.checked ? "grid" : "none";
+    if (trBox) trBox.style.display = trCb && trCb.checked ? "grid" : "none";
+    if (trCb && trCb.checked && posCb) posCb.checked = false;
+    if (posCb && posCb.checked && trCb) trCb.checked = false;
+    if (trCb && trCb.checked && domainSel) domainSel.value = "shared";
+  }
+  if (posCb) posCb.addEventListener("change", function () {
+    if (posCb.checked && trCb) trCb.checked = false;
+    sync();
+  });
+  if (trCb) trCb.addEventListener("change", function () {
+    if (trCb.checked && posCb) posCb.checked = false;
+    sync();
+  });
   sync();
 })();
 </script>

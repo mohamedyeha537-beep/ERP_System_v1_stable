@@ -1,19 +1,28 @@
 from __future__ import annotations
 
 import bcrypt
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from infra.config import get_settings
-from modules.authz.models import Permission, Role, User
+from modules.authz.models import Permission, Role, User, user_roles
 from modules.authz.permissions import (
     ADMIN_ROLE_NAME_AR,
     ALL_PERMISSIONS,
     CATALOG_PURCHASES_ROLE_NAME_AR,
     HOTEL_BOOKINGS_ONLY_ROLE_NAME_AR,
+    HOTEL_SETTLE,
+    HOTEL_SETTLE_TRANSFER,
+    HR_ATTENDANCE,
+    HR_PAYROLL_PAY,
+    HR_VIEW,
+    POS_ADMIN_CLOSE_SHIFT,
+    POS_SHORTAGE_DEDUCT,
+    PURCHASE_INVOICES_MANAGE,
     SALES_AGENT_ROLE_NAME_AR,
     SUPPORT_AGENT_ROLE_NAME_AR,
     TREASURY_CLERK_ROLE_NAME_AR,
+    TREASURY_HANDOFF_APPROVE,
 )
 from modules.platform.business_domain import (
     HOTEL_STAFF_ROLE_NAME_AR,
@@ -55,18 +64,45 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def user_has_permission(user: User, code: str) -> bool:
-    for role in user.roles:
-        for perm in role.permissions:
-            if perm.code == code:
+    """دور أو منحة مباشرة، مع احترام المنع الصريح على المستخدم."""
+    if user is None or not code:
+        return False
+    key = (code or "").strip()
+    try:
+        for perm in list(getattr(user, "permission_denies", None) or []):
+            if perm.code == key:
+                return False
+        for role in list(user.roles or []):
+            for perm in list(getattr(role, "permissions", None) or []):
+                if perm.code == key:
+                    return True
+        for perm in list(getattr(user, "permission_grants", None) or []):
+            if perm.code == key:
                 return True
+    except Exception:
+        return False
     return False
+
+
+def user_permission_codes(user: User | None) -> set[str]:
+    """كل الصلاحيات الفعلية بعد دمج الأدوار + المنح − المنع."""
+    if user is None:
+        return set()
+    codes = {p.code for r in (user.roles or []) for p in (r.permissions or [])}
+    codes |= {p.code for p in (getattr(user, "permission_grants", None) or [])}
+    codes -= {p.code for p in (getattr(user, "permission_denies", None) or [])}
+    return codes
 
 
 def get_user_by_username(db: Session, username: str) -> User | None:
     stmt = (
         select(User)
         .where(User.username == username)
-        .options(selectinload(User.roles).selectinload(Role.permissions))
+        .options(
+            selectinload(User.roles).selectinload(Role.permissions),
+            selectinload(User.permission_grants),
+            selectinload(User.permission_denies),
+        )
     )
     return db.execute(stmt).scalar_one_or_none()
 
@@ -101,7 +137,8 @@ def seed_if_empty(db: Session) -> None:
         "reports:view",
         "purchases:manage",
         "purchases:invoices",
-        "hotel:settle",
+        HOTEL_SETTLE,
+        HOTEL_SETTLE_TRANSFER,
         "customers:view",
         "sales:correct_payment",
     )
@@ -140,7 +177,6 @@ def seed_if_empty(db: Session) -> None:
         "hotel:booking:manage",
         "hotel:booking:checkin",
         "hotel:booking:checkout",
-        "hotel:settle",
     )
     db.flush()
 
@@ -171,13 +207,16 @@ def sync_permissions(db: Session) -> None:
     """يضيف أي صلاحية جديدة معرّفة في الكود إلى قاعدة البيانات،
     ويمنح دور «مدير النظام» جميع الصلاحيات (الجديدة منها والقديمة)."""
     existing = {p.code: p for p in db.scalars(select(Permission)).all()}
-    added = False
+    changed = False
     for code, label in ALL_PERMISSIONS:
         if code not in existing:
             p = Permission(code=code, label_ar=label)
             db.add(p)
-            added = True
-    if added:
+            changed = True
+        elif (existing[code].label_ar or "") != label:
+            existing[code].label_ar = label
+            changed = True
+    if changed:
         db.flush()
     sync_admin_role_permissions(db)
     sync_cashier_role_permissions(db)
@@ -189,6 +228,17 @@ def sync_permissions(db: Session) -> None:
     ensure_hotel_staff_role(db)
     ensure_restaurant_staff_role(db)
     ensure_kds_worker_role(db)
+    # التسوية للخزينة افتراضياً — تُزال من أدوار الاستقبال إن وُجدت قديماً
+    _strip_role_permissions(
+        db,
+        HOTEL_STAFF_ROLE_NAME_AR,
+        (HOTEL_SETTLE, HOTEL_SETTLE_TRANSFER),
+    )
+    _strip_role_permissions(
+        db,
+        HOTEL_BOOKINGS_ONLY_ROLE_NAME_AR,
+        (HOTEL_SETTLE, HOTEL_SETTLE_TRANSFER),
+    )
     db.commit()
 
 
@@ -201,16 +251,36 @@ _CASHIER_ROLE_PERMISSIONS = (
 
 _TREASURY_CLERK_ROLE_PERMISSIONS = (
     "payments:manage",
+    TREASURY_HANDOFF_APPROVE,
+    HR_PAYROLL_PAY,
+    HR_VIEW,
+    HR_ATTENDANCE,
+    POS_SHORTAGE_DEDUCT,
     "reports:view",
     "purchases:manage",
-    "purchases:invoices",
-    "hotel:settle",
+    PURCHASE_INVOICES_MANAGE,
+    HOTEL_SETTLE,
+    HOTEL_SETTLE_TRANSFER,
     "hotel:booking:view",
+    "hotel:debts:view",
+    "hotel:debts:collect",
+    "customers:view",
+)
+
+# تشغيل جلسات البيع/الاستقبال ليس من عمل أمين الخزينة
+_TREASURY_CLERK_PRUNE_PERMISSIONS = (
+    POS_ADMIN_CLOSE_SHIFT,
+    "sales:create",
+    "hotel:charge",
+    "tables:manage",
+    "kds:view",
     "hotel:booking:create",
+    "hotel:booking:manage",
     "hotel:booking:checkin",
     "hotel:booking:checkout",
-    "customers:view",
+    "hotel:booking:checkout_with_balance",
     "sales:correct_payment",
+    "sales:edit_invoice",
 )
 
 _HOTEL_STAFF_ROLE_PERMISSIONS = (
@@ -218,7 +288,9 @@ _HOTEL_STAFF_ROLE_PERMISSIONS = (
     "hotel:booking:create",
     "hotel:booking:checkin",
     "hotel:booking:checkout",
-    "hotel:settle",
+    "hotel:booking:checkout_with_balance",
+    "hotel:debts:view",
+    "hotel:debts:collect",
     "hotel:housekeeping",
     "customers:view",
 )
@@ -234,7 +306,7 @@ _RESTAURANT_STAFF_ROLE_PERMISSIONS = (
 
 
 def ensure_treasury_clerk_role(db: Session) -> None:
-    """يُنشئ دور أمين الخزينة إن لم يكن موجوداً ويضيف أي صلاحيات مالية جديدة."""
+    """يُنشئ دور أمين الخزينة إن لم يكن موجوداً ويضبط صلاحياته التشغيلية."""
     role = db.execute(
         select(Role).where(Role.name_ar == TREASURY_CLERK_ROLE_NAME_AR)
     ).scalar_one_or_none()
@@ -250,6 +322,8 @@ def ensure_treasury_clerk_role(db: Session) -> None:
     for c in codes:
         if c in perms and c not in existing:
             role.permissions.append(perms[c])
+    prune = set(_TREASURY_CLERK_PRUNE_PERMISSIONS)
+    role.permissions = [p for p in role.permissions if p.code not in prune]
     db.flush()
 
 
@@ -285,8 +359,24 @@ _HOTEL_BOOKINGS_ONLY_ROLE_PERMISSIONS = (
     "hotel:booking:manage",
     "hotel:booking:checkin",
     "hotel:booking:checkout",
-    "hotel:settle",
+    "hotel:booking:checkout_with_balance",
+    "hotel:debts:view",
+    "hotel:debts:collect",
 )
+
+
+def _strip_role_permissions(
+    db: Session, role_name: str, codes: tuple[str, ...]
+) -> None:
+    """يزيل صلاحيات محددة من دور دون المساس بباقي الصلاحيات الممنوحة يدوياً."""
+    role = db.execute(select(Role).where(Role.name_ar == role_name)).scalar_one_or_none()
+    if role is None:
+        return
+    drop = set(codes)
+    kept = [p for p in role.permissions if p.code not in drop]
+    if len(kept) != len(role.permissions):
+        role.permissions = kept
+        db.flush()
 
 
 def _ensure_role_with_permissions(
@@ -377,7 +467,56 @@ _DEMO_USER_VIEW_SCOPE: dict[str, str] = {
     "restaurant_staff": UserViewScope.RESTAURANT.value,
     "cashier": UserViewScope.RESTAURANT.value,
     "kds_worker": UserViewScope.RESTAURANT.value,
+    "treasury": UserViewScope.BOTH.value,
 }
+
+TREASURY_TEST_USERNAME = "treasury"
+TREASURY_TEST_PASSWORD = "khazina123"
+
+
+def ensure_treasury_clerk_login_user(db: Session) -> User | None:
+    """ينشئ حساب تجربة لأمين الخزينة (مطعم + فندق) إن لم يوجد."""
+    ensure_treasury_clerk_role(db)
+    role = get_treasury_clerk_role(db)
+    if role is None:
+        return None
+    user = get_user_by_username(db, TREASURY_TEST_USERNAME)
+    if user is None:
+        user = User(
+            username=TREASURY_TEST_USERNAME,
+            password_hash=hash_password(TREASURY_TEST_PASSWORD),
+            is_active=True,
+            roles=[role],
+            view_scope=UserViewScope.BOTH.value,
+        )
+        db.add(user)
+        db.flush()
+    else:
+        if role.id not in {r.id for r in (user.roles or [])}:
+            user.roles = list(user.roles or []) + [role]
+        user.view_scope = UserViewScope.BOTH.value
+        user.is_active = True
+        db.flush()
+    from modules.hr.models import Employee, EmployeeStatus, PayType
+
+    emp = db.execute(
+        select(Employee).where(Employee.user_id == user.id)
+    ).scalar_one_or_none()
+    if emp is None:
+        emp = Employee(
+            full_name_ar="أمين خزينة — تجريبي",
+            job_title="أمين خزينة",
+            pay_type=PayType.MONTHLY,
+            status=EmployeeStatus.ACTIVE,
+            user_id=user.id,
+            business_domain="shared",
+        )
+        db.add(emp)
+        db.flush()
+    elif (emp.business_domain or "") != "shared":
+        emp.business_domain = "shared"
+        db.flush()
+    return user
 
 
 def ensure_demo_users(db: Session) -> None:
@@ -451,3 +590,116 @@ def ensure_purchases_clerk_demo_user(db: Session) -> None:
     if not user.is_active:
         user.is_active = True
     db.flush()
+
+
+class AuthzAdminError(Exception):
+    """خطأ في إدارة المستخدمين من لوحة الأدمن."""
+
+
+def user_has_system_admin_role(user: User | None) -> bool:
+    if user is None:
+        return False
+    return any(
+        (r.name_ar or "").strip() == ADMIN_ROLE_NAME_AR for r in (user.roles or [])
+    )
+
+
+def count_active_system_admins(db: Session) -> int:
+    admin_role = db.execute(
+        select(Role).where(Role.name_ar == ADMIN_ROLE_NAME_AR)
+    ).scalar_one_or_none()
+    if admin_role is None:
+        return 0
+    return int(
+        db.scalar(
+            select(func.count())
+            .select_from(User)
+            .join(user_roles, User.id == user_roles.c.user_id)
+            .where(
+                user_roles.c.role_id == admin_role.id,
+                User.is_active.is_(True),
+            )
+        )
+        or 0
+    )
+
+
+def _validate_username(username: str) -> str:
+    name = (username or "").strip()
+    if len(name) < 2:
+        raise AuthzAdminError("اسم المستخدم يجب أن يكون حرفين على الأقل.")
+    if len(name) > 80:
+        raise AuthzAdminError("اسم المستخدم طويل جداً (80 حرفاً كحد أقصى).")
+    return name
+
+
+def update_user_account(
+    db: Session,
+    user: User,
+    *,
+    username: str,
+    is_active: bool,
+    actor_id: int | None = None,
+) -> None:
+    """تعديل اسم المستخدم وحالة النشاط."""
+    if actor_id is not None and int(actor_id) == int(user.id):
+        if not is_active:
+            raise AuthzAdminError("لا يمكنك تعطيل حسابك أنت.")
+    new_name = _validate_username(username)
+    if new_name != user.username:
+        clash = db.execute(
+            select(User.id).where(
+                User.username == new_name,
+                User.id != user.id,
+            )
+        ).scalar_one_or_none()
+        if clash is not None:
+            raise AuthzAdminError(f"اسم المستخدم «{new_name}» مستخدم مسبقاً.")
+        user.username = new_name
+    if user_has_system_admin_role(user) and not is_active:
+        if count_active_system_admins(db) <= 1:
+            raise AuthzAdminError(
+                "لا يمكن تعطيل آخر مدير نظام نشط — أضف مديراً آخر أولاً."
+            )
+    user.is_active = bool(is_active)
+
+
+def delete_user_account(
+    db: Session,
+    user_id: int,
+    *,
+    actor_id: int | None = None,
+) -> None:
+    """حذف مستخدم نهائياً (مع فك الربط من الموظف)."""
+    from modules.pos_shifts.models import PosShift, PosShiftStatus
+
+    user = db.get(User, user_id)
+    if user is None:
+        return
+    if actor_id is not None and int(actor_id) == int(user.id):
+        raise AuthzAdminError("لا يمكنك حذف حسابك أنت.")
+    if user_has_system_admin_role(user):
+        if count_active_system_admins(db) <= 1:
+            raise AuthzAdminError(
+                "لا يمكن حذف آخر مدير نظام نشط — أضف مديراً آخر أو عطّل الحساب فقط."
+            )
+    shift_count = int(
+        db.scalar(
+            select(func.count()).select_from(PosShift).where(PosShift.user_id == user_id)
+        )
+        or 0
+    )
+    if shift_count > 0:
+        raise AuthzAdminError(
+            f"لا يمكن حذف «{user.username}» — له {shift_count} وردية كاشير مسجّلة. "
+            "عطّل الحساب بدلاً من الحذف."
+        )
+    open_shift = db.scalar(
+        select(PosShift.id).where(
+            PosShift.user_id == user_id,
+            PosShift.status == PosShiftStatus.OPEN,
+        )
+    )
+    if open_shift is not None:
+        raise AuthzAdminError("لا يمكن حذف مستخدم لديه وردية كاشير مفتوحة حالياً.")
+    db.delete(user)

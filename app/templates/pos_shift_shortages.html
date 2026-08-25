@@ -1,12 +1,18 @@
 {% extends "base_pos.html" %}
 {% block title %}سجل عجز الجلسات{% endblock %}
 {% block pos_topbar %}
+{% if pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}
+<a class="pos-topbar-btn" href="/pos/treasury/desk">لوحة الخزينة</a>
+<a class="pos-topbar-btn" href="/admin/shift-variances">العجوزات والزيادات</a>
+{% else %}
 {% if not pos_is_kiosk(request) %}
 <a class="pos-topbar-btn" href="/">لوحة التحكم</a>
 {% endif %}
 <a class="pos-topbar-btn primary" href="/pos/shift">إدارة الجلسة</a>
+<a class="pos-topbar-btn" href="/admin/shift-variances">العجوزات والزيادات</a>
 {% if open_pos_shift is defined and open_pos_shift %}
 <a class="pos-topbar-btn" href="/pos">العودة للكاشير</a>
+{% endif %}
 {% endif %}
 {% endblock %}
 {% block head_extra %}
@@ -42,11 +48,28 @@
     overflow-x: auto;
     overflow-y: visible;
     margin-top: 1rem;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* منع رأس الجدول اللاصق من النزول فوق صف البيانات (overflow-x ينشئ حاوية تمرير) */
+  .shortage-table-wrap table.no-sticky-head > thead,
+  .shortage-table-wrap table.no-sticky-head thead,
+  .shortage-table-wrap table.no-sticky-head > thead > tr > th,
+  .shortage-table-wrap table.no-sticky-head thead th {
+    position: static !important;
+    top: auto !important;
+    z-index: auto !important;
+    box-shadow: none !important;
+  }
+  .shortage-table-wrap tbody td {
+    position: relative;
+    z-index: 1;
+    background: #fff;
   }
   .shortage-actions {
     overflow: visible;
     vertical-align: top;
-    min-width: 200px;
+    min-width: 220px;
+    white-space: normal;
   }
   .shortage-action-stack {
     display: flex;
@@ -142,8 +165,103 @@
     <a class="pill-btn {% if kind_filter == 'bank' %}active{% endif %}" href="?kind=bank">مصرف فقط</a>
   </div>
   {% if rows %}
-  <div class="shortage-table-wrap">
-  <table style="width:100%">
+  <div class="shortage-cards" style="margin-top:1rem;display:flex;flex-direction:column;gap:0.75rem">
+      {% for r in rows %}
+      <div class="shortage-card" style="border:1px solid #fecaca;border-radius:12px;background:#fff;padding:0.85rem 1rem">
+        <div style="display:flex;flex-wrap:wrap;gap:0.75rem 1.25rem;align-items:flex-start;justify-content:space-between">
+          <div style="min-width:12rem;flex:1 1 14rem">
+            <div style="font-weight:800;font-size:1.05rem;color:#b91c1c">
+              عجز {{ pos_money(r.shortage_amount) }} د.ل
+              {% if r.is_cash %}<span class="badge-kind cash">كاش</span>{% else %}<span class="badge-kind bank">مصرف</span>{% endif %}
+              {% if r.source is defined and r.source == 'hotel' %}
+              <span class="badge-kind" style="background:#ffedd5;color:#9a3412">فندق</span>
+              {% endif %}
+            </div>
+            <div class="muted" style="font-size:0.88rem;margin-top:0.25rem">
+              جلسة <strong>#{{ r.shift_id }}</strong>
+              · {% if r.closed_at %}{{ pos_format_dt(r.closed_at, '%Y-%m-%d %H:%M') }}{% else %}—{% endif %}
+            </div>
+            <div style="margin-top:0.35rem;font-size:0.9rem">
+              متوقع {{ pos_money(r.expected_amount) }}
+              · معدود {{ pos_money(r.counted_amount) }}
+            </div>
+            <div style="margin-top:0.35rem;font-size:0.9rem">
+              {% if r.employee_name %}<strong>{{ r.employee_name }}</strong> · {% endif %}
+              <span class="muted">{{ r.username }}</span>
+              {% if not r.employee_id %}
+              <span class="badge-kind" style="background:#ffedd5;color:#9a3412;margin-inline-start:0.35rem">بدون موظف</span>
+              {% endif %}
+            </div>
+            {% if r.closing_note %}
+            <div class="muted" style="margin-top:0.35rem;font-size:0.85rem">ملاحظة: {{ r.closing_note }}</div>
+            {% endif %}
+          </div>
+          <div class="shortage-action-stack" style="flex:0 1 14rem;min-width:12rem">
+            {% if r.source is defined and r.source == 'hotel' %}
+            <span class="muted" style="font-size:0.82rem">عجز جلسة فندق — يُخصم من راتب موظف الاستقبال عند الإقفال إن وُجد موظف.</span>
+            <a class="btn" style="width:100%;padding:0.35rem 0.45rem;font-size:0.82rem;text-align:center" href="{{ r.report_href or ('/admin/hotel/shift/' ~ r.shift_id ~ '/report') }}" target="_blank">تقرير الجلسة</a>
+            {% if can_reopen_shift|default(false) %}
+            <form method="post" action="/admin/hotel/shift/{{ r.shift_id }}/reopen-draft" style="margin:0"
+                  onsubmit="return confirm('إعادة وردية الفندق #{{ r.shift_id }} إلى مسودة لتعديل المعدود؟');">
+              <button type="submit" class="btn" style="width:100%;padding:0.35rem 0.45rem;font-size:0.82rem;background:#eff6ff;border-color:#93c5fd;color:#1d4ed8">↩ إعادة لمسودة</button>
+            </form>
+            {% endif %}
+            {% elif can_deduct_shortage or can_forgive_shortage %}
+            {% if can_deduct_shortage %}
+            {% if r.employee_id %}
+            <form method="post" action="/pos/shift/shortages/{{ r.id }}/deduct" style="margin:0"
+                  class="shortage-deduct-form"
+                  data-amt="{{ pos_money_plain(r.shortage_amount) }}"
+                  data-kind-ar="{{ r.kind_ar }}"
+                  data-shift-id="{{ r.shift_id }}">
+              <input type="hidden" name="note" value="خصم عجز {{ r.kind_ar }} جلسة #{{ r.shift_id }}" />
+              <input type="hidden" name="employee_id" value="{{ r.employee_id }}" />
+              <button type="submit" class="btn btn-primary" style="width:100%;padding:0.4rem 0.55rem;font-size:0.85rem">
+                خصم من الراتب — {{ r.employee_name }}
+              </button>
+            </form>
+            {% else %}
+            <button type="button" class="btn btn-primary btn-deduct-open" style="width:100%;padding:0.4rem 0.55rem;font-size:0.85rem"
+              data-shortage-id="{{ r.id }}"
+              data-amt="{{ pos_money_plain(r.shortage_amount) }}"
+              data-kind-ar="{{ r.kind_ar }}"
+              data-shift-id="{{ r.shift_id }}"
+              data-note="خصم عجز {{ r.kind_ar }} جلسة #{{ r.shift_id }}">
+              خصم من الراتب (اختر موظفاً)
+            </button>
+            {% endif %}
+            {% endif %}
+            {% if can_forgive_shortage %}
+            <button type="button" class="btn btn-forgive-open" style="width:100%;padding:0.4rem 0.55rem;font-size:0.85rem;border-color:#f59e0b;background:#fff7ed;color:#9a3412"
+              data-shortage-id="{{ r.id }}"
+              data-kind-ar="{{ r.kind_ar }}"
+              data-is-cash="{% if r.is_cash %}1{% else %}0{% endif %}"
+              data-shift-id="{{ r.shift_id }}">
+              عفو — {{ r.kind_ar }} (اختر محفظة)
+            </button>
+            {% endif %}
+            {% else %}
+            <span class="muted" style="font-size:0.82rem">—</span>
+            {% endif %}
+            {% if r.source is not defined or r.source != 'hotel' %}
+            <a class="btn" style="width:100%;padding:0.35rem 0.45rem;font-size:0.82rem;text-align:center" href="{{ r.report_href or ('/pos/shift/' ~ r.shift_id ~ '/report') }}" target="_blank">تقرير الجلسة</a>
+            {% if can_reopen_shift|default(false) %}
+            <form method="post" action="/pos/shift/{{ r.shift_id }}/reopen-draft" style="margin:0"
+                  onsubmit="return confirm('إعادة جلسة المطعم #{{ r.shift_id }} إلى مسودة لتعديل المعدود؟');">
+              <input type="hidden" name="next" value="/pos/shift/shortages?kind=all" />
+              <button type="submit" class="btn" style="width:100%;padding:0.35rem 0.45rem;font-size:0.82rem;background:#eff6ff;border-color:#93c5fd;color:#1d4ed8">↩ إعادة لمسودة</button>
+            </form>
+            {% endif %}
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+  </div>
+
+  {# إبقاء الجدول مخفياً للتوافق مع الطباعة إن لزم — العرض الأساسي بالبطاقات أعلاه #}
+  <div class="shortage-table-wrap" hidden aria-hidden="true">
+  <table class="no-sticky-head" style="width:100%">
     <thead>
       <tr>
         <th>التاريخ</th>
@@ -161,70 +279,16 @@
     <tbody>
       {% for r in rows %}
       <tr>
-        <td>
-          {% if r.closed_at %}{{ pos_format_dt(r.closed_at, '%Y-%m-%d %H:%M') }}{% else %}—{% endif %}
-        </td>
+        <td>{% if r.closed_at %}{{ pos_format_dt(r.closed_at, '%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
         <td><strong>#{{ r.shift_id }}</strong></td>
-        <td>
-          {% if r.is_cash %}
-          <span class="badge-kind cash">كاش</span>
-          {% else %}
-          <span class="badge-kind bank">مصرف</span>
-          {% endif %}
-        </td>
+        <td>{% if r.is_cash %}<span class="badge-kind cash">كاش</span>{% else %}<span class="badge-kind bank">مصرف</span>{% endif %}</td>
         <td>{{ pos_money(r.expected_amount) }}</td>
         <td>{{ pos_money(r.counted_amount) }}</td>
         <td style="font-weight:700;color:#b91c1c">{{ pos_money(r.shortage_amount) }} د.ل</td>
-        <td>
-          {% if r.employee_name %}<strong>{{ r.employee_name }}</strong><br>{% endif %}
-          <span class="muted" style="font-size:0.82rem">{{ r.username }}</span>
-        </td>
+        <td>{% if r.employee_name %}<strong>{{ r.employee_name }}</strong><br>{% endif %}<span class="muted" style="font-size:0.82rem">{{ r.username }}</span></td>
         <td style="max-width:160px;font-size:0.85rem">{{ r.closing_note or '—' }}</td>
-        <td class="shortage-actions">
-          {% if can_deduct_shortage or can_forgive_shortage %}
-          <div class="shortage-action-stack">
-            {% if can_deduct_shortage %}
-            {% if r.employee_id %}
-            <form method="post" action="/pos/shift/shortages/{{ r.id }}/deduct" style="margin:0"
-                  class="shortage-deduct-form"
-                  data-amt="{{ pos_money_plain(r.shortage_amount) }}"
-                  data-kind-ar="{{ r.kind_ar }}"
-                  data-shift-id="{{ r.shift_id }}">
-              <input type="hidden" name="note" value="خصم عجز {{ r.kind_ar }} جلسة #{{ r.shift_id }}" />
-              <input type="hidden" name="employee_id" value="{{ r.employee_id }}" />
-              <button type="submit" class="btn btn-primary" style="width:100%;padding:0.35rem 0.55rem;font-size:0.82rem">
-                خصم من الراتب — {{ r.employee_name }}
-              </button>
-            </form>
-            {% else %}
-            <button type="button" class="btn btn-primary btn-deduct-open" style="width:100%;padding:0.35rem 0.55rem;font-size:0.82rem"
-              data-shortage-id="{{ r.id }}"
-              data-amt="{{ pos_money_plain(r.shortage_amount) }}"
-              data-kind-ar="{{ r.kind_ar }}"
-              data-shift-id="{{ r.shift_id }}"
-              data-note="خصم عجز {{ r.kind_ar }} جلسة #{{ r.shift_id }}">
-              خصم من الراتب (اختر موظفاً)
-            </button>
-            {% endif %}
-            {% endif %}
-
-            {% if can_forgive_shortage %}
-            <button type="button" class="btn btn-forgive-open" style="width:100%;padding:0.35rem 0.55rem;font-size:0.82rem;border-color:#f59e0b;background:#fff7ed;color:#9a3412"
-              data-shortage-id="{{ r.id }}"
-              data-kind-ar="{{ r.kind_ar }}"
-              data-is-cash="{% if r.is_cash %}1{% else %}0{% endif %}"
-              data-shift-id="{{ r.shift_id }}">
-              عفو — {{ r.kind_ar }} (اختر محفظة)
-            </button>
-            {% endif %}
-          </div>
-          {% else %}
-          <span class="muted" style="font-size:0.82rem">—</span>
-          {% endif %}
-        </td>
-        <td>
-          <a class="btn" style="padding:0.2rem 0.45rem;font-size:0.82rem" href="/pos/shift/{{ r.shift_id }}/report" target="_blank">تقرير</a>
-        </td>
+        <td class="shortage-actions">—</td>
+        <td><a class="btn" style="padding:0.2rem 0.45rem;font-size:0.82rem" href="/pos/shift/{{ r.shift_id }}/report" target="_blank">تقرير</a></td>
       </tr>
       {% endfor %}
     </tbody>

@@ -5,10 +5,10 @@ import hashlib
 import json
 import secrets
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from infra.config import get_settings
@@ -309,12 +309,17 @@ def enqueue_completed_sale_receipt(
     store_name = get_setting(db, "store_name", "نقطة البيع")
     sp = get_sale_payment(db, sale.id)
     sale_payments = list_sale_payments(db, sale.id)
+    from modules.gl.wallet_labels import label_from_info_map, wallet_gl_info_map
+
+    gl_info = wallet_gl_info_map(db)
     method_names = [
-        p.method.name_ar for p in sale_payments if p.method is not None and p.amount > 0
+        label_from_info_map(gl_info, p.method)
+        for p in sale_payments
+        if p.method is not None and p.amount > 0
     ]
     payment_method_name = " + ".join(dict.fromkeys(method_names)) if method_names else None
     if payment_method_name is None and sp is not None and sp.method is not None:
-        payment_method_name = sp.method.name_ar
+        payment_method_name = label_from_info_map(gl_info, sp.method)
     loyalty_ctx = build_receipt_loyalty_context(db, sale, sp)
     printer = get_receipt_printer(db)
     paper_w = printer.paper_width if printer else 80
@@ -578,8 +583,14 @@ def retry_print_job(db: Session, job_id: int) -> PrintJob:
     job = db.get(PrintJob, job_id)
     if job is None:
         raise ValueError("المهمة غير موجودة.")
-    if job.status not in (PrintJobStatus.FAILED.value, PrintJobStatus.CANCELLED.value):
-        raise ValueError("إعادة المحاولة متاحة للمهام الفاشلة فقط.")
+    if job.status not in (
+        PrintJobStatus.FAILED.value,
+        PrintJobStatus.CANCELLED.value,
+        PrintJobStatus.CLAIMED.value,
+    ):
+        raise ValueError(
+            "إعادة المحاولة متاحة للمهام الفاشلة أو الملغاة أو العالقة (claimed)."
+        )
     _reset_job_for_retry(job)
     db.flush()
     return job
@@ -588,7 +599,11 @@ def retry_print_job(db: Session, job_id: int) -> PrintJob:
 def retry_all_failed_print_jobs(
     db: Session, *, printer_id: int | None = None
 ) -> int:
-    stmt = select(PrintJob).where(PrintJob.status == PrintJobStatus.FAILED.value)
+    stmt = select(PrintJob).where(
+        PrintJob.status.in_(
+            (PrintJobStatus.FAILED.value, PrintJobStatus.CLAIMED.value)
+        )
+    )
     if printer_id is not None:
         stmt = stmt.where(PrintJob.printer_id == printer_id)
     jobs = list(db.scalars(stmt).all())
@@ -596,6 +611,67 @@ def retry_all_failed_print_jobs(
         _reset_job_for_retry(job)
     db.flush()
     return len(jobs)
+
+
+def reclaim_stale_claimed_jobs(
+    db: Session,
+    *,
+    older_than_seconds: int = 120,
+    max_attempts_before_fail: int = 5,
+) -> int:
+    """يعيد المهام العالقة في claimed إلى pending (أو failed بعد محاولات كثيرة).
+
+    يحدث عندما يتعطل الوكيل أثناء الطباعة ولا يُبلّغ printed/failed.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=max(30, int(older_than_seconds)))
+    rows = list(
+        db.scalars(
+            select(PrintJob).where(
+                PrintJob.status == PrintJobStatus.CLAIMED.value,
+                PrintJob.claimed_at.isnot(None),
+                PrintJob.claimed_at < cutoff,
+            )
+        ).all()
+    )
+    now = datetime.now(timezone.utc)
+    n = 0
+    for job in rows:
+        attempts = int(job.attempts or 0)
+        if attempts >= max_attempts_before_fail:
+            job.status = PrintJobStatus.FAILED.value
+            job.error_message = (
+                f"علقت المهمة claimed أكثر من {older_than_seconds}ث "
+                f"بعد {attempts} محاولات — راجع الوكيل والطابعة."
+            )[:500]
+            job.updated_at = now
+        else:
+            job.status = PrintJobStatus.PENDING.value
+            job.claimed_by_agent_id = None
+            job.claimed_at = None
+            job.error_message = (
+                f"أُعيدت للطابور تلقائياً بعد تعليق claimed "
+                f"(>{older_than_seconds}ث)."
+            )[:500]
+            job.updated_at = now
+        n += 1
+    if n:
+        db.flush()
+    return n
+
+
+def count_offline_print_agents(db: Session, *, older_than_seconds: int = 90) -> int:
+    """وكلاء مفعّلون لم يُرسلوا heartbeat منذ مدة."""
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=max(30, int(older_than_seconds)))
+    n = db.scalar(
+        select(func.count(PrintAgent.id)).where(
+            PrintAgent.is_active.is_(True),
+            or_(
+                PrintAgent.last_seen_at.is_(None),
+                PrintAgent.last_seen_at < cutoff,
+            ),
+        )
+    )
+    return int(n or 0)
 
 
 def cancel_open_print_jobs(db: Session) -> int:
@@ -632,6 +708,11 @@ def _reset_job_for_retry(job: PrintJob) -> None:
 
 
 def list_pending_jobs_for_agent(db: Session, agent: PrintAgent, *, limit: int = 20) -> list[PrintJob]:
+    # استعادة مهام claimed العالقة قبل سحب الجديد — يمنع توقف الطباعة لأيام
+    try:
+        reclaim_stale_claimed_jobs(db, older_than_seconds=120)
+    except Exception:  # noqa: BLE001
+        pass
     printer_ids = list(
         db.scalars(
             select(Printer.id).where(

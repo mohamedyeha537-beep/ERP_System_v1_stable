@@ -7,14 +7,14 @@ from fastapi import Request, UploadFile
 from sqlalchemy.orm import Session
 
 from modules.catalog.uploads import save_messaging_campaign_image
-from modules.settings.service import get_setting
+from modules.settings.service import get_public_base_url
 
 _STATIC_ROOT = Path(__file__).resolve().parents[2] / "app" / "static"
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
 def public_base_url(db: Session, request: Request | None) -> str:
-    base = (get_setting(db, "public_base_url", "") or "").strip().rstrip("/")
+    base = get_public_base_url(db)
     if base:
         return base
     if request is not None:

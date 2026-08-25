@@ -45,7 +45,7 @@ UI_BLOCKS: tuple[UiBlock, ...] = (
     UiBlock("ui_kds", "شاشة المطبخ", "quick"),
     UiBlock("ui_hr", "الموظفون والحضور والرواتب", "quick"),
     UiBlock("ui_hotel", "حجوزات الشقق", "quick"),
-    UiBlock("ui_hotel_settle", "تسوية حسابات الغرف", "quick"),
+    UiBlock("ui_hotel_settle", "تسوية حسابات الغرف (فندق↔مطعم)", "quick", "بطاقة اللوحة — إخفاؤها عن الاستقبال إن لزم"),
     UiBlock("ui_customers", "العملاء", "quick"),
     UiBlock("ui_loyalty", "إعدادات الولاء", "quick"),
     UiBlock("ui_purchases", "فواتير الشراء", "quick"),
@@ -79,10 +79,12 @@ UI_BLOCKS: tuple[UiBlock, ...] = (
     UiBlock("ui_hotel_nav_rooms", "إعداد الشقق", "nav", "شريط الفندق"),
     UiBlock("ui_hotel_nav_room_types", "أنواع الغرف", "nav", "شريط الفندق"),
     UiBlock("ui_hotel_nav_housekeeping", "التنظيف والصيانة", "nav", "شريط الفندق"),
-    UiBlock("ui_hotel_nav_shift", "وردية الفندق", "nav", "شريط الفندق"),
-    UiBlock("ui_hotel_nav_reports", "تقارير الفندق", "nav", "شريط الفندق"),
-    UiBlock("ui_hotel_nav_settings", "إعدادات الحجز", "nav", "شريط الفندق"),
-    UiBlock("ui_hotel_nav_settle", "تسوية حسابات الغرف", "nav", "شريط الفندق"),
+    UiBlock("ui_hotel_nav_shift", "جلسة الفندق", "nav", "شريط الفندق"),
+    UiBlock("ui_hotel_nav_reports", "تقارير الفندق", "nav", "محطة الاستقبال — جهات أمنية · تأجير"),
+    UiBlock("ui_hotel_nav_settings", "إعدادات الحجز", "nav", "شريط الفندق — إداري"),
+    UiBlock("ui_hotel_nav_tourism", "وكالات السياحة والعمولات", "nav", "شريط الفندق — إداري فقط"),
+    UiBlock("ui_hotel_nav_settle", "تسوية حسابات الغرف (فندق↔مطعم)", "nav", "شريط الفندق — إخفاؤها عن الاستقبال إن لزم"),
+    UiBlock("ui_hotel_nav_debts", "ذمم الحجوزات", "nav", "شريط الفندق"),
 )
 
 _UI_BLOCK_MAP = {b.id: b for b in UI_BLOCKS}

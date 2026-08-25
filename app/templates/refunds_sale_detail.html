@@ -15,6 +15,12 @@
   </div>
 </div>
 
+{% if request.query_params.get('saved') == 'otp_sent' %}
+<div class="card" style="margin-top:1rem;border-color:#fde68a;background:#fffbeb">
+  <strong style="color:#92400e">تم إرسال رمز الاعتماد إلى مشرف المطعم على واتساب.</strong>
+</div>
+{% endif %}
+
 {% if saved_return_id %}
 <div class="card" style="margin-top:1rem;border-color:#86efac;background:#f0fdf4">
   <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap">
@@ -47,7 +53,7 @@
     {% elif summary.payments %}
       الدفع الأصلي:
       {% for p in summary.payments %}
-        <strong>{{ p.method.name_ar if p.method else '—' }}</strong>{% if not loop.last %} + {% endif %}
+        <strong>{{ pos_wallet_label(p.method) if p.method else '—' }}</strong>{% if not loop.last %} + {% endif %}
       {% endfor %}
     {% else %}
       لا يوجد قبض مسجل على هذه الفاتورة. سيقتصر الأثر المالي على تخفيض صافي الإيراد دون حركة رد نقدي.
@@ -131,14 +137,14 @@
       <label class="muted" style="font-size:0.82rem;display:block;margin-bottom:0.2rem">وسيلة رد المبلغ</label>
       <select class="input" name="refund_payment_method_id" style="max-width:280px">
         {% for m in methods %}
-        <option value="{{ m.id }}" {% if original_method and original_method.id == m.id %}selected{% endif %}>{{ m.name_ar }}</option>
+        <option value="{{ m.id }}" {% if original_method and original_method.id == m.id %}selected{% endif %}>{{ pos_wallet_label(m) }}</option>
         {% endfor %}
       </select>
       <p class="muted" style="margin:0.5rem 0 0">إذا اخترت وسيلة مختلفة عن الأصل، سيسجل النظام قيد تسوية بين الوسيلتين.</p>
       {% else %}
       <p class="muted" style="margin:0">
         سيُرد المبلغ بنفس الوسيلة الأصلية:
-        <strong>{{ original_method.name_ar if original_method else '—' }}</strong>.
+        <strong>{{ pos_wallet_label(original_method) if original_method else '—' }}</strong>.
       </p>
       {% if original_method %}
       <input type="hidden" name="refund_payment_method_id" value="{{ original_method.id }}" />
@@ -149,11 +155,31 @@
       {% endif %}
     </div>
 
+    <div class="card" style="margin-top:1rem;background:#fff7ed;border-color:#fdba74">
+      <h3 style="margin-top:0;color:#9a3412">اعتماد مشرف المطعم (OTP واتساب)</h3>
+      {% if pos_refund_otp_required|default(true) %}
+      <p class="muted" style="margin:0 0 0.65rem;font-size:0.88rem">
+        يُرسل الرمز لمشرفي المطعم فقط. أو نفّذ الاسترداد من الكاشير بعد إدخال الرمز هناك.
+      </p>
+      <label class="muted" style="font-size:0.82rem;display:block;margin-bottom:0.2rem">رمز الاعتماد (6 أرقام)</label>
+      <div style="display:flex;gap:0.5rem;align-items:flex-end;flex-wrap:wrap">
+        <input class="input" type="text" name="supervisor_otp" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="••••••" dir="ltr" style="max-width:12rem;letter-spacing:0.15em" autocomplete="one-time-code" />
+      </div>
+      {% else %}
+      <p class="muted" style="margin:0;font-size:0.88rem">طلب الرمز معطّل من إعدادات الأدمن — يمكن تسجيل الاسترداد مباشرة.</p>
+      {% endif %}
+    </div>
+
     <div style="margin-top:1rem;display:flex;gap:0.5rem;flex-wrap:wrap">
       <button class="btn btn-primary" type="submit">تسجيل الاسترداد</button>
       <a class="btn" href="/refunds">إلغاء</a>
     </div>
   </form>
+  {% if pos_refund_otp_required|default(true) %}
+  <form method="post" action="/refunds/sale/{{ summary.sale.id }}/otp-request" style="margin-top:0.5rem">
+    <button type="submit" class="btn" style="border-color:#f59e0b;background:#fffbeb;color:#92400e">طلب إرسال رمز لمشرف المطعم</button>
+  </form>
+  {% endif %}
   {% endif %}
 </div>
 

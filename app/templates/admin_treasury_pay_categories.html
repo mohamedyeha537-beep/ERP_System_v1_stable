@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block title %}بنود سندات الصرف{% endblock %}
+
+{% block body %}
+<h1>بنود سندات الصرف</h1>
+<p class="muted" style="max-width:48rem;line-height:1.65">
+  الأدمن يضيف البنود هنا ويغيّر الاسم أو يعطّلها أو يحذفها.
+  كل بند يُربط بحساب مصروف من دليل الحسابات حتى يُخصم من الأرباح ويظهر في التقارير المحاسبية.
+</p>
+
+<p style="display:flex;flex-wrap:wrap;gap:0.45rem;margin:0.75rem 0">
+  <a class="btn" href="/pos/treasury/pay">سندات الصرف</a>
+  <a class="btn" href="/admin/expenses">المصروفات</a>
+  <a class="btn" href="/admin/gl/expense-maps">ربط المصروفات بـ GL</a>
+  <a class="btn" href="/admin/shift-expense-categories">بنود مصروف الجلسة</a>
+</p>
+
+{% if saved %}
+<p class="muted" style="color:#15803d;margin:0.75rem 0">تم الحفظ. الربط المحاسبي محدّث.</p>
+{% endif %}
+{% if err %}
+<div class="alert" style="margin:0.75rem 0">{{ err }}</div>
+{% endif %}
+
+<div class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0;font-size:1.05rem">إضافة بند</h2>
+  <form method="post" action="/admin/treasury-pay-categories/add" class="row"
+    style="gap:0.65rem;flex-wrap:wrap;align-items:flex-end">
+    <div style="flex:1;min-width:12rem">
+      <label for="new_label" style="font-size:0.85rem">اسم البند</label>
+      <input id="new_label" name="label" required maxlength="80" placeholder="مثال: إيجار / كهرباء / صيانة"
+        style="width:100%;padding:0.45rem 0.5rem;margin-top:0.25rem" />
+    </div>
+    <div style="min-width:13rem">
+      <label for="new_kind" style="font-size:0.85rem">القائمة</label>
+      <select id="new_kind" name="kind" style="width:100%;padding:0.45rem 0.5rem;margin-top:0.25rem">
+        <option value="operating">مصروف تشغيلي</option>
+        <option value="utility">فاتورة خدمات</option>
+      </select>
+    </div>
+    <div style="flex:1.2;min-width:16rem">
+      <label for="new_gl" style="font-size:0.85rem">حساب المصروف في الدليل</label>
+      <select id="new_gl" name="gl_account_id" required style="width:100%;padding:0.45rem 0.5rem;margin-top:0.25rem">
+        <option value="">— اختر حساب مصروف —</option>
+        {% for a in gl_accounts %}
+        <option value="{{ a.id }}">{{ a.code }} — {{ a.name_ar }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="btn btn-primary">إضافة البند</button>
+  </form>
+  {% if not gl_accounts %}
+  <p class="muted" style="color:#b91c1c;margin:0.65rem 0 0">لا توجد حسابات مصروف نشطة — راجع دليل الحسابات أولاً.</p>
+  {% endif %}
+</div>
+
+{% macro cat_table(rows, empty_label) %}
+<table class="table">
+  <thead>
+    <tr>
+      <th>البند</th>
+      <th>القائمة</th>
+      <th>حساب المصروف</th>
+      <th>مفعّل</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for c in rows %}
+    <tr>
+      <td colspan="5" style="padding:0.65rem 0.4rem">
+        <form method="post" action="/admin/treasury-pay-categories/{{ c.key }}/update"
+          style="display:grid;grid-template-columns:minmax(10rem,1.1fr) minmax(11rem,0.9fr) minmax(14rem,1.4fr) auto auto;gap:0.45rem;align-items:end;margin:0">
+          <div>
+            <label class="muted" style="font-size:0.75rem;display:block">الاسم</label>
+            <input name="label" value="{{ c.label }}" required maxlength="80" style="width:100%;padding:0.35rem 0.45rem" />
+          </div>
+          <div>
+            <label class="muted" style="font-size:0.75rem;display:block">القائمة</label>
+            <select name="kind" style="width:100%;padding:0.35rem 0.45rem">
+              <option value="operating" {% if not c.is_utility %}selected{% endif %}>مصروف تشغيلي</option>
+              <option value="utility" {% if c.is_utility %}selected{% endif %}>فاتورة خدمات</option>
+            </select>
+          </div>
+          <div>
+            <label class="muted" style="font-size:0.75rem;display:block">حساب GL</label>
+            <select name="gl_account_id" required style="width:100%;padding:0.35rem 0.45rem">
+              <option value="">— اختر حساباً —</option>
+              {% for a in gl_accounts %}
+              <option value="{{ a.id }}" {% if c.gl_account_id == a.id %}selected{% endif %}>{{ a.code }} — {{ a.name_ar }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <label style="font-size:0.85rem;white-space:nowrap;padding-bottom:0.35rem">
+            <input type="checkbox" name="active" value="on" {% if c.active %}checked{% endif %} /> نشط
+          </label>
+          <button type="submit" class="btn" style="font-size:0.82rem">حفظ</button>
+        </form>
+      </td>
+    </tr>
+    <tr>
+      <td colspan="4" class="muted" style="font-size:0.8rem;padding-top:0">
+        يُرحَّل إلى: <strong>{{ c.gl_label }}</strong>
+      </td>
+      <td>
+        <form method="post" action="/admin/treasury-pay-categories/{{ c.key }}/delete" style="margin:0"
+          onsubmit="return confirm('حذف البند «{{ c.label }}»؟');">
+          <button type="submit" class="btn" style="color:#b91c1c;border-color:#fecaca;font-size:0.82rem">حذف</button>
+        </form>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="muted">{{ empty_label }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endmacro %}
+
+<div class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0;font-size:1.05rem">مصروفات تشغيلية</h2>
+  {{ cat_table(operating, "لا بنود تشغيلية — أضف واحداً من الأعلى.") }}
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0;font-size:1.05rem">فواتير الخدمات</h2>
+  {{ cat_table(utilities, "لا بنود خدمات — أضف واحداً من الأعلى.") }}
+</div>
+{% endblock %}

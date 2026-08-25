@@ -27,11 +27,16 @@ from modules.settings.refund_auth import (
     set_refund_authorization_code,
 )
 from modules.settings.service import (
+    PAPER_ORIENTATIONS,
     PAPER_SIZES,
     get_bool,
     get_int,
+    get_public_base_url,
     get_setting,
+    invalidate_settings_cache,
+    normalize_orientation,
     normalize_paper,
+    public_base_url_from_env,
     set_setting,
 )
 
@@ -99,9 +104,13 @@ def settings_page(
         {
             "request": request,
             "paper_sizes": PAPER_SIZES,
+            "paper_orientations": PAPER_ORIENTATIONS,
             "current_paper": get_setting(db, "print_paper_size", "A5"),
+            "current_orientation": get_setting(db, "print_paper_orientation", "portrait"),
             "store_name": get_setting(db, "store_name", "نقطة البيع"),
             "public_base_url": get_setting(db, "public_base_url", ""),
+            "public_base_url_effective": get_public_base_url(db),
+            "public_base_url_env": public_base_url_from_env(),
             "shop_order_confirmation_text": get_setting(
                 db,
                 "shop_order_confirmation_text",
@@ -142,12 +151,34 @@ def settings_page(
             "treasury_notify_shift_close_enabled": get_bool(
                 db, "treasury_notify_shift_close_enabled", True
             ),
+            "treasury_notify_handoff_pending_enabled": get_bool(
+                db, "treasury_notify_handoff_pending_enabled", False
+            ),
             "treasury_notify_movements_enabled": get_bool(
                 db, "treasury_notify_movements_enabled", True
             ),
             "treasury_notify_balance_updates_enabled": get_bool(
                 db, "treasury_notify_balance_updates_enabled", True
             ),
+            "hotel_shift_allow_next_shift_carry": get_bool(
+                db, "hotel_shift_allow_next_shift_carry", True
+            ),
+            "hotel_shift_allow_treasury_close": get_bool(
+                db, "hotel_shift_allow_treasury_close", True
+            ),
+            "pos_shift_allow_next_shift_carry": get_bool(
+                db, "pos_shift_allow_next_shift_carry", True
+            ),
+            "pos_shift_allow_treasury_close": get_bool(
+                db, "pos_shift_allow_treasury_close", True
+            ),
+            **(
+                __import__(
+                    "modules.security.supervisor_otp",
+                    fromlist=["otp_policy_context"],
+                ).otp_policy_context(db)
+            ),
+            "otp_policy_saved": request.query_params.get("otp_saved") == "1",
         },
     )
 
@@ -172,6 +203,7 @@ def settings_save(
     db: DBSession,
     _: User = Depends(_admin),
     print_paper_size: str = Form("A5"),
+    print_paper_orientation: str = Form("portrait"),
     store_name: str = Form(""),
     public_base_url: str = Form(""),
     shop_order_confirmation_text: str = Form(""),
@@ -182,8 +214,13 @@ def settings_save(
     default_sales_warehouse_id: str = Form(""),
     treasury_notifications_enabled: str = Form(""),
     treasury_notify_shift_close_enabled: str = Form(""),
+    treasury_notify_handoff_pending_enabled: str = Form(""),
     treasury_notify_movements_enabled: str = Form(""),
     treasury_notify_balance_updates_enabled: str = Form(""),
+    hotel_shift_allow_next_shift_carry: str = Form(""),
+    hotel_shift_allow_treasury_close: str = Form(""),
+    pos_shift_allow_next_shift_carry: str = Form(""),
+    pos_shift_allow_treasury_close: str = Form(""),
     refund_code_save: str = Form(""),
     refund_code: str = Form(""),
     clear_refund_code: str = Form(""),
@@ -207,6 +244,11 @@ def settings_save(
         return RedirectResponse("/admin/settings?refund_auth=1", status_code=302)
 
     set_setting(db, "print_paper_size", normalize_paper(print_paper_size, "A5"))
+    set_setting(
+        db,
+        "print_paper_orientation",
+        normalize_orientation(print_paper_orientation, "portrait"),
+    )
     set_setting(db, "store_name", store_name.strip() or "نقطة البيع")
     set_setting(db, "public_base_url", public_base_url.strip().rstrip("/"))
     set_setting(
@@ -251,6 +293,11 @@ def settings_save(
     )
     set_setting(
         db,
+        "treasury_notify_handoff_pending_enabled",
+        "1" if treasury_notify_handoff_pending_enabled == "1" else "0",
+    )
+    set_setting(
+        db,
         "treasury_notify_movements_enabled",
         "1" if treasury_notify_movements_enabled == "1" else "0",
     )
@@ -259,6 +306,22 @@ def settings_save(
         "treasury_notify_balance_updates_enabled",
         "1" if treasury_notify_balance_updates_enabled == "1" else "0",
     )
+    from modules.payments.shift_carry import (
+        save_hotel_shift_close_policy,
+        save_pos_shift_close_policy,
+    )
+
+    save_hotel_shift_close_policy(
+        db,
+        allow_carry=hotel_shift_allow_next_shift_carry == "1",
+        allow_treasury=hotel_shift_allow_treasury_close == "1",
+    )
+    save_pos_shift_close_policy(
+        db,
+        allow_carry=pos_shift_allow_next_shift_carry == "1",
+        allow_treasury=pos_shift_allow_treasury_close == "1",
+    )
+    invalidate_settings_cache()
     wh_raw = (default_sales_warehouse_id or "").strip()
     if wh_raw:
         from modules.inventory.service import resolve_warehouse_id
@@ -333,6 +396,30 @@ def settings_order_policy_save(
     db.commit()
     return RedirectResponse(
         "/admin/settings?order_policy_saved=1#order-policy-section",
+        status_code=302,
+    )
+
+
+@router.post("/otp-policy", response_class=HTMLResponse)
+def settings_otp_policy_save(
+    request: Request,
+    db: DBSession,
+    _: User = Depends(_admin),
+    otp_require_hotel_refund: str = Form(""),
+    otp_require_pos_refund: str = Form(""),
+    otp_require_hotel_cancel: str = Form(""),
+):
+    from modules.security.supervisor_otp import save_otp_policy
+
+    save_otp_policy(
+        db,
+        hotel_refund=otp_require_hotel_refund == "on",
+        pos_refund=otp_require_pos_refund == "on",
+        hotel_cancel=otp_require_hotel_cancel == "on",
+    )
+    db.commit()
+    return RedirectResponse(
+        "/admin/settings?otp_saved=1#supervisor-otp-section",
         status_code=302,
     )
 

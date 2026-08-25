@@ -78,12 +78,10 @@
         </td>
         <td>
           {% if pr %}
-            {% if pr.pay_status.value == 'unpaid' %}<span class="badge bad">غير مدفوعة</span>
-            {% elif pr.pay_status.value == 'partial' %}<span class="badge warn">جزئية</span>
-            {% else %}<span class="badge good">مدفوعة</span>{% endif %}
-          {% else %}<span class="badge good">مدفوعة</span>{% endif %}
+            {{ pos_pay_status_badge(pr.pay_status) }}
+          {% else %}{{ pos_pay_status_badge('paid') }}{% endif %}
         </td>
-        <td>{% if pr %}{{ pr.wallet_label }}{% elif p.method %}{{ p.method.name_ar }}{% endif %}</td>
+        <td>{% if pr %}{{ pr.wallet_label }}{% elif p.method %}{{ pos_wallet_label(p.method) }}{% endif %}</td>
         <td><a class="btn" href="/admin/purchases/{{ p.id }}" style="padding: 0.2rem 0.5rem; font-size: 0.85rem">عرض</a></td>
       </tr>
       {% endif %}

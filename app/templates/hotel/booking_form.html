@@ -2,10 +2,36 @@
 {% set is_quotation = form_mode == 'quotation' %}
 {% block title %}{% if is_quotation %}عرض سعر جديد{% else %}حجز جديد{% endif %}{% endblock %}
 {% block head_extra %}
-<link rel="stylesheet" href="/static/hotel_dashboard.css?v=12" />
+<link rel="stylesheet" href="/static/hotel_dashboard.css?v=29" />
 <script src="/static/searchable_combobox.js?v=3"></script>
 <style>
-  .guest-type-tabs { display:flex; gap:0.5rem; margin-bottom:0.85rem; }
+  .guest-type-tabs { display:flex; gap:0.5rem; margin-bottom:0.85rem; align-items:stretch; }
+  .booking-stay-live {
+    grid-column: 1 / -1;
+    margin-top: 0.15rem;
+    padding: 0.75rem 0.9rem;
+    border-radius: 12px;
+    border: 1px solid #a7f3d0;
+    background: linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 55%, #fff 100%);
+  }
+  .booking-stay-live__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+    gap: 0.55rem 0.85rem;
+    align-items: end;
+  }
+  .booking-stay-live__label { font-size: 0.78rem; color: #64748b; font-weight: 600; margin-bottom: 0.15rem; }
+  .booking-stay-live__value { font-weight: 800; font-size: 1.05rem; color: #0f172a; }
+  .booking-stay-live__value.is-total { color: #047857; font-size: 1.2rem; }
+  .guest-type-col { flex:1; display:flex; flex-direction:column; gap:0.35rem; min-width:0; }
+  .guest-balance-badge {
+    min-height:2.1rem; padding:0.4rem 0.55rem; border-radius:10px; font-size:0.82rem;
+    font-weight:700; text-align:center; border:1px solid transparent; line-height:1.35;
+  }
+  .guest-balance-badge.is-credit { background:#ecfdf5; color:#047857; border-color:#a7f3d0; }
+  .guest-balance-badge.is-debt { background:#fef2f2; color:#b91c1c; border-color:#fecaca; }
+  .guest-balance-badge.is-empty { background:#f8fafc; color:#64748b; border-color:#e2e8f0; }
+  .guest-balance-badge[hidden] { display:none !important; }
   .guest-type-tabs label {
     flex:1; text-align:center; padding:0.65rem; border:2px solid #cbd5e1; border-radius:10px;
     cursor:pointer; font-weight:700; background:#fff; transition:0.15s;
@@ -15,6 +41,21 @@
   .guest-type-tabs label:has(input:checked) { border-color:#2563eb; background:#eff6ff; color:#1d4ed8; }
   .guest-panel { display:none; }
   .guest-panel.active { display:contents; }
+  .guest-lookup-box {
+    position:relative; grid-column:1/-1;
+  }
+  .guest-lookup-list {
+    position:absolute; z-index:40; inset-inline:0; top:100%; margin-top:0.2rem;
+    background:#fff; border:1px solid #cbd5e1; border-radius:10px; box-shadow:0 8px 24px rgba(15,23,42,.12);
+    max-height:220px; overflow:auto; display:none;
+  }
+  .guest-lookup-list.open { display:block; }
+  .guest-lookup-item {
+    display:block; width:100%; text-align:right; padding:0.55rem 0.7rem; border:0; background:#fff;
+    cursor:pointer; border-bottom:1px solid #f1f5f9; font-size:0.9rem;
+  }
+  .guest-lookup-item:hover, .guest-lookup-item:focus { background:#eff6ff; outline:none; }
+  .guest-lookup-meta { display:block; color:#64748b; font-size:0.78rem; margin-top:0.15rem; }
 </style>
 {% endblock %}
 {% block body %}
@@ -30,32 +71,147 @@
 {% set require_staying_guest_full = not is_quotation %}
 {% set draft_guest_type = d.get('guest_type', 'COMPANY' if is_quotation else 'INDIVIDUAL') %}
 
-<form method="post" enctype="multipart/form-data" action="{% if is_quotation %}/admin/hotel/quotations/save{% else %}/admin/hotel/bookings/save{% endif %}" class="card" id="booking-form">
+<form method="post" enctype="multipart/form-data" action="{% if is_quotation %}/admin/hotel/quotations/save{% else %}/admin/hotel/bookings/save{% endif %}" class="card" id="booking-form" novalidate autocomplete="off">
 
+  <ol class="booking-wizard-progress" id="bw-progress" aria-label="خطوات الحجز — اضغط للانتقال">
+    <li class="is-active is-clickable" data-bw-indicator="1" role="button" tabindex="0" title="الانتقال لجهة الحجز">1 · جهة الحجز</li>
+    <li class="is-clickable" data-bw-indicator="2" role="button" tabindex="0" title="الانتقال للنزلاء">2 · النزلاء</li>
+    <li class="is-clickable" data-bw-indicator="3" role="button" tabindex="0" title="الانتقال للإقامة والدفع">3 · الإقامة والدفع</li>
+    <li class="is-clickable" data-bw-indicator="4" role="button" tabindex="0" title="الانتقال للمراجعة">4 · المراجعة</li>
+  </ol>
+  <p class="muted" style="margin:-0.55rem 0 0.85rem;font-size:0.8rem">أكمل حقول الخطوة الحالية قبل الانتقال للتالية. الرجوع لخطوة سابقة متاح دائماً.</p>
+
+  <div class="bw-step is-active" data-bw="1">
   <h2 style="margin:0 0 0.65rem;font-size:1rem">جهة الحجز (من يحجز)</h2>
   <p class="muted" style="margin:0 0 0.65rem;font-size:0.84rem;line-height:1.55">
     هذا القسم لبيانات من يُجرى الحجز باسمه (فرد أو شركة) — <strong>ليس بالضرورة كل من سيقيم في الشقة</strong>.
   </p>
   <div class="guest-type-tabs">
-    <label><input type="radio" name="guest_type" value="INDIVIDUAL" {% if draft_guest_type == 'INDIVIDUAL' %}checked{% endif %} /><span>👤 فرد</span></label>
-    <label><input type="radio" name="guest_type" value="COMPANY" {% if draft_guest_type == 'COMPANY' %}checked{% endif %} /><span>🏢 شركة</span></label>
+    <div class="guest-type-col">
+      <div id="balance-individual" class="guest-balance-badge" hidden aria-live="polite"></div>
+      <label><input type="radio" name="guest_type" value="INDIVIDUAL" {% if draft_guest_type == 'INDIVIDUAL' %}checked{% endif %} /><span>👤 فرد</span></label>
+    </div>
+    <div class="guest-type-col">
+      <div id="balance-company" class="guest-balance-badge" hidden aria-live="polite"></div>
+      <label><input type="radio" name="guest_type" value="COMPANY" {% if draft_guest_type == 'COMPANY' %}checked{% endif %} /><span>🏢 شركة</span></label>
+    </div>
   </div>
+  <p id="guest-balance-hint" class="muted" style="margin:0 0 0.75rem;font-size:0.82rem;display:none"></p>
+  <input type="hidden" name="customer_id" id="customer_id" value="{{ d.get('customer_id', '') }}" />
+  <input type="hidden" name="company_customer_id" id="company_customer_id" value="{{ d.get('company_customer_id', '') }}" />
 
   <div id="panel-individual" class="guest-panel{% if draft_guest_type == 'INDIVIDUAL' %} active{% endif %}" style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
-    <div><label>اسم من يحجز *</label><input name="guest_name" id="guest_name" value="{{ d.get('guest_name', '') }}" {% if not is_quotation %}required{% endif %} placeholder="جهة الاتصال / الحاجز" /></div>
-    <div><label>الهاتف *</label><input name="guest_phone" id="guest_phone" value="{{ d.get('guest_phone', '') }}" {% if not is_quotation %}required{% endif %} /></div>
-    <div><label>البريد</label><input name="guest_email" type="email" value="{{ d.get('guest_email', '') }}" /></div>
+    <div class="guest-lookup-box">
+      <label>اسم من يحجز *</label>
+      <input name="guest_name" id="guest_name" value="{{ d.get('guest_name', '') }}" {% if not is_quotation %}required{% endif %} placeholder="اكتب الاسم للاستدعاء من الحجوزات والعملاء" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+      <div class="guest-lookup-list" id="lookup-individual" role="listbox"></div>
+    </div>
+    <div><label>الهاتف *</label><input name="guest_phone" id="guest_phone" value="{{ d.get('guest_phone', '') }}" {% if not is_quotation %}required{% endif %} autocomplete="off" inputmode="tel" /></div>
+    <div><label>البريد</label><input name="guest_email" id="guest_email" type="email" value="{{ d.get('guest_email', '') }}" /></div>
   </div>
 
   <div id="panel-company" class="guest-panel{% if draft_guest_type == 'COMPANY' %} active{% endif %}" style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
-    <div style="grid-column:1/-1"><label>اسم الشركة *</label><input name="company_name" id="company_name" value="{{ d.get('company_name', '') }}" {% if is_quotation %}required{% endif %} /></div>
-    <div><label>السجل / الرقم الضريبي</label><input name="company_tax_id" value="{{ d.get('company_tax_id', '') }}" placeholder="اختياري" /></div>
-    <div><label>هاتف الشركة</label><input name="company_contact_phone" value="{{ d.get('company_contact_phone', '') }}" /></div>
-    <div><label>مسؤول التواصل / الحاجز *</label><input name="company_contact_name" id="company_contact_name" value="{{ d.get('company_contact_name', '') }}" placeholder="من يحجز باسم الشركة" /></div>
-    <div><label>بريد الشركة / المسؤول</label><input name="company_contact_email" type="email" value="{{ d.get('company_contact_email', '') }}" /></div>
-    <div style="grid-column:1/-1"><label>عنوان الشركة</label><input name="company_address" value="{{ d.get('company_address', '') }}" /></div>
+    <div class="guest-lookup-box" style="grid-column:1/-1">
+      <label>اسم الشركة *</label>
+      <input name="company_name" id="company_name" value="{{ d.get('company_name', '') }}" {% if is_quotation %}required{% endif %} placeholder="اكتب اسم الشركة ثم اخترها من القائمة" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+      <div class="guest-lookup-list" id="lookup-company" role="listbox"></div>
+      <p class="muted" style="margin:0.35rem 0 0;font-size:0.8rem;line-height:1.45">
+        الحقول المطلوبة: اسم الشركة ورقم الهاتف. شركة مسجّلة: اخترها من البحث فيُعرض الاسم والهاتف فقط.
+      </p>
+    </div>
+    <div>
+      <label>رقم الهاتف *</label>
+      <input name="company_contact_phone" id="company_contact_phone" value="{{ d.get('company_contact_phone', '') }}" autocomplete="off" inputmode="tel" placeholder="0912345678" />
+    </div>
+    <input type="hidden" name="company_tax_id" id="company_tax_id" value="" />
+    <input type="hidden" name="company_contact_name" id="company_contact_name" value="{{ d.get('company_contact_name', '') }}" />
+    <div id="company-extra-fields" style="grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
+      <div><label>البريد الإلكتروني</label><input name="company_contact_email" id="company_contact_email" type="email" value="{{ d.get('company_contact_email', '') }}" placeholder="اختياري" /></div>
+      <div><label>عنوان الشركة</label><input name="company_address" id="company_address" value="{{ d.get('company_address', '') }}" placeholder="اختياري" /></div>
+    </div>
+    {% if not is_quotation %}
+    <div id="company-charge-box" style="grid-column:1/-1;padding:0.85rem;border-radius:10px;border:2px solid #2563eb;background:#eff6ff">
+      <input type="hidden" name="booking_payer" id="booking_payer" value="{{ d.get('booking_payer') or 'GUEST' }}" />
+      <label style="display:flex;align-items:flex-start;gap:0.55rem;cursor:pointer;margin:0">
+        <input type="checkbox" name="charge_to_company_account" id="charge_to_company_account" value="on"
+               style="width:auto;margin-top:0.25rem;transform:scale(1.25)"
+               {% if d.get('charge_to_company_account') or d.get('booking_payer') == 'COMPANY' %}checked{% endif %} />
+        <span>
+          <strong style="display:block;color:#1e3a8a;font-size:1rem">إتمام الحجز والتسجيل على حساب الشركة</strong>
+          <span class="muted" style="display:block;margin-top:0.3rem;font-size:0.82rem;line-height:1.5;font-weight:500">
+            ✓ مفعّل: احفظ بدون دفع — المتبقي دين على الشركة (ضمن حد الائتمان في ملفها).<br>
+            ✗ غير مفعّل: يجب دفع كامل الإقامة (مناسب للشركات الجديدة).
+          </span>
+        </span>
+      </label>
+    </div>
+    <div id="company-notify-box" style="grid-column:1/-1;padding:0.85rem;border-radius:10px;border:1px solid #fdba74;background:#fff7ed">
+      <h3 style="margin:0 0 0.45rem;font-size:0.95rem;color:#9a3412">توجيه الرسائل ومن يتحمّل التكاليف</h3>
+      <p class="muted" style="margin:0 0 0.65rem;font-size:0.8rem;line-height:1.5">
+        اختر من يستلم واتساب هذا الحجز. التقسيمة (إقامة / خدمات) تُحفَظ الآن وسنكمّل تطبيق فصل الفواتير لاحقاً.
+      </p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.65rem">
+        <div>
+          <label>رسائل واتساب تذهب إلى *</label>
+          <select name="notify_to" id="notify_to">
+            {% set nto = d.get('notify_to') or 'COMPANY' %}
+            <option value="COMPANY" {% if nto == 'COMPANY' %}selected{% endif %}>الشركة / مسؤول الحجز</option>
+            <option value="GUEST1" {% if nto == 'GUEST1' %}selected{% endif %}>النزيل رقم 1 في الشقة</option>
+          </select>
+        </div>
+        <div>
+          <label>من يتحمّل الإقامة (إن لم يُغطِّه عقد الشركة)</label>
+          <select name="stay_payer" id="stay_payer">
+            {% set sp = d.get('stay_payer') or d.get('booking_payer') or ('COMPANY' if draft_guest_type == 'COMPANY' else 'GUEST') %}
+            <option value="COMPANY" {% if sp == 'COMPANY' %}selected{% endif %}>الشركة</option>
+            <option value="GUEST" {% if sp == 'GUEST' %}selected{% endif %}>النزيل</option>
+          </select>
+        </div>
+        <div>
+          <label>من يتحمّل الإضافات العامة (احتياطي للعقد)</label>
+          <select name="extras_payer" id="extras_payer">
+            {% set ep = d.get('extras_payer') or d.get('booking_payer') or ('COMPANY' if draft_guest_type == 'COMPANY' else 'GUEST') %}
+            <option value="COMPANY" {% if ep == 'COMPANY' %}selected{% endif %}>الشركة</option>
+            <option value="GUEST" {% if ep == 'GUEST' %}selected{% endif %}>النزيل</option>
+          </select>
+        </div>
+      </div>
+      <p class="muted" style="margin:0.55rem 0 0;font-size:0.78rem">
+        عند اختيار شركة مسجّلة تُعرض بنود العقد أدناه تلقائياً (من يدفع ماذا + شروط السداد).
+      </p>
+    </div>
+    {% endif %}
   </div>
 
+  <div id="company-agreement-preview" aria-live="polite">
+    <strong style="color:#1e40af">عقد الشركة — من يدفع ماذا</strong>
+    <div id="company-agreement-meta" class="muted" style="margin-top:0.35rem;font-size:0.82rem;line-height:1.45"></div>
+    <div class="agr-grid" id="company-agreement-chips"></div>
+    <div id="agr-change-wrap">
+      <p id="agr-change-pending" hidden></p>
+      <button type="button" class="btn" id="agr-change-open">طلب تعديل الاتفاقية</button>
+      <div id="agr-change-panel" hidden>
+        <p class="muted" style="margin:0 0 0.55rem;font-size:0.82rem;line-height:1.5">
+          حدّد البنود التي تريد الشركة تغيير من يتحمّلها (مثلاً العشاء من النزيل إلى الشركة)،
+          وأرفق الطلب الكتابي (صورة أو PDF). يُرسل الطلب للأدمن؛ بعد الموافقة تُطبَّق البنود على الحجوزات المفتوحة.
+        </p>
+        <div id="agr-change-items"></div>
+        <label for="agr-change-file">طلب الشركة الكتابي (صورة أو PDF)</label>
+        <input type="file" id="agr-change-file" accept=".jpg,.jpeg,.png,.webp,.pdf,image/*,application/pdf" />
+        <label for="agr-change-note">ملاحظة للطلب</label>
+        <textarea id="agr-change-note" rows="2" placeholder="مثال: الشركة طلبت تحمّل وجبة العشاء كتابياً"></textarea>
+        <div style="display:flex;gap:0.45rem;flex-wrap:wrap;margin-top:0.55rem">
+          <button type="button" class="btn btn-primary" id="agr-change-submit">إرسال الطلب للأدمن</button>
+          <button type="button" class="btn" id="agr-change-cancel">إلغاء</button>
+        </div>
+        <p id="agr-change-msg" hidden></p>
+      </div>
+    </div>
+  </div>
+
+  </div>{# bw-step 1 #}
+
+  <div class="bw-step" data-bw="2">
   <div class="card" style="margin:0.85rem 0 0;background:#fff7ed;border-color:#fed7aa">
     <h3 style="margin:0 0 0.45rem;color:#9a3412">النزلاء المقيمون في الشقة *</h3>
     <p class="muted" style="margin:0 0 0.65rem;font-size:0.84rem;line-height:1.55">
@@ -75,7 +231,9 @@
       {% include "_hotel_staying_guest_fields.html" %}
     </div>
   </template>
+  </div>{# bw-step 2 #}
 
+  <div class="bw-step" data-bw="3">
   <hr style="margin:1rem 0;border:none;border-top:1px solid #e2e8f0" />
 
   <div class="grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
@@ -86,77 +244,249 @@
         {% endfor %}
       </select>
     </div>
-    <div><label>بالغون</label><input name="adults" type="number" value="{{ d.get('adults', 1) }}" min="1" /></div>
-    <div><label>وصول *</label><input name="check_in" id="check_in" type="date" required min="{{ today.isoformat() if today is defined else '' }}" value="{{ d.get('check_in') or (today.isoformat() if today is defined else '') }}" /></div>
-    <div><label>مغادرة *</label><input name="check_out" id="check_out" type="date" required min="{{ today.isoformat() if today is defined else '' }}" value="{{ d.get('check_out') or (today.isoformat() if today is defined else '') }}" /></div>
-    <div><label>نوع الغرفة</label>
+    <div><label>عدد النزلاء (بالغون) *</label><input name="adults" id="adults" type="number" min="1" step="1" required inputmode="numeric" placeholder="أدخل العدد" value="{{ d.get('adults') or '' }}" /></div>
+    <div>
+      <label>وصول *</label>
+      <div style="display:flex;gap:0.4rem;align-items:center">
+        <input name="check_in" id="check_in" type="date" required min="{{ today.isoformat() if today is defined else '' }}" value="{{ d.get('check_in') or (today.isoformat() if today is defined else '') }}" style="flex:1.25" />
+        <input name="check_in_time" id="check_in_time" type="time" required value="{{ d.get('check_in_time') or stay_default_in_time or '14:00' }}" style="flex:0.85;min-width:7.2rem" />
+      </div>
+    </div>
+    <div>
+      <label>مغادرة *</label>
+      <div style="display:flex;gap:0.4rem;align-items:center">
+        <input name="check_out" id="check_out" type="date" required min="{{ (d.get('check_in') or (today.isoformat() if today is defined else '')) }}" value="{{ d.get('check_out') or (tomorrow.isoformat() if tomorrow is defined else (today.isoformat() if today is defined else '')) }}" style="flex:1.25" />
+        <input name="check_out_time" id="check_out_time" type="time" required value="{{ d.get('check_out_time') or stay_default_out_time or '12:00' }}" style="flex:0.85;min-width:7.2rem" />
+      </div>
+    </div>
+    <div style="grid-column:1/-1"><label>نوع الغرفة والتكلفة</label>
       <div id="room-type-info" class="booking-room-type-info" aria-live="polite">
         {% if pre_room and pre_room.room_type %}
         {{ pre_room.room_type.name_ar }} — {{ '%.3f'|format(pre_room.room_type.base_price) }} د.ل/ليلة
         {% else %}<span class="muted">—</span>{% endif %}
+      </div>
+      <div class="booking-stay-live" id="stay-live-summary" aria-live="polite">
+        <div class="booking-stay-live__grid">
+          <div>
+            <div class="booking-stay-live__label">عدد الليالي</div>
+            <div class="booking-stay-live__value" id="live-nights">—</div>
+          </div>
+          <div>
+            <div class="booking-stay-live__label">سعر الليلة</div>
+            <div class="booking-stay-live__value"><span id="live-rate">0</span> د.ل</div>
+          </div>
+          <div>
+            <div class="booking-stay-live__label">الإجمالي المطلوب</div>
+            <div class="booking-stay-live__value is-total"><span id="live-total">0</span> د.ل</div>
+          </div>
+        </div>
+        <p class="muted" style="display:none;margin:0" id="stay-nights-hint" hidden></p>
       </div>
     </div>
     {% if is_quotation %}
     <div><label>صلاحية العرض حتى</label><input name="quotation_valid_until" type="date" value="{{ d.get('quotation_valid_until', '') }}" /></div>
     <div style="grid-column:1/-1"><label>ملاحظات العرض (للشركة)</label><textarea name="quotation_notes" placeholder="شروط، خصم، ملاحظات..." style="width:100%">{{ d.get('quotation_notes', '') }}</textarea></div>
     {% else %}
-    <div id="payment-fields" style="grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:0.75rem"{% if prep_pct == 0 %} hidden{% endif %}>
-      <div><label>المبلغ المدفوع{% if prep_pct > 0 %} *{% endif %}</label><input name="deposit" id="deposit" type="number" step="0.001" min="0" value="{{ d.get('deposit', '') }}" {% if prep_pct > 0 %}required{% endif %} /></div>
-      <div><label>وسيلة الدفع{% if prep_pct > 0 %} *{% endif %}</label>
-        <select name="pay_method_id" id="pay_method_id" {% if prep_pct > 0 %}required{% endif %}>
-          <option value="">— اختر وسيلة الدفع —</option>
-          {% for m in methods %}<option value="{{ m.id }}"{% if d.get('pay_method_id') and d.get('pay_method_id')|string == m.id|string %} selected{% elif not d.get('pay_method_id') and loop.first %} selected{% endif %}>{{ m.name_ar }}</option>{% endfor %}
+    <div id="company-booking-options" style="grid-column:1/-1;display:none;padding:0.85rem;border-radius:10px;border:1px solid #fcd34d;background:#fffbeb;margin-bottom:0.25rem">
+      <div style="font-weight:800;color:#92400e;margin-bottom:0.45rem">شركة سياحة / وكالة (عمولة)</div>
+      <p class="muted" style="margin:0 0 0.55rem;font-size:0.82rem;line-height:1.5">
+        اختر اسم الوكالة فقط. نسبة العمولة مضبوطة من الأدمن وتُخصم تلقائياً من قيمة الحجز وتُضاف لمحفظة الوكالة.
+      </p>
+      <label style="display:flex;flex-direction:column;gap:0.2rem;font-size:0.88rem;max-width:360px;font-weight:600;color:#92400e">
+        اسم شركة السياحة
+        <select name="tourism_agency_id" id="tourism_agency_id">
+          <option value="">— بدون وكالة سياحة —</option>
+          {% for a in tourism_agencies|default([]) %}
+          <option value="{{ a.customer_id }}"
+            data-pct="{{ '%.3f'|format(a.commission_percent) }}"
+            data-name="{{ a.name }}"
+            {% if d.get('tourism_agency_id') and d.get('tourism_agency_id')|string == a.customer_id|string %}selected{% endif %}>
+            {{ a.name }} — عمولة {{ '%.3f'|format(a.commission_percent) }}%
+          </option>
+          {% endfor %}
         </select>
+      </label>
+      <input type="hidden" name="is_tourism_agency" id="is_tourism_agency" value="{% if d.get('is_tourism_agency') or d.get('tourism_agency_id') %}on{% endif %}" />
+      <input type="hidden" name="tourism_commission_percent" id="tourism_commission_percent" value="{{ d.get('tourism_commission_percent', '0') }}" />
+      <div id="tourism-commission-wrap" style="margin-top:0.5rem;{% if not (d.get('is_tourism_agency') or d.get('tourism_agency_id')) %}display:none{% endif %}">
+        <p style="margin:0;font-size:0.88rem;color:#92400e;font-weight:700">
+          العمولة المطبّقة: <span id="tourism-pct-label" dir="ltr">{{ d.get('tourism_commission_percent') or '0' }}</span>%
+          <span class="muted" style="font-weight:500;font-size:0.8rem"> (للقراءة فقط — لا يمكن تعديلها من الاستقبال)</span>
+        </p>
+        <p class="muted" style="margin:0.3rem 0 0;font-size:0.78rem;line-height:1.45">
+          عند أي دفع: تُحسب العمولة وتُضاف لمحفظة الوكالة حتى يسوّيها الأدمن.
+        </p>
+      </div>
+      {% if not tourism_agencies|default([]) %}
+      <p class="muted" style="margin:0.55rem 0 0;font-size:0.8rem">
+        لا توجد وكالات مسجّلة. أضفها من
+        <a href="/admin/hotel/tourism-agencies">وكالات السياحة</a>
+        (صلاحية إعداد الشقق / الأدمن).
+      </p>
+      {% endif %}
+    </div>
+    <div id="payment-fields" style="grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
+      <div id="company-debt-banner" style="grid-column:1/-1;display:none;padding:0.65rem 0.85rem;border-radius:8px;border:1px solid #86efac;background:#f0fdf4;color:#166534;font-size:0.88rem;line-height:1.5;font-weight:600">
+        التسجيل على حساب الشركة: خانة المبلغ تبقى فارغة ولن يُحتسب أي دفع. المتبقي يُسجَّل ديناً على الشركة.
+      </div>
+      <label style="grid-column:1/-1;display:flex;align-items:center;gap:0.45rem;font-size:0.88rem;font-weight:700;margin:0;padding:0.45rem 0.55rem;border-radius:8px;border:1px solid #fdba74;background:#fff7ed;color:#9a3412">
+        <input type="checkbox" name="split_payment" id="split_payment" value="on" style="width:auto" {% if d.get('split_payment') %}checked{% endif %} />
+        تقسيم الدفع: جزء كاش وجزء مصرف
+      </label>
+      <div id="pay-single-wrap" style="grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
+        <div>
+          <label id="deposit-label">المبلغ المدفوع <span id="deposit-method-word"></span> <span id="deposit-star" class="pay-req-star">*</span></label>
+          <input name="deposit" id="deposit" type="number" step="0.001" min="0" value="{{ d.get('deposit', '') }}" placeholder="اتركه فارغاً إن لم يُدفع شيء" />
+        </div>
+        <div>
+          <label id="pay-method-label">وسيلة الدفع <span id="pay-method-star" class="pay-req-star">*</span></label>
+          <select name="pay_method_id" id="pay_method_id">
+            <option value="">— اختر وسيلة الدفع —</option>
+            {% for m in methods %}<option value="{{ m.id }}" data-kind="{{ m.kind.value if m.kind.value is defined else m.kind }}"{% if d.get('pay_method_id') and d.get('pay_method_id')|string == m.id|string %} selected{% endif %}>{{ pos_wallet_label(m) }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      <div id="pay-split-wrap" style="grid-column:1/-1;display:none;grid-template-columns:1fr 1fr;gap:0.75rem">
+        <div>
+          <label>المبلغ كاش <span class="pay-req-star">*</span></label>
+          <input name="deposit_cash" id="deposit_cash" type="number" step="0.001" min="0" value="{{ d.get('deposit_cash', '') }}" placeholder="0" />
+          <label style="margin-top:0.45rem">وسيلة الكاش</label>
+          <select name="pay_method_cash_id" id="pay_method_cash_id">
+            <option value="">— اختر —</option>
+            {% for m in cash_methods|default([]) %}<option value="{{ m.id }}" data-kind="CASH"{% if d.get('pay_method_cash_id') and d.get('pay_method_cash_id')|string == m.id|string %} selected{% endif %}>{{ pos_wallet_label(m) }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label>المبلغ مصرف <span class="pay-req-star">*</span></label>
+          <input name="deposit_bank" id="deposit_bank" type="number" step="0.001" min="0" value="{{ d.get('deposit_bank', '') }}" placeholder="0" />
+          <label style="margin-top:0.45rem">وسيلة المصرف</label>
+          <select name="pay_method_bank_id" id="pay_method_bank_id">
+            <option value="">— اختر —</option>
+            {% for m in bank_methods|default([]) %}<option value="{{ m.id }}" data-kind="BANK"{% if d.get('pay_method_bank_id') and d.get('pay_method_bank_id')|string == m.id|string %} selected{% endif %}>{{ pos_wallet_label(m) }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      <div id="wallet-credit-box" style="grid-column:1/-1;display:none;padding:0.7rem 0.85rem;border-radius:10px;border:1px solid #86efac;background:#f0fdf4">
+        <label style="display:flex;align-items:flex-start;gap:0.45rem;cursor:pointer;font-weight:700;color:#166534;margin:0">
+          <input type="checkbox" name="use_wallet_credit" id="use_wallet_credit" value="on" style="width:auto;margin-top:0.2rem" {% if d.get('use_wallet_credit') %}checked{% endif %} />
+          خصم من رصيد المحفظة المتاح (<span id="wallet-available-label">0</span> د.ل)
+        </label>
+        <p id="wallet-payer-hint" class="muted" style="margin:0.4rem 0 0;font-size:0.8rem;line-height:1.45">
+          يُخصم من محفظة <strong id="wallet-payer-label">النزيل</strong>.
+        </p>
+        <div id="wallet-amount-wrap" style="margin-top:0.55rem;display:none;max-width:280px">
+          <label style="font-size:0.85rem;color:#166534">المبلغ المخصوم من الرصيد</label>
+          <input name="wallet_amount" id="wallet_amount" type="number" step="0.001" min="0" value="{{ d.get('wallet_amount', '') }}" />
+        </div>
       </div>
     </div>
     {% endif %}
   </div>
+  </div>{# bw-step 3 #}
 
+  <div class="bw-step" data-bw="4">
   <div class="card" style="margin:0.85rem 0 0;background:#f8fafc;border-color:#cbd5e1">
-    <h3 style="margin:0 0 0.5rem;color:#1e40af">ملخص تكلفة الإقامة</h3>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:0.65rem">
+    <h3 style="margin:0 0 0.5rem;color:#1e40af">ملخص التكلفة والدفع</h3>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0.65rem">
       <div><div class="muted" style="font-size:0.82rem">عدد الليالي</div><div id="booking-nights" style="font-weight:800;font-size:1.15rem">0 ليلة</div></div>
       <div><div class="muted" style="font-size:0.82rem">سعر الليلة</div><div><strong id="booking-nightly-rate">0</strong> <span class="money-currency">د.ل</span></div></div>
-      <div><div class="muted" style="font-size:0.82rem">إجمالي الإقامة</div><div style="font-weight:800;color:#047857;font-size:1.15rem"><span id="booking-total">0</span> <span class="money-currency">د.ل</span></div></div>
+      <div><div class="muted" style="font-size:0.82rem">قيمة الحجز</div><div style="font-weight:800;color:#047857;font-size:1.15rem"><span id="booking-total">0</span> <span class="money-currency">د.ل</span></div></div>
+    </div>
+    <div style="margin-top:0.75rem;max-width:480px">
+      <div class="price-break-line" id="booking-base-row" style="display:none"><span>قبل الخصم</span><strong id="booking-base-total">0 د.ل</strong></div>
+      <div class="price-break-line" id="booking-discount-row" style="display:none"><span>خصم الشركة <span id="booking-discount-pct">0</span>%</span><strong id="booking-discount-amt" style="color:#b45309">− 0 د.ل</strong></div>
+      <span id="booking-final-total" hidden>0 د.ل</span>
+      <span id="booking-required" hidden>0</span>
       {% if not is_quotation %}
-      <div><div class="muted" style="font-size:0.82rem">الحد الأدنى للدفع</div><div style="font-weight:800;color:#b45309;font-size:1.05rem"><span id="booking-required">0</span> <span class="money-currency">د.ل</span></div></div>
+      <div id="review-pay-lines"></div>
+      <div class="price-break-line" id="review-wallet-row" style="display:none"><span>من المحفظة</span><strong id="review-paid-wallet">0 د.ل</strong></div>
+      <div class="price-break-line"><span>إجمالي المقبوض</span><strong id="review-paid-total" style="color:#1e3a8a;font-size:1.05rem">0 د.ل</strong></div>
+      <div class="price-break-line" id="review-remain-row"><span>المتبقي على الزبون</span><strong id="review-remain" style="color:#b45309">0 د.ل</strong></div>
+      <div class="price-break-line" id="review-surplus-row" style="display:none"><span>فائض يُرحَّل لرصيد الزبون</span><strong id="review-surplus" style="color:#047857">0 د.ل</strong></div>
       {% endif %}
     </div>
     {% if is_quotation %}
     <p class="muted" style="margin:0.55rem 0 0;font-size:0.82rem">عرض السعر لا يحجز الشقة ولا يتطلب دفعاً — يُتابَع حتى موافقة الشركة ثم يُحوَّل إلى حجز.</p>
-    {% else %}
-    <p class="muted" id="prepayment-note" style="margin:0.55rem 0 0;font-size:0.82rem">{{ prepayment_percent_label | default('100% — دفع كامل') }}</p>
-    <p class="muted" style="margin:0.25rem 0 0;font-size:0.82rem">
-      💡 الحجز المستقبلي لا يُغلق الشقة قبل يوم الوصول — يمكن إيجارها في الأيام السابقة إذا لا يوجد تداخل في التواريخ.
-    </p>
-    <p class="muted" style="margin:0.25rem 0 0;font-size:0.82rem">
-      يمكنك دفع أكثر من المطلوب — الفائض يُحفظ كرصيد للزبون (ما له) ويُستخدم عند تسوية وجبات الغرفة.
-      <a href="/admin/hotel/settings">تغيير سياسة العربون</a>
-    </p>
     {% endif %}
   </div>
 
   {% if not is_quotation %}
-  <label style="display:block;margin-top:0.5rem"><input type="checkbox" name="auto_confirm" {% if d.get('auto_confirm', True) %}checked{% endif %} /> تأكيد فوري</label>
+  <label style="display:flex;align-items:flex-start;gap:0.5rem;margin-top:0.75rem;padding:0.7rem 0.85rem;border-radius:10px;border:1px solid #bfdbfe;background:#eff6ff;cursor:pointer">
+    <input type="checkbox" name="auto_confirm" {% if d.get('auto_confirm', True) %}checked{% endif %} style="width:auto;margin-top:0.2rem" />
+    <span>
+      <strong>تأكيد فوري</strong>
+      <span class="muted" style="display:block;font-weight:500;font-size:0.82rem;line-height:1.45;margin-top:0.2rem">
+        مفعّل: الحجز يصبح «مؤكداً» مباشرة بعد الحفظ (مناسب عند الدفع أو حضور النزيل).<br>
+        غير مفعّل: يبقى «معلّقاً» حتى تؤكده لاحقاً من تفاصيل الحجز — بدون حجز الشقة كمشغولة الآن.
+      </span>
+    </span>
+  </label>
   {% endif %}
   <textarea name="internal_notes" placeholder="ملاحظات داخلية" style="width:100%;margin-top:0.5rem">{{ d.get('internal_notes', '') }}</textarea>
-  <button class="btn btn-primary" type="submit" style="margin-top:0.75rem">
-    {% if is_quotation %}حفظ عرض السعر{% else %}حفظ الحجز{% endif %}
-  </button>
+  </div>{# bw-step 4 #}
+
+  <div class="bw-nav">
+    <button class="btn" type="button" id="bw-prev">→ السابق</button>
+    <button class="btn btn-primary" type="button" id="bw-next">التالي ←</button>
+    <button class="btn btn-primary bw-nav__submit" type="submit" id="bw-submit" style="display:none">
+      {% if is_quotation %}حفظ عرض السعر{% else %}حفظ الحجز{% endif %}
+    </button>
+  </div>
 </form>
 
 <script>
 (function () {
   var map = {{ rooms_type_map | tojson }};
   var isQuotation = {{ 'true' if is_quotation else 'false' }};
+  var stayNightPolicy = {
+    cutoffH: {{ stay_cutoff_hour|default(12) }},
+    cutoffM: {{ stay_cutoff_minute|default(0) }},
+    cutoffLabel: {{ (hotel_business_day_cutoff or '12:00')|tojson }},
+    fullHours: {{ hotel_full_night_hours|default(12) }},
+    halfHours: {{ hotel_half_night_hours|default(6) }},
+    defaultIn: {{ (hotel_default_check_in_time or '14:00')|tojson }},
+    defaultOut: {{ (hotel_default_check_out_time or stay_default_out_time or '12:00')|tojson }},
+    today: {{ (stay_now_date or (today.isoformat() if today is defined else ''))|tojson }}
+  };
   var prepPct = {{ prep_pct }};
   var stayingDraft = {{ d.get('staying_guests', []) | tojson }};
-  var hasDepositDraft = {{ 'true' if d.get('deposit') else 'false' }};
+  var _depDraft = {{ (d.get('deposit') or '')|tojson }};
+  var hasDepositDraft = !!(parseFloat(_depDraft) > 0.0005);
   var depositUserEdited = hasDepositDraft;
+  var selectedWalletCredit = 0;
+  var guestSpendable = 0;
+  var companySpendable = 0;
+  var companyDiscountPct = 0;
+  var companyAllowsCredit = false;
+  var walletUserEdited = {{ 'true' if d.get('wallet_amount') else 'false' }};
+  var useWalletEl = document.getElementById('use_wallet_credit');
+  var walletBox = document.getElementById('wallet-credit-box');
+  var walletAmountEl = document.getElementById('wallet_amount');
+  var walletAmountWrap = document.getElementById('wallet-amount-wrap');
+  var walletAvailLabel = document.getElementById('wallet-available-label');
+  var walletPayerLabel = document.getElementById('wallet-payer-label');
+  var companyCustomerIdEl = document.getElementById('company_customer_id');
+  var companyLinkSearch = document.getElementById('company_link_search');
+  var companyLinkInfo = document.getElementById('company-link-info');
+  var companyLinkClear = document.getElementById('company-link-clear');
+  var companyOpts = document.getElementById('company-booking-options');
+  var companyDebtBanner = document.getElementById('company-debt-banner');
+  var depositStar = document.getElementById('deposit-star');
+  var payMethodStar = document.getElementById('pay-method-star');
+  var chargeToCompanyEl = document.getElementById('charge_to_company_account');
+  var bookingPayerEl = document.getElementById('booking_payer');
+  var tourismChk = document.getElementById('is_tourism_agency');
+  var tourismWrap = document.getElementById('tourism-commission-wrap');
+  var tourismSel = document.getElementById('tourism_agency_id');
+  var tourismPctInput = document.getElementById('tourism_commission_percent');
+  var tourismPctLabel = document.getElementById('tourism-pct-label');
+  var tourismDiscountPct = 0;
   var sel = document.getElementById('room_id');
   var info = document.getElementById('room-type-info');
   var checkIn = document.getElementById('check_in');
   var checkOut = document.getElementById('check_out');
+  var checkInTime = document.getElementById('check_in_time');
+  var checkOutTime = document.getElementById('check_out_time');
   var nightsEl = document.getElementById('booking-nights');
   var rateEl = document.getElementById('booking-nightly-rate');
   var totalEl = document.getElementById('booking-total');
@@ -164,6 +494,14 @@
   var depositEl = document.getElementById('deposit');
   var payFields = document.getElementById('payment-fields');
   var payMethod = document.getElementById('pay_method_id');
+  var splitPayEl = document.getElementById('split_payment');
+  var paySingleWrap = document.getElementById('pay-single-wrap');
+  var paySplitWrap = document.getElementById('pay-split-wrap');
+  var depositCashEl = document.getElementById('deposit_cash');
+  var depositBankEl = document.getElementById('deposit_bank');
+  var payMethodCash = document.getElementById('pay_method_cash_id');
+  var payMethodBank = document.getElementById('pay_method_bank_id');
+  var depositMethodWord = document.getElementById('deposit-method-word');
   var form = document.getElementById('booking-form');
   var panelInd = document.getElementById('panel-individual');
   var panelCo = document.getElementById('panel-company');
@@ -175,26 +513,590 @@
     return n.toFixed(3).replace(/\.?0+$/, '');
   }
 
-  function requiredAmount(total) {
-    if (prepPct <= 0) return 0;
-    return total * prepPct / 100;
+  function selectedMethodKind(select) {
+    if (!select || !select.selectedOptions || !select.selectedOptions[0]) return '';
+    return String(select.selectedOptions[0].getAttribute('data-kind') || '').toUpperCase();
+  }
+  function kindWord(kind) {
+    if (kind === 'CASH') return 'كاش';
+    if (kind === 'BANK') return 'مصرف';
+    return '';
+  }
+  function splitPayOn() {
+    return !!(splitPayEl && splitPayEl.checked);
+  }
+  function parseAmt(el) {
+    var n = parseFloat((el && el.value) || '0');
+    return isFinite(n) && n > 0 ? n : 0;
+  }
+  function cashPaidTotal() {
+    if (typeof chargeToCompanyEnabled === 'function' && chargeToCompanyEnabled()) return 0;
+    if (splitPayOn()) return parseAmt(depositCashEl) + parseAmt(depositBankEl);
+    return parseAmt(depositEl);
+  }
+  function syncSplitPayUi() {
+    var on = splitPayOn();
+    if (paySingleWrap) paySingleWrap.style.display = on ? 'none' : 'grid';
+    if (paySplitWrap) paySplitWrap.style.display = on ? 'grid' : 'none';
+    if (on) {
+      if (depositEl) { depositEl.removeAttribute('required'); depositEl.disabled = true; }
+      if (payMethod) { payMethod.removeAttribute('required'); payMethod.disabled = true; }
+      if (depositCashEl) depositCashEl.disabled = false;
+      if (depositBankEl) depositBankEl.disabled = false;
+      if (payMethodCash) payMethodCash.disabled = false;
+      if (payMethodBank) payMethodBank.disabled = false;
+    } else {
+      if (depositEl) depositEl.disabled = false;
+      if (payMethod) payMethod.disabled = false;
+      if (depositCashEl) { depositCashEl.removeAttribute('required'); depositCashEl.disabled = true; }
+      if (depositBankEl) { depositBankEl.removeAttribute('required'); depositBankEl.disabled = true; }
+      if (payMethodCash) { payMethodCash.removeAttribute('required'); payMethodCash.disabled = true; }
+      if (payMethodBank) { payMethodBank.removeAttribute('required'); payMethodBank.disabled = true; }
+    }
+    var word = kindWord(selectedMethodKind(payMethod));
+    if (depositMethodWord) depositMethodWord.textContent = word ? '(' + word + ')' : '';
   }
 
-  function syncGuestPanels() {
+  function currentGuestType() {
     var t = 'INDIVIDUAL';
     typeRadios.forEach(function (r) { if (r.checked) t = r.value; });
+    return t;
+  }
+
+  function hasCompanyAccount() {
+    return !!(companyCustomerIdEl && companyCustomerIdEl.value) || currentGuestType() === 'COMPANY';
+  }
+
+  function chargeToCompanyEnabled() {
+    return !!(chargeToCompanyEl && chargeToCompanyEl.checked && hasCompanyAccount());
+  }
+
+  /** من يدفع الإقامة كدين/تسجيل حساب — قد يختلف عن مصدر خصم المحفظة */
+  function currentPayer() {
+    return chargeToCompanyEnabled() ? 'COMPANY' : 'GUEST';
+  }
+
+  /**
+   * مصدر محفظة الخصم:
+   * - حجز شركة → دائماً محفظة الشركة إن وُجد رصيد
+   * - فرد + التسجيل على الشركة → محفظة الشركة
+   * - وإلا → محفظة النزيل
+   */
+  function walletSourceIsCompany() {
+    if (!(companySpendable > 0.0005)) return false;
+    if (currentGuestType() === 'COMPANY' && companyCustomerIdEl && companyCustomerIdEl.value) {
+      return true;
+    }
+    if (chargeToCompanyEnabled()) return true;
+    return false;
+  }
+
+  function syncBookingPayerField() {
+    if (bookingPayerEl) bookingPayerEl.value = currentPayer();
+  }
+
+  function effectivePrepPct() {
+    // فقط عند تفعيل «التسجيل على حساب الشركة»
+    if (chargeToCompanyEnabled()) return 0;
+    return 100;
+  }
+
+  function activeWalletSpendable() {
+    if (walletSourceIsCompany()) return companySpendable;
+    return guestSpendable;
+  }
+
+  function syncTourismAgencyUi() {
+    var opt = tourismSel && tourismSel.selectedOptions && tourismSel.selectedOptions[0];
+    var has = !!(tourismSel && tourismSel.value);
+    var pct = has && opt ? parseFloat(opt.getAttribute('data-pct') || '0') : 0;
+    if (!isFinite(pct) || pct < 0) pct = 0;
+    tourismDiscountPct = pct;
+    if (tourismChk) tourismChk.value = has ? 'on' : '';
+    if (tourismPctInput) tourismPctInput.value = has ? money(pct) : '0';
+    if (tourismPctLabel) tourismPctLabel.textContent = has ? money(pct) : '0';
+    if (tourismWrap) tourismWrap.style.display = has ? 'block' : 'none';
+    // ربط معرف الشركة بالوكالة عند الاختيار (لا يغيّر حقل اسم النزيل)
+    if (has && companyCustomerIdEl && tourismSel.value && currentGuestType() === 'COMPANY') {
+      companyCustomerIdEl.value = tourismSel.value;
+    }
+  }
+
+  function refreshCompanyOptionsUi() {
+    // وكالة السياحة متاحة دائماً للحجز (فرد أو شركة) — ليس لعرض السعر
+    var show = !isQuotation;
+    if (companyOpts) companyOpts.style.display = show ? 'block' : 'none';
+    if (!show) {
+      if (tourismSel) tourismSel.value = '';
+      syncTourismAgencyUi();
+      if (chargeToCompanyEl && currentGuestType() !== 'COMPANY') {
+        chargeToCompanyEl.checked = false;
+      }
+    }
+    syncBookingPayerField();
+    var phoneStar = document.getElementById('company-phone-star');
+    if (phoneStar) phoneStar.style.display = 'inline';
+    syncCompanyExtraFields();
+    selectedWalletCredit = activeWalletSpendable();
+    if (walletPayerLabel) {
+      walletPayerLabel.textContent = walletSourceIsCompany() ? 'الشركة' : 'النزيل';
+    }
+  }
+
+  function refreshWalletSourceUi() {
+    refreshCompanyOptionsUi();
+    selectedWalletCredit = activeWalletSpendable();
+    if (walletPayerLabel) {
+      walletPayerLabel.textContent = walletSourceIsCompany() ? 'الشركة' : 'النزيل';
+    }
+  }
+
+  function requiredAmount(total) {
+    var pct = effectivePrepPct();
+    if (pct <= 0) return 0;
+    return total * pct / 100;
+  }
+
+  function setBalanceBadge(el, row) {
+    if (!el) return;
+    if (!row) {
+      el.hidden = true;
+      el.textContent = '';
+      el.className = 'guest-balance-badge';
+      return;
+    }
+    var net = parseFloat(row.net || '0');
+    el.hidden = false;
+    if (net > 0.0005) {
+      el.className = 'guest-balance-badge is-credit';
+      el.textContent = 'رصيد دائن: ' + money(net) + ' د.ل';
+    } else if (net < -0.0005) {
+      el.className = 'guest-balance-badge is-debt';
+      el.textContent = 'عليه (مدين): ' + money(Math.abs(net)) + ' د.ل';
+    } else {
+      el.className = 'guest-balance-badge is-empty';
+      el.textContent = 'لا رصيد / لا مديونية';
+    }
+  }
+
+  function syncWalletUi(skipAutofill) {
+    refreshWalletSourceUi();
+    var credit = selectedWalletCredit > 0.0005 ? selectedWalletCredit : 0;
+    if (walletAvailLabel) walletAvailLabel.textContent = money(credit);
+    if (!walletBox) return;
+    // أظهر الخصم فقط إن وُجد رصيد قابل للخصم على المصدر الصحيح (شركة أو نزيل)
+    if (credit <= 0.0005 || isQuotation) {
+      walletBox.style.display = 'none';
+      if (useWalletEl) useWalletEl.checked = false;
+      if (walletAmountWrap) walletAmountWrap.style.display = 'none';
+      syncPaymentRequired();
+      return;
+    }
+    walletBox.style.display = 'block';
+    var on = useWalletEl && useWalletEl.checked;
+    if (walletAmountWrap) walletAmountWrap.style.display = on ? 'block' : 'none';
+    if (on && walletAmountEl && !skipAutofill && !walletUserEdited) {
+      var nights = selectedNights();
+      var rate = selectedRoomRate();
+      var base = rate * nights;
+      var disc = 0;
+      var discPctSum = (companyDiscountPct > 0 ? companyDiscountPct : 0) + (tourismDiscountPct > 0 ? tourismDiscountPct : 0);
+      if (discPctSum > 0) disc = base * discPctSum / 100;
+      var req = requiredAmount(Math.max(0, base - disc));
+      // تسجيل على حساب الشركة (مطلوب نقدي 0): لا تُفرَض تعبئة تلقائية لكل الرصيد
+      var maxApply = req > 0.0005 ? Math.min(credit, req) : 0;
+      walletAmountEl.value = money(maxApply);
+      walletAmountEl.max = money(credit);
+    }
+    if (on && walletAmountEl) {
+      walletAmountEl.max = money(credit);
+    }
+    syncPaymentRequired();
+  }
+
+  function walletAppliedAmount() {
+    if (!useWalletEl || !useWalletEl.checked || !walletAmountEl) return 0;
+    var n = parseFloat(walletAmountEl.value || '0');
+    return isFinite(n) && n > 0 ? n : 0;
+  }
+
+  function setPayRequiredUi(needCash) {
+    syncSplitPayUi();
+    if (splitPayOn()) {
+      if (depositEl) depositEl.removeAttribute('required');
+      if (payMethod) payMethod.removeAttribute('required');
+      if (depositCashEl) depositCashEl.removeAttribute('required');
+      if (depositBankEl) depositBankEl.removeAttribute('required');
+    } else {
+      if (depositEl) {
+        if (needCash) depositEl.setAttribute('required', 'required');
+        else depositEl.removeAttribute('required');
+      }
+      if (payMethod) {
+        if (needCash) payMethod.setAttribute('required', 'required');
+        else payMethod.removeAttribute('required');
+      }
+    }
+    if (depositStar) depositStar.style.display = needCash ? 'inline' : 'none';
+    if (payMethodStar) payMethodStar.style.display = needCash ? 'inline' : 'none';
+  }
+
+  function syncPaymentRequired() {
+    if (isQuotation) return;
+    var pct = effectivePrepPct();
+    var companyPays = chargeToCompanyEnabled();
+    var nights = selectedNights();
+    var rate = selectedRoomRate();
+    var base = rate * nights;
+    var discPctSum = (companyDiscountPct > 0 ? companyDiscountPct : 0) + (tourismDiscountPct > 0 ? tourismDiscountPct : 0);
+    var disc = discPctSum > 0 ? (base * discPctSum / 100) : 0;
+    var req = requiredAmount(Math.max(0, base - disc));
+    var walletPart = walletAppliedAmount();
+    var cashNeeded = Math.max(0, req - walletPart);
+    if (payFields) payFields.hidden = false;
+    if (companyDebtBanner) {
+      companyDebtBanner.style.display = companyPays ? 'block' : 'none';
+    }
+    if (depositEl) {
+      // لا تعبئة تلقائية أبداً — الخانة فارغة حتى يدخل الموظف مبلغاً يدوياً
+      depositEl.removeAttribute('min');
+      if (companyPays) {
+        depositEl.value = '';
+        depositUserEdited = false;
+      } else if (!depositUserEdited && !hasDepositDraft) {
+        depositEl.value = '';
+      }
+    }
+    if (payMethod && companyPays) {
+      payMethod.value = '';
+      payMethod.removeAttribute('required');
+    }
+    // إلزام المبلغ/الوسيلة فقط إن كان الزبون مطالباً بالدفع
+    setPayRequiredUi(!companyPays && cashNeeded > 0.0005);
+  }
+
+  function showBalanceFor(row) {
+    var balInd = document.getElementById('balance-individual');
+    var balCo = document.getElementById('balance-company');
+    var hint = document.getElementById('guest-balance-hint');
+    setBalanceBadge(balInd, null);
+    setBalanceBadge(balCo, null);
+    if (!row) {
+      guestSpendable = 0;
+      selectedWalletCredit = 0;
+      if (hint) { hint.style.display = 'none'; hint.textContent = ''; }
+      syncWalletUi(true);
+      return;
+    }
+    var spend = parseFloat(row.spendable != null ? row.spendable : row.wallet_credit) || 0;
+    var wallet = parseFloat(row.wallet_credit || 0) || 0;
+    if ((row.customer_type || '').toUpperCase() === 'COMPANY') {
+      companySpendable = spend;
+      companyDiscountPct = parseFloat(row.company_discount_percent || 0) || 0;
+      companyAllowsCredit = !!row.allow_company_credit;
+      setBalanceBadge(balCo, row);
+      if (companyCustomerIdEl) companyCustomerIdEl.value = row.customer_id || '';
+      // شركة معتمدة ائتمانياً: اقترح تفعيل التسجيل على الحساب (يمكن إلغاؤه يدوياً)
+      if (chargeToCompanyEl && companyAllowsCredit) {
+        chargeToCompanyEl.checked = true;
+      }
+      loadCompanyAgreementPreview(row.customer_id);
+    } else {
+      guestSpendable = spend > 0 ? spend : Math.max(0, wallet);
+      setBalanceBadge(balInd, row);
+      if (row.parent_company_id && !hasCompanyAccount()) {
+        // إن كان الفرد مربوطاً بشركة في بطاقته — يمكن البحث عنها لاحقاً
+      }
+      hideAgreementPreview();
+    }
+    selectedWalletCredit = activeWalletSpendable();
+    if (hint) {
+      var parts = [];
+      if (wallet > 0) parts.push('محفظة: ' + money(wallet) + ' د.ل');
+      if (spend > wallet + 0.0005) parts.push('قابل للخصم (مع ائتمان): ' + money(spend) + ' د.ل');
+      if (parseFloat(row.restaurant_debt || 0) > 0) parts.push('دين مطعم: ' + money(row.restaurant_debt) + ' د.ل');
+      if (parseFloat(row.hotel_debt || 0) > 0) parts.push('دين فندق: ' + money(row.hotel_debt) + ' د.ل');
+      if (companyDiscountPct > 0) parts.push('خصم شركة: ' + money(companyDiscountPct) + '%');
+      hint.textContent = parts.length ? ('تفاصيل: ' + parts.join(' · ')) : '';
+      hint.style.display = parts.length ? 'block' : 'none';
+    }
+    walletUserEdited = false;
+    if (useWalletEl && selectedWalletCredit > 0.0005) {
+      useWalletEl.checked = true;
+    }
+    syncWalletUi(false);
+  }
+
+  function applyCompanyLink(row) {
+    if (!row || (row.customer_type || '').toUpperCase() !== 'COMPANY') return;
+    if (companyCustomerIdEl) companyCustomerIdEl.value = row.customer_id || '';
+    companySpendable = parseFloat(row.spendable != null ? row.spendable : row.wallet_credit) || 0;
+    companyDiscountPct = parseFloat(row.company_discount_percent || 0) || 0;
+    companyAllowsCredit = !!row.allow_company_credit;
+    if (companyLinkSearch) companyLinkSearch.value = row.company_name || row.name || '';
+    if (companyLinkInfo) {
+      var bits = ['محفظة قابلة للخصم: ' + money(companySpendable) + ' د.ل'];
+      if (companyDiscountPct > 0) bits.push('خصم ' + money(companyDiscountPct) + '%');
+      if (companyAllowsCredit) bits.push('ائتمان حتى ' + money(row.company_credit_limit || 0) + ' د.ل');
+      companyLinkInfo.textContent = bits.join(' · ');
+      companyLinkInfo.style.display = 'block';
+    }
+    if (companyLinkClear) companyLinkClear.style.display = 'inline-block';
+    if (chargeToCompanyEl && companyAllowsCredit) {
+      chargeToCompanyEl.checked = true;
+    }
+    walletUserEdited = false;
+    depositUserEdited = false;
+    syncWalletUi(false);
+    syncStaySummary(false);
+    loadCompanyAgreementPreview(companyCustomerIdEl && companyCustomerIdEl.value);
+    closeLookupLists();
+  }
+
+  function clearCompanyLink() {
+    if (companyCustomerIdEl) companyCustomerIdEl.value = '';
+    companySpendable = 0;
+    companyDiscountPct = 0;
+    companyAllowsCredit = false;
+    if (companyLinkSearch) companyLinkSearch.value = '';
+    if (companyLinkInfo) { companyLinkInfo.style.display = 'none'; companyLinkInfo.textContent = ''; }
+    if (companyLinkClear) companyLinkClear.style.display = 'none';
+    if (chargeToCompanyEl) chargeToCompanyEl.checked = false;
+    hideAgreementPreview();
+    syncWalletUi(true);
+    syncStaySummary(false);
+  }
+
+  function syncCompanyExtraFields() {
+    var extra = document.getElementById('company-extra-fields');
+    if (!extra) return;
+    var linked = !!(companyCustomerIdEl && (companyCustomerIdEl.value || '').trim());
+    extra.style.display = linked ? 'none' : 'grid';
+    if (linked) {
+      var cemail = document.getElementById('company_contact_email');
+      var caddr = document.getElementById('company_address');
+      var ctax = document.getElementById('company_tax_id');
+      if (cemail) cemail.value = '';
+      if (caddr) caddr.value = '';
+      if (ctax) ctax.value = '';
+    }
+  }
+
+  function applyCustomer(row) {
+    if (!row) return;
+    var cid = document.getElementById('customer_id');
+    if (cid) cid.value = row.customer_id || '';
+    var wantCompany = (row.customer_type || '').toUpperCase() === 'COMPANY';
+    typeRadios.forEach(function (r) {
+      r.checked = wantCompany ? (r.value === 'COMPANY') : (r.value === 'INDIVIDUAL');
+    });
+    syncGuestPanels();
+    if (wantCompany) {
+      var cn = document.getElementById('company_name');
+      var cphone = document.getElementById('company_contact_phone');
+      var ccontact = document.getElementById('company_contact_name');
+      if (cn) cn.value = row.company_name || row.name || '';
+      if (cphone) cphone.value = row.phone || '';
+      if (ccontact) ccontact.value = row.company_name || row.name || '';
+      applyCompanyLink(row);
+      syncCompanyExtraFields();
+    } else {
+      var gn = document.getElementById('guest_name');
+      var gp = document.getElementById('guest_phone');
+      var ge = document.getElementById('guest_email');
+      if (gn) gn.value = row.name || '';
+      if (gp) gp.value = row.phone || '';
+      if (ge) ge.value = row.email || '';
+      guestSpendable = parseFloat(row.spendable != null ? row.spendable : row.wallet_credit) || 0;
+    }
+    showBalanceFor(row);
+    syncStaySummary(false);
+    closeLookupLists();
+  }
+
+  function closeLookupLists() {
+    document.querySelectorAll('.guest-lookup-list').forEach(function (el) {
+      el.classList.remove('open');
+      el.innerHTML = '';
+    });
+  }
+
+  var lookupTimer = null;
+  function runLookup(q, listEl) {
+    q = (q || '').trim();
+    if (!listEl || q.length < 2) {
+      if (listEl) { listEl.classList.remove('open'); listEl.innerHTML = ''; }
+      return;
+    }
+    var url = '/admin/hotel/bookings/lookup-customer?q=' + encodeURIComponent(q)
+      + '&guest_type=' + encodeURIComponent(currentGuestType());
+    fetch(url, { cache: 'no-store', headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' } })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var rows = (data && data.results) || [];
+        listEl.innerHTML = '';
+        if (!rows.length) {
+          listEl.classList.remove('open');
+          return;
+        }
+        rows.forEach(function (row) {
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'guest-lookup-item';
+          var isCoRow = (row.customer_type || '').toUpperCase() === 'COMPANY';
+          var title = isCoRow
+            ? (row.company_name || row.name || 'شركة')
+            : (row.name || row.phone || 'عميل');
+          var meta = row.phone || '';
+          if (!isCoRow && row.label_ar) meta += (meta ? ' · ' : '') + row.label_ar;
+          btn.innerHTML = '<strong>' + title + '</strong>'
+            + (meta ? '<span class="guest-lookup-meta">' + meta + '</span>' : '');
+          btn.addEventListener('click', function () { applyCustomer(row); });
+          listEl.appendChild(btn);
+        });
+        listEl.classList.add('open');
+      })
+      .catch(function () { listEl.classList.remove('open'); });
+  }
+
+  function bindLookup(inputId, listId) {
+    var inp = document.getElementById(inputId);
+    var list = document.getElementById(listId);
+    if (!inp || !list) return;
+    inp.addEventListener('input', function () {
+      clearTimeout(lookupTimer);
+      var q = inp.value;
+      lookupTimer = setTimeout(function () { runLookup(q, list); }, 280);
+    });
+    inp.addEventListener('focus', function () {
+      if ((inp.value || '').trim().length >= 2) runLookup(inp.value, list);
+    });
+  }
+  bindLookup('guest_name', 'lookup-individual');
+  bindLookup('guest_phone', 'lookup-individual');
+  bindLookup('company_name', 'lookup-company');
+  bindLookup('company_contact_phone', 'lookup-company');
+  var companyNameInp = document.getElementById('company_name');
+  if (companyNameInp) {
+    companyNameInp.addEventListener('input', function () {
+      if (companyCustomerIdEl) companyCustomerIdEl.value = '';
+      syncCompanyExtraFields();
+    });
+  }
+
+  function runCompanyLinkLookup(q) {
+    var listEl = document.getElementById('lookup-company-link');
+    q = (q || '').trim();
+    if (!listEl || q.length < 2) {
+      if (listEl) { listEl.classList.remove('open'); listEl.innerHTML = ''; }
+      return;
+    }
+    var url = '/admin/hotel/bookings/lookup-customer?q=' + encodeURIComponent(q)
+      + '&guest_type=COMPANY';
+    fetch(url, { cache: 'no-store', headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' } })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var rows = ((data && data.results) || []).filter(function (row) {
+          return (row.customer_type || '').toUpperCase() === 'COMPANY';
+        });
+        listEl.innerHTML = '';
+        if (!rows.length) { listEl.classList.remove('open'); return; }
+        rows.forEach(function (row) {
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'guest-lookup-item';
+          btn.innerHTML = '<strong>' + (row.company_name || row.name || 'شركة') + '</strong>'
+            + '<span class="guest-lookup-meta">' + (row.phone || '')
+            + (row.spendable ? ' · قابل للخصم ' + money(row.spendable) + ' د.ل' : '')
+            + '</span>';
+          btn.addEventListener('click', function () { applyCompanyLink(row); });
+          listEl.appendChild(btn);
+        });
+        listEl.classList.add('open');
+      })
+      .catch(function () { listEl.classList.remove('open'); });
+  }
+  if (companyLinkSearch) {
+    companyLinkSearch.addEventListener('input', function () {
+      clearTimeout(lookupTimer);
+      lookupTimer = setTimeout(function () { runCompanyLinkLookup(companyLinkSearch.value); }, 280);
+    });
+  }
+  if (companyLinkClear) companyLinkClear.addEventListener('click', clearCompanyLink);
+  if (chargeToCompanyEl) {
+    chargeToCompanyEl.addEventListener('change', function () {
+      walletUserEdited = false;
+      depositUserEdited = false;
+      if (chargeToCompanyEl.checked) {
+        if (depositEl) depositEl.value = '';
+        if (payMethod) payMethod.value = '';
+        if (depositCashEl) depositCashEl.value = '';
+        if (depositBankEl) depositBankEl.value = '';
+        if (useWalletEl) useWalletEl.checked = false;
+        if (walletAmountEl) walletAmountEl.value = '';
+      }
+      syncBookingPayerField();
+      refreshCompanyOptionsUi();
+      syncWalletUi(false);
+      syncStaySummary(false);
+      var note = document.getElementById('prepayment-note');
+      if (note && !isQuotation && hasCompanyAccount()) {
+        note.textContent = chargeToCompanyEnabled()
+          ? 'تم تفعيل التسجيل على حساب الشركة: اترك خانة المبلغ فارغة — المتبقي دين على الشركة.'
+          : 'شركة بدون تفعيل الحساب: يجب إدخال مبلغ الدفع يدوياً لإتمام الحجز.';
+      }
+    });
+  }
+  if (tourismSel) {
+    tourismSel.addEventListener('change', function () {
+      syncTourismAgencyUi();
+      syncWalletUi(false);
+      syncStaySummary(false);
+    });
+  }
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest('.guest-lookup-box')) closeLookupLists();
+  });
+
+  function syncGuestPanels() {
+    var t = currentGuestType();
     var isCo = t === 'COMPANY';
     panelInd.style.display = isCo ? 'none' : 'grid';
     panelCo.style.display = isCo ? 'grid' : 'none';
     var gn = document.getElementById('guest_name');
     var gp = document.getElementById('guest_phone');
     var cn = document.getElementById('company_name');
+    var cphone = document.getElementById('company_contact_phone');
     if (gn) gn.required = !isQuotation && !isCo;
     if (gp) gp.required = !isQuotation && !isCo;
     if (cn) cn.required = isCo;
+    if (cphone) cphone.required = isCo;
+    var stayPayer = document.getElementById('stay_payer');
+    var extrasPayer = document.getElementById('extras_payer');
+    if (!isCo) {
+      if (companyCustomerIdEl) companyCustomerIdEl.value = '';
+      if (stayPayer) stayPayer.value = 'GUEST';
+      if (extrasPayer) extrasPayer.value = 'GUEST';
+    }
+    if (stayPayer) stayPayer.disabled = !isCo && !(companyCustomerIdEl && companyCustomerIdEl.value);
+    if (extrasPayer) extrasPayer.disabled = !isCo && !(companyCustomerIdEl && companyCustomerIdEl.value);
+    // شركة جديدة: لا تُفعّل التسجيل على الحساب تلقائياً
+    refreshCompanyOptionsUi();
+    var note = document.getElementById('prepayment-note');
+    if (note && !isQuotation) {
+      if (hasCompanyAccount() && chargeToCompanyEnabled()) {
+        note.textContent = 'تم تفعيل التسجيل على حساب الشركة: يمكن إتمام الحجز بدون دفع — المتبقي دين على الشركة.';
+      } else if (hasCompanyAccount()) {
+        note.textContent = 'شركة: يجب دفع كامل الإقامة. لتسجيل دين على حسابها فعّل «إتمام الحجز والتسجيل على حساب الشركة».';
+      } else {
+        note.textContent = 'فرد: دفع مقدّم كامل إلزامي — بدون الدفع لا يُكتمل الحجز.';
+      }
+    }
+    syncStaySummary(true);
   }
 
   typeRadios.forEach(function (r) { r.addEventListener('change', syncGuestPanels); });
+  syncTourismAgencyUi();
   syncGuestPanels();
 
   var guestsList = document.getElementById('staying-guests-list');
@@ -278,54 +1180,669 @@
     return isFinite(n) && n > 0 ? n : 0;
   }
 
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+  function localYmd(d) {
+    return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+  }
+  function parseHm(raw, fallback) {
+    var s = (raw || fallback || '00:00').trim();
+    var p = s.split(':');
+    var h = parseInt(p[0], 10);
+    var m = parseInt(p[1], 10);
+    if (!isFinite(h)) h = 0;
+    if (!isFinite(m)) m = 0;
+    return { h: Math.max(0, Math.min(23, h)), m: Math.max(0, Math.min(59, m)) };
+  }
+  function combineLocal(dateStr, timeStr, fallback) {
+    if (!dateStr) return null;
+    var hm = parseHm(timeStr, fallback);
+    return new Date(dateStr + 'T' + pad2(hm.h) + ':' + pad2(hm.m) + ':00');
+  }
+  function stayArrival() {
+    return combineLocal(
+      checkIn && checkIn.value,
+      checkInTime && checkInTime.value,
+      stayNightPolicy.defaultIn
+    );
+  }
+  function stayDepart() {
+    return combineLocal(
+      checkOut && checkOut.value,
+      checkOutTime && checkOutTime.value,
+      stayNightPolicy.defaultOut
+    );
+  }
+  function stayUnitsFromHours(h) {
+    var fullH = Math.max(1, stayNightPolicy.fullHours || 12);
+    var halfH = Math.max(0, Math.min(fullH, stayNightPolicy.halfHours || 0));
+    if (h <= 0) return 0;
+    var full = Math.floor(h / fullH);
+    var rem = h - full * fullH;
+    var units = full;
+    if (rem + 1e-9 >= fullH) units += 1;
+    else if (halfH > 0 && rem + 1e-9 >= halfH) units += 0.5;
+    else if (rem > 1e-9 && full === 0 && halfH === 0) units = 1;
+    return units;
+  }
+  function billingStartDate() {
+    if (!checkIn || !checkIn.value) return '';
+    var start = checkIn.value;
+    var arr = stayArrival();
+    if (!arr) return start;
+    var mins = arr.getHours() * 60 + arr.getMinutes();
+    var cutMin = (stayNightPolicy.cutoffH * 60) + stayNightPolicy.cutoffM;
+    if (mins >= cutMin) return start;
+    var d = new Date(start + 'T12:00:00');
+    d.setDate(d.getDate() - 1);
+    return localYmd(d);
+  }
+  function formatStayUnits(n) {
+    if (!n) return '—';
+    if (n === 0.5) return 'نصف ليلة';
+    if (n === 1) return '1 ليلة';
+    if (n === 1.5) return 'ليلة ونصف';
+    if (n === Math.floor(n)) return n + (n === 1 ? ' ليلة' : ' ليالٍ');
+    return n + ' ليلة';
+  }
+
   function selectedNights() {
     if (!checkIn || !checkOut || !checkIn.value || !checkOut.value) return 0;
-    var start = new Date(checkIn.value + 'T12:00:00');
-    var end = new Date(checkOut.value + 'T12:00:00');
-    var ms = end.getTime() - start.getTime();
-    if (!isFinite(ms) || ms <= 0) return 0;
-    return Math.round(ms / 86400000);
+    var arr = stayArrival();
+    var dep = stayDepart();
+    if (!arr || !dep || dep <= arr) return 0;
+    var billed = billingStartDate() || checkIn.value;
+    var cal = Math.round((new Date(checkOut.value + 'T12:00:00') - new Date(billed + 'T12:00:00')) / 86400000);
+    if (cal >= 1) return cal;
+    var hours = (dep.getTime() - arr.getTime()) / 3600000;
+    return stayUnitsFromHours(hours);
+  }
+
+  function writeRoomTypeAndLiveTotal(nights, rate, total) {
+    var rt = map[sel && sel.value];
+    var liveN = document.getElementById('live-nights');
+    var liveR = document.getElementById('live-rate');
+    var liveT = document.getElementById('live-total');
+    if (liveN) {
+      liveN.textContent = nights > 0
+        ? formatStayUnits(nights)
+        : '— حدّد تاريخ ووقت الوصول والمغادرة';
+    }
+    if (liveR) liveR.textContent = money(rate);
+    if (liveT) liveT.textContent = money(total);
+    if (!info) return;
+    if (!rt || !rt.type_id) {
+      info.innerHTML = '<span style="color:#b91c1c">بدون نوع — <a href="/admin/hotel/rooms">إعداد الشقق</a></span>';
+      return;
+    }
+    var line = (rt.type_name || 'غرفة') + ' — ' + money(rate) + ' د.ل/ليلة'
+      + (rt.has_room_price ? ' (سعر خاص)' : '');
+    if (nights > 0) {
+      line += ' · <strong style="color:#047857">' + nights + ' × ' + money(rate)
+        + ' = ' + money(total) + ' د.ل</strong>';
+    }
+    info.innerHTML = line;
   }
 
   function syncStaySummary(skipDepositAutofill) {
     var nights = selectedNights();
     var rate = selectedRoomRate();
-    var total = rate * nights;
+    var base = rate * nights;
+    var discPct = (companyDiscountPct > 0 ? companyDiscountPct : 0) + (tourismDiscountPct > 0 ? tourismDiscountPct : 0);
+    var discAmt = discPct > 0 ? (base * discPct / 100) : 0;
+    var total = Math.max(0, base - discAmt);
     var req = requiredAmount(total);
-    if (nightsEl) nightsEl.textContent = nights + (nights === 1 ? ' ليلة' : ' ليالٍ');
+    writeRoomTypeAndLiveTotal(nights, rate, total);
+    var hint = document.getElementById('stay-nights-hint');
+    if (hint) hint.textContent = '';
+    if (nightsEl) nightsEl.textContent = formatStayUnits(nights);
     if (rateEl) rateEl.textContent = money(rate);
     if (totalEl) totalEl.textContent = money(total);
     if (requiredEl) requiredEl.textContent = money(req);
-    if (!skipDepositAutofill && depositEl && nights > 0 && rate > 0 && prepPct > 0 && !depositUserEdited) {
-      depositEl.value = money(req);
-      depositEl.min = money(req);
-      depositEl.required = true;
+    var baseEl = document.getElementById('booking-base-total');
+    var baseRow = document.getElementById('booking-base-row');
+    var discRow = document.getElementById('booking-discount-row');
+    var discPctEl = document.getElementById('booking-discount-pct');
+    var discAmtEl = document.getElementById('booking-discount-amt');
+    var finalEl = document.getElementById('booking-final-total');
+    if (baseEl) baseEl.textContent = money(base) + ' د.ل';
+    if (finalEl) finalEl.textContent = money(total) + ' د.ل';
+    if (discRow) {
+      if (discAmt > 0.0005) {
+        discRow.style.display = 'flex';
+        if (baseRow) baseRow.style.display = 'flex';
+        if (discPctEl) {
+          discPctEl.textContent = money(discPct);
+          var discLabel = discRow.querySelector('span');
+          if (discLabel && tourismDiscountPct > 0) {
+            discLabel.innerHTML = 'خصم/عمولة <span id="booking-discount-pct">' + money(discPct) + '</span>%';
+          }
+        }
+        if (discAmtEl) discAmtEl.textContent = '− ' + money(discAmt) + ' د.ل';
+      } else {
+        discRow.style.display = 'none';
+        if (baseRow) baseRow.style.display = 'none';
+      }
     }
-    if (payFields) payFields.hidden = prepPct <= 0;
-    if (depositEl) depositEl.required = prepPct > 0;
-    if (payMethod) payMethod.required = prepPct > 0;
+    var cashPaid = cashPaidTotal();
+    var walletPaid = walletAppliedAmount();
+    var received = cashPaid + walletPaid;
+    var remain = Math.max(0, total - received);
+    var surplus = Math.max(0, received - total);
+    var payLines = document.getElementById('review-pay-lines');
+    var walletEl = document.getElementById('review-paid-wallet');
+    var walletRow = document.getElementById('review-wallet-row');
+    var recvEl = document.getElementById('review-paid-total');
+    var remainEl = document.getElementById('review-remain');
+    var remainRow = document.getElementById('review-remain-row');
+    var surplusEl = document.getElementById('review-surplus');
+    var surplusRow = document.getElementById('review-surplus-row');
+    if (payLines) {
+      var rows = [];
+      if (splitPayOn()) {
+        var cAmt = chargeToCompanyEnabled() ? 0 : parseAmt(depositCashEl);
+        var bAmt = chargeToCompanyEnabled() ? 0 : parseAmt(depositBankEl);
+        if (cAmt > 0.0005) rows.push('<div class="price-break-line"><span>المدفوع كاش</span><strong style="color:#1d4ed8">' + money(cAmt) + ' د.ل</strong></div>');
+        if (bAmt > 0.0005) rows.push('<div class="price-break-line"><span>المدفوع مصرف</span><strong style="color:#1d4ed8">' + money(bAmt) + ' د.ل</strong></div>');
+        if (!rows.length) rows.push('<div class="price-break-line"><span>المدفوع</span><strong style="color:#1d4ed8">0 د.ل</strong></div>');
+      } else {
+        var word = kindWord(selectedMethodKind(payMethod)) || 'كاش';
+        rows.push('<div class="price-break-line"><span>المدفوع ' + word + '</span><strong style="color:#1d4ed8">' + money(cashPaid) + ' د.ل</strong></div>');
+      }
+      payLines.innerHTML = rows.join('');
+    }
+    if (walletEl) walletEl.textContent = money(walletPaid) + ' د.ل';
+    if (walletRow) walletRow.style.display = walletPaid > 0.0005 ? 'flex' : 'none';
+    if (recvEl) recvEl.textContent = money(received) + ' د.ل';
+    if (remainEl) remainEl.textContent = money(remain) + ' د.ل';
+    if (remainRow) remainRow.style.display = surplus > 0.0005 ? 'none' : 'flex';
+    if (surplusEl) surplusEl.textContent = money(surplus) + ' د.ل';
+    if (surplusRow) surplusRow.style.display = surplus > 0.0005 ? 'flex' : 'none';
+    syncSplitPayUi();
+    if (!skipDepositAutofill) {
+      syncWalletUi(false);
+    } else {
+      syncPaymentRequired();
+    }
   }
 
+  function bearerLabel(b) {
+    b = (b || '').toUpperCase();
+    if (b === 'COMPANY') return 'الشركة';
+    if (b === 'SHARED') return 'مشترك';
+    return 'النزيل';
+  }
+  function bearerClass(b) {
+    b = (b || '').toUpperCase();
+    if (b === 'COMPANY') return 'agr-chip--company';
+    if (b === 'SHARED') return 'agr-chip--shared';
+    return 'agr-chip--guest';
+  }
+  var agrPreviewServices = [];
+  var agrPreviewCompanyId = '';
+
+  function hideAgreementPreview() {
+    var box = document.getElementById('company-agreement-preview');
+    if (box) box.classList.remove('is-open');
+    agrPreviewServices = [];
+    agrPreviewCompanyId = '';
+    var panel = document.getElementById('agr-change-panel');
+    if (panel) panel.hidden = true;
+  }
+  function renderAgrChangeItems(services) {
+    var host = document.getElementById('agr-change-items');
+    if (!host) return;
+    host.innerHTML = '';
+    (services || []).forEach(function (s) {
+      var row = document.createElement('div');
+      row.className = 'agr-change-row';
+      row.setAttribute('data-code', s.code || '');
+      row.setAttribute('data-name', s.name_ar || s.code || '');
+      row.setAttribute('data-from', (s.bearer || 'GUEST').toUpperCase());
+      var cur = (s.bearer || 'GUEST').toUpperCase();
+      row.innerHTML = '<strong>' + (s.name_ar || s.code) + '</strong>'
+        + '<span class="muted">الآن: ' + bearerLabel(cur) + '</span>'
+        + '<select class="agr-change-to">'
+        + '<option value="COMPANY"' + (cur === 'COMPANY' ? ' selected' : '') + '>الشركة</option>'
+        + '<option value="GUEST"' + (cur === 'GUEST' ? ' selected' : '') + '>النزيل</option>'
+        + '<option value="SHARED"' + (cur === 'SHARED' ? ' selected' : '') + '>مشترك</option>'
+        + '</select>';
+      host.appendChild(row);
+    });
+  }
+  function loadCompanyAgreementPreview(companyId) {
+    var box = document.getElementById('company-agreement-preview');
+    var meta = document.getElementById('company-agreement-meta');
+    var chips = document.getElementById('company-agreement-chips');
+    var pendingHint = document.getElementById('agr-change-pending');
+    if (!box || !companyId) { hideAgreementPreview(); return; }
+    fetch('/admin/hotel/companies/' + encodeURIComponent(companyId) + '/agreement-preview', {
+      headers: { 'Accept': 'application/json' }
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data || !data.ok) { hideAgreementPreview(); return; }
+        agrPreviewServices = data.services || [];
+        agrPreviewCompanyId = String(data.company_id || companyId);
+        if (meta) {
+          meta.textContent = (data.company_name || '')
+            + ' · ' + (data.agreement_name || '')
+            + ' · السداد: ' + (data.payment_terms || '—')
+            + (parseFloat(data.commission_percent || 0) > 0
+              ? ' · عمولة ' + data.commission_percent + '%'
+              : '');
+        }
+        if (chips) {
+          chips.innerHTML = '';
+          agrPreviewServices.forEach(function (s) {
+            var el = document.createElement('div');
+            el.className = 'agr-chip ' + bearerClass(s.bearer);
+            var lim = '';
+            if (s.limit_amount) lim = ' · حد ' + s.limit_amount;
+            el.innerHTML = '<strong>' + (s.name_ar || s.code) + '</strong><br>'
+              + bearerLabel(s.bearer) + lim;
+            chips.appendChild(el);
+          });
+        }
+        if (pendingHint) {
+          var n = parseInt(data.pending_change_requests || 0, 10) || 0;
+          if (n > 0) {
+            pendingHint.hidden = false;
+            pendingHint.textContent = 'يوجد ' + n + ' طلب تعديل معلّق بانتظار موافقة الأدمن.';
+          } else {
+            pendingHint.hidden = true;
+            pendingHint.textContent = '';
+          }
+        }
+        renderAgrChangeItems(agrPreviewServices);
+        box.classList.add('is-open');
+      })
+      .catch(function () { hideAgreementPreview(); });
+  }
+
+  (function bindAgrChangeRequest() {
+    var openBtn = document.getElementById('agr-change-open');
+    var cancelBtn = document.getElementById('agr-change-cancel');
+    var submitBtn = document.getElementById('agr-change-submit');
+    var panel = document.getElementById('agr-change-panel');
+    var msg = document.getElementById('agr-change-msg');
+    function showMsg(text, ok) {
+      if (!msg) return;
+      msg.hidden = !text;
+      msg.textContent = text || '';
+      msg.classList.toggle('is-ok', !!ok);
+      msg.classList.toggle('is-err', !ok);
+    }
+    if (openBtn && panel) {
+      openBtn.addEventListener('click', function () {
+        panel.hidden = !panel.hidden;
+        if (!panel.hidden) renderAgrChangeItems(agrPreviewServices);
+        showMsg('', true);
+      });
+    }
+    if (cancelBtn && panel) {
+      cancelBtn.addEventListener('click', function () {
+        panel.hidden = true;
+        showMsg('', true);
+      });
+    }
+    if (submitBtn) {
+      submitBtn.addEventListener('click', function () {
+        var cid = agrPreviewCompanyId || (companyCustomerIdEl && companyCustomerIdEl.value);
+        if (!cid) {
+          showMsg('اختر شركة مسجّلة أولاً.', false);
+          return;
+        }
+        var items = [];
+        document.querySelectorAll('#agr-change-items .agr-change-row').forEach(function (row) {
+          var sel = row.querySelector('.agr-change-to');
+          var fromB = (row.getAttribute('data-from') || '').toUpperCase();
+          var toB = sel ? (sel.value || '').toUpperCase() : '';
+          if (!toB || toB === fromB) return;
+          items.push({
+            code: row.getAttribute('data-code') || '',
+            name_ar: row.getAttribute('data-name') || '',
+            from_bearer: fromB,
+            to_bearer: toB
+          });
+        });
+        if (!items.length) {
+          showMsg('غيّر بنداً واحداً على الأقل (مثلاً العشاء ← الشركة).', false);
+          return;
+        }
+        var fileEl = document.getElementById('agr-change-file');
+        var noteEl = document.getElementById('agr-change-note');
+        var note = noteEl ? (noteEl.value || '').trim() : '';
+        var file = fileEl && fileEl.files && fileEl.files[0] ? fileEl.files[0] : null;
+        if (!file && !note) {
+          showMsg('أرفق طلب الشركة الكتابي (صورة/PDF) أو اكتب ملاحظة.', false);
+          return;
+        }
+        var fd = new FormData();
+        fd.append('items_json', JSON.stringify(items));
+        fd.append('note', note);
+        if (file) fd.append('letter', file);
+        submitBtn.disabled = true;
+        showMsg('جاري إرسال الطلب…', true);
+        fetch('/admin/hotel/companies/' + encodeURIComponent(cid) + '/agreement-change-request', {
+          method: 'POST',
+          body: fd,
+          headers: { 'Accept': 'application/json' }
+        })
+          .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+          .then(function (res) {
+            submitBtn.disabled = false;
+            if (!res.data || !res.data.ok) {
+              showMsg((res.data && res.data.error) || 'تعذّر إرسال الطلب.', false);
+              return;
+            }
+            showMsg(res.data.message || 'أُرسل الطلب إلى الأدمن.', true);
+            if (fileEl) fileEl.value = '';
+            if (noteEl) noteEl.value = '';
+            loadCompanyAgreementPreview(cid);
+          })
+          .catch(function () {
+            submitBtn.disabled = false;
+            showMsg('تعذّر الاتصال بالخادم.', false);
+          });
+      });
+    }
+  })();
+
+  // Wizard — تبويبات قابلة للنقر + السابق/التالي
+  (function () {
+    var step = 1;
+    var max = 4;
+    var maxVisited = 1;
+    var prevBtn = document.getElementById('bw-prev');
+    var nextBtn = document.getElementById('bw-next');
+    var submitBtn = document.getElementById('bw-submit');
+
+    function markBadField(inp) {
+      if (!inp) return;
+      try { inp.focus(); } catch (e) {}
+      inp.style.outline = '2px solid #b91c1c';
+      setTimeout(function () { inp.style.outline = ''; }, 2200);
+    }
+
+    function stepFail(msg, inp) {
+      if (inp) markBadField(inp);
+      alert(msg);
+      return false;
+    }
+
+    function validateStep(n) {
+      if (n === 1) {
+        if (currentGuestType() === 'COMPANY') {
+          var cn = document.getElementById('company_name');
+          var cphone = document.getElementById('company_contact_phone');
+          var ccontact = document.getElementById('company_contact_name');
+          if (!isQuotation && !(cn && (cn.value || '').trim())) {
+            return stepFail('أدخل اسم الشركة أو اخترها من نتائج البحث.', cn);
+          }
+          if (!(cphone && (cphone.value || '').trim())) {
+            return stepFail('أدخل رقم هاتف الشركة.', cphone);
+          }
+          if (ccontact && cn && !(ccontact.value || '').trim()) {
+            ccontact.value = (cn.value || '').trim();
+          }
+        } else if (!isQuotation) {
+          var gn = document.getElementById('guest_name');
+          var gp = document.getElementById('guest_phone');
+          if (!(gn && (gn.value || '').trim())) {
+            return stepFail('أدخل اسم من يحجز.', gn);
+          }
+          if (!(gp && (gp.value || '').trim())) {
+            return stepFail('أدخل هاتف من يحجز.', gp);
+          }
+        }
+        return true;
+      }
+      if (n === 2) {
+        if (!isQuotation && !validateStayingGuests()) return false;
+        return true;
+      }
+      if (n === 3) {
+        var roomSel = document.getElementById('room_id');
+        if (roomSel && !(roomSel.value || '').trim()) {
+          return stepFail('اختر الشقة.', roomSel);
+        }
+        if (!checkIn || !(checkIn.value || '').trim()) {
+          return stepFail('حدد تاريخ الوصول.', checkIn);
+        }
+        if (!checkOut || !(checkOut.value || '').trim()) {
+          return stepFail('حدد تاريخ المغادرة.', checkOut);
+        }
+        var adultsEl = document.getElementById('adults') || form.querySelector('input[name="adults"]');
+        var adultsN = parseInt((adultsEl && adultsEl.value) || '', 10);
+        if (!adultsEl || !isFinite(adultsN) || adultsN < 1) {
+          return stepFail('أدخل عدد النزلاء (بالغون) يدوياً — لا يُفترض 1 تلقائياً.', adultsEl);
+        }
+        var nights = selectedNights();
+        if (!nights) {
+          return stepFail('وقت المغادرة يجب أن يكون بعد وقت الوصول — أو زد المدة إلى نصف ليلة على الأقل (حسب الإعداد).', checkOutTime || checkOut);
+        }
+        if (!syncRoomType(true)) {
+          return stepFail('الشقة بدون نوع غرفة.', roomSel);
+        }
+        if (!isQuotation) {
+          syncPaymentRequired();
+          if (!chargeToCompanyEnabled()) {
+            var due = requiredAmount(selectedRoomRate() * nights);
+            var paid = cashPaidTotal();
+            var fromWallet = walletAppliedAmount();
+            if (fromWallet > selectedWalletCredit + 0.001) {
+              return stepFail(
+                'مبلغ الخصم من الرصيد أكبر من المتاح (' + money(selectedWalletCredit) + ' د.ل).',
+                walletAmountEl
+              );
+            }
+            if ((paid + fromWallet) + 0.001 < due) {
+              return stepFail(
+                'أكمل الدفع (كاش و/أو مصرف و/أو من الرصيد) قبل المراجعة. المطلوب: ' + money(due) + ' د.ل',
+                splitPayOn() ? depositCashEl : depositEl
+              );
+            }
+            if (splitPayOn()) {
+              if (parseAmt(depositCashEl) > 0.0005 && payMethodCash && !payMethodCash.value) {
+                return stepFail('اختر وسيلة الكاش.', payMethodCash);
+              }
+              if (parseAmt(depositBankEl) > 0.0005 && payMethodBank && !payMethodBank.value) {
+                return stepFail('اختر وسيلة المصرف.', payMethodBank);
+              }
+              if (paid > 0.0005 && parseAmt(depositCashEl) <= 0 && parseAmt(depositBankEl) <= 0) {
+                return stepFail('أدخل مبلغ الكاش أو المصرف.', depositCashEl);
+              }
+            } else if (paid > 0.0005 && payMethod && !payMethod.value) {
+              return stepFail('اختر وسيلة الدفع.', payMethod);
+            }
+          }
+        }
+        return true;
+      }
+      return true;
+    }
+
+    function showStep(n) {
+      n = Math.max(1, Math.min(max, n));
+      if (n > step) {
+        for (var s = step; s < n; s++) {
+          if (!validateStep(s)) return false;
+        }
+      }
+      step = n;
+      maxVisited = Math.max(maxVisited, step);
+      form.querySelectorAll('.bw-step').forEach(function (pane) {
+        var sn = parseInt(pane.getAttribute('data-bw'), 10);
+        pane.classList.toggle('is-active', sn === step);
+      });
+      document.querySelectorAll('#bw-progress [data-bw-indicator]').forEach(function (li) {
+        var sn = parseInt(li.getAttribute('data-bw-indicator'), 10);
+        li.classList.toggle('is-active', sn === step);
+        li.classList.toggle('is-done', sn !== step && sn < step);
+        li.setAttribute('aria-current', sn === step ? 'step' : 'false');
+      });
+      if (prevBtn) prevBtn.style.visibility = step === 1 ? 'hidden' : 'visible';
+      if (nextBtn) nextBtn.style.display = step === max ? 'none' : 'inline-flex';
+      if (submitBtn) submitBtn.style.display = step === max ? 'inline-flex' : 'none';
+      if (step >= 3) {
+        syncStaySummary(true);
+        syncWalletUi(true);
+      }
+      try { form.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {}
+      return true;
+    }
+
+    document.querySelectorAll('#bw-progress [data-bw-indicator]').forEach(function (li) {
+      function go() {
+        var n = parseInt(li.getAttribute('data-bw-indicator'), 10);
+        if (!n || n === step) return;
+        showStep(n);
+      }
+      li.addEventListener('click', go);
+      li.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter' || ev.key === ' ') {
+          ev.preventDefault();
+          go();
+        }
+      });
+    });
+
+    if (prevBtn) prevBtn.addEventListener('click', function () { showStep(step - 1); });
+    if (nextBtn) nextBtn.addEventListener('click', function () {
+      showStep(step + 1);
+    });
+    form.addEventListener('submit', function (e) {
+      // full check across steps before save
+      var bad = null;
+      var badStep = 1;
+      form.querySelectorAll('.bw-step').forEach(function (pane) {
+        var sn = parseInt(pane.getAttribute('data-bw'), 10) || 1;
+        pane.querySelectorAll('input[required], select[required], textarea[required]').forEach(function (inp) {
+          if (inp.disabled) return;
+          if (!(inp.value || '').trim()) {
+            if (!bad) { bad = inp; badStep = sn; }
+          }
+        });
+      });
+      // at least one staying guest name when not quotation
+      if (!isQuotation) {
+        var names = form.querySelectorAll('input[name="staying_guest_name"]');
+        var any = false;
+        names.forEach(function (n) { if ((n.value || '').trim()) any = true; });
+        if (!any && names.length) {
+          e.preventDefault();
+          showStep(2);
+          alert('أدخل على الأقل اسم نزيل مقيم واحد.');
+          return;
+        }
+      }
+      if (bad) {
+        e.preventDefault();
+        showStep(badStep);
+        try { bad.focus(); } catch (err) {}
+        bad.style.outline = '2px solid #b91c1c';
+        return;
+      }
+    });
+    showStep(1);
+  })();
+
   if (depositEl) {
-    depositEl.addEventListener('input', function () { depositUserEdited = true; });
-    depositEl.addEventListener('change', function () { depositUserEdited = true; });
+    depositEl.addEventListener('input', function () { depositUserEdited = true; syncStaySummary(true); });
+    depositEl.addEventListener('change', function () { depositUserEdited = true; syncStaySummary(true); });
+  }
+  if (payMethod) {
+    payMethod.addEventListener('change', function () { syncStaySummary(true); });
+  }
+  if (splitPayEl) {
+    splitPayEl.addEventListener('change', function () {
+      depositUserEdited = true;
+      syncSplitPayUi();
+      syncStaySummary(true);
+    });
+  }
+  [depositCashEl, depositBankEl, payMethodCash, payMethodBank].forEach(function (el) {
+    if (!el) return;
+    el.addEventListener('input', function () { depositUserEdited = true; syncStaySummary(true); });
+    el.addEventListener('change', function () { depositUserEdited = true; syncStaySummary(true); });
+  });
+  syncSplitPayUi();
+  if (useWalletEl) {
+    useWalletEl.addEventListener('change', function () {
+      walletUserEdited = false;
+      syncWalletUi(false);
+    });
+  }
+  if (walletAmountEl) {
+    walletAmountEl.addEventListener('input', function () {
+      walletUserEdited = true;
+      syncPaymentRequired();
+    });
+    walletAmountEl.addEventListener('change', function () {
+      walletUserEdited = true;
+      syncPaymentRequired();
+    });
   }
 
   function syncRoomType(skipDepositAutofill) {
-    var rt = map[sel.value];
+    var rt = map[sel && sel.value];
     if (!rt || !rt.type_id) {
-      info.innerHTML = '<span style="color:#b91c1c">بدون نوع — <a href="/admin/hotel/rooms">إعداد الشقق</a></span>';
+      if (info) {
+        info.innerHTML = '<span style="color:#b91c1c">بدون نوع — <a href="/admin/hotel/rooms">إعداد الشقق</a></span>';
+      }
       syncStaySummary(skipDepositAutofill);
       return false;
     }
-    info.textContent = rt.type_name + ' — ' + rt.price + ' د.ل/ليلة' + (rt.has_room_price ? ' (سعر خاص)' : '');
     syncStaySummary(skipDepositAutofill);
     return true;
   }
 
-  if (sel) sel.addEventListener('change', syncRoomType);
-  if (checkIn) checkIn.addEventListener('change', syncStaySummary);
-  if (checkOut) checkOut.addEventListener('change', syncStaySummary);
+  if (sel) sel.addEventListener('change', function () { syncRoomType(); });
+  function ensureCheckoutAfterCheckin() {
+    if (!checkIn || !checkOut || !checkIn.value) return;
+    checkOut.min = checkIn.value;
+    if (selectedNights() > 0) return;
+    if (!checkOut.value || checkOut.value < checkIn.value) {
+      checkOut.value = checkIn.value;
+    }
+    if (selectedNights() > 0) return;
+    var d = new Date(checkIn.value + 'T12:00:00');
+    d.setDate(d.getDate() + 1);
+    checkOut.value = localYmd(d);
+    if (checkOutTime && !(checkOutTime.value || '').trim()) {
+      checkOutTime.value = stayNightPolicy.defaultOut;
+    }
+  }
+
+  if (checkIn) {
+    checkIn.addEventListener('change', function () {
+      if (checkInTime && checkIn.value === stayNightPolicy.today) {
+        var n = new Date();
+        checkInTime.value = pad2(n.getHours()) + ':' + pad2(n.getMinutes());
+      } else if (checkInTime && checkIn.value && checkIn.value !== stayNightPolicy.today) {
+        checkInTime.value = stayNightPolicy.defaultIn;
+      }
+      ensureCheckoutAfterCheckin();
+      syncStaySummary();
+    });
+    checkIn.addEventListener('input', function () {
+      ensureCheckoutAfterCheckin();
+      syncStaySummary();
+    });
+  }
+  if (checkInTime) {
+    checkInTime.addEventListener('change', function () { syncStaySummary(); });
+    checkInTime.addEventListener('input', function () { syncStaySummary(); });
+  }
+  if (checkOutTime) {
+    checkOutTime.addEventListener('change', function () { syncStaySummary(); });
+    checkOutTime.addEventListener('input', function () { syncStaySummary(); });
+  }
+  if (checkOut) {
+    checkOut.addEventListener('change', function () { syncStaySummary(); });
+    checkOut.addEventListener('input', function () { syncStaySummary(); });
+  }
+  ensureCheckoutAfterCheckin();
   syncRoomType();
 
   function validateStayingGuests() {
@@ -351,7 +1868,7 @@
       if (!idType) { alert(label + ' (' + name + '): نوع الوثيقة مطلوب.'); return false; }
       if (!nat) { alert(label + ' (' + name + '): الجنسية مطلوبة.'); return false; }
       if (!phone) { alert(label + ' (' + name + '): الهاتف مطلوب.'); return false; }
-      if (!addr) { alert(label + ' (' + name + '): العنوان مطلوب.'); return false; }
+      if (!addr) { alert(label + ' (' + name + '): قادم من مطلوب.'); return false; }
       if (!hasFile) { alert(label + ' (' + name + '): إرفاق صورة/مسح الوثيقة مطلوب.'); return false; }
     }
     if (!count) {
@@ -362,6 +1879,14 @@
   }
 
   form.addEventListener('submit', function (e) {
+    var cnEl = document.getElementById('company_name');
+    var ccontact = document.getElementById('company_contact_name');
+    if (ccontact && cnEl) {
+      var cnm = (cnEl.value || '').trim();
+      if (!(ccontact.value || '').trim() && cnm) ccontact.value = cnm;
+    }
+    syncBookingPayerField();
+    syncPaymentRequired();
     if (!syncRoomType(true)) {
       e.preventDefault();
       alert('الشقة بدون نوع غرفة.');
@@ -387,18 +1912,73 @@
       alert('أدخل اسم نزيل واحد على الأقل في الشقة (قسم النزلاء المقيمون).');
       return;
     }
-    if (!isQuotation && prepPct > 0) {
-      var due = requiredAmount(selectedRoomRate() * nights);
-      var paid = parseFloat((depositEl && depositEl.value) || '0');
-      if (!paid || paid + 0.001 < due) {
+    if (!isQuotation && chargeToCompanyEnabled()) {
+      setPayRequiredUi(false);
+      if (depositEl) depositEl.value = '';
+      if (payMethod) payMethod.value = '';
+      var cnEl = document.getElementById('company_name');
+      var phoneEl = document.getElementById('company_contact_phone');
+      var hasCoId = companyCustomerIdEl && (companyCustomerIdEl.value || '').trim();
+      var hasCoName = cnEl && (cnEl.value || '').trim();
+      var hasCoPhone = phoneEl && (phoneEl.value || '').trim();
+      if (!hasCoId && !hasCoName) {
         e.preventDefault();
-        alert('يجب دفع ' + money(due) + ' د.ل على الأقل (' + prepPct + '%).');
+        alert('أدخل اسم الشركة (أو اخترها من نتائج البحث).');
         return;
       }
-      if (payMethod && !payMethod.value) {
+      if (!hasCoPhone) {
+        e.preventDefault();
+        alert('أدخل رقم هاتف الشركة.');
+        if (phoneEl) phoneEl.focus();
+        return;
+      }
+      return;
+    }
+    if (!isQuotation && effectivePrepPct() > 0) {
+      var due = requiredAmount(selectedRoomRate() * nights);
+      var paid = cashPaidTotal();
+      var fromWallet = walletAppliedAmount();
+      if (fromWallet > selectedWalletCredit + 0.001) {
+        e.preventDefault();
+        alert('مبلغ الخصم من الرصيد أكبر من المتاح (' + money(selectedWalletCredit) + ' د.ل).');
+        return;
+      }
+      if (fromWallet > 0.0005) {
+        var cid = document.getElementById('customer_id');
+        var walletCid = (currentPayer() === 'COMPANY' && companyCustomerIdEl)
+          ? companyCustomerIdEl.value
+          : (cid && cid.value);
+        if (!(walletCid || '').trim()) {
+          e.preventDefault();
+          alert('اختر العميل/الشركة من نتائج البحث لاستخدام الرصيد.');
+          return;
+        }
+      }
+      if ((paid + fromWallet) + 0.001 < due) {
+        e.preventDefault();
+        var msg = currentGuestType() === 'INDIVIDUAL'
+          ? ('حجز الأفراد يتطلب دفعاً مقدّماً كاملاً: ' + money(due) + ' د.ل (نقداً و/أو من الرصيد)')
+          : ('يجب تغطية ' + money(due) + ' د.ل على الأقل نقداً و/أو من الرصيد (' + effectivePrepPct() + '%).');
+        alert(msg);
+        return;
+      }
+      if (splitPayOn()) {
+        if (parseAmt(depositCashEl) > 0.0005 && payMethodCash && !payMethodCash.value) {
+          e.preventDefault();
+          alert('اختر وسيلة الكاش.');
+          return;
+        }
+        if (parseAmt(depositBankEl) > 0.0005 && payMethodBank && !payMethodBank.value) {
+          e.preventDefault();
+          alert('اختر وسيلة المصرف.');
+          return;
+        }
+      } else if (paid > 0.0005 && payMethod && !payMethod.value) {
         e.preventDefault();
         alert('اختر وسيلة الدفع.');
+        return;
       }
+      // الدفع بالكامل من الرصيد: لا حاجة لوسيلة دفع نقدية/مصرفية
     }
   });
 })();

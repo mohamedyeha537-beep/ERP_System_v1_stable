@@ -14,14 +14,8 @@
 {% block body %}
 <h1 style="margin-top:0">أقسام العمل</h1>
 
-<nav class="hr-nav">
-  <a href="/admin/employees">الموظفون</a>
-  <a href="/admin/departments" class="active">الأقسام</a>
-  <a href="/admin/work-shifts">الورديات</a>
-  <a href="/admin/attendance">الحضور والانصراف</a>
-  <a href="/admin/payroll">الرواتب</a>
-  <a href="/admin/advances">السلف</a>
-</nav>
+{% set hr_nav_active = 'departments' %}
+{% include "_hr_nav.html" %}
 
 {% if error %}<div class="alert">{{ error }}</div>{% endif %}
 {% if saved %}<div class="alert" style="background:#ecfdf5;border-color:#10b981;color:#065f46">تم الحفظ ✓</div>{% endif %}

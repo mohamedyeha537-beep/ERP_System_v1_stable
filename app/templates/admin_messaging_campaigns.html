@@ -27,6 +27,12 @@
       <summary style="cursor:pointer">أو رابط صورة خارجي</summary>
       <input name="image_url" dir="ltr" placeholder="https://..." style="width:100%;max-width:36rem;margin-top:0.35rem" />
     </details>
+    <label style="margin-top:0.5rem">مجموعة العملاء (المجال)</label>
+    <select name="audience_domain" id="campaign-audience">
+      <option value="all">كل المجالات</option>
+      <option value="restaurant">عملاء المطعم (+ مشتركون)</option>
+      <option value="hotel">عملاء الفندق (+ مشتركون)</option>
+    </select>
     <label style="margin-top:0.5rem">المستهدفون</label>
     <select name="segment" id="campaign-segment">
       <option value="opt_in">الموافقون على المراسلات (افتراضي)</option>
@@ -81,9 +87,12 @@
 (function () {
   var seg = document.getElementById('campaign-segment');
   var box = document.getElementById('campaign-phone-list');
+  var audience = document.getElementById('campaign-audience');
   if (!seg || !box) return;
   function sync() {
-    box.style.display = seg.value === 'phone_list' ? 'block' : 'none';
+    var external = seg.value === 'phone_list';
+    box.style.display = external ? 'block' : 'none';
+    if (audience) audience.disabled = external;
   }
   seg.addEventListener('change', sync);
   sync();

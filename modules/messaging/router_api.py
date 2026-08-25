@@ -1,6 +1,7 @@
 """Webhook API — استقبال رسائل واتساب/تليجرام الواردة من n8n أو TextMeBot أو مزود خارجي."""
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Request
@@ -11,6 +12,7 @@ from modules.messaging.inbox_service import record_inbound_message
 from modules.messaging.service import MessagingError
 from modules.settings.service import get_bool, get_setting
 
+LOG = logging.getLogger("messaging.inbound")
 router = APIRouter(prefix="/api/messaging", tags=["messaging-api"])
 
 
@@ -111,7 +113,11 @@ async def messaging_inbound(
                 db, phone=payload.phone, text=payload.text
             )
         except Exception:  # noqa: BLE001
-            pass
+            LOG.exception(
+                "فشل معالجة إجراء واتساب الوارد phone=%s text=%s",
+                payload.phone,
+                (payload.text or "")[:120],
+            )
         db.commit()
     except MessagingError as exc:
         db.rollback()

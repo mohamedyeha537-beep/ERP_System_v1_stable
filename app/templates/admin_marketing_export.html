@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}تصدير منشور{% endblock %}
+{% block body %}
+<div class="row" style="justify-content:space-between;align-items:center">
+  <h1 style="margin:0">نسخ للنشر اليدوي</h1>
+  <a class="btn" href="/admin/marketing-room/runs/{{ artifact.run_id if artifact else '' }}">رجوع</a>
+</div>
+<p class="muted">انسخ النص أدناه والصقه في فيسبوك / إنستغرام. النشر التلقائي غير مفعّل في المرحلة 1.</p>
+<textarea id="export-box" rows="14" style="width:100%;font-family:inherit;font-size:1rem;line-height:1.6;padding:0.85rem;border-radius:10px;border:1px solid var(--border)">{{ export_text }}</textarea>
+<div class="row" style="margin-top:0.65rem;gap:0.5rem">
+  <button class="btn btn-primary" type="button" id="copy-btn">نسخ إلى الحافظة</button>
+  <a class="btn" href="/admin/marketing-room/artifacts/{{ artifact.id }}/export.txt">تنزيل ملف</a>
+</div>
+<script>
+(function () {
+  var btn = document.getElementById('copy-btn');
+  var box = document.getElementById('export-box');
+  if (!btn || !box) return;
+  btn.addEventListener('click', function () {
+    box.select();
+    navigator.clipboard.writeText(box.value).then(function () {
+      btn.textContent = 'تم النسخ ✓';
+      setTimeout(function () { btn.textContent = 'نسخ إلى الحافظة'; }, 1500);
+    }).catch(function () {
+      document.execCommand('copy');
+    });
+  });
+})();
+</script>
+{% endblock %}

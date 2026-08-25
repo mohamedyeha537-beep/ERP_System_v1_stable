@@ -1,10 +1,21 @@
 from __future__ import annotations
 
 import enum
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, Enum, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infra.db import Base
@@ -52,6 +63,18 @@ class ProductCategory(Base):
         nullable=True,
         index=True,
     )
+    seo_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    seo_description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    seo_h1: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    seo_slug: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    seo_keywords: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    seo_schema_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    seo_og_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    seo_og_description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    seo_og_image: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    seo_indexable: Mapped[bool] = mapped_column(Boolean, default=True)
+    seo_canonical_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    seo_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     parent: Mapped[ProductCategory | None] = relationship(
         remote_side=[id],
@@ -104,6 +127,8 @@ class Product(Base):
     reorder_level: Mapped[Decimal] = mapped_column(Numeric(14, 3), default=Decimal("0"))
     is_active: Mapped[bool] = mapped_column(default=True)
     show_in_pos: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    show_in_shop: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    """إن كانت False لا يظهر الصنف في المتجر الإلكتروني (مستقل عن جلسة البيع)."""
     direct_purchase_enabled: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     """منتج نهائي قابل للشراء كصنف مباشر وإضافته للمخزون."""
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -126,6 +151,8 @@ class Product(Base):
         index=True,
     )
     image_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    #: وجبة إفطار مشمولة — تسويتها تكلفة فندق وليست على حساب النزيل
+    is_hotel_breakfast: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     line_modifier_presets: Mapped[str | None] = mapped_column(Text, nullable=True)
     expiry_tracked: Mapped[bool] = mapped_column(Boolean, default=False)
     expiry_production_date: Mapped[date | None] = mapped_column(Date, nullable=True)
@@ -135,6 +162,19 @@ class Product(Base):
     bom_markup_pct: Mapped[Decimal | None] = mapped_column(Numeric(8, 2), nullable=True)
     #: تكلفة مرجعية يدوية للمكوّن المخزني — تُستخدم في التركيبة إن وُجدت.
     reference_unit_cost: Mapped[Decimal | None] = mapped_column(Numeric(14, 3), nullable=True)
+    # حقول SEO (وكلاء خارجيون / SEO Center)
+    seo_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    seo_description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    seo_h1: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    seo_slug: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    seo_keywords: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    seo_schema_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    seo_og_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    seo_og_description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    seo_og_image: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    seo_indexable: Mapped[bool] = mapped_column(Boolean, default=True)
+    seo_canonical_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    seo_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     category: Mapped[ProductCategory | None] = relationship(back_populates="products")
     sales_warehouse = relationship("Warehouse", foreign_keys=[sales_warehouse_id])

@@ -17,6 +17,7 @@ from modules.hotel.booking_models import (
     HotelInvoiceStatus,
 )
 from modules.hotel.folio import build_folio
+from modules.hotel.models import HotelRoom
 from modules.platform.module_registry import HOTEL_FINANCE, is_module_enabled
 
 
@@ -40,12 +41,21 @@ def issue_checkout_invoice(
     if booking is None:
         raise FinanceError("الحجز غير موجود.")
     folio = build_folio(db, booking_id)
-    inv_num = f"INV-{booking.reference}-{datetime.now(timezone.utc).strftime('%Y%m%d')}"
+    from modules.printing.doc_numbers import PrintDocKind, ensure_doc_number
+
+    inv_num = ensure_doc_number(
+        db,
+        getattr(booking, "final_invoice_number", None),
+        PrintDocKind.FINAL_INVOICE,
+        domain="hotel",
+    )
+    booking.final_invoice_number = inv_num
+    subtotal = (folio.total + folio.discount).quantize(Decimal("0.001"))
     inv = HotelInvoice(
         booking_id=booking_id,
         invoice_number=inv_num,
         status=HotelInvoiceStatus.ISSUED,
-        subtotal=folio.total,
+        subtotal=subtotal,
         discount=folio.discount,
         total=folio.total,
         paid=folio.paid,
@@ -188,7 +198,64 @@ def close_daily(
     return row, gl_result
 
 
-from modules.hotel.models import HotelRoom
+def process_auto_daily_close(db: Session, *, max_days: int = 7) -> int:
+    """إقفال تلقائي لأيام تقويمية اكتملت (أمس وما قبله إن فُقدت).
+
+    اليوم الحالي لا يُقفل أثناء سريانه — كل 24 ساعة = يوم كامل بعد منتصف الليل المحلي.
+    يعيد عدد الأيام التي أُقفلت في هذه الدورة.
+    """
+    from app.datetime_local import now_local
+    from modules.settings.service import get_bool, get_setting, set_setting
+
+    if not finance_enabled(db):
+        return 0
+    if not get_bool(db, "hotel_daily_close_auto_enabled", True):
+        return 0
+
+    today = now_local().date()
+    # لا نُقفل «اليوم» قبل انتهائه
+    newest_target = today - timedelta(days=1)
+    oldest_target = today - timedelta(days=max(1, min(31, int(max_days))))
+
+    closed_n = 0
+    last_ok: date | None = None
+    d = oldest_target
+    while d <= newest_target:
+        existing = db.scalar(
+            select(HotelDailyClosing).where(HotelDailyClosing.closing_date == d)
+        )
+        if existing is None:
+            try:
+                close_daily(
+                    db,
+                    d,
+                    user_id=None,
+                    notes="إقفال تلقائي — نهاية اليوم التقويمي",
+                )
+                closed_n += 1
+                last_ok = d
+            except FinanceError:
+                # يوم مقفول بالفعل أو وحدة غير جاهزة — نتجاوز
+                pass
+            except Exception:  # noqa: BLE001
+                # لا نوقف الدورة بالكامل؛ نعيد المحاولة لاحقاً
+                break
+        else:
+            last_ok = d
+        d += timedelta(days=1)
+
+    if last_ok is not None:
+        set_setting(db, "hotel_daily_close_last_date", last_ok.isoformat())
+    elif (get_setting(db, "hotel_daily_close_last_date") or "") != newest_target.isoformat():
+        # كل الأيام حتى أمس موجودة مسبقاً
+        if db.scalar(
+            select(HotelDailyClosing).where(
+                HotelDailyClosing.closing_date == newest_target
+            )
+        ):
+            set_setting(db, "hotel_daily_close_last_date", newest_target.isoformat())
+
+    return closed_n
 
 
 def occupancy_stats(db: Session, *, on_date: date, property_id: int = 1) -> dict:

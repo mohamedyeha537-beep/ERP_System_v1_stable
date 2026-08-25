@@ -43,12 +43,28 @@ def printing_hub(request: Request, _: User = Depends(_perm)):
 
 @router.get("/agents", response_class=HTMLResponse)
 def list_agents(request: Request, db: DBSession, _: User = Depends(_perm)):
+    from datetime import datetime, timedelta, timezone
+
     rows = list(
         db.scalars(select(PrintAgent).order_by(PrintAgent.id.desc())).all()
     )
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=90)
+    agent_online: dict[int, bool] = {}
+    for a in rows:
+        seen = a.last_seen_at
+        if seen is not None and seen.tzinfo is None:
+            seen = seen.replace(tzinfo=timezone.utc)
+        agent_online[int(a.id)] = bool(
+            a.is_active and seen is not None and seen >= cutoff
+        )
     return templates.TemplateResponse(
         "admin_print_agents.html",
-        {"request": request, "agents": rows, "new_token": request.query_params.get("token")},
+        {
+            "request": request,
+            "agents": rows,
+            "agent_online": agent_online,
+            "new_token": request.query_params.get("token"),
+        },
     )
 
 

@@ -58,14 +58,13 @@
   </div>
 </div>
 
-<nav class="hr-nav">
-  <a href="/admin/employees">الموظفون</a>
-  <a href="/admin/departments">الأقسام</a>
-  <a href="/admin/work-shifts">الورديات</a>
-  <a href="/admin/attendance">الحضور والانصراف</a>
-  <a href="/admin/payroll">الرواتب الشهرية</a>
-  <a href="/admin/advances" class="active">السلف</a>
-</nav>
+{% if pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}
+<link rel="stylesheet" href="/static/treasury_desk.css?v=1" />
+{% include "treasury/_nav.html" %}
+{% else %}
+{% set hr_nav_active = 'advances' %}
+{% include "_hr_nav.html" %}
+{% endif %}
 
 {% if error %}<div class="alert">{{ error }}</div>{% endif %}
 {% if saved %}<div class="alert" style="background:#ecfdf5; border-color:#10b981; color:#065f46">تم الحفظ ✓</div>{% endif %}
@@ -133,7 +132,7 @@
         <select id="pm" name="payment_method_id" required>
           <option value="">— اختر —</option>
           {% for m in methods %}
-          <option value="{{ m.id }}">{{ m.name_ar }}</option>
+          <option value="{{ m.id }}">{{ pos_wallet_label(m) }}</option>
           {% endfor %}
         </select>
       </div>

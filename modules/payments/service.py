@@ -3,27 +3,26 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
-
 from pathlib import Path
 
-from starlette.datastructures import UploadFile
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
+from starlette.datastructures import UploadFile
 
-from sqlalchemy import func, select, update
 from modules.inventory.models import StockMovementType
 from modules.inventory.service import apply_movement
 from modules.payments.models import (
+    HOTEL_PURCHASE_CUSTODY_CASH_PM_NAME,
+    HOTEL_RECEPTION_BANK_PM_NAME,
+    HOTEL_RECEPTION_CASH_PM_NAME,
     HOTEL_TREASURY_BANK_PM_NAME,
     HOTEL_TREASURY_CASH_PM_NAME,
-    HOTEL_PURCHASE_CUSTODY_CASH_PM_NAME,
-    HOTEL_PURCHASE_CUSTODY_BANK_PM_NAME,
-    RESTAURANT_PURCHASE_CUSTODY_CASH_PM_NAME,
-    RESTAURANT_PURCHASE_CUSTODY_BANK_PM_NAME,
-    PURCHASE_CUSTODY_PM_NAMES,
     LEGACY_OWNER_CAPITAL_PM_NAME,
     LEGACY_OWNER_DRAW_PM_NAME,
     OWNER_EQUITY_PM_NAME,
+    PURCHASE_CUSTODY_PM_NAMES,
+    RESTAURANT_PURCHASE_CUSTODY_CASH_PM_NAME,
+    ROOM_SETTLE_CLEARING_PM_NAME,
     SUPPLIER_CREDIT_PM_NAME,
     PaymentMethod,
     PaymentMethodDomain,
@@ -148,7 +147,63 @@ def ensure_default_payment_methods(db: Session) -> None:
 
 
 def ensure_hotel_treasury_payment_methods(db: Session) -> dict[str, PaymentMethod]:
-    """ينشئ خزن الفندق المنفصلة عن المطعم إن لم تكن موجودة."""
+    """خزينة الفندق النهائية (كاش/مصرف) — لا تقبل تحصيل مباشرة؛ فقط تحويل اعتماد الجلسة.
+
+    التحصيل اليومي للاستقبال عبر ensure_hotel_reception_payment_methods.
+    """
+    ensure_hotel_reception_payment_methods(db)
+
+    def _ensure(name: str, kind: PaymentMethodKind, sort_order: int) -> PaymentMethod:
+        row = db.scalar(select(PaymentMethod).where(PaymentMethod.name_ar == name))
+        if row is None:
+            row = PaymentMethod(
+                name_ar=name,
+                kind=kind,
+                is_active=True,
+                sort_order=sort_order,
+                # مثل الخزينة الرئيسية: لا قبض مباشرة من نقطة الاستقبال
+                can_receive=False,
+                can_pay=True,
+                can_fund=True,
+                is_system=True,
+                show_on_dashboard=True,
+                business_domain=PaymentMethodDomain.HOTEL,
+            )
+            db.add(row)
+            db.flush()
+        else:
+            row.kind = kind
+            row.is_active = True
+            row.can_receive = False
+            row.can_pay = True
+            row.can_fund = True
+            row.is_system = True
+            row.show_on_dashboard = True
+            row.business_domain = PaymentMethodDomain.HOTEL
+            db.flush()
+        return row
+
+    out = {
+        "CASH": _ensure(HOTEL_TREASURY_CASH_PM_NAME, PaymentMethodKind.CASH, 60),
+        "BANK": _ensure(HOTEL_TREASURY_BANK_PM_NAME, PaymentMethodKind.BANK, 61),
+    }
+    try:
+        from modules.hotel.shift_handoff import mark_legacy_hotel_shifts_handed_off
+
+        mark_legacy_hotel_shifts_handed_off(db)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from modules.gl.seed import ensure_hotel_wallet_gl_maps
+
+        ensure_hotel_wallet_gl_maps(db)
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+def ensure_hotel_reception_payment_methods(db: Session) -> dict[str, PaymentMethod]:
+    """محافظ تحصيل الاستقبال — تقبض من النزيل أثناء الجلسة (قبل اعتماد الخزينة)."""
 
     def _ensure(name: str, kind: PaymentMethodKind, sort_order: int) -> PaymentMethod:
         row = db.scalar(select(PaymentMethod).where(PaymentMethod.name_ar == name))
@@ -161,7 +216,7 @@ def ensure_hotel_treasury_payment_methods(db: Session) -> dict[str, PaymentMetho
                 can_receive=True,
                 can_pay=True,
                 can_fund=True,
-                is_system=False,
+                is_system=True,
                 show_on_dashboard=True,
                 business_domain=PaymentMethodDomain.HOTEL,
             )
@@ -173,14 +228,15 @@ def ensure_hotel_treasury_payment_methods(db: Session) -> dict[str, PaymentMetho
             row.can_receive = True
             row.can_pay = True
             row.can_fund = True
+            row.is_system = True
             row.show_on_dashboard = True
             row.business_domain = PaymentMethodDomain.HOTEL
             db.flush()
         return row
 
     return {
-        "CASH": _ensure(HOTEL_TREASURY_CASH_PM_NAME, PaymentMethodKind.CASH, 60),
-        "BANK": _ensure(HOTEL_TREASURY_BANK_PM_NAME, PaymentMethodKind.BANK, 61),
+        "CASH": _ensure(HOTEL_RECEPTION_CASH_PM_NAME, PaymentMethodKind.CASH, 58),
+        "BANK": _ensure(HOTEL_RECEPTION_BANK_PM_NAME, PaymentMethodKind.BANK, 59),
     }
 
 
@@ -298,6 +354,48 @@ def payment_method_kind_matches(pm: PaymentMethod, kind: PaymentMethodKind) -> b
     return str(k).strip().upper() == kind.value
 
 
+_TAWA_NAME_MARKERS = ("توا", "تداول", "تداو", "tawa", "tadawul", "tadao")
+
+
+def payment_method_requires_operation_ref(pm: PaymentMethod | None) -> bool:
+    """مصرف أو حساب توا/تداول — يلزم رقم العملية قبل التحويل."""
+    if pm is None:
+        return False
+    if payment_method_kind_matches(pm, PaymentMethodKind.BANK):
+        return True
+    name = f"{getattr(pm, 'name_ar', '') or ''} {getattr(pm, 'name', '') or ''}"
+    name_l = name.lower()
+    return any(marker in name or marker in name_l for marker in _TAWA_NAME_MARKERS)
+
+
+def compose_transfer_note_with_bank_ref(note: str | None, bank_ref: str | None) -> str | None:
+    ref = (bank_ref or "").strip()
+    extra = (note or "").strip()
+    parts: list[str] = []
+    if ref:
+        parts.append(f"رقم العملية: {ref}")
+    if extra:
+        parts.append(extra)
+    return " — ".join(parts) if parts else None
+
+
+def assert_bank_operation_ref(
+    from_pm: PaymentMethod | None,
+    to_pm: PaymentMethod | None,
+    bank_ref: str | None,
+) -> str:
+    """يفرض رقم العملية إن كان أحد الطرفين مصرفاً أو توا."""
+    needs = payment_method_requires_operation_ref(
+        from_pm
+    ) or payment_method_requires_operation_ref(to_pm)
+    ref = (bank_ref or "").strip()
+    if needs and not ref:
+        raise PaymentsError(
+            "أدخل رقم العملية التي أُجريت في حساب توا أو المصرف قبل تسجيل التحويل."
+        )
+    return ref
+
+
 def is_treasury_wallet_method(pm: PaymentMethod) -> bool:
     return payment_method_kind_matches(
         pm, PaymentMethodKind.CASH
@@ -341,42 +439,150 @@ def list_payment_methods_for_receive(
 
 
 def list_pos_sale_payment_methods(
-    db: Session, *, only_active: bool = True, domain=None
+    db: Session, *, only_active: bool = True, domain=None, user=None
 ) -> list[PaymentMethod]:
     """وسائل الدفع في تحصيل نقطة البيع وتسوية الشقق — كاش ومصرف فقط."""
+    from modules.authz.pos_wallet_access import filter_payment_methods_for_user
     from modules.platform.business_domain import BusinessDomain
 
     ctx = domain if domain is not None else BusinessDomain.RESTAURANT
-    return [
+    methods = [
         m
         for m in list_payment_methods_for_receive(db, only_active=only_active, domain=ctx)
         if is_treasury_wallet_method(m)
     ]
+    return filter_payment_methods_for_user(methods, user)
+
+
+def user_may_receive_hotel_to_restaurant_treasury(user) -> bool:
+    """أدمن النظام وأمين الخزينة: قبض من حساب الفندق مباشرة على خزنة المطعم."""
+    from modules.authz.permissions import TREASURY_CLERK_ROLE_NAME_AR
+    from modules.authz.service import user_has_permission
+    from modules.platform.business_domain import is_system_admin, user_role_names
+
+    if user is None:
+        return False
+    if is_system_admin(user):
+        return True
+    if TREASURY_CLERK_ROLE_NAME_AR in user_role_names(user):
+        return True
+    # احتياطي إن وُجدت صلاحية الخزينة دون اسم الدور القديم
+    from modules.authz.capability import can_hotel_settle_transfer
+
+    return user_has_permission(user, "hotel:settle") and can_hotel_settle_transfer(user)
+
+
+def _is_restaurant_main_treasury_receive_target(pm: PaymentMethod) -> bool:
+    """الخزينة الرئيسية للمطعم — قبض مسموح عند تسوية حساب فندق فقط."""
+    from modules.payments.shift_handoff_service import is_main_treasury_payment_method
+
+    return is_main_treasury_payment_method(pm) and payment_method_is_strict_domain(
+        pm, PaymentMethodDomain.RESTAURANT
+    )
+
+
+def _hotel_settle_wallet_allowed(
+    pm: PaymentMethod, *, include_restaurant: bool
+) -> bool:
+    if not pm.is_active or not is_treasury_wallet_method(pm):
+        return False
+    if (
+        is_purchase_custody_payment_method(pm)
+        or is_supplier_credit_payment_method(pm)
+        or is_owner_equity_payment_method(pm)
+    ):
+        return False
+    if payment_method_is_strict_domain(pm, PaymentMethodDomain.HOTEL):
+        # خزينة الفندق: can_receive=False (لا قبض مباشر) لكن can_pay=True للتسوية
+        return bool(pm.can_pay or pm.can_receive)
+    if not include_restaurant:
+        return False
+    # خزينة المطعم الرئيسية (can_receive=False عمداً لنقطة البيع)
+    if _is_restaurant_main_treasury_receive_target(pm):
+        return True
+    # أي محفظة قبض مطعم/مشتركة (كاش نقطة البيع…)
+    if pm.can_receive and str(
+        _domain_value(getattr(pm, "business_domain", None))
+    ).strip().lower() in (
+        PaymentMethodDomain.RESTAURANT.value,
+        PaymentMethodDomain.SHARED.value,
+    ):
+        return True
+    return False
 
 
 def list_hotel_settle_payment_methods(
-    db: Session, *, only_active: bool = True
+    db: Session,
+    *,
+    only_active: bool = True,
+    include_restaurant: bool | None = None,
+    user=None,
 ) -> list[PaymentMethod]:
-    """وسائل الدفع في الفندق — كاش/مصرف فندقي فقط، دون حسابات المطعم أو المشتركة."""
+    """وسائل الدفع في الفندق — محافظ الاستقبال أولاً؛ وللأدمن/الخزينة أيضاً خزائن المطعم."""
 
     ensure_hotel_treasury_payment_methods(db)
-    return [
+    if include_restaurant is None:
+        include_restaurant = bool(
+            user and user_may_receive_hotel_to_restaurant_treasury(user)
+        )
+    if include_restaurant:
+        from modules.payments.shift_handoff_service import (
+            ensure_main_treasury_payment_methods,
+        )
+
+        ensure_main_treasury_payment_methods(db)
+
+    from modules.authz.pos_wallet_access import filter_payment_methods_for_user
+
+    rows = [
         m
         for m in list_payment_methods(db, only_active=only_active)
-        if is_treasury_wallet_method(m)
-        and m.can_receive
-        and payment_method_is_strict_domain(m, PaymentMethodDomain.HOTEL)
+        if _hotel_settle_wallet_allowed(m, include_restaurant=include_restaurant)
     ]
+    rows = filter_payment_methods_for_user(rows, user)
+    # فندق أولاً ثم مطعم/مشترك، والكاش قبل المصرف داخل كل مجال
+    domain_rank = {
+        PaymentMethodDomain.HOTEL.value: 0,
+        PaymentMethodDomain.RESTAURANT.value: 1,
+        PaymentMethodDomain.SHARED.value: 2,
+    }
+    kind_rank = {"cash": 0, "bank": 1}
+
+    def _sort_key(m: PaymentMethod):
+        dom = str(_domain_value(getattr(m, "business_domain", None))).strip().lower()
+        kind = str(getattr(m.kind, "value", m.kind) or "").strip().lower()
+        return (
+            domain_rank.get(dom, 9),
+            kind_rank.get(kind, 9),
+            m.sort_order,
+            m.id,
+        )
+
+    rows.sort(key=_sort_key)
+    return rows
 
 
-def assert_hotel_payment_method(db: Session, payment_method_id: int | None) -> PaymentMethod:
+def assert_hotel_payment_method(
+    db: Session,
+    payment_method_id: int | None,
+    *,
+    allow_restaurant: bool | None = None,
+    user=None,
+) -> PaymentMethod:
+    if allow_restaurant is None:
+        allow_restaurant = bool(
+            user and user_may_receive_hotel_to_restaurant_treasury(user)
+        )
+    ensure_hotel_treasury_payment_methods(db)
     pm = db.get(PaymentMethod, payment_method_id) if payment_method_id else None
-    if pm is None or not pm.is_active:
-        raise PaymentsError("وسيلة الدفع الفندقية غير صالحة.")
-    if not is_treasury_wallet_method(pm) or not pm.can_receive:
-        raise PaymentsError("اختر خزينة فندق كاش أو مصرف.")
-    if not payment_method_is_strict_domain(pm, PaymentMethodDomain.HOTEL):
-        raise PaymentsError("لا يمكن استخدام خزائن المطعم في عمليات الفندق.")
+    if pm is None or not _hotel_settle_wallet_allowed(
+        pm, include_restaurant=bool(allow_restaurant)
+    ):
+        raise PaymentsError(
+            "اختر محفظة استقبال الفندق (كاش/مصرف)، أو خزينة مطعم (متاحة للأدمن وأمين الخزينة)."
+            if allow_restaurant
+            else "اختر محفظة استقبال الفندق كاش أو مصرف."
+        )
     return pm
 
 
@@ -418,6 +624,48 @@ def list_payment_methods_main_treasury_for_pay(
         m
         for m in list_payment_methods_for_pay(db, only_active=only_active, domain=domain)
         if is_main_treasury_payment_method(m)
+    ]
+    rows.sort(key=lambda m: (0 if m.kind == PaymentMethodKind.CASH else 1, m.sort_order))
+    return rows
+
+
+def is_hotel_treasury_payment_method(pm: PaymentMethod) -> bool:
+    return pm.name_ar in (HOTEL_TREASURY_CASH_PM_NAME, HOTEL_TREASURY_BANK_PM_NAME)
+
+
+def is_hotel_reception_payment_method(pm: PaymentMethod | None) -> bool:
+    if pm is None:
+        return False
+    return pm.name_ar in (HOTEL_RECEPTION_CASH_PM_NAME, HOTEL_RECEPTION_BANK_PM_NAME)
+
+
+def is_hotel_domain_cash_wallet(pm: PaymentMethod | None) -> bool:
+    """محفظة فندق: استقبال (تحصيل) أو خزينة نهائية."""
+    if pm is None:
+        return False
+    return is_hotel_treasury_payment_method(pm) or is_hotel_reception_payment_method(pm)
+
+
+def is_purchase_source_wallet(pm: PaymentMethod) -> bool:
+    """خزينة مطعم أو فندق أو عهدة مشتريات — مصدر دفع لفاتورة شراء."""
+    from modules.payments.shift_handoff_service import is_main_treasury_payment_method
+
+    return (
+        is_main_treasury_payment_method(pm)
+        or is_hotel_domain_cash_wallet(pm)
+        or is_purchase_custody_payment_method(pm)
+    )
+
+
+def list_payment_methods_hotel_treasury_for_pay(
+    db: Session, *, only_active: bool = True, domain=None
+) -> list[PaymentMethod]:
+    """خزينة الفندق — كاش/مصرف."""
+    ensure_hotel_treasury_payment_methods(db)
+    rows = [
+        m
+        for m in list_payment_methods_for_pay(db, only_active=only_active, domain=domain)
+        if is_hotel_treasury_payment_method(m)
     ]
     rows.sort(key=lambda m: (0 if m.kind == PaymentMethodKind.CASH else 1, m.sort_order))
     return rows
@@ -505,7 +753,7 @@ def assert_purchase_custody_payment_method(
 
 
 def purchase_user_limited_to_custody(user) -> bool:
-    from modules.authz.permissions import PURCHASES_MANAGE, PURCHASE_INVOICES_MANAGE
+    from modules.authz.permissions import PURCHASE_INVOICES_MANAGE, PURCHASES_MANAGE
     from modules.authz.service import user_has_permission
 
     return user_has_permission(
@@ -516,37 +764,54 @@ def purchase_user_limited_to_custody(user) -> bool:
 def assert_purchase_term_payment_method(
     db: Session, payment_method_id: int
 ) -> PaymentMethod:
-    """فاتورة شراء: خزينة رئيسية، عهدة مشتريات، أو آجل."""
-    from modules.payments.shift_handoff_service import is_main_treasury_payment_method
-
+    """فاتورة شراء: خزينة مطعم/فندق، عهدة مشتريات، أو آجل."""
     pm = db.get(PaymentMethod, payment_method_id)
     if pm is None or not pm.is_active:
         raise PaymentsError("أسلوب الدفع غير صالح.")
-    if (
-        is_supplier_credit_payment_method(pm)
-        or is_main_treasury_payment_method(pm)
-        or is_purchase_custody_payment_method(pm)
-    ):
+    if is_supplier_credit_payment_method(pm) or is_purchase_source_wallet(pm):
         return pm
     raise PaymentsError(
-        "فواتير الشراء تُسجَّل على الخزينة الرئيسية أو عهدة المشتريات أو آجل للمورد."
+        "فواتير الشراء تُسجَّل على خزينة المطعم أو الفندق أو عهدة المشتريات أو آجل للمورد."
     )
 
 
 def assert_purchase_pay_wallet(
     db: Session, payment_method_id: int, *, custody_only: bool = False
 ) -> PaymentMethod:
-    """سداد فاتورة شراء — من الخزينة أو العهدة."""
+    """سداد فاتورة شراء — من خزينة المطعم/الفندق أو العهدة."""
     if custody_only:
         return assert_purchase_custody_payment_method(db, payment_method_id)
-    from modules.payments.shift_handoff_service import is_main_treasury_payment_method
 
     pm = db.get(PaymentMethod, payment_method_id)
     if pm is None or not pm.is_active or not pm.can_pay:
         raise PaymentsError("أسلوب الدفع غير صالح.")
-    if is_main_treasury_payment_method(pm) or is_purchase_custody_payment_method(pm):
+    if is_purchase_source_wallet(pm):
         return pm
-    raise PaymentsError("اختر الخزينة الرئيسية أو عهدة المشتريات.")
+    raise PaymentsError("اختر خزينة المطعم أو الفندق أو عهدة المشتريات.")
+
+
+def list_payment_methods_for_purchase_pay(
+    db: Session, *, only_active: bool = True, custody_only: bool = False
+) -> list[PaymentMethod]:
+    """محافظ سداد فواتير الشراء — مطعم + فندق معاً (بدون تصفية مجال)."""
+    if custody_only:
+        return list_payment_methods_purchase_custody_for_pay(
+            db, only_active=only_active, domain=None
+        )
+    out: list[PaymentMethod] = []
+    seen: set[int] = set()
+    for group in (
+        list_payment_methods_main_treasury_for_pay(db, only_active=only_active, domain=None),
+        list_payment_methods_hotel_treasury_for_pay(db, only_active=only_active, domain=None),
+        list_payment_methods_purchase_custody_for_pay(
+            db, only_active=only_active, domain=None
+        ),
+    ):
+        for m in group:
+            if m.id not in seen:
+                out.append(m)
+                seen.add(m.id)
+    return out
 
 
 def list_payment_methods_for_purchase_term(
@@ -556,14 +821,22 @@ def list_payment_methods_for_purchase_term(
     credit = ensure_supplier_credit_payment_method(db)
     out: list[PaymentMethod] = []
     seen: set[int] = set()
+    # domain=None: يظهر خزين المطعم والفندق معاً لموظف المشتريات
+    pay_domain = domain  # يُمرَّر None عادةً من الراوتر
     for m in list_payment_methods_main_treasury_for_pay(
-        db, only_active=only_active, domain=domain
+        db, only_active=only_active, domain=pay_domain
+    ):
+        if m.id not in seen:
+            out.append(m)
+            seen.add(m.id)
+    for m in list_payment_methods_hotel_treasury_for_pay(
+        db, only_active=only_active, domain=pay_domain
     ):
         if m.id not in seen:
             out.append(m)
             seen.add(m.id)
     for m in list_payment_methods_purchase_custody_for_pay(
-        db, only_active=only_active, domain=domain
+        db, only_active=only_active, domain=pay_domain
     ):
         if m.id not in seen:
             out.append(m)
@@ -600,11 +873,69 @@ def list_payment_methods_transfer_sources(
     db: Session, *, only_active: bool = True, domain=None
 ) -> list[PaymentMethod]:
     ensure_owner_equity_payment_method(db)
-    return [
+    rows = [
         m
         for m in list_payment_methods(db, only_active=only_active, domain=domain)
         if m.can_pay and not is_supplier_credit_payment_method(m)
     ]
+    rows.sort(key=lambda m: (0 if is_owner_equity_payment_method(m) else 1, m.sort_order, m.id))
+    return rows
+
+
+def list_clerk_transfer_source_methods(
+    db: Session,
+    user,
+    session: dict | None = None,
+    *,
+    only_active: bool = True,
+) -> list[PaymentMethod]:
+    """أمين الخزينة يحوّل فقط من خزينة مجاله: مطعم كاش/مصرف أو فندق كاش/مصرف."""
+    from modules.authz.capability import is_treasury_clerk_user
+    from modules.payments.shift_handoff_service import is_main_treasury_payment_method
+    from modules.platform.business_domain import (
+        BusinessDomain,
+        is_system_admin,
+        resolve_finance_domain,
+    )
+
+    rows = list_payment_methods_transfer_sources(db, only_active=only_active)
+    if is_system_admin(user):
+        return rows
+    from modules.authz.pos_wallet_access import (
+        apply_custom_transfer_filter,
+        user_custom_transfer_ids,
+    )
+
+    custom_send = user_custom_transfer_ids(db, user, direction="send")
+    if custom_send is not None:
+        return apply_custom_transfer_filter(rows, custom_send)
+    if not is_treasury_clerk_user(user):
+        return rows
+    domain = resolve_finance_domain(user, session)
+    if domain == BusinessDomain.HOTEL:
+        return [m for m in rows if is_hotel_treasury_payment_method(m)]
+    return [m for m in rows if is_main_treasury_payment_method(m)]
+
+
+def list_clerk_transfer_target_methods(
+    db: Session,
+    user,
+    *,
+    only_active: bool = True,
+) -> list[PaymentMethod]:
+    """وجهة التحويل: كل حسابات الاستلام، أو ما خصّصه الأدمن للموظف."""
+    from modules.platform.business_domain import is_system_admin
+
+    rows = list_payment_methods_transfer_targets(db, only_active=only_active)
+    if is_system_admin(user):
+        return rows
+    from modules.authz.pos_wallet_access import (
+        apply_custom_transfer_filter,
+        user_custom_transfer_ids,
+    )
+
+    custom_recv = user_custom_transfer_ids(db, user, direction="receive")
+    return apply_custom_transfer_filter(rows, custom_recv)
 
 
 def list_payment_methods_for_dashboard(
@@ -623,18 +954,25 @@ def list_payment_methods_transfer_targets(
     db: Session, *, only_active: bool = True, domain=None
 ) -> list[PaymentMethod]:
     ensure_owner_equity_payment_method(db)
-    return [
-        m
-        for m in list_payment_methods(db, only_active=only_active, domain=domain)
-        if payment_method_can_receive_transfer(m)
-    ]
+    rows = []
+    for m in list_payment_methods(db, only_active=only_active, domain=domain):
+        if payment_method_can_receive_transfer(m) or is_owner_equity_payment_method(m):
+            rows.append(m)
+    rows.sort(key=lambda m: (0 if is_owner_equity_payment_method(m) else 1, m.sort_order, m.id))
+    return rows
 
 
 def list_payment_methods_owner_capital_targets(
     db: Session, *, only_active: bool = True, domain=None
 ) -> list[PaymentMethod]:
     """حسابات كاش/مصرف يمكن إيداع رأس المال فيها."""
-    return list_payment_methods_transfer_targets(db, only_active=only_active, domain=domain)
+    return [
+        m
+        for m in list_payment_methods_transfer_targets(
+            db, only_active=only_active, domain=domain
+        )
+        if not is_owner_equity_payment_method(m)
+    ]
 
 
 def payment_method_balances_map(db: Session) -> dict[int, Decimal]:
@@ -978,16 +1316,28 @@ def record_sale_payment(
     amount: Decimal,
     *,
     payment_proof_image_filename: str | None = None,
+    for_hotel_settle: bool = False,
 ) -> SalePayment:
     """يسجّل دفعة لبيع (تستدعى مع complete_sale)."""
     pm = db.get(PaymentMethod, payment_method_id)
     if pm is None or not pm.is_active:
         raise PaymentsError("أسلوب الدفع غير صالح.")
-    if not pm.can_receive:
-        raise PaymentsError(f"الحساب «{pm.name_ar}» غير مسموح بالقبض عند البيع.")
-    from modules.platform.business_domain import BusinessDomain, assert_payment_method_for_domain
+    if for_hotel_settle:
+        # تسوية غرفة: خزينة فندق/مطعم، أو حساب المقاصة الداخلي بعد التحويل
+        allowed = _hotel_settle_wallet_allowed(
+            pm, include_restaurant=True
+        ) or (pm.name_ar == ROOM_SETTLE_CLEARING_PM_NAME and pm.is_active)
+        if not allowed:
+            raise PaymentsError(f"الحساب «{pm.name_ar}» غير مسموح لهذه التسوية.")
+    else:
+        if not pm.can_receive:
+            raise PaymentsError(f"الحساب «{pm.name_ar}» غير مسموح بالقبض عند البيع.")
+        from modules.platform.business_domain import (
+            BusinessDomain,
+            assert_payment_method_for_domain,
+        )
 
-    assert_payment_method_for_domain(pm, filter_domain=BusinessDomain.RESTAURANT)
+        assert_payment_method_for_domain(pm, filter_domain=BusinessDomain.RESTAURANT)
     sp = SalePayment(
         sale_id=sale_id,
         payment_method_id=payment_method_id,
@@ -997,24 +1347,31 @@ def record_sale_payment(
     )
     db.add(sp)
     db.flush()
-    from modules.gl.posting import post_sale_payment_shadow_safe
+    # ترحيل الخزينة/GL لمبيعات الجلسة يتم عند إقفال الجلسة — ليس بعد كل فاتورة
 
-    post_sale_payment_shadow_safe(db, sp)
-    try:
-        from modules.notifications.treasury_hooks import emit_treasury_movement
+    sale_for_gl = db.get(Sale, int(sale_id))
+    defer_shift_gl = bool(
+        sale_for_gl is not None and getattr(sale_for_gl, "pos_shift_id", None)
+    )
+    if not defer_shift_gl:
+        from modules.gl.posting import post_sale_payment_shadow_safe
 
-        emit_treasury_movement(
-            db,
-            source_type="sale_payment",
-            source_id=sp.id,
-            movement_label=f"تحصيل بيع #{sale_id}",
-            amount=sp.amount,
-            from_method="عميل",
-            to_method=pm.name_ar,
-            user_id=None,
-        )
-    except Exception:  # noqa: BLE001
-        pass
+        post_sale_payment_shadow_safe(db, sp)
+        try:
+            from modules.notifications.treasury_hooks import emit_treasury_movement
+
+            emit_treasury_movement(
+                db,
+                source_type="sale_payment",
+                source_id=sp.id,
+                movement_label=f"تحصيل بيع #{sale_id}",
+                amount=sp.amount,
+                from_method="عميل",
+                to_method=pm.name_ar,
+                user_id=None,
+            )
+        except Exception:  # noqa: BLE001
+            pass
     return sp
 
 
@@ -1045,7 +1402,6 @@ def correct_sale_payment_method(
     user_id: int | None,
 ) -> SalePayment:
     """تصحيح وسيلة دفع فاتورة مغلقة — نقل المبلغ بين الخزائن."""
-    from modules.sales.models import Sale, SaleStatus
 
     sale = db.get(Sale, sale_id)
     if sale is None or sale.status != SaleStatus.COMPLETED:
@@ -1164,6 +1520,8 @@ def record_manual_transfer(
     note: str | None = None,
     transfer_type: PaymentTransferType = PaymentTransferType.MANUAL,
     sale_return_id: int | None = None,
+    bank_ref: str | None = None,
+    require_operation_ref: bool | None = None,
 ) -> PaymentTransfer:
     from_pm = db.get(PaymentMethod, from_payment_method_id)
     to_pm = db.get(PaymentMethod, to_payment_method_id)
@@ -1175,10 +1533,13 @@ def record_manual_transfer(
         raise PaymentsError("لا يمكن التحويل من/إلى حساب ذمم المورد الآجل.")
     if not from_pm.can_pay:
         raise PaymentsError(f"الحساب «{from_pm.name_ar}» غير مسموح بالصرف أو التحويل الصادر.")
-    if not payment_method_can_receive_transfer(to_pm):
+    if not (
+        payment_method_can_receive_transfer(to_pm)
+        or is_owner_equity_payment_method(to_pm)
+    ):
         raise PaymentsError(
             f"الحساب «{to_pm.name_ar}» غير مسموح باستلام التحويلات. "
-            "فعّل «استلام تحويلات» من إدارة الحسابات."
+            "فعّل «تحويل وارد» من إدارة الحسابات."
         )
     if amount <= 0:
         raise PaymentsError("مبلغ التحويل يجب أن يكون أكبر من صفر.")
@@ -1191,6 +1552,16 @@ def record_manual_transfer(
             to_pm
         ):
             transfer_type = PaymentTransferType.OWNER_CAPITAL
+    skip_ref_types = (
+        PaymentTransferType.SHIFT_HANDOFF,
+        PaymentTransferType.REFUND_SETTLEMENT,
+        PaymentTransferType.SALE_PAYMENT_CORRECTION,
+    )
+    must_check = require_operation_ref
+    if must_check is None:
+        must_check = transfer_type not in skip_ref_types
+    if must_check:
+        assert_bank_operation_ref(from_pm, to_pm, bank_ref)
     if transfer_type not in (
         PaymentTransferType.OWNER_CAPITAL,
         PaymentTransferType.SHIFT_HANDOFF,
@@ -1206,7 +1577,7 @@ def record_manual_transfer(
         from_payment_method_id=from_payment_method_id,
         to_payment_method_id=to_payment_method_id,
         amount=amount.quantize(Decimal("0.001")),
-        note=(note or "").strip() or None,
+        note=compose_transfer_note_with_bank_ref(note, bank_ref),
         created_by_id=user_id,
     )
     db.add(tf)
@@ -1929,6 +2300,21 @@ def delete_purchase(db: Session, purchase_id: int) -> None:
                     warehouse_id=wid,
                     note=f"إلغاء شراء فاتورة #{p.id}",
                 )
+
+    # عكس قيد GL المرتبط بالشراء قبل الحذف
+    from modules.gl.reversal import reverse_by_idempotency_key
+
+    if p.kind == PurchaseKind.INVENTORY:
+        reverse_by_idempotency_key(db, f"purchase:inventory:{p.id}")
+    elif p.kind == PurchaseKind.ASSET:
+        reverse_by_idempotency_key(db, f"purchase:asset:{p.id}")
+    elif p.kind == PurchaseKind.EXPENSE:
+        cat = (p.expense_category or "").strip()
+        if cat == "سلف موظفين":
+            reverse_by_idempotency_key(db, f"purchase:advance:{p.id}")
+        else:
+            reverse_by_idempotency_key(db, f"purchase:expense:{p.id}")
+
     kind = p.kind
     pid = p.id
     db.delete(p)
@@ -2086,17 +2472,21 @@ def wallet_breakdown(
         int(mid): Decimal(str(s or 0)) for mid, s in db.execute(hotel_payments_q).all()
     }
 
+    hotel_refund_pm = func.coalesce(
+        HotelBookingPaymentRefund.payment_method_id,
+        HotelBookingPayment.payment_method_id,
+    )
     hotel_refunds_q = (
         select(
-            HotelBookingPayment.payment_method_id,
+            hotel_refund_pm,
             func.coalesce(func.sum(HotelBookingPaymentRefund.amount), 0),
         )
         .join(
             HotelBookingPayment,
             HotelBookingPayment.id == HotelBookingPaymentRefund.payment_id,
         )
-        .where(HotelBookingPayment.payment_method_id.isnot(None))
-        .group_by(HotelBookingPayment.payment_method_id)
+        .where(hotel_refund_pm.isnot(None))
+        .group_by(hotel_refund_pm)
     )
     if start is not None:
         hotel_refunds_q = hotel_refunds_q.where(HotelBookingPaymentRefund.created_at >= start)
@@ -2173,6 +2563,8 @@ def list_purchases(
     kind: PurchaseKind | None = None,
     limit: int = 500,
     domain=None,
+    *,
+    exclude_loyalty: bool = False,
 ) -> list[Purchase]:
     from modules.platform.business_domain import purchase_domain_db_values
 
@@ -2184,6 +2576,27 @@ def list_purchases(
     )
     if kind is not None:
         stmt = stmt.where(Purchase.kind == kind)
+    if exclude_loyalty:
+        from modules.pos_shifts.loyalty_settlement import (
+            LOYALTY_OPERATING_EXPENSE_CATEGORY,
+            LOYALTY_OPERATING_EXPENSE_SUPPLIER,
+            LOYALTY_SHIFT_EXPENSE_REF_PREFIX,
+        )
+
+        stmt = stmt.where(
+            or_(
+                Purchase.expense_category.is_(None),
+                Purchase.expense_category != LOYALTY_OPERATING_EXPENSE_CATEGORY,
+            ),
+            or_(
+                Purchase.supplier.is_(None),
+                Purchase.supplier != LOYALTY_OPERATING_EXPENSE_SUPPLIER,
+            ),
+            or_(
+                Purchase.supplier_invoice_ref.is_(None),
+                ~Purchase.supplier_invoice_ref.like(f"{LOYALTY_SHIFT_EXPENSE_REF_PREFIX}%"),
+            ),
+        )
     domain_vals = purchase_domain_db_values(domain)
     if domain_vals is not None:
         stmt = stmt.where(Purchase.business_domain.in_(domain_vals))

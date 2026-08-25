@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}SEO Pages{% endblock %}
+{% block body %}
+<h1 style="margin-top:0">صفحات SEO العامة</h1>
+<p class="muted">البيئة: <strong>{% if is_production %}Production{% else %}Staging{% endif %}</strong> ({{ seo_env }})</p>
+<nav style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem">
+  <a class="btn" href="/admin/seo">لوحة</a>
+  <a class="btn btn-primary" href="/admin/seo/pages">الصفحات</a>
+  <a class="btn" href="/admin/seo/issues">المشاكل</a>
+  <a class="btn" href="/admin/seo/suggestions">الاقتراحات</a>
+  <a class="btn" href="/admin/seo/reports">التقارير</a>
+</nav>
+
+<div class="card" style="margin-bottom:1rem">
+  <h2 style="margin-top:0">من المنصة (قابلة للفحص)</h2>
+  <table class="table">
+    <thead><tr><th>النوع</th><th>العنوان</th><th>URL</th><th>كيان</th></tr></thead>
+    <tbody>
+    {% for pg in public_pages %}
+      <tr>
+        <td>{{ pg.page_type }}</td>
+        <td>{{ pg.title or '—' }}</td>
+        <td dir="ltr"><a href="{{ pg.url }}" target="_blank" rel="noopener">{{ pg.url }}</a></td>
+        <td>{{ pg.entity_type or '—' }} {% if pg.entity_id %}#{{ pg.entity_id }}{% endif %}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4" class="muted">لا صفحات</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">مخزّنة من الوكلاء (seo_pages)</h2>
+  <table class="table">
+    <thead><tr><th>#</th><th>نوع</th><th>Title</th><th>URL</th><th>Indexable</th></tr></thead>
+    <tbody>
+    {% for sp in stored_pages %}
+      <tr>
+        <td>{{ sp.id }}</td>
+        <td>{{ sp.page_type }}</td>
+        <td>{{ sp.title or '—' }}</td>
+        <td dir="ltr">{{ sp.url }}</td>
+        <td>{{ sp.indexable }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="muted">فارغ</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

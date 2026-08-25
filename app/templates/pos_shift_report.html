@@ -411,7 +411,7 @@
 
       {% for m in treasury_pay_methods %}
 
-      <option value="{{ m.id }}">{{ m.name_ar }}</option>
+      <option value="{{ m.id }}">{{ pos_wallet_label(m) }}</option>
 
       {% endfor %}
 

@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}العجوزات والزيادات{% endblock %}
+{% block head_extra %}
+{% if pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}
+<link rel="stylesheet" href="/static/treasury_desk.css?v=1" />
+{% endif %}
+{% endblock %}
+{% block body %}
+{% if pos_is_treasury_clerk is defined and pos_is_treasury_clerk(request) %}
+{% include "treasury/_nav.html" %}
+{% endif %}
+<h1>العجوزات والزيادات</h1>
+<p class="muted" style="max-width:46rem;line-height:1.65">
+  كل فرق عهدة أو خزينة يبقى معلّقاً هنا. النظام <strong>لا يخصم من الراتب تلقائياً</strong>
+  ولا يعدّل مبلغ المسلِّم. الأدمن يقرّر: تحميل الموظف، تسوية إدارية، أو إلغاء بعد التحقيق.
+  السجلات لا تُحذف.
+</p>
+<p style="display:flex;flex-wrap:wrap;gap:0.45rem;margin:0.75rem 0">
+  <a class="btn {% if not status_filter %}btn-primary{% endif %}" href="/admin/shift-variances">الكل</a>
+  <a class="btn {% if status_filter == 'PENDING_REVIEW' %}btn-primary{% endif %}" href="/admin/shift-variances?status=PENDING_REVIEW">قيد المراجعة ({{ pending_count }})</a>
+  <a class="btn" href="/pos/shift/shortages">عجز جلسات المطعم</a>
+  <a class="btn" href="/admin/deductions">خصومات الموظفين</a>
+</p>
+{% if saved %}
+<p class="muted" style="color:#15803d">تم حفظ القرار.</p>
+{% endif %}
+{% if err %}
+<div class="alert">{{ err }}</div>
+{% endif %}
+
+{% if recurrence %}
+<div class="card" style="margin-bottom:1rem">
+  <h2 style="margin:0 0 0.55rem;font-size:1.05rem">تكرار العجز حسب الموظف</h2>
+  <table class="table" style="font-size:0.88rem">
+    <thead>
+      <tr>
+        <th>الموظف</th>
+        <th>عدد مرات العجز</th>
+        <th>إجمالي العجز</th>
+        <th>قيد المراجعة</th>
+        <th>محمّل على الراتب</th>
+        <th>ملغي بعد تحقيق</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in recurrence %}
+      <tr>
+        <td>{{ e.employee_name }}</td>
+        <td dir="ltr" style="font-weight:800;color:{% if e.shortage_count >= 3 %}#b91c1c{% else %}inherit{% endif %}">{{ e.shortage_count }}</td>
+        <td dir="ltr" style="font-weight:700;color:#b91c1c">{{ '%.3f'|format(e.shortage_total) }}</td>
+        <td dir="ltr">{{ e.pending_count }}</td>
+        <td dir="ltr">{{ e.charged_count }}</td>
+        <td dir="ltr">{{ e.cancelled_count }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<div class="card">
+  <table class="table" style="font-size:0.88rem">
+    <thead>
+      <tr>
+        <th>الرقم</th>
+        <th>النوع</th>
+        <th>المسلِّم</th>
+        <th>المستلم</th>
+        <th>المتوقع</th>
+        <th>الفعلي</th>
+        <th>الفرق</th>
+        <th>الحالة</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>
+          <strong>{{ r.ref }}</strong>
+          <div class="muted" style="font-size:0.78rem">{{ r.source_ar }} · {{ r.kind_ar }}</div>
+          {% if r.report_href %}<a href="{{ r.report_href }}" style="font-size:0.78rem">{{ r.shift_label }}</a>{% endif %}
+        </td>
+        <td>{% if r.is_shortage %}<span style="color:#b91c1c;font-weight:700">عجز</span>{% else %}<span style="color:#15803d;font-weight:700">زيادة</span>{% endif %}</td>
+        <td>{{ r.from_name }}</td>
+        <td>{{ r.to_name }}</td>
+        <td dir="ltr">{{ '%.3f'|format(r.claimed) }}</td>
+        <td dir="ltr">{{ '%.3f'|format(r.received) }}</td>
+        <td dir="ltr" style="font-weight:800;color:{% if r.is_shortage %}#b91c1c{% else %}#15803d{% endif %}">
+          {{ '%.3f'|format(r.difference) }}
+        </td>
+        <td>
+          {{ r.status_ar }}
+          {% if r.resolved_note %}<div class="muted" style="font-size:0.76rem">{{ r.resolved_note }}</div>{% endif %}
+        </td>
+        <td>
+          {% if r.can_resolve %}
+          <form method="post" action="/admin/shift-variances/{{ r.id }}/charge" style="margin:0 0 0.35rem"
+            onsubmit="return confirm('تحميل {{ r.from_name }} بمبلغ {{ '%.3f'|format(r.abs_difference) }} د.ل؟ لن يتم الخصم إلا بعد هذا التأكيد.');">
+            <input name="note" placeholder="ملاحظة (اختياري)" style="width:11rem;margin-bottom:0.2rem" />
+            <button class="btn" type="submit" style="font-size:0.8rem">تحميل الموظف</button>
+          </form>
+          <form method="post" action="/admin/shift-variances/{{ r.id }}/settle" style="margin:0 0 0.35rem">
+            <input name="note" required placeholder="سبب التسوية الإدارية" style="width:11rem;margin-bottom:0.2rem" />
+            <button class="btn" type="submit" style="font-size:0.8rem">تسوية إدارية</button>
+          </form>
+          <form method="post" action="/admin/shift-variances/{{ r.id }}/cancel" style="margin:0"
+            onsubmit="return confirm('إلغاء السجل بعد التحقيق؟ السبب يُحفظ ولا يُحذف السجل.');">
+            <input name="note" required placeholder="سبب الإلغاء بعد التحقيق" style="width:11rem;margin-bottom:0.2rem" />
+            <button class="btn" type="submit" style="font-size:0.8rem;color:#b91c1c">إلغاء بعد التحقيق</button>
+          </form>
+          {% else %}
+          <span class="muted">أُغلق</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="9" class="muted">لا فروقات مسجّلة.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

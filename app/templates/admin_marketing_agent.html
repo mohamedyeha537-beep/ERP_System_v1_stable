@@ -1,0 +1,340 @@
+{% extends "base.html" %}
+{% block title %}{{ card.title_ar }} — غرفة التسويق{% endblock %}
+{% block body %}
+<div class="row" style="justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap">
+  <div>
+    <h1 style="margin:0">{{ card.number }}. {{ card.title_ar }}</h1>
+    <p class="muted" style="margin:0.35rem 0 0;max-width:40rem">{{ card.blurb_ar }}</p>
+  </div>
+  <div class="row" style="gap:0.4rem;flex-wrap:wrap">
+    <a class="btn" href="/admin/marketing-room">غرفة الوكلاء</a>
+    <a class="btn btn-primary" href="/admin/marketing-room/settings">⚙ إعدادات الغرفة</a>
+  </div>
+</div>
+
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+{% if notice %}<div class="alert" style="background:#ecfdf5;border-color:#10b981;color:#065f46">{{ notice }}</div>{% endif %}
+
+<div class="card" style="margin-top:0.85rem">
+  <p style="margin:0;font-size:0.9rem">
+    ذكاء النصوص:
+    {% if caps.text_ai %}<strong style="color:#15803d">مربوط</strong>{% else %}<strong style="color:#b45309">غير مربوط</strong> — يعمل بقالب محلي أو اضبط المفتاح{% endif %}
+    · توليد الصور:
+    {% if caps.image_ai %}<strong style="color:#15803d">مربوط</strong>{% else %}<strong style="color:#b45309">غير مربوط</strong>{% endif %}
+    · فيسبوك Ads:
+    {% if caps.meta_ads %}<strong style="color:#15803d">مربوط</strong>{% else %}<strong class="muted">غير مربوط</strong>{% endif %}
+    · فيديو (Higgsfield):
+    {% if caps.video_ai %}<strong style="color:#15803d">مربوط</strong>{% else %}<strong class="muted">غير مربوط</strong>{% endif %}
+  </p>
+</div>
+
+<div class="card" style="margin-top:0.85rem;border-color:#67e8f9;background:#ecfeff">
+  <h2 style="margin-top:0;font-size:1.05rem">لوحة الفريق</h2>
+  {% if team and team.has_plan %}
+  <p style="margin:0 0 0.45rem">
+    الخطة النشطة:
+    <strong>{{ team.plan_title or ('تشغيل #' ~ team.plan_run_id) }}</strong>
+    {% if team.plan_run_id %}
+    · <a href="/admin/marketing-room/runs/{{ team.plan_run_id }}">عرض الخطة</a>
+    {% endif %}
+  </p>
+  {% if team.themes %}
+  <ul style="margin:0 0 0.65rem;padding-inline-start:1.2rem;font-size:0.9rem;line-height:1.55">
+    {% for t in team.themes %}<li>{{ t }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+  {% else %}
+  <p class="muted" style="margin:0 0 0.65rem">لا خطة فريق نشطة بعد — أنشئ خطة من <a href="/admin/marketing-room/agents/content_manager">مدير المحتوى</a> ليبدأ التنسيق.</p>
+  {% endif %}
+
+  {% if team and team.open_tasks %}
+  <h3 style="margin:0.5rem 0 0.35rem;font-size:0.98rem">مهامك من الخطة</h3>
+  <ul style="margin:0 0 0.75rem;padding-inline-start:1.2rem;line-height:1.6;font-size:0.9rem">
+    {% for t in team.open_tasks %}
+    <li><strong>#{{ t.id }}</strong> — {{ t.title }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  {% if team and team.open_requests %}
+  <h3 style="margin:0.5rem 0 0.35rem;font-size:0.98rem">طلبات موجّهة إليك (تنفيذ فعلي)</h3>
+  {% for r in team.open_requests %}
+  <div style="border:1px solid #a5f3fc;border-radius:8px;padding:0.55rem 0.7rem;margin-bottom:0.45rem;background:#fff">
+    <strong>{{ r.title }}</strong>
+    <div style="white-space:pre-wrap;font-size:0.9rem;margin:0.3rem 0">{{ r.body_text }}</div>
+    <div class="row" style="gap:0.35rem;flex-wrap:wrap">
+      <form method="post" action="/admin/marketing-room/agents/{{ card.role }}/team-request/{{ r.id }}/execute">
+        <button class="btn btn-primary" type="submit">▶ تنفيذ الآن</button>
+      </form>
+      <form method="post" action="/admin/marketing-room/agents/{{ card.role }}/team-request/{{ r.id }}/done">
+        <button class="btn" type="submit">تجاهل / إنجاز يدوي</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {% if team and team.peers %}
+  <form method="post" action="/admin/marketing-room/agents/{{ card.role }}/team-request" style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px dashed #67e8f9">
+    <h3 style="margin:0 0 0.45rem;font-size:0.98rem">اطلب تنفيذاً من وكيل آخر</h3>
+    <p class="muted" style="margin:0 0 0.45rem;font-size:0.85rem">مثال: «غيّر صورة البرجر» → يُنفَّذ بإعادة توليد الصورة تلقائياً (وليس مجرد رسالة).</p>
+    <label for="to_role">إلى</label>
+    <select id="to_role" name="to_role" required style="display:block;margin:0.3rem 0 0.55rem;max-width:18rem">
+      {% for p in team.peers %}
+      <option value="{{ p.role }}">{{ p.title_ar }}</option>
+      {% endfor %}
+    </select>
+    <label for="team_msg">الطلب</label>
+    <textarea id="team_msg" name="message" required rows="3" placeholder="مثال: غيّر صورة البرجر" style="width:100%;margin:0.3rem 0 0.55rem"></textarea>
+    <button class="btn btn-primary" type="submit">إرسال وتنفيذ</button>
+  </form>
+  {% endif %}
+</div>
+
+{% if directives %}
+<div class="card" style="margin-top:0.85rem;border-color:#fcd34d;background:#fffbeb">
+  <h2 style="margin-top:0;font-size:1.05rem">توجيهات من مدير حملات فيسبوك</h2>
+  <p class="muted" style="margin:0 0 0.65rem;font-size:0.88rem">نفّذ هذه الملاحظات لتحسين الحملات، ثم اعتمدها من صفحة التشغيل.</p>
+  <ul style="margin:0;padding-inline-start:1.2rem;line-height:1.65">
+    {% for d in directives %}
+    <li>
+      <strong>{{ d.title }}</strong>
+      <div style="white-space:pre-wrap;font-size:0.9rem;margin:0.25rem 0 0.5rem">{{ d.body_text }}</div>
+      <a href="/admin/marketing-room/runs/{{ d.run_id }}">فتح التشغيل #{{ d.run_id }}</a>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if card.role == 'campaign_manager' %}
+<div class="card" style="margin-top:0.85rem;border-color:#93c5fd;background:#eff6ff">
+  <h2 style="margin-top:0">كيف يعمل الربط؟</h2>
+  <ul style="margin:0;padding-inline-start:1.2rem;line-height:1.7;font-size:0.92rem">
+    <li><strong>داخل النظام (موصى به للمتابعة المستمرة):</strong> ضع Meta Access Token + Ad Account من إعدادات الغرفة ثم اضغط «مراجعة الحملات».</li>
+    <li><strong>عبر MCP / n8n:</strong> اجلب بيانات الحملات من Cursor MCP أو n8n، ثم الصق JSON أدناه أو أرسلها إلى
+      <code style="direction:ltr">POST /api/marketing-room/campaigns/insights</code>
+      بمفتاح <code>X-Marketing-API-Key</code>.</li>
+    <li>بعد التحليل يُصدر المدير <strong>توجيهات</strong> لمدير المحتوى، الديزاين، الهاشتاج، البياع، والنشر.</li>
+  </ul>
+  <p class="muted" style="margin:0.65rem 0 0;font-size:0.86rem">
+    {% if meta_status and meta_status.configured %}
+    Meta مربوط · الحساب: <span style="direction:ltr">{{ meta_status.ad_account_id }}</span>
+    {% else %}
+    Meta غير مضبوط بعد — يمكنك البدء بلصق JSON من MCP.
+    {% endif %}
+  </p>
+</div>
+<div class="card" style="margin-top:0.85rem">
+  <h2 style="margin-top:0">مراجعة وتحليل الحملات</h2>
+  <form method="post" action="/admin/marketing-room/agents/campaign_manager/review">
+    <label for="date_preset">فترة الرؤى (عند الجلب من Meta)</label>
+    <select id="date_preset" name="date_preset" style="display:block;margin:0.35rem 0 0.75rem;max-width:16rem">
+      <option value="last_7d" selected>آخر 7 أيام</option>
+      <option value="last_14d">آخر 14 يوماً</option>
+      <option value="last_30d">آخر 30 يوماً</option>
+      <option value="yesterday">أمس</option>
+    </select>
+    <label for="notes">ملاحظات للتحليل (اختياري)</label>
+    <input id="notes" name="notes" placeholder="مثال: ركّز على حملات المطعم فقط" style="width:100%;margin:0.35rem 0 0.75rem" />
+    <label for="campaigns_json">بيانات حملات من MCP / لصق يدوي (JSON اختياري)</label>
+    <textarea id="campaigns_json" name="campaigns_json" rows="6" placeholder='{"campaigns":[{"name":"...","status":"ACTIVE","impressions":1000,"clicks":40,"spend":25,"ctr":4}]}' style="width:100%;margin:0.35rem 0 0.75rem;direction:ltr;font-size:0.85rem"></textarea>
+    <p class="muted" style="margin:0 0 0.75rem;font-size:0.85rem">إن تركت JSON فارغاً سيُجلب من Meta API مباشرة (يتطلب التوكن).</p>
+    <button class="btn btn-primary" type="submit">▶ مراجعة الحملات وتوجيه الوكلاء</button>
+  </form>
+</div>
+{% elif card.role == 'content_manager' %}
+<div class="card" style="margin-top:0.85rem">
+  <h2 style="margin-top:0">إنشاء خطة إدارة محتوى (تفعّل الفريق)</h2>
+  <p class="muted" style="margin:0 0 0.75rem">
+    تولّد الخطة وتوزّع تلقائياً مهام على الديزاين والهاشتاج والبياع ليعملوا معاً عليها.
+  </p>
+  <form method="post" action="/admin/marketing-room/agents/content_manager/plan" class="row" style="gap:0.65rem;align-items:end;flex-wrap:wrap">
+    <div>
+      <label for="days">عدد الأيام</label>
+      <select id="days" name="days">
+        <option value="3">3</option>
+        <option value="7" selected>7</option>
+        <option value="14">14</option>
+      </select>
+    </div>
+    <div style="flex:1;min-width:14rem">
+      <label for="focus">تركيز اختياري</label>
+      <input id="focus" name="focus" placeholder="مثال: إفطار الفندق، عروض نهاية الأسبوع" />
+    </div>
+    <button class="btn btn-primary" type="submit">إنشاء الخطة الآن</button>
+  </form>
+</div>
+{% elif card.role == 'design' %}
+<div class="card" style="margin-top:0.85rem;border:2px solid #0f766e">
+  <h2 style="margin-top:0">إنشاء منشور — نص / صورة / فيديو</h2>
+  <p class="muted" style="margin:0 0 0.75rem">
+    العنوان للنص العربي. البرومبت للوسائط. اختر صورة أو فيديو أو الاثنين.
+  </p>
+  <form method="post" action="/admin/marketing-room/agents/design/create">
+    {% if team and team.open_tasks %}
+    <label for="team_task_id">مهمة من خطة الفريق</label>
+    <select id="team_task_id" name="team_task_id" style="display:block;width:100%;margin:0.35rem 0 0.75rem">
+      <option value="">— بدون مهمة (موضوع يدوي) —</option>
+      {% for t in team.open_tasks %}
+      <option value="{{ t.id }}">#{{ t.id }} — {{ t.title }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+    {% if team and team.open_requests %}
+    <label for="fulfill_request_id">تنفيذ طلب تعديل</label>
+    <select id="fulfill_request_id" name="fulfill_request_id" style="display:block;width:100%;margin:0.35rem 0 0.75rem">
+      <option value="">— لا —</option>
+      {% for r in team.open_requests %}
+      <option value="{{ r.id }}">#{{ r.id }} — {{ r.title }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+
+    <label for="topic"><strong>1) عنوان المنشور</strong> (عربي)</label>
+    <input id="topic" name="topic" placeholder="مثال: ساندويتش برجر من روف" style="width:100%;margin:0.35rem 0 0.85rem" />
+
+    <div style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:10px;padding:0.85rem 1rem;margin-bottom:0.85rem">
+      <label for="image_prompt"><strong>2) برومبت الصورة / الفيديو</strong> (إنجليزي — منفصل عن العنوان)</label>
+      <textarea id="image_prompt" name="image_prompt" rows="4" placeholder="juicy beef burger with fries, restaurant table, no text on image" style="width:100%;margin:0.35rem 0 0.35rem;direction:ltr;font-size:0.9rem"></textarea>
+      <p class="muted" style="margin:0;font-size:0.82rem">فارغ = يُبنى من العنوان تلقائياً.</p>
+    </div>
+
+    <label for="content_focus">نطاق النص</label>
+    <select id="content_focus" name="content_focus" style="display:block;margin:0.35rem 0 0.75rem">
+      <option value="restaurant" selected>المطعم / الكافيه فقط</option>
+      <option value="hotel">الشقق الفندقية فقط</option>
+      <option value="shared">مشترك (مطعم + فندق)</option>
+    </select>
+    <label for="platform">المنصة</label>
+    <select id="platform" name="platform" style="display:block;margin:0.35rem 0 0.75rem">
+      <option value="instagram">Instagram</option>
+      <option value="facebook">Facebook</option>
+      <option value="tiktok">TikTok</option>
+    </select>
+
+    <div style="background:#fff7ed;border:1px solid #fdba74;border-radius:10px;padding:0.85rem 1rem;margin-bottom:0.85rem">
+      <p style="margin:0 0 0.55rem;font-weight:800">3) ماذا نولّد؟</p>
+      <label style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;font-size:1rem">
+        <input type="checkbox" name="with_text" value="on" checked />
+        <span>📝 نص المنشور</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;font-size:1rem">
+        <input type="checkbox" name="with_image" value="on" id="chk_image" {% if not caps.image_ai %}disabled{% endif %} />
+        <span>🖼 صورة {% if not caps.image_ai %}<small class="muted">(مفتاح fal/Higgsfield من الإعدادات)</small>{% endif %}</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.65rem;font-size:1rem">
+        <input type="checkbox" name="with_video" value="on" id="chk_video" {% if not caps.video_ai %}disabled{% endif %} />
+        <span>🎬 فيديو {% if not caps.video_ai %}<small class="muted">(مفتاح Higgsfield)</small>{% endif %}</span>
+      </label>
+      <p style="margin:0 0 0.4rem;font-size:0.85rem;font-weight:700">اختيار سريع للوسائط:</p>
+      <div class="row" style="gap:0.4rem;flex-wrap:wrap">
+        <button type="button" class="btn" onclick="mktMedia('none')">بدون وسائط</button>
+        <button type="button" class="btn" onclick="mktMedia('image')" {% if not caps.image_ai %}disabled{% endif %}>صورة فقط</button>
+        <button type="button" class="btn" onclick="mktMedia('video')" {% if not caps.video_ai %}disabled{% endif %}>فيديو فقط</button>
+        <button type="button" class="btn btn-primary" onclick="mktMedia('both')" {% if not caps.image_ai and not caps.video_ai %}disabled{% endif %}>صورة + فيديو</button>
+      </div>
+    </div>
+
+    <button class="btn btn-primary" type="submit" style="font-size:1.05rem;padding:0.65rem 1.2rem">▶ إنشاء المحتوى</button>
+  </form>
+</div>
+<script>
+function mktMedia(mode) {
+  var img = document.getElementById('chk_image');
+  var vid = document.getElementById('chk_video');
+  if (!img || !vid) return;
+  if (mode === 'none') { if (!img.disabled) img.checked = false; if (!vid.disabled) vid.checked = false; }
+  if (mode === 'image') { if (!img.disabled) img.checked = true; if (!vid.disabled) vid.checked = false; }
+  if (mode === 'video') { if (!img.disabled) img.checked = false; if (!vid.disabled) vid.checked = true; }
+  if (mode === 'both') { if (!img.disabled) img.checked = true; if (!vid.disabled) vid.checked = true; }
+}
+</script>
+{% elif card.role == 'hashtag' %}
+<div class="card" style="margin-top:0.85rem">
+  <h2 style="margin-top:0">اقتراح هاشتاجات (متوافق مع خطة الفريق)</h2>
+  <form method="post" action="/admin/marketing-room/agents/hashtag/generate">
+    {% if team and team.open_tasks %}
+    <label for="team_task_id_h">مهمة من الخطة</label>
+    <select id="team_task_id_h" name="team_task_id" style="display:block;width:100%;margin:0.35rem 0 0.75rem">
+      <option value="">— تلقائي من الخطة / موضوع يدوي —</option>
+      {% for t in team.open_tasks %}
+      <option value="{{ t.id }}">#{{ t.id }} — {{ t.title }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+    {% if team and team.open_requests %}
+    <label for="fulfill_request_id_h">تنفيذ طلب وارد</label>
+    <select id="fulfill_request_id_h" name="fulfill_request_id" style="display:block;width:100%;margin:0.35rem 0 0.75rem">
+      <option value="">— لا —</option>
+      {% for r in team.open_requests %}
+      <option value="{{ r.id }}">#{{ r.id }} — {{ r.title }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+    <label for="topic">موضوع المنشور</label>
+    <input id="topic" name="topic" placeholder="فارغ = من مهمة الفريق أو أول يوم في الخطة" style="width:100%;margin:0.35rem 0 0.75rem" />
+    <button class="btn btn-primary" type="submit">توليد هاشتاجات</button>
+  </form>
+</div>
+{% elif card.role == 'website_seller' %}
+<div class="card" style="margin-top:0.85rem">
+  <h2 style="margin-top:0">زوايا بيع اليوم (من خطة الفريق)</h2>
+  <p class="muted">تُولَّد بما يتوافق مع الخطة النشطة وأصناف المطعم.</p>
+  <form method="post" action="/admin/marketing-room/agents/website_seller/angles">
+    {% if team and team.open_tasks %}
+    <label for="team_task_id_s">مهمة من الخطة</label>
+    <select id="team_task_id_s" name="team_task_id" style="display:block;width:100%;margin:0.35rem 0 0.75rem">
+      <option value="">— عامة من الخطة —</option>
+      {% for t in team.open_tasks %}
+      <option value="{{ t.id }}">#{{ t.id }} — {{ t.title }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+    {% if team and team.open_requests %}
+    <label for="fulfill_request_id_s">تنفيذ طلب وارد</label>
+    <select id="fulfill_request_id_s" name="fulfill_request_id" style="display:block;width:100%;margin:0.35rem 0 0.75rem">
+      <option value="">— لا —</option>
+      {% for r in team.open_requests %}
+      <option value="{{ r.id }}">#{{ r.id }} — {{ r.title }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+    <button class="btn btn-primary" type="submit">توليد زوايا البيع</button>
+  </form>
+</div>
+{% else %}
+<div class="card" style="margin-top:0.85rem">
+  <h2 style="margin-top:0">مساحة العمل</h2>
+  <p class="muted" style="margin:0 0 0.75rem">
+    هذا الوكيل يشارك في «تشغيل خط الوكلاء» اليومي من الغرفة الرئيسية،
+    أو راجع مخرجاته السابقة أدناه.
+  </p>
+  <a class="btn btn-primary" href="/admin/marketing-room">تشغيل الخط اليومي من الغرفة</a>
+</div>
+{% endif %}
+
+<div class="card" style="margin-top:0.85rem">
+  <h2 style="margin-top:0">آخر مخرجات هذا الوكيل</h2>
+  {% if artifacts %}
+  <table style="width:100%;font-size:0.9rem">
+    <thead>
+      <tr><th>#</th><th>العنوان</th><th>النوع</th><th>الحالة</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for a in artifacts %}
+      <tr>
+        <td>{{ a.id }}</td>
+        <td>{{ a.title }}</td>
+        <td>{{ a.kind }}</td>
+        <td>{{ a.status }}</td>
+        <td><a href="/admin/marketing-room/runs/{{ a.run_id }}">فتح التشغيل</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted" style="margin:0">لا مخرجات بعد — نفّذ مهمة من الأعلى.</p>
+  {% endif %}
+</div>
+{% endblock %}

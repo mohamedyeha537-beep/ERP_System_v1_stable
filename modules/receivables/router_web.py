@@ -28,7 +28,7 @@ from modules.receivables.service import (
 router = APIRouter(prefix="/reports", tags=["receivables"])
 _perm = require_permission(REPORTS_VIEW)
 
-_status_LABELS = {
+_STATUS_LABELS = {
     InvoicePayStatus.PAID: "مسدّد بالكامل",
     InvoicePayStatus.PARTIAL: "مسدّد جزئياً",
     InvoicePayStatus.UNPAID: "غير مدفوعة",
@@ -36,10 +36,11 @@ _status_LABELS = {
 
 
 def _redirect_unless_pos_reports(request: Request, user: User):
-    from modules.platform.business_domain import reports_show_pos_sections
+    """ديون العملاء لوضع الفندق (والوضع العام). المطعم يُحوَّل لتسوية الغرف للعرض."""
+    from modules.platform.business_domain import BusinessDomain, resolve_finance_domain
 
-    if not reports_show_pos_sections(user, request.session):
-        return RedirectResponse("/reports/hotel-balances", status_code=302)
+    if resolve_finance_domain(user, request.session) == BusinessDomain.RESTAURANT:
+        return RedirectResponse("/hotel/settle", status_code=302)
     return None
 
 
@@ -52,18 +53,24 @@ def receivables_page(
     context: str = Query("all"),
     balance_only: int = Query(1, ge=0, le=1),
 ):
-    from modules.platform.business_domain import reports_show_pos_sections
-
-    if not reports_show_pos_sections(user, request.session):
-        return RedirectResponse("/reports/hotel-balances", status_code=302)
+    blocked = _redirect_unless_pos_reports(request, user)
+    if blocked is not None:
+        return blocked
 
     pay_filter = (pay or "all").lower()
     if pay_filter not in ("all", "paid", "partial", "unpaid"):
         pay_filter = "all"
     ctx_filter = (context or "all").lower()
     only_bal = balance_only == 1
+    restaurant_hotel_invoices_only = False
+    context_options = [
+        ("all", "كل السياقات"),
+        ("TABLE", "طاولات"),
+        ("ROOM", "غرف فندق"),
+        ("EXTERNAL", "طلبات خارجية"),
+    ]
 
-    summary = receivables_summary(db)
+    summary = receivables_summary(db, context_filter=ctx_filter)
     rows = build_receivable_rows(
         db,
         pay_filter=pay_filter,
@@ -83,12 +90,8 @@ def receivables_page(
             "context_filter": ctx_filter,
             "balance_only": only_bal,
             "status_labels": _STATUS_LABELS,
-            "context_options": [
-                ("all", "كل السياقات"),
-                ("TABLE", "طاولات"),
-                ("ROOM", "غرف فندق"),
-                ("EXTERNAL", "طلبات خارجية"),
-            ],
+            "context_options": context_options,
+            "restaurant_hotel_invoices_only": restaurant_hotel_invoices_only,
         },
     )
 
@@ -115,8 +118,16 @@ def receivables_debtor_page(
             "/reports/receivables?err=" + quote("الزبون غير موجود."),
             status_code=302,
         )
+    from modules.platform.business_domain import BusinessDomain, resolve_finance_domain
+
+    ctx_filter = None
+    if resolve_finance_domain(user, request.session) == BusinessDomain.RESTAURANT:
+        ctx_filter = "room"
     rows = build_receivable_rows(
-        db, only_with_balance=True, debt_key_filter=debt_key
+        db,
+        only_with_balance=True,
+        debt_key_filter=debt_key,
+        context_filter=ctx_filter,
     )
     group_rows = customer_debt_groups(rows)
     group = group_rows[0] if group_rows else None
@@ -153,6 +164,15 @@ def receivables_invoice_page(
             "/reports/receivables?err=" + quote("الفاتورة غير موجودة أو مسدّدة."),
             status_code=302,
         )
+    from modules.platform.business_domain import BusinessDomain, resolve_finance_domain
+    from modules.sales.models import SaleContext
+
+    if resolve_finance_domain(user, request.session) == BusinessDomain.RESTAURANT:
+        if getattr(detail.sale, "context_type", None) != SaleContext.ROOM:
+            return RedirectResponse(
+                "/reports/receivables?balance_only=1&context=ROOM",
+                status_code=302,
+            )
     methods = list_receive_methods_for_collection(db)
     pm_ids = {int(p.payment_method_id) for p in detail.payments}
     pm_ids.update(int(m.id) for m in methods)

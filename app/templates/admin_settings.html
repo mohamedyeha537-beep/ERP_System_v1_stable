@@ -126,10 +126,20 @@
     <label for="store_name">اسم المتجر (يظهر في رأس الفاتورة)</label>
     <input id="store_name" name="store_name" value="{{ store_name }}" maxlength="120" />
 
-    <label for="public_base_url" style="margin-top: 0.75rem">الرابط العام للتطبيق (لروابط واتساب والفواتير)</label>
-    <input id="public_base_url" name="public_base_url" value="{{ public_base_url }}" placeholder="https://example.com" maxlength="255" dir="ltr" />
+    <label for="public_base_url" style="margin-top: 0.75rem">الرابط العام للتطبيق (لروابط واتساب والفواتير وSEO)</label>
+    <input id="public_base_url" name="public_base_url" value="{{ public_base_url }}" placeholder="https://baytak.baytak.ly" maxlength="255" dir="ltr" />
     <p class="muted" style="font-size: 0.85rem; margin-top: 0.35rem">
-      عند ضبطه، تُرسل رسائل حجز الفندق رابط كشف الحساب/الفاتورة للنزيل. اتركه فارغاً إذا كان النظام محلياً فقط.
+      بيئات Baytak:
+      <strong dir="ltr">تجريب</strong> = <code dir="ltr">https://pos.baytak.ly</code>
+      ·
+      <strong dir="ltr">إنتاج</strong> = <code dir="ltr">https://baytak.baytak.ly</code>
+      <br />
+      يُفضَّل ضبطه أيضاً في ملف <code>.env</code> كـ <code>PUBLIC_BASE_URL=...</code> لكل سيرفر على حدة.
+      {% if public_base_url_env %}
+      <br /><span style="color:#0f766e">مفعّل من البيئة الآن: <code dir="ltr">{{ public_base_url_env }}</code> (يتقدّم على الحقل أعلاه)</span>
+      {% elif public_base_url_effective %}
+      <br />الرابط الفعّال حالياً: <code dir="ltr">{{ public_base_url_effective }}</code>
+      {% endif %}
     </p>
 
     <div style="margin-top:1rem;padding:0.85rem;border:1px solid #bbf7d0;border-radius:10px;background:#f0fdf4">
@@ -170,8 +180,14 @@
       <option value="{{ code }}" {% if current_paper == code %}selected{% endif %}>{{ label }}</option>
       {% endfor %}
     </select>
+    <label for="print_paper_orientation" style="margin-top: 0.65rem">اتجاه الورق الافتراضي — المطعم</label>
+    <select id="print_paper_orientation" name="print_paper_orientation">
+      {% for code, label in paper_orientations|default([('portrait','طولية'),('landscape','عرضية')]) %}
+      <option value="{{ code }}" {% if current_orientation|default('portrait') == code %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
     <p class="muted" style="font-size:0.82rem;margin:0.35rem 0 0">
-      فواتير نقطة البيع والكاشير. مقاس فواتير الفندق من
+      فواتير نقطة البيع والكاشير (A4/A5). الورق الحراري طولي دائماً. مقاس الفندق من
       <a href="/admin/hotel/settings">إعدادات الحجز — الطباعة</a>.
     </p>
 
@@ -226,6 +242,10 @@
         إشعار عند إغلاق جلسة البيع
       </label>
       <label style="display:flex;align-items:center;gap:0.45rem;margin:0.4rem 0">
+        <input type="checkbox" name="treasury_notify_handoff_pending_enabled" value="1" {% if treasury_notify_handoff_pending_enabled %}checked{% endif %}>
+        تنبيه أمين الخزينة والأدمن عند جلسة مغلقة بانتظار الاعتماد (وتذكير كل ساعة)
+      </label>
+      <label style="display:flex;align-items:center;gap:0.45rem;margin:0.4rem 0">
         <input type="checkbox" name="treasury_notify_movements_enabled" value="1" {% if treasury_notify_movements_enabled %}checked{% endif %}>
         إشعار عند كل حركة قبض أو صرف أو تحويل
       </label>
@@ -234,9 +254,13 @@
         إرسال تحديث مستقل بأرصدة الخزائن بعد الحركة
       </label>
       <p class="muted" style="margin:0.55rem 0 0;font-size:0.8rem">
-        يتم استخدام رقم الأدمن من إعدادات الرسائل أو من مسار توجيه <code>treasury.*</code> في إدارة الإشعارات.
+        رقم الأدمن من إعدادات الرسائل أو مسار <code>treasury.*</code>. رقم أمين الخزينة من
+        <a href="/admin/notifications">إدارة الإشعارات</a> (هواتف أمين الخزينة).
       </p>
     </div>
+
+    {% include "_hotel_shift_close_policy_fields.html" %}
+    {% include "_pos_shift_close_policy_fields.html" %}
 
     <div class="row" style="margin-top: 1rem">
       <button class="btn btn-primary" type="submit">حفظ</button>
@@ -591,33 +615,43 @@
   </form>
 </div>
 
-<div class="card" style="border-color:#fde68a;background:#fffbeb">
-  <h2 style="margin-top:0">كود تفويض الاسترداد (نقطة البيع)</h2>
-  <p class="muted" style="margin-top:0;font-size:0.9rem">
-    يُطلب من الكاشير عند الاسترداد من تبويب «جميع الطلبات». من يملك الكود فقط يمكنه متابعة الاسترداد.
-    {% if refund_auth_configured %}
-    <strong style="color:#15803d"> — مُضبط حالياً.</strong>
-    {% else %}
-    <strong style="color:#b91c1c"> — غير مُضبط.</strong>
-    {% endif %}
+<div class="card" id="supervisor-otp-section" style="border-color:#fde68a;background:#fffbeb">
+  <h2 style="margin-top:0">رموز اعتماد المشرف (OTP واتساب)</h2>
+  <p class="muted" style="margin-top:0;font-size:0.9rem;line-height:1.55;max-width:48rem">
+    تحكّم عام للمنصة: فعّل أو أوقف طلب الرمز لكل إجراء.
+    يُرسل الرمز لمشرفي نفس النطاق من
+    <a href="/admin/employees">الموظفين</a>
+    (مشرف المطعم لترجيع الوجبات، مشرف الفندق لإلغاء الحجز).
+    مدير النظام يبقى معفى دائماً.
   </p>
-  {% if refund_auth_saved %}
-  <p style="margin:0.5rem 0;color:#15803d;font-weight:600">تم حفظ إعداد كود الاسترداد.</p>
+  {% if otp_policy_saved|default(false) %}
+  <p style="margin:0 0 0.75rem;color:#15803d;font-weight:600">تم حفظ سياسة رموز OTP.</p>
   {% endif %}
-  {% if refund_auth_error %}
-  <div class="alert" style="margin:0.5rem 0">{{ refund_auth_error }}</div>
-  {% endif %}
-  <form method="post" action="/admin/settings" style="margin-top:0.75rem;display:flex;flex-wrap:wrap;gap:0.75rem;align-items:flex-end">
-    <input type="hidden" name="refund_code_save" value="1" />
-    <div>
-      <label for="refund_code" style="font-size:0.85rem">كود جديد (4–12 حرفاً)</label>
-      <input id="refund_code" name="refund_code" type="password" autocomplete="new-password" placeholder="••••••" style="max-width:14rem" />
-    </div>
-    <button type="submit" class="btn btn-primary">حفظ الكود</button>
-    <label style="display:flex;align-items:center;gap:0.35rem;font-size:0.88rem">
-      <input type="checkbox" name="clear_refund_code" value="on" />
-      حذف الكود الحالي
+  <form method="post" action="/admin/settings/otp-policy">
+    <p style="margin:0 0 0.85rem;padding:0.55rem 0.7rem;border-radius:8px;background:#ecfdf5;border:1px solid #86efac;color:#14532d;font-size:0.88rem;line-height:1.5">
+      <strong>ترجيع مبلغ النزيل</strong> (مغادرة أو إيصال صرف) لا يطلب رمز مشرف.
+    </p>
+    <label style="display:flex;align-items:flex-start;gap:0.55rem;font-weight:600;line-height:1.45;margin-bottom:0.75rem">
+      <input type="checkbox" name="otp_require_pos_refund" value="on"
+        {% if otp_require_pos_refund|default(true) %}checked{% endif %} style="margin-top:0.25rem" />
+      <span>
+        ترجيع وجبات المطعم
+        <span class="muted" style="display:block;font-weight:400;font-size:0.85rem;margin-top:0.2rem">
+          كاشير نقطة البيع وصفحة المرتجعات. افتراضياً مفعّل.
+        </span>
+      </span>
     </label>
+    <label style="display:flex;align-items:flex-start;gap:0.55rem;font-weight:600;line-height:1.45;margin-bottom:0.35rem">
+      <input type="checkbox" name="otp_require_hotel_cancel" value="on"
+        {% if otp_require_hotel_cancel|default(true) %}checked{% endif %} style="margin-top:0.25rem" />
+      <span>
+        إلغاء حجز شقة / No Show
+        <span class="muted" style="display:block;font-weight:400;font-size:0.85rem;margin-top:0.2rem">
+          اعتماد مشرف قبل الإلغاء اليدوي. افتراضياً مفعّل.
+        </span>
+      </span>
+    </label>
+    <button class="btn btn-primary" type="submit" style="margin-top:0.85rem">حفظ سياسة رموز OTP</button>
   </form>
 </div>
 

@@ -6,12 +6,16 @@ from sqlalchemy.orm import Session
 
 from modules.notifications.events import (
     CUSTOMER_CREATED,
+    HOTEL_BALANCE_CLAIM,
     HOTEL_BOOKING_CONFIRMED,
     HOTEL_BOOKING_CREATED,
+    HOTEL_CHECK_IN_WELCOME,
     HOTEL_ONLINE_BOOKING_REQUEST,
     HOTEL_CHECKOUT_REMINDER,
+    HOTEL_LATE_CHECKOUT_CHARGED,
     HOTEL_NIGHT_PAYMENT_DUE,
     HOTEL_PAYMENT_RECEIVED,
+    HOTEL_ROOM_CLEANING,
     HOTEL_ROOM_MAINTENANCE,
     HOTEL_SHIFT_CLOSED,
     HOTEL_SHIFT_OPENED,
@@ -50,6 +54,12 @@ from modules.notifications.events import (
     POS_SHIFT_OPENED,
     POS_CASH_OVERAGE,
     TREASURY_BALANCE_UPDATE,
+    TREASURY_HANDOFF_PENDING,
+    TREASURY_HANDOFF_APPROVED,
+    SHIFT_HANDOVER_SENT,
+    SHIFT_HANDOVER_CONFIRMED,
+    SHIFT_VARIANCE_OPENED,
+    SHIFT_BANK_TRANSFER_DECLARED,
     TREASURY_MOVEMENT,
     TREASURY_SHIFT_CLOSED,
     REFERRAL_FIRST_ORDER,
@@ -179,6 +189,18 @@ POS_OVERAGE_BODY = (
 )
 
 
+POS_SHORTAGE_BODY = (
+    "⚠️ عجز جلسة #{shift_id}\n"
+    "الموظف: {employee_name}\n"
+    "نقداً: {cash_shortage} د.ل\n"
+    "مصرف: {bank_shortage} د.ل\n"
+    "الإجمالي: {shortage} د.ل"
+)
+
+
+POS_SHORTAGE_BODY_LEGACY = "⚠️ عجز جلسة #{shift_id}: {shortage} — {cashier_name}"
+
+
 INVENTORY_PURCHASE_NEEDED_BODY = (
     "⚠️ حاجة شراء — {store_name}\n"
     "عدد الأصناف: {item_count} — {digest_date}\n\n"
@@ -210,6 +232,159 @@ HR_PAYROLL_POSTED_BODY = (
 def _body_needs_default(body: str | None) -> bool:
     b = (body or "").strip()
     return b in ("", "{message}", "{{message}}")
+
+
+HOTEL_BOOKING_CONFIRMED_BODY = (
+    "مرحباً {guest_name}،\n"
+    "\n"
+    "✅ تم تأكيد حجزك بنجاح في *{store_name}*.\n"
+    "\n"
+    "🧾 *رقم الحجز:* {booking_reference}\n"
+    "🏠 *الشقة:* {room_name} {room_type}\n"
+    "\n"
+    "📅 *تاريخ الوصول:* {check_in_date}\n"
+    "🕑 *تسجيل الدخول:* 2:00 ظهراً\n"
+    "\n"
+    "📅 *تاريخ المغادرة:* {check_out_date}\n"
+    "🕛 *تسجيل المغادرة:* 12:00 ظهراً\n"
+    "\n"
+    "💰 *ملخص الحساب (مطابق للإيصال):*\n"
+    "{folio_lines}\n"
+    "الإجمالي: *{booking_total}* د.ل\n"
+    "المدفوع: *{paid_amount}* د.ل\n"
+    "المتبقي: *{balance_due}* د.ل\n"
+    "\n"
+    "نتطلع لاستقبالك ونتمنى لك إقامة مريحة ومميزة.\n"
+    "\n"
+    "*يرجى التكرم بالاطلاع على سياسة الحجز:*\n"
+    "\n"
+    "• يعتبر هذا الحجز مؤكداً للفترة المحددة أعلاه فقط.\n"
+    "• يمكن إلغاء الحجز مع استرداد كامل المبلغ عند تقديم طلب الإلغاء قبل "
+    "*24 ساعة على الأقل* من موعد الوصول.\n"
+    "• في حال الإلغاء خلال أقل من 24 ساعة من موعد الوصول أو عدم الحضور، "
+    "يحق للفندق الاحتفاظ بقيمة الحجز كاملة.\n"
+    "• ينتهي الحجز تلقائياً في موعد تسجيل المغادرة، ولا يلتزم الفندق بتمديد "
+    "الإقامة أو توفير شقة بديلة بعد انتهاء مدة الحجز.\n"
+    "• في حال الرغبة بتمديد الإقامة، يرجى التواصل مع الاستقبال قبل موعد تسجيل "
+    "المغادرة بوقت كافٍ، وسيتم دراسة طلب التمديد وفقاً لتوفر الشقق، ويحتفظ "
+    "الفندق بحقه في قبول أو رفض طلب التمديد.\n"
+    "• يرجى الالتزام بموعد تسجيل المغادرة، حيث يتم *إيقاف صلاحية مفتاح الشقة "
+    "وخدمة الكهرباء تلقائياً* عند انتهاء مدة الحجز وفق نظام إدارة الفندق.\n"
+    "• في حال استمرار إشغال الشقة بعد موعد تسجيل المغادرة دون موافقة مسبقة من "
+    "إدارة الفندق، يحق للفندق احتساب رسوم إقامة إضافية وفق التعرفة المعتمدة، "
+    "أو احتساب قيمة ليلة إضافية إذا تجاوزت مدة التأخير الحد المسموح به.\n"
+    "\n"
+    "نشكر ثقتكم باختيار *{store_name}*، ونسعد بخدمتكم دائماً، "
+    "ونتمنى لكم إقامة مريحة وسعيدة."
+)
+
+
+HOTEL_CHECK_IN_WELCOME_TITLE = "رسالة ترحيب بعد التسكين"
+
+HOTEL_CHECK_IN_WELCOME_BODY = (
+    "مرحباً {guest_name} 👋\n"
+    "\n"
+    "يرحّب بك *{store_name}* ويتمنى لك إقامة سعيدة في الشقة *{room_name}*.\n"
+    "\n"
+    "يمكنك الاستفادة من خدمات الفندق أثناء إقامتك:\n"
+    "• مطعم ومقهى في الدور السابع\n"
+    "• خدمة مغسلة\n"
+    "\n"
+    "للاستفسار أو أي طلب، تواصل مع الاستقبال على الرقم:\n"
+    "*{reception_phone}*\n"
+    "\n"
+    "نتمنى لك إقامة ممتعة 🌿"
+)
+
+
+HOTEL_PAYMENT_RECEIVED_BODY = (
+    "مرحباً {guest_name}،\n"
+    "\n"
+    "💳 *{doc_title}* — {store_name}\n"
+    "رقم الحجز: {booking_reference}\n"
+    "الشقة: {room_name} {room_type}\n"
+    "\n"
+    "تم استلام مبلغ: *{payment_amount}* د.ل\n"
+    "طريقة الدفع: {payment_method}\n"
+    "\n"
+    "📋 *ملخص الحساب بعد السداد:*\n"
+    "{folio_lines}\n"
+    "الإجمالي: *{booking_total}* د.ل\n"
+    "إجمالي المدفوع: *{paid_amount}* د.ل\n"
+    "المتبقي: *{balance_due}* د.ل\n"
+    "\n"
+    "{invoice_url}"
+)
+
+
+def _is_hotel_confirmed_template_current(body: str | None) -> bool:
+    b = body or ""
+    return (
+        "سياسة الحجز" in b
+        and "إيقاف صلاحية مفتاح الشقة" in b
+        and "{booking_total}" in b
+        and "{paid_amount}" in b
+        and "{balance_due}" in b
+        and "{folio_lines}" in b
+    )
+
+
+def _is_hotel_payment_template_current(body: str | None) -> bool:
+    b = body or ""
+    return (
+        "{payment_amount}" in b
+        and "{booking_total}" in b
+        and "{paid_amount}" in b
+        and "{balance_due}" in b
+        and "{folio_lines}" in b
+    )
+
+
+def _is_hotel_cleaning_template_current(body: str | None, buttons_json: str | None = None) -> bool:
+    b = body or ""
+    btns = buttons_json or ""
+    return (
+        "مهمة تنظيف" in b
+        and "{room_name}" in b
+        and "قيد التنظيف" in b
+        and "{done_link_line}" in b
+        and "{confirm_button_id}" in btns
+    )
+
+
+def _patch_hotel_booking_confirmed_templates(db: Session) -> None:
+    """ترقية رسالة تأكيد الحجز إلى النص المعتمد (سياسة + مواعيد الدخول/المغادرة)."""
+    rows = list(
+        db.scalars(
+            select(NotificationTemplate).where(
+                NotificationTemplate.event_key == HOTEL_BOOKING_CONFIRMED,
+                NotificationTemplate.recipient_type == "customer",
+            )
+        ).all()
+    )
+    for row in rows:
+        if _is_hotel_confirmed_template_current(row.body_template):
+            continue
+        row.body_template = HOTEL_BOOKING_CONFIRMED_BODY
+        row.message_type = "text"
+
+
+def _patch_hotel_payment_received_templates(db: Session) -> None:
+    """ترقية رسالة السداد لتطابق إيصال القبض (مبلغ الدفعة + ملخص الحساب)."""
+    from modules.notifications.events import HOTEL_PAYMENT_RECEIVED
+
+    rows = list(
+        db.scalars(
+            select(NotificationTemplate).where(
+                NotificationTemplate.event_key == HOTEL_PAYMENT_RECEIVED,
+                NotificationTemplate.recipient_type == "customer",
+            )
+        ).all()
+    )
+    for row in rows:
+        if _is_hotel_payment_template_current(row.body_template):
+            continue
+        row.body_template = HOTEL_PAYMENT_RECEIVED_BODY
 
 
 def _patch_loyalty_earn_templates(db: Session) -> None:
@@ -342,6 +517,7 @@ def _patch_placeholder_templates(db: Session) -> None:
         (KITCHEN_TICKET_CREATED, "admin", "تذكرة مطبخ", KITCHEN_TICKET_BODY),
         (KITCHEN_ITEM_CANCELLED, "admin", "إلغاء مطبخ", KITCHEN_CANCEL_BODY),
         (POS_CASH_OVERAGE, "admin", "فائض جلسة", POS_OVERAGE_BODY),
+        (POS_CASH_SHORTAGE, "admin", "عجز جلسة", POS_SHORTAGE_BODY),
         (INVENTORY_PURCHASE_NEEDED, "inventory_manager", "ملخص حاجة شراء", INVENTORY_PURCHASE_NEEDED_BODY),
         (INVENTORY_PURCHASE_RECEIVED, "inventory_manager", "استلام شراء", INVENTORY_PURCHASE_RECEIVED_BODY),
         (INVENTORY_PURCHASE_RECEIVED, "admin", "استلام شراء", INVENTORY_PURCHASE_RECEIVED_BODY),
@@ -365,6 +541,7 @@ def _patch_placeholder_templates(db: Session) -> None:
         (KITCHEN_TICKET_CREATED, "admin"): KITCHEN_TICKET_BODY,
         (KITCHEN_ITEM_CANCELLED, "admin"): KITCHEN_CANCEL_BODY,
         (POS_CASH_OVERAGE, "admin"): POS_OVERAGE_BODY,
+        (POS_CASH_SHORTAGE, "admin"): POS_SHORTAGE_BODY,
         (INVENTORY_PURCHASE_NEEDED, "inventory_manager"): INVENTORY_PURCHASE_NEEDED_BODY,
         (INVENTORY_PURCHASE_RECEIVED, "inventory_manager"): INVENTORY_PURCHASE_RECEIVED_BODY,
         (INVENTORY_PURCHASE_RECEIVED, "admin"): INVENTORY_PURCHASE_RECEIVED_BODY,
@@ -509,6 +686,78 @@ def _seed_treasury(db: Session) -> None:
             throttle_minutes=0,
         )
 
+    handoff_body = (
+        "⚠️ *جلسة {shift_kind_ar} بانتظار اعتماد الخزينة*\n\n"
+        "النوع: {shift_kind_ar}\n"
+        "رقم الجلسة: #{shift_id}\n"
+        "الموظف: {employee_name}\n"
+        "أُغلقت: {closed_at}\n"
+        "كاش معدود: {counted_cash} د.ل\n"
+        "مصرف معدود: {counted_bank} د.ل\n"
+        "جلسات معلّقة للاعتماد: {pending_count}\n\n"
+        "يُرجى اعتماد إيراد الجلسة من شاشة الخزينة حتى لا تتراكم الجلسات دون إقفال."
+    )
+    handoff_admin = _upsert_template(
+        db,
+        name="جلسة بانتظار اعتماد الخزينة — إدارة",
+        event_key=TREASURY_HANDOFF_PENDING,
+        recipient_type="admin",
+        body=handoff_body,
+    )
+    handoff_clerk = _upsert_template(
+        db,
+        name="جلسة بانتظار اعتماد الخزينة — أمين خزينة",
+        event_key=TREASURY_HANDOFF_PENDING,
+        recipient_type="treasury_clerk",
+        body=handoff_body,
+    )
+    _upsert_rule(
+        db,
+        event_key=TREASURY_HANDOFF_PENDING,
+        recipient_type="admin",
+        template_id=handoff_admin.id,
+        throttle_minutes=60,
+    )
+    _upsert_rule(
+        db,
+        event_key=TREASURY_HANDOFF_PENDING,
+        recipient_type="treasury_clerk",
+        template_id=handoff_clerk.id,
+        throttle_minutes=60,
+    )
+
+    def _pair(event_key, name, body):
+        tpl_a = _upsert_template(db, name=name + " — إدارة", event_key=event_key, recipient_type="admin", body=body)
+        tpl_t = _upsert_template(db, name=name + " — خزينة", event_key=event_key, recipient_type="treasury_clerk", body=body)
+        _upsert_rule(db, event_key=event_key, recipient_type="admin", template_id=tpl_a.id, throttle_minutes=0)
+        _upsert_rule(db, event_key=event_key, recipient_type="treasury_clerk", template_id=tpl_t.id, throttle_minutes=0)
+
+    _pair(
+        SHIFT_HANDOVER_SENT,
+        "تسليم عهدة",
+        "🔄 *{from_name}* سلّم عهدة *{ref}*\nإلى: {to_name}\nكاش: {claimed_cash} د.ل · مصرف: {claimed_bank} د.ل\nبانتظار تأكيد الاستلام.",
+    )
+    _pair(
+        SHIFT_HANDOVER_CONFIRMED,
+        "تأكيد استلام عهدة",
+        "✅ {to_name} أكد استلام *{ref}*\nالمسلَّم: كاش {claimed_cash} / مصرف {claimed_bank}\nالمستلم: كاش {received_cash} / مصرف {received_bank}",
+    )
+    _pair(
+        SHIFT_VARIANCE_OPENED,
+        "فرق عهدة",
+        "🚨 *فرق تسليم {ref}*\nمن {from_name} إلى {to_name}\nفرق كاش: {diff_cash} · فرق مصرف: {diff_bank}\nراجع شاشة العجوزات والزيادات.",
+    )
+    _pair(
+        SHIFT_BANK_TRANSFER_DECLARED,
+        "تحويل مصرفي معلن",
+        "🏦 تحويل مصرفي بانتظار الاعتماد\n{ref}\nالموظف: {from_name}\nالمبلغ: {claimed_bank} د.ل\nالمصرف: {bank_name}\nرقم العملية: {bank_ref}",
+    )
+    _pair(
+        TREASURY_HANDOFF_APPROVED,
+        "اعتماد خزينة",
+        "✅ أمين الخزينة اعتمد جلسة #{shift_id}\nكاش: {claimed_cash} · مصرف: {claimed_bank}",
+    )
+
 
 def _seed_hotel(db: Session) -> None:
     templates = [
@@ -519,7 +768,10 @@ def _seed_hotel(db: Session) -> None:
             "رقم الحجز: {booking_reference}\n"
             "الوصول: {check_in_date} · المغادرة: {check_out_date}\n"
             "الشقة/الغرفة: {room_name} {room_type}\n"
-            "الإجمالي: {booking_total} د.ل · المدفوع: {paid_amount} · المتبقي: {balance_due}\n"
+            "{folio_lines}\n"
+            "الإجمالي: {booking_total} د.ل\n"
+            "المدفوع: {paid_amount} د.ل\n"
+            "المتبقي: {balance_due} د.ل\n"
             "{booking_url}",
             "interactive",
             '[{"text":"عرض الحجز","id":"hotel_booking_view:{booking_id}"},{"text":"تأكيد الاستلام","id":"hotel_booking_ack:{booking_id}"}]',
@@ -527,21 +779,37 @@ def _seed_hotel(db: Session) -> None:
         (
             "تأكيد حجز فندقي",
             HOTEL_BOOKING_CONFIRMED,
-            "تم تأكيد حجزك يا {guest_name}.\n"
-            "رقم الحجز: {booking_reference}\n"
-            "موعد الوصول: {check_in_date}\n"
-            "موعد المغادرة: {check_out_date}\n"
-            "المتبقي حتى الآن: {balance_due} د.ل\n"
-            "{booking_url}",
-            "interactive",
-            '[{"text":"عرض الحجز","id":"hotel_booking_view:{booking_id}"}]',
+            HOTEL_BOOKING_CONFIRMED_BODY,
+            "text",
+            "",
+        ),
+        (
+            HOTEL_CHECK_IN_WELCOME_TITLE,
+            HOTEL_CHECK_IN_WELCOME,
+            HOTEL_CHECK_IN_WELCOME_BODY,
+            "text",
+            "",
         ),
         (
             "تذكير مغادرة الفندق",
             HOTEL_CHECKOUT_REMINDER,
-            "تذكير لطيف يا {guest_name}: موعد مغادرتك اليوم {check_out_date}.\n"
-            "المتبقي على الحساب: {balance_due} د.ل\n"
-            "يرجى مراجعة الاستقبال قبل المغادرة.",
+            "تذكير لطيف يا {guest_name}: موعد مغادرتك {check_out_date}"
+            "{checkout_time_line}.\n"
+            "يرجى المغادرة أو طلب التمديد من الاستقبال قبل انتهاء فترة السماح"
+            " (حتى الساعة {grace_deadline}).\n"
+            "بعدها يُحتسب النظام ليلة إضافية تلقائياً.\n"
+            "المتبقي على الحساب: {balance_due} د.ل",
+            "interactive",
+            '[{"text":"عرض الحساب","id":"hotel_booking_view:{booking_id}"}]',
+        ),
+        (
+            "احتساب ليلة متأخرة تلقائياً",
+            HOTEL_LATE_CHECKOUT_CHARGED,
+            "تنبيه يا {guest_name}: بسبب عدم المغادرة/التمديد بعد موعد المغادرة "
+            "تم تمديد حجزك #{booking_reference} ليلة واحدة تلقائياً.\n"
+            "الموعد الجديد للمغادرة: {new_check_out}\n"
+            "إجمالي الحساب: {booking_total} د.ل — المتبقي: {balance_due} د.ل\n"
+            "راجع الاستقبال للتسوية أو التمديد.",
             "interactive",
             '[{"text":"عرض الحساب","id":"hotel_booking_view:{booking_id}"}]',
         ),
@@ -555,9 +823,19 @@ def _seed_hotel(db: Session) -> None:
             '[{"text":"عرض الحساب","id":"hotel_booking_view:{booking_id}"}]',
         ),
         (
+            "مطالبة رصيد حجز فندقي",
+            HOTEL_BALANCE_CLAIM,
+            "{claim_headline}.\n"
+            "{claim_note_line}"
+            "المتبقي المستحق: {balance_due} د.ل\n"
+            "يرجى السداد لدى الاستقبال. عند السداد تتوقف رسائل المطالبة تلقائياً.",
+            "interactive",
+            '[{"text":"عرض الحساب","id":"hotel_booking_view:{booking_id}"}]',
+        ),
+        (
             "خدمة فندقية غير مدفوعة",
             HOTEL_UNPAID_SERVICE_ADDED,
-            "تمت إضافة خدمة على حساب إقامتك يا {guest_name}:\n"
+            "{service_added_headline}\n"
             "{service_name} — {service_amount} د.ل\n"
             "المتبقي الحالي: {balance_due} د.ل",
             "interactive",
@@ -566,11 +844,7 @@ def _seed_hotel(db: Session) -> None:
         (
             "سداد حجز فندقي",
             HOTEL_PAYMENT_RECEIVED,
-            "تم استلام سداد من حجزك يا {guest_name}.\n"
-            "المبلغ: {payment_amount} د.ل\n"
-            "طريقة الدفع: {payment_method}\n"
-            "المتبقي بعد السداد: {balance_due} د.ل\n"
-            "{invoice_url}",
+            HOTEL_PAYMENT_RECEIVED_BODY,
             "interactive",
             '[{"text":"عرض الإيصال","id":"hotel_booking_view:{booking_id}"}]',
         ),
@@ -584,7 +858,47 @@ def _seed_hotel(db: Session) -> None:
             body=body,
             message_type=msg_type,
         )
-        if not (tpl.buttons_json or "").strip():
+        if event_key == HOTEL_BOOKING_CONFIRMED:
+            if not _is_hotel_confirmed_template_current(tpl.body_template):
+                tpl.body_template = HOTEL_BOOKING_CONFIRMED_BODY
+            tpl.message_type = "text"
+            tpl.buttons_json = ""
+        elif event_key == HOTEL_CHECK_IN_WELCOME:
+            if not (tpl.title or "").strip():
+                tpl.title = HOTEL_CHECK_IN_WELCOME_TITLE
+            if _body_needs_default(tpl.body_template):
+                tpl.body_template = HOTEL_CHECK_IN_WELCOME_BODY
+            tpl.message_type = "text"
+            tpl.buttons_json = ""
+        elif event_key == HOTEL_CHECKOUT_REMINDER:
+            if (
+                "موعد مغادرتك اليوم" in (tpl.body_template or "")
+                or "فترة السماح" not in (tpl.body_template or "")
+            ):
+                tpl.body_template = body
+            if buttons and not (tpl.buttons_json or "").strip():
+                tpl.buttons_json = buttons
+        elif event_key == HOTEL_LATE_CHECKOUT_CHARGED:
+            tpl.body_template = body
+            tpl.message_type = msg_type
+            if buttons:
+                tpl.buttons_json = buttons
+        elif event_key == HOTEL_BALANCE_CLAIM:
+            if "{claim_headline}" not in (tpl.body_template or ""):
+                tpl.body_template = body
+            if buttons and not (tpl.buttons_json or "").strip():
+                tpl.buttons_json = buttons
+        elif event_key == HOTEL_UNPAID_SERVICE_ADDED:
+            if "{service_added_headline}" not in (tpl.body_template or ""):
+                tpl.body_template = body
+            if buttons and not (tpl.buttons_json or "").strip():
+                tpl.buttons_json = buttons
+        elif event_key == HOTEL_PAYMENT_RECEIVED:
+            if not _is_hotel_payment_template_current(tpl.body_template):
+                tpl.body_template = HOTEL_PAYMENT_RECEIVED_BODY
+            if buttons and not (tpl.buttons_json or "").strip():
+                tpl.buttons_json = buttons
+        elif buttons and not (tpl.buttons_json or "").strip():
             tpl.buttons_json = buttons
         _upsert_rule(
             db,
@@ -636,6 +950,39 @@ def _seed_hotel(db: Session) -> None:
         event_key=HOTEL_ROOM_MAINTENANCE,
         recipient_type="maintenance_staff",
         template_id=t_maint.id,
+        throttle_minutes=0,
+    )
+
+    _clean_body = (
+        "🧼 *مهمة تنظيف — {store_name}*\n\n"
+        "الشقة: *{room_name}* (#{room_number})\n"
+        "{note_line}"
+        "الحالة: قيد التنظيف\n"
+        "\nبعد الانتهاء اضغط الزر أدناه (يفتح رابط التأكيد).\n"
+        "{done_link_line}"
+    )
+    _clean_buttons = (
+        '[{"text":"✓ تم الانتهاء من التنظيف","id":"{confirm_button_id}"}]'
+    )
+    t_clean = _upsert_template(
+        db,
+        name="مهمة تنظيف شقة",
+        event_key=HOTEL_ROOM_CLEANING,
+        recipient_type="housekeeping_staff",
+        body=_clean_body,
+        message_type="interactive",
+    )
+    if not _is_hotel_cleaning_template_current(
+        t_clean.body_template, t_clean.buttons_json
+    ):
+        t_clean.body_template = _clean_body
+    t_clean.buttons_json = _clean_buttons
+    t_clean.message_type = "interactive"
+    _upsert_rule(
+        db,
+        event_key=HOTEL_ROOM_CLEANING,
+        recipient_type="housekeeping_staff",
+        template_id=t_clean.id,
         throttle_minutes=0,
     )
 
@@ -766,6 +1113,8 @@ def ensure_notification_defaults(db: Session) -> None:
     _patch_referral_link_templates(db)
     _patch_referral_first_order_buyer_templates(db)
     _patch_referral_referrer_templates(db)
+    _patch_hotel_booking_confirmed_templates(db)
+    _patch_hotel_payment_received_templates(db)
     _patch_placeholder_templates(db)
 
 
@@ -1003,8 +1352,15 @@ def _seed_phase2(db: Session) -> None:
         name="عجز جلسة",
         event_key=POS_CASH_SHORTAGE,
         recipient_type="admin",
-        body="⚠️ عجز جلسة #{shift_id}: {shortage} — {cashier_name}",
+        body=POS_SHORTAGE_BODY,
     )
+    _short_body = (t_short.body_template or "").strip()
+    if (
+        _short_body in ("", "{message}", "{{message}}", POS_SHORTAGE_BODY_LEGACY)
+        or "{cash_shortage}" not in _short_body
+        or "{employee_name}" not in _short_body
+    ):
+        t_short.body_template = POS_SHORTAGE_BODY
     t_void_line = _upsert_template(
         db,
         name="طلب مسح صنف",

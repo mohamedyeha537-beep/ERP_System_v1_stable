@@ -11,38 +11,52 @@
 {% if ok == '1' %}<div class="alert good">تم تسجيل التحويل بنجاح.</div>{% endif %}
 
 <div class="card">
-  <p class="muted" style="margin-top:0">
-    لإدخال رأس مال افتتاحي: اختر <strong>حساب المالك — حقوق الملكية</strong> في خانة «من حساب»،
-    ثم اختر الخزينة الرئيسية كاش/مصرف في خانة «إلى حساب».
-    التحويل من حساب المالك = إيداع رأس مال لا يُحسب مصروفاً ولا إيراد مبيعات.
+  {% if not clerk_sources_only|default(false) %}
+  <p class="muted" style="margin-top:0;line-height:1.7">
+    <strong>حساب المالك — حقوق الملكية</strong> يظهر في أعلى القائمتين:
+    <br>• من المالك → الخزينة = <strong>إيداع رأس مال</strong> (ليس إيراداً).
+    <br>• من الخزينة → المالك = <strong>سحب للمالك</strong> (ليس مصروف تشغيل).
   </p>
-  <form method="post" action="/pos/treasury/transfer" class="row" style="gap:0.6rem;align-items:flex-end;flex-wrap:wrap">
+  {% endif %}
+  <form method="post" action="/pos/treasury/transfer" id="xfer-form">
     <input type="hidden" name="kind" value="{{ kind }}" />
-    <div>
-      <label>من حساب</label>
-      <select name="from_payment_method_id" required style="min-width:14rem">
-        {% for m in sources %}
-        <option value="{{ m.id }}">{{ m.name_ar }} — رصيد {{ balances.get(m.id, 0) }} د.ل</option>
-        {% endfor %}
-      </select>
+    <div class="xfer-top">
+      <div class="xfer-field">
+        <label>من حساب</label>
+        <select name="from_payment_method_id" id="xfer-from" required>
+          {% for m in sources %}
+          <option value="{{ m.id }}" data-needs-ref="{% if m.kind.value == 'BANK' or 'توا' in (m.name_ar or '') or 'تداول' in (m.name_ar or '') or 'تداو' in (m.name_ar or '') %}1{% else %}0{% endif %}">{{ pos_wallet_label(m) }} — رصيد {{ balances.get(m.id, 0) }} د.ل</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="xfer-field">
+        <label>إلى حساب</label>
+        <select name="to_payment_method_id" id="xfer-to" required>
+          {% for m in targets %}
+          <option value="{{ m.id }}" data-needs-ref="{% if m.kind.value == 'BANK' or 'توا' in (m.name_ar or '') or 'تداول' in (m.name_ar or '') or 'تداو' in (m.name_ar or '') %}1{% else %}0{% endif %}">{{ pos_wallet_label(m) }} — رصيد {{ balances.get(m.id, 0) }} د.ل</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="xfer-field xfer-amount">
+        <label>المبلغ (د.ل)</label>
+        <input name="amount" id="xfer-amount" type="number" step="0.001" min="0.001" required />
+      </div>
     </div>
-    <div>
-      <label>إلى حساب</label>
-      <select name="to_payment_method_id" required style="min-width:14rem">
-        {% for m in targets %}
-        <option value="{{ m.id }}">{{ m.name_ar }} — رصيد {{ balances.get(m.id, 0) }} د.ل</option>
-        {% endfor %}
-      </select>
+    <div class="xfer-details" id="xfer-details">
+      <div class="xfer-field" id="xfer-ref-wrap" hidden>
+        <label>رقم العملية (توا / مصرف) <span style="color:#b91c1c">*</span></label>
+        <input name="bank_ref" id="xfer-bank-ref" placeholder="إلزامي عند التحويل من/إلى مصرف أو توا" />
+      </div>
+      <div class="xfer-field" id="xfer-note-wrap">
+        <label>ملاحظة <span style="color:#b91c1c">*</span></label>
+        <textarea name="note" id="xfer-note" required minlength="3" maxlength="400" rows="3"
+                  placeholder="سبب التحويل إلزامي — يظهر للمراجع في التقارير"></textarea>
+      </div>
     </div>
-    <div>
-      <label>المبلغ (د.ل)</label>
-      <input name="amount" type="number" step="0.001" min="0.001" required style="max-width:8rem" />
-    </div>
-    <div>
-      <label>ملاحظة</label>
-      <input name="note" placeholder="اختياري" style="min-width:10rem" />
-    </div>
-    <button class="btn btn-primary" type="submit">تنفيذ التحويل</button>
+    <p id="xfer-ref-hint" class="muted" style="margin:0.55rem 0 0;font-size:0.82rem;display:none">
+      التحويل من أو إلى مصرف أو توا يتطلب رقم العملية قبل الحفظ.
+    </p>
+    <button class="btn btn-primary" type="submit" style="margin-top:0.85rem">تنفيذ التحويل</button>
   </form>
   {% if not sources %}
   <p class="alert" style="margin-top:0.75rem">لا يوجد حساب مصدر للتحويل. فعّل «صرف» على الحساب من <a href="/admin/payment-methods">إدارة الحسابات</a>.</p>
@@ -51,12 +65,142 @@
   {% endif %}
 </div>
 
-<div class="card">
-  <h2 style="margin-top:0">إدارة الحسابات</h2>
-  <p class="muted" style="margin-top:0">
-    لإنشاء حساب عهدة موظف مشتريات: أضف حساباً جديداً وفعّل «صرف» + «تحويل وارد» فقط،
-    وأوقف «نقطة بيع» حتى لا يستخدمه الكاشير.
-  </p>
-  <a class="btn" href="/admin/payment-methods">إدارة الحسابات المالية</a>
-</div>
+<dialog id="xfer-confirm" class="xfer-confirm-dialog">
+  <div class="xfer-confirm-inner">
+    <h3>مراجعة التحويل قبل التنفيذ</h3>
+    <p class="muted" style="margin:0 0 0.75rem;font-size:0.88rem">تأكد من الحسابات والمبلغ والسبب ثم أكّد.</p>
+    <dl class="xfer-confirm-dl">
+      <div><dt>من حساب</dt><dd id="xfer-c-from">—</dd></div>
+      <div><dt>إلى حساب</dt><dd id="xfer-c-to">—</dd></div>
+      <div><dt>المبلغ</dt><dd id="xfer-c-amount">—</dd></div>
+      <div id="xfer-c-ref-row" hidden><dt>رقم العملية</dt><dd id="xfer-c-ref">—</dd></div>
+      <div><dt>الملاحظة / السبب</dt><dd id="xfer-c-note">—</dd></div>
+    </dl>
+    <div class="xfer-confirm-actions">
+      <button type="button" class="btn" id="xfer-confirm-cancel">تعديل</button>
+      <button type="button" class="btn btn-primary" id="xfer-confirm-ok">تأكيد وتنفيذ</button>
+    </div>
+  </div>
+</dialog>
+<style>
+  .xfer-top {
+    display: grid;
+    grid-template-columns: minmax(14rem, 1fr) minmax(14rem, 1fr) 9rem;
+    gap: 0.75rem 0.85rem;
+    align-items: end;
+  }
+  .xfer-details {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.75rem 0.85rem;
+    align-items: end;
+    margin-top: 0.85rem;
+  }
+  .xfer-details.has-ref {
+    grid-template-columns: minmax(14rem, 1fr) minmax(16rem, 1.6fr);
+  }
+  .xfer-field { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
+  .xfer-field label { font-size: 0.88rem; line-height: 1.3; }
+  .xfer-field select,
+  .xfer-field input,
+  .xfer-field textarea {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 2.5rem;
+    padding: 0.45rem 0.55rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font: inherit;
+  }
+  .xfer-field textarea {
+    min-height: 4.75rem;
+    resize: vertical;
+    line-height: 1.45;
+  }
+  #xfer-ref-wrap[hidden] { display: none !important; }
+  @media (max-width: 720px) {
+    .xfer-top, .xfer-details, .xfer-details.has-ref { grid-template-columns: 1fr; }
+  }
+  .xfer-confirm-dialog {
+    border: none; border-radius: 14px; padding: 0;
+    max-width: min(440px, 94vw); width: 100%;
+    box-shadow: 0 20px 50px rgba(15, 23, 42, 0.28);
+  }
+  .xfer-confirm-dialog::backdrop { background: rgba(15, 23, 42, 0.5); }
+  .xfer-confirm-inner { padding: 1.15rem 1.25rem 1.1rem; }
+  .xfer-confirm-inner h3 { margin: 0 0 0.35rem; font-size: 1.1rem; }
+  .xfer-confirm-dl { margin: 0 0 1rem; }
+  .xfer-confirm-dl > div {
+    display: flex; justify-content: space-between; gap: 0.75rem;
+    padding: 0.4rem 0; border-bottom: 1px dashed var(--border);
+  }
+  .xfer-confirm-dl dt { color: var(--muted); font-size: 0.85rem; flex-shrink: 0; }
+  .xfer-confirm-dl dd { margin: 0; font-weight: 700; text-align: left; }
+  .xfer-confirm-actions { display: flex; gap: 0.5rem; justify-content: flex-end; flex-wrap: wrap; }
+</style>
+<script>
+(function () {
+  var form = document.getElementById('xfer-form');
+  var fromSel = document.getElementById('xfer-from');
+  var toSel = document.getElementById('xfer-to');
+  var amtInp = document.getElementById('xfer-amount');
+  var refInp = document.getElementById('xfer-bank-ref');
+  var noteInp = document.getElementById('xfer-note');
+  var hint = document.getElementById('xfer-ref-hint');
+  var details = document.getElementById('xfer-details');
+  var dlg = document.getElementById('xfer-confirm');
+  function needsRef(sel) {
+    if (!sel || sel.selectedIndex < 0) return false;
+    var opt = sel.options[sel.selectedIndex];
+    return !!(opt && opt.getAttribute('data-needs-ref') === '1');
+  }
+  function optText(sel) {
+    if (!sel || sel.selectedIndex < 0) return '—';
+    return (sel.options[sel.selectedIndex].textContent || '').replace(/\s+/g, ' ').trim();
+  }
+  var refWrap = document.getElementById('xfer-ref-wrap');
+  function sync() {
+    var need = needsRef(fromSel) || needsRef(toSel);
+    if (refWrap) refWrap.hidden = !need;
+    if (details) details.classList.toggle('has-ref', need);
+    if (hint) hint.style.display = need ? '' : 'none';
+    if (refInp) {
+      refInp.required = need;
+      refInp.disabled = !need;
+      if (!need) refInp.value = '';
+      refInp.setAttribute('aria-required', need ? 'true' : 'false');
+    }
+  }
+  if (fromSel) fromSel.addEventListener('change', sync);
+  if (toSel) toSel.addEventListener('change', sync);
+  sync();
+
+  if (form && dlg) {
+    form.addEventListener('submit', function (e) {
+      if (form.getAttribute('data-confirmed') === '1') return;
+      e.preventDefault();
+      document.getElementById('xfer-c-from').textContent = optText(fromSel);
+      document.getElementById('xfer-c-to').textContent = optText(toSel);
+      document.getElementById('xfer-c-amount').textContent =
+        (amtInp && amtInp.value ? amtInp.value : '—') + ' د.ل';
+      var ref = refInp && refInp.value ? refInp.value.trim() : '';
+      var refRow = document.getElementById('xfer-c-ref-row');
+      document.getElementById('xfer-c-ref').textContent = ref || '—';
+      if (refRow) refRow.hidden = !ref;
+      document.getElementById('xfer-c-note').textContent =
+        (noteInp && noteInp.value ? noteInp.value.trim() : '—');
+      if (typeof dlg.showModal === 'function') dlg.showModal();
+      else { form.setAttribute('data-confirmed', '1'); form.submit(); }
+    });
+    var cancelBtn = document.getElementById('xfer-confirm-cancel');
+    var okBtn = document.getElementById('xfer-confirm-ok');
+    if (cancelBtn) cancelBtn.addEventListener('click', function () { dlg.close(); });
+    if (okBtn) okBtn.addEventListener('click', function () {
+      form.setAttribute('data-confirmed', '1');
+      dlg.close();
+      form.submit();
+    });
+  }
+})();
+</script>
 {% endblock %}

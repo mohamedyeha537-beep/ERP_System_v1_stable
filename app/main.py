@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
+import time
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -18,6 +19,7 @@ from modules.authz.router_web import admin_router, router as auth_router
 from modules.authz.service import (
     ensure_demo_users,
     ensure_purchases_clerk_demo_user,
+    ensure_treasury_clerk_login_user,
     seed_if_empty,
     sync_permissions,
     user_has_permission,
@@ -28,6 +30,9 @@ from modules.catalog.import_export_router import router as catalog_import_router
 from modules.catalog.router_web import router as catalog_router
 from modules.catalog.service import ensure_default_units
 from modules.integration.router_api import router as integration_router
+from modules.sync.router_api import router as sync_api_router
+from modules.sync.router_api import web_router as sync_admin_router
+from modules.sync.scheduler import start_scheduler
 from modules.inventory.router_web import router as inventory_router
 from modules.inventory.warehouses_router import router as warehouses_router
 from modules.admin.schema_fix_router import router as schema_fix_router
@@ -57,6 +62,8 @@ from modules.printing.router_web import router as printing_admin_router
 from modules.hr.router_web import (
     advances_router as hr_advances_router,
     attendance_router as hr_attendance_router,
+    bonuses_router as hr_bonuses_router,
+    deductions_router as hr_deductions_router,
     departments_router as hr_departments_router,
     employees_router as hr_employees_router,
     payroll_router as hr_payroll_router,
@@ -68,7 +75,11 @@ from modules.hotel.router_web import (
     settle_router as hotel_settle_router,
 )
 from modules.hotel.router_bookings import bookings_router as hotel_bookings_router
+from modules.hotel.router_housekeeping_public import (
+    hk_public_router as hotel_hk_public_router,
+)
 from modules.hotel.router_shifts import shifts_router as hotel_shifts_router
+from modules.hotel.reports_shifts_router import router as hotel_shift_reports_router
 from modules.hotel.router_portal import stay_api as hotel_stay_api_router
 from modules.hotel.router_portal import stay_router as hotel_stay_router
 from modules.hotel.router_store import suites_api as hotel_suites_api_router
@@ -77,16 +88,25 @@ from modules.customers.router_web import (
     router as customers_admin_router,
     loyalty_router as loyalty_settings_router,
 )
+from modules.customers.export_router import router as customers_export_router
 from modules.delivery.router_web import router as delivery_router
 from modules.branding.router_web import router as branding_router
 from modules.web_marketing.router_web import router as web_marketing_router
 from modules.web_marketing.router_api import router as web_analytics_api_router
+from modules.web_marketing.router_public import router as web_seo_public_router
+from modules.seo.router_api import router as seo_agent_api_router
+from modules.seo.router_web import router as seo_admin_router
+from modules.marketing_room.router_api import router as marketing_room_api_router
+from modules.marketing_room.router_web import router as marketing_room_admin_router
 from modules.refunds.router_web import router as refunds_router
 from modules.sales.invoice_edit_router import router as sales_invoice_edit_router
 from modules.pos_shifts.router_web import router as pos_shifts_router
 from modules.pos_shifts.reports_router import router as pos_shift_reports_router
 from modules.admin_shifts_router import router as admin_shifts_router
 from modules.pos_shifts.expense_categories_router import router as shift_expense_categories_router
+from modules.payments.pay_categories_router import router as treasury_pay_categories_router
+from modules.payments.shift_variances_router import router as shift_variances_router
+from modules.payments.treasury_desk_router import router as treasury_desk_router
 from modules.sales.router_web import router as pos_router
 from modules.gl.router_web import router as gl_router
 from modules.settings.router_web import router as settings_router
@@ -114,11 +134,16 @@ async def lifespan(app: FastAPI):
     import modules.catalog.models  # noqa: F401
     import modules.inventory.models  # noqa: F401
     import modules.payments.models  # noqa: F401
+    import modules.payments.shift_variance_models  # noqa: F401
+    import modules.payments.shift_handover_models  # noqa: F401
+    import modules.payments.treasury_session_models  # noqa: F401
+    import modules.payments.purchase_advance_models  # noqa: F401
     import modules.sales.models  # noqa: F401
     import modules.settings.models  # noqa: F401
     import modules.hr.models  # noqa: F401
     import modules.hotel.models  # noqa: F401
     import modules.hotel.booking_models  # noqa: F401
+    import modules.hotel.company_agreement_models  # noqa: F401
     import modules.hotel.shift_models  # noqa: F401
     import modules.customers.models  # noqa: F401
     import modules.delivery.models  # noqa: F401
@@ -131,7 +156,11 @@ async def lifespan(app: FastAPI):
     import modules.notifications.models  # noqa: F401
     import modules.gl.models  # noqa: F401
     import modules.shop.models  # noqa: F401
+    import modules.sync.models  # noqa: F401
     import modules.web_marketing.models  # noqa: F401
+    import modules.seo.models  # noqa: F401
+    import modules.marketing_room.models  # noqa: F401
+    import modules.security.supervisor_otp  # noqa: F401
 
     engine = get_engine()
     bootstrap_schema(engine)
@@ -143,6 +172,20 @@ async def lifespan(app: FastAPI):
             print(f"Catalog schema repaired at startup: {added}", flush=True)
     except Exception as exc:
         print(f"WARN catalog schema repair at startup: {exc}", flush=True)
+    try:
+        from modules.seo.schema_ensure import ensure_seo_entity_columns
+
+        seo_cols = ensure_seo_entity_columns(engine)
+        if seo_cols:
+            print(f"SEO entity columns added: {seo_cols}", flush=True)
+    except Exception as exc:
+        print(f"WARN SEO schema ensure at startup: {exc}", flush=True)
+    try:
+        from modules.marketing_room.schema_ensure import ensure_marketing_room_schema
+
+        ensure_marketing_room_schema(engine)
+    except Exception as exc:
+        print(f"WARN marketing_room schema ensure: {exc}", flush=True)
     upload_root = Path(__file__).resolve().parent / "static" / "uploads" / "products"
     upload_root.mkdir(parents=True, exist_ok=True)
     purchase_inv_root = Path(__file__).resolve().parent / "static" / "uploads" / "purchases"
@@ -158,8 +201,13 @@ async def lifespan(app: FastAPI):
         sync_permissions(db)
         ensure_demo_users(db)
         ensure_purchases_clerk_demo_user(db)
+        ensure_treasury_clerk_login_user(db)
+        db.commit()
         ensure_default_units(db)
         ensure_default_settings(db)
+        from modules.security.supervisor_otp import ensure_hotel_guest_refund_otp_off
+
+        ensure_hotel_guest_refund_otp_off(db)
         from modules.sales.order_policy import ensure_order_policy_defaults
 
         ensure_order_policy_defaults(db)
@@ -242,7 +290,7 @@ async def lifespan(app: FastAPI):
                     from modules.settings.service import get_bool, get_int
 
                     interval = max(
-                        10, get_int(db, "messaging_worker_interval_seconds", 30)
+                        5, get_int(db, "messaging_worker_interval_seconds", 15)
                     )
                     if get_bool(db, "messaging_enabled", False) and get_bool(
                         db, "messaging_outbox_worker_enabled", True
@@ -250,9 +298,9 @@ async def lifespan(app: FastAPI):
                         sent = process_outbox_batch(db)
                         db.commit()
                         if sent > 0:
-                            interval = min(interval, 10)
+                            interval = min(interval, 5)
                         elif pending_outbox_count(db) > 0:
-                            interval = min(interval, 10)
+                            interval = min(interval, 5)
                     if get_bool(db, "notifications_enabled", True):
                         from modules.notifications.worker import run_cycle
 
@@ -286,6 +334,9 @@ async def lifespan(app: FastAPI):
     ).start()
     threading.Thread(target=_zk_sync_worker, daemon=True, name="zkbio-sync").start()
 
+    # تشغيل مزامنة أوفلاين/أونلاين
+    start_scheduler()
+
     yield
 
 
@@ -303,7 +354,26 @@ def create_app() -> FastAPI:
     )
 
     _SKIP_STATE_PREFIXES = ("/static/", "/uploads/")
-    _LIGHT_STATE_PREFIXES = ("/pos/live", "/pos/web-chat-rails", "/shop", "/api/shop", "/suites", "/api/suites", "/stay/my", "/api/web-analytics")
+    # مسارات خفيفة: لا تحمّل branding الثقيل (استطلاعات الهيدر / APIs متكررة)
+    _LIGHT_STATE_PREFIXES = (
+        "/pos/live",
+        "/pos/web-chat-rails",
+        "/pos/kds-rejected",
+        "/shop",
+        "/api/shop",
+        "/suites",
+        "/api/suites",
+        "/stay/my",
+        "/api/web-analytics",
+        "/api/sync",
+        "/admin/activity/api",
+        "/admin/sync/status",
+    )
+
+    _BRAND_CACHE: dict[str, tuple[float, dict]] = {}
+    _BRAND_CACHE_TTL = 180.0
+    _USER_CACHE: dict[int, tuple[float, object]] = {}
+    _USER_CACHE_TTL = 60.0
 
     # =====================================================================
     # ترتيب الـ middlewares في FastAPI: الأخير المُضاف يُنفَّذ أولاً عند
@@ -321,6 +391,18 @@ def create_app() -> FastAPI:
         if path.startswith(_SKIP_STATE_PREFIXES):
             return await call_next(request)
 
+        def _after_user_redirect():
+            user = getattr(request.state, "current_user", None)
+            if not user:
+                return None
+            from fastapi.responses import RedirectResponse
+            from modules.authz.domain_scope import domain_scope_redirect_path
+
+            target = domain_scope_redirect_path(user, request.url.path)
+            if target and request.url.path != target:
+                return RedirectResponse(target, status_code=302)
+            return None
+
         request.state.current_user = None
         request.state.store_name = "نقطة البيع"
         request.state.brand = None
@@ -335,6 +417,18 @@ def create_app() -> FastAPI:
             if light and not uid:
                 return await call_next(request)
 
+            # مسار خفيف + مستخدم مخزّن مؤقتاً: بدون فتح جلسة قاعدة بيانات
+            if light and uid:
+                uid_i = int(uid)
+                now_u = time.monotonic()
+                hit_u = _USER_CACHE.get(uid_i)
+                if hit_u is not None and (now_u - hit_u[0]) < _USER_CACHE_TTL:
+                    request.state.current_user = hit_u[1]
+                    bounced = _after_user_redirect()
+                    if bounced is not None:
+                        return bounced
+                    return await call_next(request)
+
             from infra.db import get_session_factory
             from modules.authz.models import User as _User
             from modules.settings.service import get_setting
@@ -344,11 +438,24 @@ def create_app() -> FastAPI:
             try:
                 u = None
                 if uid:
-                    u = db.get(_User, int(uid))
-                    if u is not None and u.is_active:
+                    uid_i = int(uid)
+                    now_u = time.monotonic()
+                    hit_u = _USER_CACHE.get(uid_i)
+                    if hit_u is not None and (now_u - hit_u[0]) < _USER_CACHE_TTL:
+                        u = hit_u[1]
                         request.state.current_user = u
                     else:
-                        u = None
+                        u = db.get(_User, uid_i)
+                        if u is not None and u.is_active:
+                            for _role in u.roles:
+                                _ = list(_role.permissions)
+                            _ = list(getattr(u, "permission_grants", None) or [])
+                            _ = list(getattr(u, "permission_denies", None) or [])
+                            request.state.current_user = u
+                            _USER_CACHE[uid_i] = (now_u, u)
+                        else:
+                            u = None
+                            _USER_CACHE.pop(uid_i, None)
                 if not light:
                     try:
                         from modules.branding.service import resolve_active_branding
@@ -358,9 +465,19 @@ def create_app() -> FastAPI:
                             if hasattr(request, "session")
                             else None
                         )
-                        brand = resolve_active_branding(
-                            db, user=u, session=session
-                        )
+                        view_mode = ""
+                        if session is not None:
+                            view_mode = str(session.get("view_mode") or "")
+                        brand_key = f"{getattr(u, 'id', 0)}:{view_mode}"
+                        brand_hit = _BRAND_CACHE.get(brand_key)
+                        now = time.monotonic()
+                        if brand_hit and (now - brand_hit[0]) < _BRAND_CACHE_TTL:
+                            brand = brand_hit[1]
+                        else:
+                            brand = resolve_active_branding(
+                                db, user=u, session=session
+                            )
+                            _BRAND_CACHE[brand_key] = (now, brand)
                         request.state.brand = brand
                         request.state.store_name = brand.get("pos_label") or get_setting(
                             db, "store_name", "نقطة البيع"
@@ -377,6 +494,9 @@ def create_app() -> FastAPI:
                 db.close()
         except Exception:
             pass
+        bounced = _after_user_redirect()
+        if bounced is not None:
+            return bounced
         return await call_next(request)
 
     @app.middleware("http")
@@ -402,6 +522,35 @@ def create_app() -> FastAPI:
         if user and is_cashier_kiosk_user(user):
             if not kiosk_allowed_path(request.url.path):
                 return RedirectResponse("/pos", status_code=302)
+        return await call_next(request)
+
+    @app.middleware("http")
+    async def _hotel_nav_badges(request: Request, call_next):
+        """يحسب شارات تنقل الفندق لمسارات الاستقبال.
+
+        يُنفَّذ هذا الـ middleware قبل تحميل المستخدم أحياناً؛ لذلك لا نعتمد
+        على current_user — العدّ تشغيلي وليس خاصاً بمستخدم.
+        """
+        path = request.url.path or ""
+        if (
+            request.method == "GET"
+            and (
+                path.startswith("/admin/hotel") or path.startswith("/hotel/settle")
+            )
+            and not path.endswith((".json", ".js", ".css", ".map"))
+        ):
+            try:
+                from infra.db import get_session_factory
+                from modules.hotel.nav_badges import hotel_nav_badge_counts
+
+                Session = get_session_factory()
+                db = Session()
+                try:
+                    request.state.hotel_nav_badges = hotel_nav_badge_counts(db)
+                finally:
+                    db.close()
+            except Exception:
+                request.state.hotel_nav_badges = {}
         return await call_next(request)
 
     @app.middleware("http")
@@ -451,6 +600,19 @@ def create_app() -> FastAPI:
     app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
+    @app.middleware("http")
+    async def _cache_static_assets(request: Request, call_next):
+        """تخزين مؤقت للمتصفح لملفات CSS/JS/خطوط — يقلّل زمن التنقل كثيراً."""
+        response = await call_next(request)
+        path = request.url.path or ""
+        if path.startswith("/static/") and response.status_code == 200:
+            # خطوط وصور ثابتة لفترة أطول؛ باقي الأصول يوم واحد
+            if "/fonts/" in path or path.endswith((".woff2", ".woff", ".png", ".jpg", ".jpeg", ".webp", ".svg", ".ico")):
+                response.headers["Cache-Control"] = "public, max-age=2592000, immutable"
+            else:
+                response.headers["Cache-Control"] = "public, max-age=86400"
+        return response
+
     app.add_middleware(SecurityHeadersMiddleware)
 
     app.include_router(auth_router)
@@ -465,11 +627,16 @@ def create_app() -> FastAPI:
     app.include_router(pos_shifts_router)
     app.include_router(pos_shift_reports_router)
     app.include_router(shift_expense_categories_router)
+    app.include_router(treasury_pay_categories_router)
+    app.include_router(shift_variances_router)
+    app.include_router(treasury_desk_router)
     app.include_router(reporting_router)
     app.include_router(receivables_router)
     app.include_router(payables_router)
     app.include_router(delivery_router)
     app.include_router(integration_router)
+    app.include_router(sync_api_router)
+    app.include_router(sync_admin_router)
     app.include_router(settings_router)
     app.include_router(schema_fix_router)
     app.include_router(gl_router)
@@ -505,29 +672,68 @@ def create_app() -> FastAPI:
     app.include_router(hr_work_shifts_router)
     app.include_router(hr_attendance_router)
     app.include_router(hr_payroll_router)
+    app.include_router(hr_bonuses_router)
+    app.include_router(hr_deductions_router)
     app.include_router(hr_advances_router)
     app.include_router(hr_meal_router)
     app.include_router(hotel_rooms_router)
     app.include_router(hotel_bookings_router)
+    app.include_router(hotel_hk_public_router)
     app.include_router(hotel_shifts_router)
+    app.include_router(hotel_shift_reports_router)
     app.include_router(hotel_stay_router)
     app.include_router(hotel_stay_api_router)
     app.include_router(hotel_suites_router)
     app.include_router(hotel_suites_api_router)
     app.include_router(hotel_settle_router)
+    app.include_router(customers_export_router)
     app.include_router(customers_admin_router)
     app.include_router(loyalty_settings_router)
     app.include_router(branding_router)
     app.include_router(web_marketing_router)
     app.include_router(web_analytics_api_router)
+    app.include_router(web_seo_public_router)
+    app.include_router(seo_agent_api_router)
+    app.include_router(seo_admin_router)
+    app.include_router(marketing_room_api_router)
+    app.include_router(marketing_room_admin_router)
     app.include_router(refunds_router)
     app.include_router(sales_invoice_edit_router)
 
     from sqlalchemy.exc import OperationalError, ProgrammingError
+    from modules.hotel.shift_session import HotelShiftRedirectNeeded
+
+    @app.exception_handler(HotelShiftRedirectNeeded)
+    async def _hotel_shift_redirect(_request: Request, exc: HotelShiftRedirectNeeded):
+        return RedirectResponse(exc.location, status_code=302)
 
     def _is_missing_column_error(exc: BaseException) -> bool:
         msg = str(exc).lower()
         return "no such column" in msg or "unknown column" in msg
+
+    def _schema_error_page(request: Request, exc: Exception) -> HTMLResponse:
+        detail = str(exc).strip() or type(exc).__name__
+        # اقتصار الرسالة على السطر المفيد (غالباً Unknown column '…')
+        for line in detail.splitlines():
+            low = line.lower()
+            if "unknown column" in low or "no such column" in low:
+                detail = line.strip()
+                break
+        body = (
+            "<!DOCTYPE html><html lang='ar' dir='rtl'><head><meta charset='utf-8'/>"
+            "<title>خطأ مخطط قاعدة البيانات</title>"
+            "<style>body{font-family:sans-serif;max-width:720px;margin:2rem auto;padding:1rem}"
+            ".box{background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:1rem}"
+            "code{display:block;white-space:pre-wrap;background:#111;color:#eee;padding:.75rem;"
+            "border-radius:6px;margin-top:.75rem;font-size:.85rem}</style></head><body>"
+            "<div class='box'><h1 style='margin-top:0;font-size:1.2rem'>تعذّر إصلاح مخطط القاعدة</h1>"
+            "<p>الكود أحدث من قاعدة البيانات (أو العكس). أعد تشغيل التطبيق بعد رفع آخر الملفات، "
+            "أو نفّذ إصلاح المخطط يدوياً.</p>"
+            f"<code>{detail}</code>"
+            "<p style='margin-bottom:0'><a href='/'>الرئيسية</a> · "
+            "<a href='/catalog/products'>المنتجات</a></p></div></body></html>"
+        )
+        return HTMLResponse(body, status_code=500)
 
     @app.exception_handler(OperationalError)
     @app.exception_handler(ProgrammingError)
@@ -536,16 +742,20 @@ def create_app() -> FastAPI:
         if not _is_missing_column_error(exc):
             raise exc
         if request.query_params.get("_schema_repaired"):
-            raise exc
+            return _schema_error_page(request, exc)
         from infra.catalog_schema import repair_catalog_schema
         from infra.schema_bootstrap import reset_schema_patch_flag, ensure_schema_patched
 
         reset_schema_patch_flag()
+        repair_err: Exception | None = None
         try:
             ensure_schema_patched(force=True)
             repair_catalog_schema(get_engine())
-        except Exception:
-            pass
+        except Exception as patch_exc:  # noqa: BLE001
+            repair_err = patch_exc
+            print(f"WARN schema repair failed: {patch_exc}", flush=True)
+        if repair_err is not None and _is_missing_column_error(repair_err):
+            return _schema_error_page(request, repair_err)
         # POST/PUT لا يُعاد كـ GET على نفس المسار (مثل /delete) وإلا يظهر Method Not Allowed.
         method = (request.method or "GET").upper()
         if method in ("POST", "PUT", "PATCH", "DELETE"):
@@ -580,10 +790,19 @@ def create_app() -> FastAPI:
         if user is None:
             return RedirectResponse("/auth/login", status_code=302)
 
+        from modules.authz.domain_scope import default_landing_path, lands_on_hotel_dashboard
         from modules.authz.kiosk import is_cashier_kiosk_user
 
         if is_cashier_kiosk_user(user):
             return RedirectResponse("/pos", status_code=302)
+
+        # موظفو الفندق: لوحة الشقق مباشرة بدل صفحة الأيقونات المكررة
+        if lands_on_hotel_dashboard(user):
+            from modules.authz.kiosk import requires_hotel_shift_pin
+
+            if requires_hotel_shift_pin(user):
+                return RedirectResponse("/admin/hotel/pin", status_code=302)
+            return RedirectResponse(default_landing_path(user), status_code=302)
 
         def perm(code: str) -> bool:
             return user_has_permission(user, code)
@@ -605,7 +824,7 @@ def create_app() -> FastAPI:
         from modules.dashboard_notify.service import badge_counts
 
         try:
-            badges = badge_counts(db, user.id)
+            badges = badge_counts(db, user.id, domain=finance_domain)
         except Exception:
             badges = {}
 

@@ -3,9 +3,12 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  {% include "_public_web_head.html" %}
+  {% if web_mkt is not defined or not web_mkt %}
   <title>{{ store_name }} — حجز الشقق</title>
+  {% endif %}
   <link rel="stylesheet" href="/static/shop.css?v=16" />
-  <link rel="stylesheet" href="/static/hotel_store.css?v=1" />
+  <link rel="stylesheet" href="/static/hotel_store.css?v=4" />
   <style>
     :root {
       --shop-header-from: {{ brand.header_bg_from }};
@@ -15,6 +18,7 @@
   </style>
 </head>
 <body class="shop-page hotel-store-page">
+  {% include "_public_web_body.html" %}
   <header class="hs-header">
     <div class="hs-header__inner">
       {% if brand.logo_url %}
@@ -47,26 +51,160 @@
   <main class="hs-main">
     {% if error %}<div class="hs-alert hs-alert--err">{{ error }}</div>{% endif %}
 
-    <form method="get" action="/suites" class="hs-search card">
-      <h2 style="margin:0 0 0.65rem">ابحث عن شقة متاحة</h2>
+    <form method="get" action="/suites" class="hs-search card" id="hs-smart-search">
+      <h2 style="margin:0 0 0.35rem">بحث ذكي عن شقة</h2>
+      <p class="muted" style="margin:0 0 0.85rem;font-size:0.9rem">أدخل بيانات الإقامة — للزبون أو أثناء الاتصال الهاتفي — لعرض الأنسب حسب السعة والتواريخ.</p>
       <div class="hs-search__grid">
-        <label>تاريخ الوصول <input type="date" name="check_in" value="{{ check_in.isoformat() if check_in else '' }}" min="{{ today.isoformat() }}" /></label>
-        <label>تاريخ المغادرة <input type="date" name="check_out" value="{{ check_out.isoformat() if check_out else '' }}" min="{{ today.isoformat() }}" /></label>
-        <button type="submit" class="btn btn-primary">بحث</button>
+        <label>
+          <span class="hs-search__label">تاريخ الوصول</span>
+          <input type="date" name="check_in" value="{{ check_in.isoformat() if check_in else '' }}" min="{{ today.isoformat() }}" required />
+        </label>
+        <label>
+          <span class="hs-search__label">وقت الوصول</span>
+          <input type="time" name="check_in_time" value="{{ check_in_time }}" />
+        </label>
+        <label>
+          <span class="hs-search__label">تاريخ المغادرة</span>
+          <input type="date" name="check_out" value="{{ check_out.isoformat() if check_out else '' }}" min="{{ today.isoformat() }}" required />
+        </label>
+        <label>
+          <span class="hs-search__label">وقت المغادرة</span>
+          <input type="time" name="check_out_time" value="{{ check_out_time }}" />
+        </label>
+        <label>
+          <span class="hs-search__label">عدد البالغين</span>
+          <input type="number" name="adults" min="1" max="20" value="{{ adults }}" required />
+        </label>
+        <label>
+          <span class="hs-search__label">عدد الأطفال</span>
+          <input type="number" name="children" id="hs-children" min="0" max="15" value="{{ children }}" />
+        </label>
+        <label>
+          <span class="hs-search__label">عدد الشقق المطلوبة</span>
+          <input type="number" name="units" min="1" max="20" value="{{ units }}" required />
+        </label>
+        <div class="hs-search__actions">
+          <span class="hs-search__label" aria-hidden="true">بحث</span>
+          <button type="submit" class="btn btn-primary">بحث</button>
+        </div>
+      </div>
+      <div id="hs-child-ages" class="hs-child-ages" {% if children|int == 0 %}hidden{% endif %}>
+        <div class="hs-child-ages__title">أعمار الأطفال (سنة)</div>
+        <p class="muted" style="margin:0 0 0.45rem;font-size:0.82rem">يُستخدم لتحديد من يحتاج سريراً إضافياً (من عمر {{ child_bed_age }} فأكثر).</p>
+        <div class="hs-child-ages__grid" id="hs-child-ages-grid">
+          {% for age in child_ages %}
+          <label>
+            <span class="hs-search__label">طفل {{ loop.index }}</span>
+            <input type="number" name="child_age" min="0" max="17" value="{{ age if age is not none else '' }}" placeholder="العمر" />
+          </label>
+          {% endfor %}
+        </div>
       </div>
     </form>
 
-    <section class="hs-grid">
+    {% if searched %}
+    <section class="hs-smart-results card">
+      <h2 style="margin:0 0 0.35rem">نتائج البحث — مرتبة حسب الأنسب</h2>
+      <p class="muted" style="margin:0 0 0.85rem;font-size:0.88rem">
+        {{ check_in }} {{ check_in_time }} → {{ check_out }} {{ check_out_time }}
+        · {{ adults }} بالغ{% if children %} · {{ children }} طفل{% endif %}
+        · {{ units }} شقة
+        {% if nights %} · {{ nights }} ليلة{% endif %}
+      </p>
+      {% if smart_results %}
+      <div class="hs-table-wrap">
+        <table class="hs-smart-table">
+          <thead>
+            <tr>
+              <th>نوع الشقة</th>
+              <th>المتاح</th>
+              <th>السعة الأساسية</th>
+              <th>الحد الأقصى</th>
+              <th>السعر لليلة</th>
+              <th>إجمالي الإقامة</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for row in smart_results %}
+            <tr class="hs-smart-row" data-type="{{ row.room_type_id }}">
+              <td><strong>{{ row.name_ar }}</strong></td>
+              <td>
+                <span class="hs-avail-now">{{ row.available_count }} للفترة</span>
+                {% if row.booked_count %}
+                <br><span class="muted" style="font-size:0.8rem">+ {{ row.booked_count }} لاحقاً</span>
+                {% endif %}
+              </td>
+              <td>{{ row.base_capacity_label }}</td>
+              <td>{{ row.max_capacity_label }}</td>
+              <td>{{ '%.3f'|format(row.nightly_rate) }} د.ل</td>
+              <td class="hs-smart-total">{{ '%.3f'|format(row.total_stay) }} د.ل</td>
+            </tr>
+            <tr class="hs-smart-detail">
+              <td colspan="6">
+                <details open>
+                  <summary>تفاصيل الشقق ({{ row.units|length }}) — المتاحة والمحجوزة مع تاريخ الإتاحة</summary>
+                  <ul class="hs-unit-list">
+                  {% for u in row.units %}
+                    <li class="{% if u.full_stay_ok %}hs-unit--free{% else %}hs-unit--booked{% endif %}">
+                      <div class="hs-unit-list__main">
+                        <a href="/suites/room/{{ u.room_id }}?check_in={{ check_in }}&check_out={{ check_out }}{% if not u.full_stay_ok and u.available_from %}&suggest_from={{ u.available_from }}{% endif %}">{{ u.display_name }}</a>
+                        <span class="muted">#{{ u.number }}{% if u.floor %} · الطابق {{ u.floor }}{% endif %}</span>
+                        {% if u.full_stay_ok %}
+                        <span class="hs-pill hs-pill--ok">متاحة للفترة</span>
+                        {% else %}
+                        <span class="hs-pill hs-pill--booked">محجوزة</span>
+                        {% endif %}
+                      </div>
+                      <div class="hs-unit-list__meta">
+                        <span>الأسرة: {{ u.beds_note }}</span>
+                        <span>سرير إضافي: {% if u.allows_extra_bed %}متاح{% else %}غير متاح{% endif %}</span>
+                        <span class="hs-clean hs-clean--{{ u.clean_key }}">النظافة: {{ u.clean_label }}</span>
+                        {% if u.full_stay_ok %}
+                        <span class="hs-stay-ok">متاحة طوال فترة الإقامة ✓</span>
+                        {% else %}
+                        {% if u.occupied_until %}<span class="hs-stay-busy">مغادرة النزيل الحالي: {{ u.occupied_until }}</span>{% endif %}
+                        {% if u.available_from %}<span class="hs-stay-next">متاحة من: <strong>{{ u.available_from }}</strong></span>{% endif %}
+                        {% endif %}
+                      </div>
+                    </li>
+                  {% endfor %}
+                  </ul>
+                </details>
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="hs-alert" style="margin:0">لا توجد أنواع شقق تناسب هذه البيانات في التواريخ المختارة. جرّب تواريخ أخرى أو عدّل عدد الضيوف/الشقق.</p>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    <section class="hs-grid" style="margin-top:1.25rem">
+      <h2 class="hs-section-title" style="grid-column:1/-1;margin:0 0 0.25rem;font-size:1.05rem">شقق معروضة أونلاين</h2>
       {% for card in cards %}
-      <a class="hs-card" href="/suites/room/{{ card.room.id }}{% if check_in and check_out %}?check_in={{ check_in }}&check_out={{ check_out }}{% endif %}">
+      <a class="hs-card{% if not card.available %} hs-card--booked{% endif %}" href="/suites/room/{{ card.room.id }}{% if check_in and check_out %}?check_in={{ check_in }}&check_out={{ check_out }}{% elif card.available_from %}?check_in={{ card.available_from }}{% endif %}">
         <div class="hs-card__img">
           {% if card.cover_url %}<img src="{{ card.cover_url }}" alt="" loading="lazy" />
           {% else %}<div class="hs-card__placeholder">🏠</div>{% endif %}
+          {% if card.available %}
+          <span class="hs-card__ribbon hs-card__ribbon--ok">متاحة</span>
+          {% else %}
+          <span class="hs-card__ribbon hs-card__ribbon--busy">محجوزة</span>
+          {% endif %}
         </div>
         <div class="hs-card__body">
           <h3>{{ card.room.name_ar or ('شقة ' ~ card.room.number) }}</h3>
           {% if card.room.room_type %}<p class="muted">{{ card.room.room_type.name_ar }}</p>{% endif %}
           <p class="hs-card__price">من <strong>{{ '%.3f'|format(card.nightly_rate) }}</strong> د.ل / ليلة</p>
+          {% if card.status_label %}
+          <p class="hs-card__avail hs-card__avail--{{ card.status_key }}">{{ card.status_label }}</p>
+          {% endif %}
+          {% if not card.available and card.available_from %}
+          <p class="hs-card__next">أقرب إتاحة: <strong>{{ card.available_from }}</strong></p>
+          {% endif %}
           {% if card.media_count > 1 %}<span class="hs-badge">{{ card.media_count }} صور/فيديو</span>{% endif %}
         </div>
       </a>
@@ -76,5 +214,38 @@
     </section>
   </main>
   <script src="/static/shop.js?v=16" defer></script>
+  <script>
+  (function () {
+    var childrenInput = document.getElementById('hs-children');
+    var wrap = document.getElementById('hs-child-ages');
+    var grid = document.getElementById('hs-child-ages-grid');
+    if (!childrenInput || !wrap || !grid) return;
+    function renderAges() {
+      var n = Math.max(0, Math.min(15, parseInt(childrenInput.value || '0', 10) || 0));
+      var prev = Array.prototype.map.call(grid.querySelectorAll('input'), function (el) { return el.value; });
+      wrap.hidden = n === 0;
+      grid.innerHTML = '';
+      for (var i = 0; i < n; i++) {
+        var label = document.createElement('label');
+        var title = document.createElement('span');
+        title.className = 'hs-search__label';
+        title.textContent = 'طفل ' + (i + 1);
+        var input = document.createElement('input');
+        input.type = 'number';
+        input.name = 'child_age';
+        input.min = '0';
+        input.max = '17';
+        input.placeholder = 'العمر';
+        if (prev[i]) input.value = prev[i];
+        label.appendChild(title);
+        label.appendChild(input);
+        grid.appendChild(label);
+      }
+    }
+    childrenInput.addEventListener('input', renderAges);
+    childrenInput.addEventListener('change', renderAges);
+  })();
+  </script>
 </body>
 </html>
+

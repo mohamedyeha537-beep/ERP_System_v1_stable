@@ -9,19 +9,21 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from modules.gl.hierarchy import assert_postable_account, build_children_map
 from modules.gl.models import (
     GlJournalEntry,
     GlJournalEntryStatus,
     GlJournalLine,
     GlPaymentMethodMap,
 )
-from modules.gl.hierarchy import assert_postable_account, build_children_map
 from modules.gl.service import (
     entry_date_on_or_after_cutover,
     get_gl_post_mode,
     is_gl_enabled,
     is_posting_date_allowed,
 )
+from modules.hotel.booking_models import HotelBookingPayment, HotelBookingPaymentRefund
+from modules.hr.models import PayrollRun
 from modules.payments.models import (
     PaymentMethod,
     PaymentMethodKind,
@@ -35,8 +37,6 @@ from modules.payments.models import (
 )
 from modules.refunds.models import SaleReturn
 from modules.sales.models import Sale
-from modules.hr.models import PayrollRun
-from modules.hotel.booking_models import HotelBookingPayment, HotelBookingPaymentRefund
 
 logger = logging.getLogger(__name__)
 
@@ -147,11 +147,6 @@ def post_balanced_entry(
     key = (idempotency_key or "").strip()
     if not key:
         raise GlPostingError("مفتاح idempotency مطلوب.")
-    existing_id = db.scalar(
-        select(GlJournalEntry.id).where(GlJournalEntry.idempotency_key == key)
-    )
-    if existing_id is not None:
-        return db.get(GlJournalEntry, int(existing_id))
 
     filtered: list[_LineSpec] = []
     for ln in lines:
@@ -177,6 +172,38 @@ def post_balanced_entry(
         source_id=source_id,
         business_domain=business_domain,
     )
+
+    existing_id = db.scalar(
+        select(GlJournalEntry.id).where(GlJournalEntry.idempotency_key == key)
+    )
+    if existing_id is not None:
+        entry = db.get(GlJournalEntry, int(existing_id))
+        if entry is not None and entry.status != GlJournalEntryStatus.REVERSED:
+            # تحديث القائد الموجود بدلاً من إعادة استخدامه ببيانات قديمة
+            for old_line in list(entry.lines):
+                db.delete(old_line)
+            entry.description_ar = description_ar[:255]
+            entry.entry_date = entry_date
+            entry.post_mode = get_gl_post_mode(db)
+            entry.created_by_id = created_by_id
+            entry.business_domain = entry_dom
+            entry.status = GlJournalEntryStatus.POSTED
+            db.flush()
+            for i, ln in enumerate(filtered, start=1):
+                db.add(
+                    GlJournalLine(
+                        entry_id=entry.id,
+                        account_id=_account_id(db, ln.account_code),
+                        debit=ln.debit,
+                        credit=ln.credit,
+                        memo=(ln.memo or "")[:255] or None,
+                        line_no=i,
+                    )
+                )
+            db.flush()
+            return entry
+        return entry
+
     entry = GlJournalEntry(
         entry_date=entry_date,
         description_ar=description_ar[:255],
@@ -259,7 +286,7 @@ def post_sale_completed_shadow(db: Session, sale: Sale) -> None:
         description_ar=f"إيراد فاتورة #{sale.id}",
         entry_date=_entry_date_from_dt(sale.created_at),
         lines=[
-            _LineSpec(CODE_AR, amount, _ZERO, "ذمم مدينة"),
+            _LineSpec(CODE_AR, amount, _ZERO, "مستحقات عملاء/غرف"),
             _LineSpec(CODE_REVENUE, _ZERO, amount, "إيراد مبيعات"),
         ],
     )
@@ -490,9 +517,9 @@ def post_period_depreciation_shadow(
 def post_inventory_purchase_shadow(db: Session, purchase: Purchase) -> None:
     if purchase.kind != PurchaseKind.INVENTORY:
         return
+    from modules.gl.role_maps import role_account_code
     from modules.payments.cost_reference import is_cost_reference_purchase
     from modules.payments.models import PurchaseLineKind
-    from modules.gl.role_maps import role_account_code
 
     if is_cost_reference_purchase(purchase):
         return
@@ -593,9 +620,12 @@ def post_hotel_booking_payment_refund_shadow(
     if amount <= 0:
         return
     hp = ref.payment
-    if hp is None or hp.payment_method_id is None:
+    if hp is None:
         return
-    cash_code = _cash_account_code_for_pm(db, int(hp.payment_method_id))
+    pm_id = getattr(ref, "payment_method_id", None) or hp.payment_method_id
+    if pm_id is None:
+        return
+    cash_code = _cash_account_code_for_pm(db, int(pm_id))
     booking = hp.booking
     booking_ref = booking.reference if booking is not None else hp.booking_id
     post_balanced_entry(
@@ -711,24 +741,47 @@ def post_payroll_payment_shadow(
 
 
 def post_sale_completed_shadow_safe(db: Session, sale: Sale) -> None:
+    # مبيعات مربوطة بجلسة كاشير: الترحيل عند إقفال الجلسة (لا كل فاتورة)
+    if getattr(sale, "pos_shift_id", None):
+        return
     _safe("sale_completed", post_sale_completed_shadow, db, sale)
     _safe("sale_cogs", post_sale_cogs_shadow, db, sale)
 
 
 def post_sale_cogs_shadow_safe(db: Session, sale: Sale) -> None:
+    if getattr(sale, "pos_shift_id", None):
+        return
     _safe("sale_cogs", post_sale_cogs_shadow, db, sale)
 
 
 def post_sale_payment_shadow_safe(db: Session, sp: SalePayment) -> None:
+    sale = db.get(Sale, int(sp.sale_id)) if sp.sale_id else None
+    if sale is not None and getattr(sale, "pos_shift_id", None):
+        return
     _safe("sale_payment", post_sale_payment_shadow, db, sp)
 
 
 def post_sale_return_shadow_safe(db: Session, sale_return: SaleReturn) -> None:
+    sale = (
+        db.get(Sale, int(sale_return.original_sale_id))
+        if sale_return.original_sale_id
+        else None
+    )
+    if sale is not None and getattr(sale, "pos_shift_id", None):
+        return
     _safe("sale_return", post_sale_return_shadow, db, sale_return)
     _safe("sale_return_cogs", post_sale_return_cogs_shadow, db, sale_return)
 
 
 def post_refund_payment_shadow_safe(db: Session, rp: RefundPayment) -> None:
+    if rp.sale_return_id:
+        from modules.refunds.models import SaleReturn
+
+        sr = db.get(SaleReturn, int(rp.sale_return_id))
+        if sr is not None and sr.original_sale_id:
+            sale = db.get(Sale, int(sr.original_sale_id))
+            if sale is not None and getattr(sale, "pos_shift_id", None):
+                return
     _safe("refund_payment", post_refund_payment_shadow, db, rp)
 
 

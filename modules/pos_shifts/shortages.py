@@ -48,6 +48,8 @@ class ShiftShortageRow:
     employee_name: str | None
     closing_note: str | None
     opening_note: str | None
+    source: str = "pos"
+    report_href: str = ""
 
 
 @dataclass
@@ -187,6 +189,120 @@ def record_shortages_for_closed_shift(
     return created
 
 
+def convert_open_shortage_to_deduction(
+    db: Session,
+    shortage: PosShiftShortage,
+    *,
+    resolved_by_id: int | None = None,
+    note: str | None = None,
+    employee_id_override: int | None = None,
+):
+    """يحوّل عجز جلسة مفتوحاً إلى خصم راتب مستحق (EmployeeDeduction).
+
+    إن وُجد خصم مسبقاً لنفس المصدر يُربَط به دون تكرار.
+    """
+    from datetime import datetime, timezone
+
+    from modules.hr.models import DeductionStatus, EmployeeDeduction
+    from modules.hr.service import HRError, create_employee_deduction
+
+    if shortage is None:
+        return None
+    if _shortage_is_resolved(shortage) and shortage.payroll_deduction_id:
+        return db.get(EmployeeDeduction, shortage.payroll_deduction_id)
+    amt = Decimal(str(shortage.shortage_amount or 0)).quantize(Decimal("0.001"))
+    if amt <= 0 and shortage.payroll_deduction_id:
+        return db.get(EmployeeDeduction, shortage.payroll_deduction_id)
+    if amt <= 0:
+        return None
+    emp_id = int(shortage.employee_id or employee_id_override or 0)
+    if emp_id <= 0:
+        return None
+
+    note_text = (note or "").strip() or (
+        f"عجز {shortage_kind_label_ar(shortage.kind)} جلسة #{shortage.shift_id} "
+        f"— خصم تلقائي من الراتب"
+    )
+    ded = None
+    try:
+        ded = create_employee_deduction(
+            db,
+            employee_id=emp_id,
+            amount=amt,
+            note=note_text,
+            source_type="POS_SHIFT_SHORTAGE",
+            source_id=shortage.id,
+            resolved_by_id=resolved_by_id,
+        )
+    except HRError as exc:
+        msg = str(exc)
+        if "مسبقاً" not in msg and "تكراره" not in msg:
+            raise
+        ded = db.scalar(
+            select(EmployeeDeduction).where(
+                EmployeeDeduction.employee_id == emp_id,
+                EmployeeDeduction.source_type == "POS_SHIFT_SHORTAGE",
+                EmployeeDeduction.source_id == shortage.id,
+                EmployeeDeduction.status != DeductionStatus.CANCELLED,
+            )
+        )
+        if ded is None:
+            raise
+
+    if shortage.employee_id is None:
+        shortage.employee_id = emp_id
+    # اربط الجلسة أيضاً إن كانت بدون موظف (إغلاق بأدمن)
+    sh = db.get(PosShift, int(shortage.shift_id)) if shortage.shift_id else None
+    if sh is not None and sh.employee_id is None:
+        sh.employee_id = emp_id
+    if shortage.original_shortage_amount is None:
+        shortage.original_shortage_amount = amt
+    shortage.resolved_action = "DEDUCT"
+    shortage.resolved_note = (note or "").strip() or "خصم تلقائي من الراتب"
+    shortage.resolved_at = datetime.now(timezone.utc)
+    if resolved_by_id is not None:
+        shortage.resolved_by_id = resolved_by_id
+    shortage.payroll_deduction_id = ded.id
+    shortage.shortage_amount = Decimal("0.000")
+    db.flush()
+    return ded
+
+
+def list_unassigned_open_shortages(
+    db: Session, *, limit: int = 100
+) -> list[ShiftShortageRow]:
+    """عجز مفتوح بلا موظف — يظهر عند إغلاق الجلسة بحساب أدمن بدون ربط موظف."""
+    return [r for r in list_shift_shortages(db, limit=limit) if not r.employee_id]
+
+
+def auto_convert_open_shortages_to_deductions(
+    db: Session,
+    *,
+    employee_ids: list[int] | None = None,
+    resolved_by_id: int | None = None,
+) -> int:
+    """يحوّل كل عجز مفتوح مرتبط بموظف إلى خصم راتب — يُستدعى قبل حساب دفعة الرواتب."""
+    stmt = select(PosShiftShortage).where(PosShiftShortage.shortage_amount > 0)
+    if employee_ids is not None:
+        if not employee_ids:
+            return 0
+        stmt = stmt.where(PosShiftShortage.employee_id.in_(employee_ids))
+    else:
+        stmt = stmt.where(PosShiftShortage.employee_id.is_not(None))
+    count = 0
+    for row in list(db.scalars(stmt).all()):
+        if _shortage_is_resolved(row) and row.payroll_deduction_id:
+            continue
+        try:
+            if convert_open_shortage_to_deduction(
+                db, row, resolved_by_id=resolved_by_id
+            ):
+                count += 1
+        except Exception:  # noqa: BLE001
+            continue
+    return count
+
+
 def list_shift_shortages(
     db: Session,
     *,
@@ -237,8 +353,84 @@ def list_shift_shortages(
                 employee_name=emp_name,
                 closing_note=r.closing_note,
                 opening_note=sh.opening_note if sh else None,
+                source="pos",
+                report_href=f"/pos/shift/{r.shift_id}/report",
             )
         )
+    out.extend(_list_hotel_shift_shortages(db, kind_filter=kind_filter, limit=limit))
+
+    def _closed_sort_key(row: ShiftShortageRow):
+        dt = row.closed_at
+        if dt is None:
+            return (datetime.min, row.shift_id)
+        if getattr(dt, "tzinfo", None) is not None:
+            dt = dt.replace(tzinfo=None)
+        return (dt, row.shift_id)
+
+    out.sort(key=_closed_sort_key, reverse=True)
+    return out[:limit]
+
+
+def _list_hotel_shift_shortages(
+    db: Session,
+    *,
+    kind_filter: str | None = None,
+    limit: int = 500,
+) -> list[ShiftShortageRow]:
+    """عجز جلسات الفندق (لا يُحفظ في جدول عجز المطعم)."""
+    from modules.hotel.shift_models import HotelShift, HotelShiftStatus
+
+    want = (kind_filter or "").strip().upper()
+    shifts = list(
+        db.scalars(
+            select(HotelShift)
+            .options(
+                selectinload(HotelShift.employee),
+                selectinload(HotelShift.user),
+            )
+            .where(HotelShift.status == HotelShiftStatus.CLOSED)
+            .order_by(HotelShift.closed_at.desc(), HotelShift.id.desc())
+            .limit(max(50, min(int(limit), 500)))
+        ).all()
+    )
+    out: list[ShiftShortageRow] = []
+    for sh in shifts:
+        pairs = (
+            (ShortageKind.CASH, sh.cash_difference, sh.expected_cash, sh.counted_cash),
+            (ShortageKind.BANK, sh.bank_difference, sh.expected_bank, sh.counted_bank),
+        )
+        for kind, diff, expected, counted in pairs:
+            amt = _shortage_amount(diff)
+            if amt is None or amt <= 0:
+                continue
+            if want in ("CASH", "BANK") and str(getattr(kind, "value", kind)) != want:
+                continue
+            uname = (sh.user.username if sh.user else "") or "—"
+            emp_name = sh.employee.full_name_ar if sh.employee else None
+            kind_code = 1 if shortage_kind_is_cash(kind) else 2
+            out.append(
+                ShiftShortageRow(
+                    id=-(int(sh.id) * 10 + kind_code),
+                    shift_id=sh.id,
+                    kind=kind,
+                    is_cash=shortage_kind_is_cash(kind),
+                    kind_ar=shortage_kind_label_ar(kind),
+                    shortage_amount=amt,
+                    expected_amount=Decimal(str(expected or 0)).quantize(Decimal("0.001")),
+                    counted_amount=Decimal(str(counted or 0)).quantize(Decimal("0.001")),
+                    difference=Decimal(str(diff or 0)).quantize(Decimal("0.001")),
+                    closed_at=sh.closed_at,
+                    opened_at=sh.opened_at,
+                    user_id=int(sh.user_id or 0),
+                    username=uname,
+                    employee_id=sh.employee_id,
+                    employee_name=emp_name,
+                    closing_note=sh.closing_note,
+                    opening_note=sh.opening_note,
+                    source="hotel",
+                    report_href=f"/admin/hotel/shift/{sh.id}/report",
+                )
+            )
     return out
 
 

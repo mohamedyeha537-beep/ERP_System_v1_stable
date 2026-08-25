@@ -98,7 +98,7 @@
         <label for="payment_method_id">الدفع من المحفظة</label>
         <select id="payment_method_id" name="payment_method_id" required style="max-width: 14rem">
           {% for m in methods if pos_is_main_treasury_wallet(m) %}
-          <option value="{{ m.id }}">{{ m.name_ar }}</option>
+          <option value="{{ m.id }}">{{ pos_wallet_label(m) }}</option>
           {% endfor %}
         </select>
       </div>

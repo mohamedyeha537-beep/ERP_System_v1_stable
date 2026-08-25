@@ -329,9 +329,11 @@ def _return_components(
 
     sr = db.get(SaleReturn, sale_return_id)
     psid = None
+    original_sale_id: int | None = None
     if sr and sr.original_sale_id:
         sale = db.get(Sale, sr.original_sale_id)
         psid = sale.pos_shift_id if sale else None
+        original_sale_id = sr.original_sale_id
     for product_id, qty in component_qty.items():
         if qty <= 0:
             continue
@@ -342,7 +344,7 @@ def _return_components(
             quantity_delta=qty.quantize(Decimal("0.0001")),
             movement_type=StockMovementType.SALE_RETURN,
             user_id=user_id,
-            sale_id=None,
+            sale_id=original_sale_id,
             warehouse_id=sales_wh,
             note=f"مرتجع بيع #{sale_return_id}",
         )

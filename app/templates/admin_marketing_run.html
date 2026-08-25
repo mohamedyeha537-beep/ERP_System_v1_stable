@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}تشغيل تسويق #{{ run.id }}{% endblock %}
+{% block head_extra %}
+<style>
+  .mkt-edit-panel {
+    margin-top: 0.75rem; padding: 0.75rem; border: 1px solid #e2e8f0;
+    border-radius: 10px; background: #fff;
+  }
+  .mkt-edit-panel textarea {
+    width: 100%; min-height: 8.5rem; font-family: inherit; font-size: 0.92rem;
+    line-height: 1.6; padding: 0.65rem; border: 1px solid #cbd5e1; border-radius: 8px;
+    resize: vertical;
+  }
+  .mkt-tools { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
+  .mkt-tools .btn { font-size: 0.86rem; }
+</style>
+{% endblock %}
+{% block body %}
+<div class="row" style="justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap">
+  <div>
+    <h1 style="margin:0">تشغيل #{{ run.id }}</h1>
+    <p class="muted" style="margin:0.35rem 0 0">{{ run.title }} · {{ run.business_domain }} · {{ run.status }}</p>
+  </div>
+  <div class="row" style="gap:0.4rem">
+    <a class="btn" href="/admin/marketing-room">غرفة الوكلاء</a>
+    {% if run.status == 'awaiting_approval' %}
+    <form method="post" action="/admin/marketing-room/runs/{{ run.id }}/approve-all">
+      <button class="btn btn-primary" type="submit">اعتماد الكل</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+{% if notice %}<div class="alert" style="background:#ecfdf5;border-color:#10b981;color:#065f46">{{ notice }}</div>{% endif %}
+
+{% if run.chief_summary %}
+<div class="card" style="margin-top:0.85rem;border-color:#99f6e4;background:#f0fdfa">
+  <h2 style="margin-top:0;font-size:1.05rem">ملخص الوكيل الرئيسي</h2>
+  <p style="margin:0;white-space:pre-wrap;line-height:1.6">{{ run.chief_summary }}</p>
+</div>
+{% endif %}
+
+{% if run.error_message %}
+<div class="alert" style="margin-top:0.85rem">{{ run.error_message }}</div>
+{% endif %}
+
+{% for art in artifacts %}
+{% if art.kind == 'team_request_inbox' %}
+{# نسخة قديمة مكررة — لا تُعرض #}
+{% else %}
+<div class="card" style="margin-top:0.75rem{% if art.status == 'pending_approval' %};border-color:#fdba74;background:#fffbeb{% elif art.status == 'approved' %};border-color:#86efac;background:#f0fdf4{% endif %}" id="art-{{ art.id }}">
+  <div class="row" style="justify-content:space-between;gap:0.5rem;flex-wrap:wrap;align-items:flex-start">
+    <div>
+      <h3 style="margin:0 0 0.25rem">{{ art.title or art.kind }}</h3>
+      <p class="muted" style="margin:0;font-size:0.85rem">
+        {{ art.agent_role }} · {{ art.kind }} ·
+        {% if art.status == 'pending_approval' %}<strong style="color:#c2410c">بانتظار موافقة</strong>
+        {% elif art.status == 'approved' %}<strong style="color:#15803d">معتمد</strong>
+        {% elif art.status == 'rejected' %}<strong style="color:#b91c1c">مرفوض</strong>
+        {% else %}{{ art.status }}{% endif %}
+      </p>
+    </div>
+    <div class="mkt-tools">
+      {% if art.kind == 'team_request' and art.status == 'pending_approval' %}
+      <form method="post" action="/admin/marketing-room/agents/{{ art.agent_role }}/team-request/{{ art.id }}/execute">
+        <button class="btn btn-primary" type="submit">▶ تنفيذ الطلب الآن</button>
+      </form>
+      {% endif %}
+      <a class="btn" href="/admin/marketing-room/artifacts/{{ art.id }}/copy">نسخ / عرض</a>
+      <a class="btn" href="/admin/marketing-room/artifacts/{{ art.id }}/export.txt">تصدير .txt</a>
+      {% if art.status == 'pending_approval' and art.kind != 'team_request' %}
+      <form method="post" action="/admin/marketing-room/artifacts/{{ art.id }}/approve">
+        <button class="btn btn-primary" type="submit">اعتماد</button>
+      </form>
+      <form method="post" action="/admin/marketing-room/artifacts/{{ art.id }}/reject">
+        <button class="btn" type="submit" style="background:#fee2e2;border-color:#fecaca">رفض</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if art.media_path %}
+  <div style="margin-top:0.75rem">
+    {% if art.media_path.endswith('.mp4') or art.kind == 'post_with_video' %}
+    <video src="{{ art.media_path }}?v={{ art.id }}" controls style="max-width:min(100%,420px);border-radius:10px;border:1px solid #e2e8f0"></video>
+    {% else %}
+    <img src="{{ art.media_path }}?v={{ art.id }}-{{ art.created_at }}" alt="" style="max-width:min(100%,420px);border-radius:10px;border:1px solid #e2e8f0" />
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if art.kind in ['post', 'post_with_image', 'post_with_video', 'sale_idea', 'design_brief', 'hashtags'] %}
+  <div class="mkt-edit-panel">
+    <form method="post" action="/admin/marketing-room/artifacts/{{ art.id }}/edit">
+      <label for="title-{{ art.id }}">العنوان (ليس برومبت الصورة)</label>
+      <input id="title-{{ art.id }}" name="title" value="{{ art.title or '' }}" style="width:100%;margin:0.35rem 0 0.65rem" />
+      <label for="body-{{ art.id }}">نص المنشور — يمكن التعديل يدوياً</label>
+      <textarea id="body-{{ art.id }}" name="body_text" required>{{ art.body_text }}</textarea>
+      <div class="row" style="margin-top:0.55rem;gap:0.4rem;flex-wrap:wrap">
+        <button class="btn btn-primary" type="submit">💾 حفظ التعديل</button>
+      </div>
+    </form>
+
+    {% if art.kind in ['post', 'post_with_image', 'sale_idea', 'design_brief'] %}
+    <form method="post" action="/admin/marketing-room/artifacts/{{ art.id }}/regen-text" style="margin-top:0.85rem;padding-top:0.75rem;border-top:1px dashed #e2e8f0">
+      <label for="focus-{{ art.id }}">التركيز عند إعادة التوليد</label>
+      <select id="focus-{{ art.id }}" name="content_focus" style="display:block;margin:0.35rem 0 0.55rem;max-width:16rem">
+        <option value="restaurant" selected>المطعم / الكافيه فقط</option>
+        <option value="hotel">الشقق الفندقية فقط</option>
+        <option value="shared">مشترك (مطعم + فندق)</option>
+      </select>
+      <label for="instr-{{ art.id }}">تعليمات إضافية (اختياري)</label>
+      <input id="instr-{{ art.id }}" name="instruction" placeholder="مثال: بدون ذكر الشقق — ركّز على البرجر والطعم فقط" style="width:100%;margin:0.35rem 0 0.55rem" />
+      <button class="btn" type="submit">↻ إعادة توليد النص</button>
+    </form>
+    {% endif %}
+
+    {% if art.kind in ['post', 'post_with_image'] or art.media_path %}
+    <form method="post" action="/admin/marketing-room/artifacts/{{ art.id }}/regen-image" style="margin-top:0.65rem" onsubmit="return confirm('إعادة توليد صورة جديدة؟');">
+      <button class="btn" type="submit">🖼 إعادة توليد الصورة</button>
+      <span class="muted" style="font-size:0.8rem;margin-inline-start:0.35rem">الصورة بدون نص عربي عليها</span>
+    </form>
+    {% endif %}
+  </div>
+  {% elif art.kind == 'team_request' %}
+  <div class="mkt-edit-panel">
+    <p style="margin:0 0 0.5rem;font-size:0.9rem"><strong>طلب التنفيذ:</strong></p>
+    <pre style="margin:0;white-space:pre-wrap;font-family:inherit;font-size:0.92rem;line-height:1.6">{{ art.body_text }}</pre>
+    {% if art.status == 'pending_approval' %}
+    <form method="post" action="/admin/marketing-room/agents/{{ art.agent_role }}/team-request/{{ art.id }}/execute" style="margin-top:0.75rem">
+      <button class="btn btn-primary" type="submit">▶ تنفيذ (إعادة توليد صورة/نص حسب الطلب)</button>
+    </form>
+    {% endif %}
+  </div>
+  {% else %}
+  <pre style="margin:0.75rem 0 0;white-space:pre-wrap;font-family:inherit;font-size:0.92rem;line-height:1.6;background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:0.75rem">{{ art.body_text }}</pre>
+  {% endif %}
+</div>
+{% endif %}
+{% else %}
+<div class="card" style="margin-top:0.85rem"><p class="muted" style="margin:0">لا مخرجات في هذا التشغيل.</p></div>
+{% endfor %}
+{% endblock %}

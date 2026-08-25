@@ -1,0 +1,64 @@
+============================================================
+تفعيل غرفة وكلاء التسويق — /admin/marketing-room
+============================================================
+
+إذا ظهر على السيرفر:
+  {"detail":"Not Found"}
+فالمعنى: الكود الجديد لم يُرفع بعد إلى ذلك السيرفر (أو الخدمة لم تُعاد تشغيلها).
+
+
+------------------------------------------------------------
+الملفات المطلوبة على السيرفر
+------------------------------------------------------------
+
+  modules/marketing_room/          (المجلد كاملاً)
+  app/templates/admin_marketing_room.html
+  app/templates/admin_marketing_run.html
+  app/templates/admin_marketing_export.html
+  app/main.py                      (include_router للغرفة)
+  modules/authz/permissions.py     (صلاحيات marketing_room:*)
+  app/templates/_admin_sidebar.html
+  deploy/marketing-room-schema.sql
+  .env.example                     (اختياري — مرجع فقط)
+
+
+------------------------------------------------------------
+Staging: https://pos.baytak.ly
+------------------------------------------------------------
+
+1) ارفع الكود (git pull على السيرفر أو نسخ الملفات أعلاه).
+
+2) نفّذ SQL على MySQL (phpMyAdmin أو mysql CLI):
+       deploy/marketing-room-schema.sql
+   ينشئ الجداول + صلاحيات marketing_room:view|run|approve
+
+3) أعد تشغيل الخدمة:
+       sudo systemctl restart pos
+   (أو اسم وحدتك الفعلي)
+
+4) سجّل دخول كأدمن وافتح:
+       https://pos.baytak.ly/admin/marketing-room
+
+5) إن لم يظهر الرابط في القائمة: من إدارة المستخدمين امنح الأدمن
+   صلاحيات marketing_room:view / run / approve ثم أعد الدخول.
+
+
+------------------------------------------------------------
+اختياري — ذكاء اصطناعي / n8n
+------------------------------------------------------------
+
+في .env على السيرفر (أو إعدادات محادثة الويب الموجودة):
+  MARKETING_N8N_WEBHOOK_URL=
+  MARKETING_AGENT_API_KEY=
+
+بدون مفتاح AI تعمل القوالب المحلية من أصناف/غرف النظام.
+
+
+------------------------------------------------------------
+تحقق سريع
+------------------------------------------------------------
+
+  curl -s https://pos.baytak.ly/api/marketing-room/health
+  → {"ok":true,"service":"marketing-room"}
+
+إن بقي Not Found: الكود ما زال قديماً على السيرفر.

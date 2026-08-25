@@ -119,6 +119,7 @@ def products_csv_template() -> str:
             "kitchen_section_code",
             "is_active",
             "show_in_pos",
+            "show_in_shop",
             "direct_purchase_enabled",
             "notes",
         ]
@@ -134,6 +135,7 @@ def products_csv_template() -> str:
             "0",
             "مطعم/برجر",
             "GRILL",
+            "1",
             "1",
             "1",
             "0",
@@ -187,6 +189,7 @@ def products_csv_export(db: Session) -> str:
             "kitchen_section_code",
             "is_active",
             "show_in_pos",
+            "show_in_shop",
             "direct_purchase_enabled",
             "notes",
         ]
@@ -214,6 +217,7 @@ def products_csv_export(db: Session) -> str:
                 sec_codes.get(p.kitchen_section_id, ""),
                 "1" if p.is_active else "0",
                 "1" if p.show_in_pos else "0",
+                "1" if p.show_in_shop else "0",
                 "1" if p.direct_purchase_enabled else "0",
                 (p.notes or "").replace("\n", " "),
             ]
@@ -499,6 +503,11 @@ def import_products_csv(
             show_in_pos = show_raw not in ("0", "false", "no")
         else:
             show_in_pos = kind == ProductKind.FINAL_SELLABLE and is_active
+        shop_raw = (row.get("show_in_shop") or "").strip()
+        if shop_raw:
+            show_in_shop = shop_raw not in ("0", "false", "no")
+        else:
+            show_in_shop = show_in_pos
         direct_raw = (row.get("direct_purchase_enabled") or "").strip()
         if direct_raw:
             direct_purchase_enabled = direct_raw not in ("0", "false", "no")
@@ -530,6 +539,7 @@ def import_products_csv(
             existing.kitchen_section_id = sec_id
             existing.is_active = is_active
             existing.show_in_pos = show_in_pos if kind == ProductKind.FINAL_SELLABLE else False
+            existing.show_in_shop = show_in_shop if kind == ProductKind.FINAL_SELLABLE else False
             existing.direct_purchase_enabled = (
                 direct_purchase_enabled if kind == ProductKind.FINAL_SELLABLE else False
             )
@@ -556,6 +566,7 @@ def import_products_csv(
             kitchen_section_id=sec_id,
             is_active=is_active,
             show_in_pos=show_in_pos if kind == ProductKind.FINAL_SELLABLE else False,
+            show_in_shop=show_in_shop if kind == ProductKind.FINAL_SELLABLE else False,
             direct_purchase_enabled=(
                 direct_purchase_enabled if kind == ProductKind.FINAL_SELLABLE else False
             ),

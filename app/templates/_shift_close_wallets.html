@@ -32,7 +32,7 @@
     <div class="shift-close-wallet-row__box shift-close-wallet-row__box--expected">
       <span class="shift-close-wallet-row__box-label">المتوقع</span>
       <span class="shift-close-wallet-row__box-value">
-        {{ pos_money(row.sales_total) }} <span class="money-currency">د.ل</span>
+        {{ pos_money(row.close_expected if row.close_expected is not none else row.sales_total) }} <span class="money-currency">د.ل</span>
       </span>
     </div>
     <div class="shift-close-wallet-row__box shift-close-wallet-row__box--counted">
@@ -40,7 +40,8 @@
       <input type="text" inputmode="decimal"
         class="shift-counted-input{% if row.require_count %} shift-counted-input--required{% endif %}"
         data-kind="{{ row.kind }}"
-        placeholder="{% if row.require_count %}أدخل بعد المراجعة{% else %}0.000{% endif %}"
+        placeholder="{% if row.require_count %}أدخل المعدود بعد العدّ{% else %}أدخل المعدود{% endif %}"
+        value=""
         autocomplete="off"
         dir="ltr"
         {% if row.require_count %}required aria-required="true"{% endif %} />

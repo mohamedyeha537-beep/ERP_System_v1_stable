@@ -3,6 +3,13 @@
 {% block body %}
 <h1>وكلاء الطباعة المحلية</h1>
 <a class="btn" href="/admin/printing">رجوع</a>
+<div class="card" style="margin:1rem 0;background:#fff7ed;border-color:#fdba74;font-size:0.92rem;line-height:1.5">
+  <strong>لمنع توقف الطباعة كل يومين:</strong>
+  ثبّت الوكيل كخدمة Windows على جهاز المطعم عبر
+  <code>tools/print_agent/install-windows-service.bat</code>
+  (راجع ملف <code>حل-توقف-الطباعة-النهائي.txt</code>).
+  إذا ظهر «غير متصل» أعد تشغيل الخدمة <code>POS-PrintAgent</code>.
+</div>
 {% if new_token %}
 <div class="alert" style="margin:1rem 0;background:#ecfdf5;border-color:#6ee7b7">
   <strong>احفظ الرمز الآن — لن يُعرض مرة أخرى:</strong>
@@ -21,12 +28,21 @@
   </form>
 </div>
 <table class="table" style="margin-top:1.5rem">
-  <thead><tr><th>#</th><th>الاسم</th><th>آخر اتصال</th><th>نشط</th><th></th></tr></thead>
+  <thead><tr><th>#</th><th>الاسم</th><th>الحالة</th><th>آخر اتصال</th><th>نشط</th><th></th></tr></thead>
   <tbody>
   {% for a in agents %}
   <tr>
     <td>{{ a.id }}</td>
     <td>{{ a.name }}</td>
+    <td>
+      {% if agent_online.get(a.id) %}
+      <span style="color:#15803d;font-weight:700">متصل</span>
+      {% elif a.is_active %}
+      <span style="color:#b91c1c;font-weight:700">غير متصل</span>
+      {% else %}
+      <span class="muted">معطّل</span>
+      {% endif %}
+    </td>
     <td>{{ a.last_seen_at or '—' }}</td>
     <td>{{ 'نعم' if a.is_active else 'لا' }}</td>
     <td>
@@ -36,7 +52,7 @@
     </td>
   </tr>
   {% else %}
-  <tr><td colspan="5" class="muted">لا وكلاء بعد.</td></tr>
+  <tr><td colspan="6" class="muted">لا وكلاء بعد.</td></tr>
   {% endfor %}
   </tbody>
 </table>

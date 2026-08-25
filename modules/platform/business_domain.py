@@ -4,7 +4,11 @@ from __future__ import annotations
 from enum import Enum
 
 from modules.authz.models import User
-from modules.authz.permissions import ADMIN_ROLE_NAME_AR
+from modules.authz.permissions import (
+    ADMIN_ROLE_NAME_AR,
+    HOTEL_BOOKINGS_ONLY_ROLE_NAME_AR,
+    TREASURY_CLERK_ROLE_NAME_AR,
+)
 
 SESSION_VIEW_MODE_KEY = "business_view_mode"
 
@@ -30,6 +34,23 @@ class UserViewScope(str, Enum):
 
 HOTEL_STAFF_ROLE_NAME_AR = "موظف فندق"
 RESTAURANT_STAFF_ROLE_NAME_AR = "موظف مطعم"
+# أدوار تُعامل كفندق فقط حتى لو view_scope قديم = both
+_HOTEL_ONLY_ROLE_NAMES = frozenset(
+    {
+        HOTEL_STAFF_ROLE_NAME_AR,
+        HOTEL_BOOKINGS_ONLY_ROLE_NAME_AR,
+        "استقبال الفندق",
+        "موظف استقبال",
+    }
+)
+
+# أدوار مالية مشتركة — ترى المطعم والفندق معاً (استلام ورديات الطرفين)
+_SHARED_SCOPE_ROLE_NAMES = frozenset(
+    {
+        TREASURY_CLERK_ROLE_NAME_AR,
+        "أمين الخزينة",
+    }
+)
 
 _HOTEL_SCOPE_PERMISSIONS = frozenset(
     {
@@ -39,6 +60,7 @@ _HOTEL_SCOPE_PERMISSIONS = frozenset(
         "hotel:booking:checkin",
         "hotel:booking:checkout",
         "hotel:settle",
+        "hotel:settle:transfer",
         "hotel:rooms:manage",
         "hotel:housekeeping",
         "hotel:finance:close_day",
@@ -98,9 +120,9 @@ def is_system_admin(user: User | None) -> bool:
 
 
 def user_permission_codes(user: User | None) -> set[str]:
-    if user is None:
-        return set()
-    return {p.code for r in user.roles for p in r.permissions}
+    from modules.authz.service import user_permission_codes as _codes
+
+    return _codes(user)
 
 
 def _has_hotel_scope(user: User) -> bool:
@@ -133,9 +155,12 @@ def parse_user_view_scope(raw: str | None) -> UserViewScope:
 
 def _infer_view_scope_from_roles(user: User) -> UserViewScope:
     """استنتاج للمستخدمين القدامى قبل إضافة view_scope."""
-    if HOTEL_STAFF_ROLE_NAME_AR in user_role_names(user):
+    names = user_role_names(user)
+    if names & _SHARED_SCOPE_ROLE_NAMES:
+        return UserViewScope.BOTH
+    if names & _HOTEL_ONLY_ROLE_NAMES and RESTAURANT_STAFF_ROLE_NAME_AR not in names:
         return UserViewScope.HOTEL
-    if RESTAURANT_STAFF_ROLE_NAME_AR in user_role_names(user):
+    if RESTAURANT_STAFF_ROLE_NAME_AR in names and not (names & _HOTEL_ONLY_ROLE_NAMES):
         return UserViewScope.RESTAURANT
     has_hotel = _has_hotel_scope(user)
     has_rest = _has_restaurant_scope(user)
@@ -146,20 +171,43 @@ def _infer_view_scope_from_roles(user: User) -> UserViewScope:
     return UserViewScope.BOTH
 
 
+def is_shared_scope_role_user(user: User | None) -> bool:
+    """أمين الخزينة وأدوار مالية مشتركة — يعملون على المطعم والفندق معاً."""
+    if user is None:
+        return False
+    return bool(user_role_names(user) & _SHARED_SCOPE_ROLE_NAMES)
+
+
 def get_user_view_scope(user: User | None) -> UserViewScope:
     if user is None or is_system_admin(user):
         return UserViewScope.BOTH
+    # أمين الخزينة يعمل على المطعم والفندق معاً — التضييق يتم بمنح/منع الوظائف
+    if is_shared_scope_role_user(user):
+        return UserViewScope.BOTH
+    names = user_role_names(user)
+    # أدوار الحجوزات فقط: فندق دائماً (لا صفحة روابط سريعة عامة)
+    if names & _HOTEL_ONLY_ROLE_NAMES and RESTAURANT_STAFF_ROLE_NAME_AR not in names:
+        return UserViewScope.HOTEL
     raw = getattr(user, "view_scope", None)
     if raw is None or not str(raw).strip():
         return _infer_view_scope_from_roles(user)
     try:
-        return UserViewScope(str(raw).strip().lower())
+        scope = UserViewScope(str(raw).strip().lower())
     except ValueError:
         return _infer_view_scope_from_roles(user)
+    # both محفوظ خطأً: إن لم يكن للمستخدم POS/مطعم → فندق
+    if scope == UserViewScope.BOTH:
+        has_hotel = _has_hotel_scope(user)
+        has_rest = _has_restaurant_scope(user)
+        if has_hotel and not has_rest:
+            return UserViewScope.HOTEL
+        if has_rest and not has_hotel:
+            return UserViewScope.RESTAURANT
+    return scope
 
 
 def is_hotel_scope_user(user: User | None) -> bool:
-    """مستخدم فندق فقط — لا يرى واجهة المطعم."""
+    """مستخدم فندق فقط — لا يرى واجهة المطعم ولا الصفحة الرئيسية العامة."""
     if user is None or is_system_admin(user):
         return False
     return get_user_view_scope(user) == UserViewScope.HOTEL
@@ -183,6 +231,15 @@ def get_admin_view_mode(session: dict | None) -> ViewMode:
         return ViewMode.RESTAURANT
 
 
+def can_switch_view_mode(user: User | None) -> bool:
+    """الأدمن وأمين الخزينة يبدّلان وضع المطعم/الفندق."""
+    if is_system_admin(user):
+        return True
+    from modules.authz.capability import is_treasury_clerk_user
+
+    return is_treasury_clerk_user(user)
+
+
 def resolve_finance_domain(
     user: User | None,
     session: dict | None = None,
@@ -201,6 +258,13 @@ def resolve_finance_domain(
         if mode == ViewMode.RESTAURANT:
             return BusinessDomain.RESTAURANT
         return BusinessDomain.HOTEL
+    from modules.authz.capability import is_treasury_clerk_user
+
+    if is_treasury_clerk_user(user):
+        mode = get_admin_view_mode(session)
+        if mode == ViewMode.HOTEL:
+            return BusinessDomain.HOTEL
+        return BusinessDomain.RESTAURANT
     scope = get_user_view_scope(user)
     if scope == UserViewScope.HOTEL:
         return BusinessDomain.HOTEL
@@ -264,6 +328,10 @@ def assert_payment_method_for_domain(
 
 
 def nav_show_hotel(user: User | None, session: dict | None, perm_fn) -> bool:
+    from modules.authz.capability import is_treasury_clerk_user
+
+    if is_treasury_clerk_user(user):
+        return False
     if not perm_fn("hotel:booking:view") and not perm_fn("hotel:rooms:manage") and not perm_fn(
         "hotel:settle"
     ):
@@ -274,6 +342,10 @@ def nav_show_hotel(user: User | None, session: dict | None, perm_fn) -> bool:
 
 
 def nav_show_restaurant(user: User | None, session: dict | None, perm_fn) -> bool:
+    from modules.authz.capability import is_treasury_clerk_user
+
+    if is_treasury_clerk_user(user):
+        return False
     if not (
         perm_fn("sales:create")
         or perm_fn("sales:refund")
@@ -291,7 +363,11 @@ _EMPLOYEE_DOMAINS = (BusinessDomain.RESTAURANT, BusinessDomain.HOTEL)
 
 
 def employee_domain_choices() -> list[tuple[str, str]]:
-    return [(d.value, domain_label(d)) for d in _EMPLOYEE_DOMAINS]
+    return [
+        (BusinessDomain.RESTAURANT.value, domain_label(BusinessDomain.RESTAURANT)),
+        (BusinessDomain.HOTEL.value, domain_label(BusinessDomain.HOTEL)),
+        (BusinessDomain.SHARED.value, "المطعم والفندق"),
+    ]
 
 
 def parse_employee_domain(raw: str | None) -> BusinessDomain:
@@ -299,9 +375,18 @@ def parse_employee_domain(raw: str | None) -> BusinessDomain:
         dom = BusinessDomain((raw or BusinessDomain.RESTAURANT.value).strip().lower())
     except ValueError:
         return BusinessDomain.RESTAURANT
+    if dom == BusinessDomain.SHARED:
+        return BusinessDomain.SHARED
     if dom not in _EMPLOYEE_DOMAINS:
         return BusinessDomain.RESTAURANT
     return dom
+
+
+def employee_domain_sql_values(filter_domain: BusinessDomain | None) -> list[str] | None:
+    """قيم business_domain للموظف عند التصفية — المشترك يظهر في المطعم والفندق."""
+    if filter_domain is None:
+        return None
+    return [filter_domain.value, BusinessDomain.SHARED.value]
 
 
 def resolve_record_business_domain(

@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import UploadFile
 from sqlalchemy.orm import Session
+from starlette.datastructures import UploadFile
 
 from modules.hotel.booking_models import HotelBooking
 from modules.hotel.booking_service import BookingError
@@ -17,6 +17,13 @@ def _row_value(values: list, index: int) -> str:
     if index >= len(values):
         return ""
     return str(values[index] or "").strip()
+
+
+def _as_upload(value) -> UploadFile | None:
+    """request.form() يعيد starlette.UploadFile وليس fastapi.UploadFile."""
+    if isinstance(value, UploadFile):
+        return value
+    return None
 
 
 def _row_has_partial_data(
@@ -54,8 +61,7 @@ def validate_staying_guests_form(form, *, require_documents: bool = True) -> Non
         nationality = _row_value(nationalities, i)
         phone = _row_value(phones, i)
         address = _row_value(addresses, i)
-        file = files[i] if i < len(files) else None
-        upload = file if isinstance(file, UploadFile) else None
+        upload = _as_upload(files[i] if i < len(files) else None)
 
         if not _row_has_partial_data(
             name=name,
@@ -82,7 +88,7 @@ def validate_staying_guests_form(form, *, require_documents: bool = True) -> Non
         if not phone:
             raise BookingError(f"{label} ({name}): الهاتف مطلوب.")
         if not address:
-            raise BookingError(f"{label} ({name}): العنوان مطلوب.")
+            raise BookingError(f"{label} ({name}): قادم من مطلوب.")
         if require_documents and (upload is None or not (upload.filename or "").strip()):
             raise BookingError(f"{label} ({name}): إرفاق صورة/مسح الوثيقة مطلوب.")
 
@@ -111,10 +117,10 @@ def attach_staying_guest_documents(
         gi += 1
         if i >= len(files):
             continue
-        f = files[i]
-        if not isinstance(f, UploadFile) or not f.filename:
+        upload = _as_upload(files[i])
+        if upload is None or not (upload.filename or "").strip():
             continue
-        guest.id_document_filename = save_guest_id_document(f, _STATIC_ROOT)
+        guest.id_document_filename = save_guest_id_document(upload, _STATIC_ROOT)
     db.flush()
     if require_documents:
         missing = [g.full_name for g in guests if not (g.id_document_filename or "").strip()]

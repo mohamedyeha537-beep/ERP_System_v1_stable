@@ -112,14 +112,18 @@
 <div class="card">
   <h2 style="margin-top: 0">رفع واستعادة من ملف</h2>
   <p class="muted" style="margin-top: 0">
-    اختر ملف <code>.sql</code> أنشأه النظام عبر <code>mysqldump</code>.
+    اختر ملف <code>.sql</code> أو <code>.sql.gz</code> أنشأه النظام عبر <code>mysqldump</code>.
     يُؤخذ <em>نسخة أمان</em> تلقائياً قبل الاستبدال.
   </p>
   <form method="post" action="/admin/backup/restore-uploaded" enctype="multipart/form-data">
     <div class="upload-area">
-      <input type="file" name="file" accept=".sql,application/octet-stream,text/plain" required />
+      <input type="file" name="file" accept=".sql,.gz,application/octet-stream,text/plain,application/gzip" required />
       <p class="muted" style="margin: 0.4rem 0 0; font-size: 0.85rem">
-        ⚠ يتطلب وجود أداة <code>mysql</code> على السيرفر.
+        ⚠ يتطلب أداة <code>mysql</code> (من PATH أو XAMPP أو <code>MYSQL_BIN</code> في <code>.env</code>).
+        النسخ الحالية قد تتجاوز 80MB — على السيرفر يجب أن يكون
+        <code>client_max_body_size 256M</code> في nginx ومهلة الوكيل 1800 ثانية،
+        وإلا يظهر خطأ 413 أو انتهاء المهلة.
+        الاستعادة من الجدول أدناه لا تحتاج رفع ملف.
       </p>
     </div>
     <div style="margin-top: 0.6rem">
@@ -202,6 +206,43 @@
 </div>
 {% endif %}
 
+<div class="card" style="background:#f0fdf4;border-color:#86efac;margin-bottom:0.85rem">
+  <h2 style="margin-top:0;font-size:1.05rem">تصدير واستيراد العملاء</h2>
+  <p class="muted" style="margin:0.35rem 0 0.65rem;line-height:1.6">
+    يُصدِّر ملف CSV (يفتح في Excel) يتضمن: الهاتف، الاسم، كود الإحالة، رصيد النقاط، قيمتها بالدينار،
+    المحفظة — <strong>قبل</strong> تنفيذ محو الحركات. بعد التصفير يمكن استيراد نفس الملف لاستعادة النقاط والإحالة.
+  </p>
+  <div class="row" style="gap:0.5rem;flex-wrap:wrap;align-items:center;margin-bottom:0.75rem">
+    <a class="btn btn-primary" href="/admin/export/customers?domain=all">⬇ تصدير كل العملاء (CSV)</a>
+  </div>
+  {% if p('customers:manage') %}
+  <form method="post" action="/admin/backup/import-customers" enctype="multipart/form-data">
+    <input type="hidden" name="return_to" value="/admin/backup" />
+    <div class="row" style="gap:0.5rem;align-items:center;flex-wrap:wrap">
+      <input type="file" name="file" accept=".csv,text/csv" required style="max-width:320px" />
+      <label style="display:flex;align-items:center;gap:0.25rem;font-size:0.9rem">
+        <input type="checkbox" name="update_existing" checked /> تحديث الموجودين
+      </label>
+      <label style="display:flex;align-items:center;gap:0.25rem;font-size:0.9rem">
+        <input type="checkbox" name="create_missing" checked /> إنشاء الجدد
+      </label>
+      <label style="display:flex;align-items:center;gap:0.25rem;font-size:0.9rem">
+        <input type="checkbox" name="restore_points" checked /> النقاط
+      </label>
+      <label style="display:flex;align-items:center;gap:0.25rem;font-size:0.9rem">
+        <input type="checkbox" name="restore_wallet" checked /> المحفظة
+      </label>
+      <label style="display:flex;align-items:center;gap:0.25rem;font-size:0.9rem">
+        <input type="checkbox" name="restore_referral" checked /> الإحالة
+      </label>
+      <button class="btn" type="submit" style="background:#2563eb;color:#fff;border-color:#1d4ed8">⬆ استيراد CSV</button>
+    </div>
+  </form>
+  {% else %}
+  <p class="muted" style="margin:0">الاستيراد يتطلب صلاحية «إدارة العملاء».</p>
+  {% endif %}
+</div>
+
 <!-- Danger Zone -->
 <div class="danger-zone">
   <h2>⚠ منطقة الخطر — تصفير قاعدة البيانات</h2>
@@ -211,13 +252,28 @@
   </p>
 
   <div class="danger-action">
-    <h3>١. محو الحركات فقط (المستوى الأدنى) — يبقي الكتالوج والإعدادات والمستخدمين</h3>
+    <h3>٠. تصفير الإشعارات فقط (عداد الجرس 🔔)</h3>
     <p>
-      يحذف: المبيعات والمرتجعات، جلسات الكاشير (ومبالغ العدّ والعجز)، تحويلات الخزينة ومدفوعات الشراء/المصروف،
-      فواتير شراء البضائع والمصروفات، حركات المخزون (مع تصفير الأرصدة)، تذاكر المطبخ، التوصيل، نقاط الولاء المتراكمة،
-      سجل الطباعة والتنبيهات التشغيلية.
+      يحذف سجل مركز الإشعارات وعداد الجرس (مثل الرقم 40 في الشريط العلوي) دون مسح العملاء أو المبيعات.
       <br>
-      يُبقي: الأصناف والأسعار، المستخدمون، الأدوار، أساليب الدفع، التكاليف الشهرية، الإعدادات، الطاولات،
+      <strong>لا يُصفّر:</strong> طلبات المطبخ المعلّقة أو رسائل الوارد — فقط سجل الإشعارات المقروء/غير المقروء.
+    </p>
+    <form method="post" action="/admin/backup/clear-notifications" onsubmit="return confirm('متأكد من تصفير الإشعارات؟')">
+      <input type="text" name="confirm" placeholder="اكتب: تصفير الإشعارات" required />
+      <button type="submit">تصفير الإشعارات</button>
+    </form>
+  </div>
+
+  <div class="danger-action">
+    <h3>١. محو الحركات فقط (المستوى الأدنى) — يبقي الكتالوج والإعدادات والمستخدمين والعملاء</h3>
+    <p>
+      يحذف: المبيعات والمرتجعات، جلسات الكاشير (ومبالغ العدّ والعجز)، جلسات ورديات الاستقبال،
+      الحجوزات وتحصيلاتها وفواتيرها، تحويلات الخزينة ومدفوعات الشراء/المصروف،
+      فواتير شراء البضائع والمصروفات، حركات المخزون (مع تصفير الأرصدة)، تذاكر المطبخ، التوصيل،
+      <strong>سجل نقاط الولاء والإحالات</strong> (مع تصفير أرصدة النقاط إلى صفر)،
+      قيود اليومية (GL)، سجل الطباعة، <strong>الإشعارات وعداد الجرس</strong>.
+      <br>
+      يُبقي: <strong>قائمة العملاء</strong> (الأسماء، الهواتف، <strong>أكواد الإحالة</strong>)، الأصناف والأسعار، المستخدمون، الأدوار، أساليب الدفع، التكاليف الشهرية، الإعدادات، الطاولات،
       <strong>سجل الأصول الثابتة</strong> (للإهلاك الشهري في التقارير).
       <br>
       <strong>قد يبقى بعد المحو (طبيعي):</strong>

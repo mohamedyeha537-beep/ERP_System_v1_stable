@@ -31,13 +31,7 @@
     <div class="stat-card">
       <div class="label">حالة السداد</div>
       <div class="value" style="font-size:0.95rem">
-        {% if group.pay_status.value == 'unpaid' %}
-        <span class="badge bad">{{ status_labels[group.pay_status] }}</span>
-        {% elif group.pay_status.value == 'partial' %}
-        <span class="badge warn">{{ status_labels[group.pay_status] }}</span>
-        {% else %}
-        <span class="badge good">{{ status_labels[group.pay_status] }}</span>
-        {% endif %}
+        {{ pos_pay_status_badge(group.pay_status) }}
       </div>
     </div>
   </div>
@@ -75,13 +69,7 @@
         <td style="max-width:280px;font-size:0.88rem">{{ r.debt_reason }}</td>
         <td style="font-weight:700;color:#b91c1c">{{ r.outstanding }} د.ل</td>
         <td>
-          {% if r.pay_status.value == 'unpaid' %}
-          <span class="badge bad">غير مدفوعة</span>
-          {% elif r.pay_status.value == 'partial' %}
-          <span class="badge warn">جزئي</span>
-          {% else %}
-          <span class="badge good">مسدّد</span>
-          {% endif %}
+          {{ pos_pay_status_badge(r.pay_status) }}
         </td>
       </tr>
       {% endfor %}
