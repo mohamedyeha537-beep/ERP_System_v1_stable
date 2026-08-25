@@ -464,7 +464,7 @@ async def employee_save(
 
 
 @employees_router.get("/{emp_id}/delete", response_class=HTMLResponse)
-def employee_delete_get(emp_id: int):
+def employee_delete_get(emp_id: int, _: User = Depends(_manage_perm)):
     """GET على مسار الحذف (مثلاً بعد إصلاح المخطط) — أعد للقائمة بدل Method Not Allowed."""
     from urllib.parse import quote
 

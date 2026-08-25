@@ -696,7 +696,7 @@ def treasury_vouchers_in_page(
 
 
 @router.get("/vouchers/out", response_class=HTMLResponse)
-def treasury_vouchers_out_redirect():
+def treasury_vouchers_out_redirect(_: User = Depends(_view)):
     return RedirectResponse("/pos/treasury/pay", 302)
 
 

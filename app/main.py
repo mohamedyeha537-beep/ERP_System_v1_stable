@@ -1,6 +1,8 @@
 from contextlib import asynccontextmanager
+from html import escape
 from pathlib import Path
 import time
+from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -9,7 +11,10 @@ from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.dashboard_stats import collect as collect_dashboard_stats
+from app.csrf import CsrfMiddleware
+from app.rate_limit import RateLimitMiddleware
 from app.security_headers import SecurityHeadersMiddleware
+from app.uploads_router import router as uploads_router
 from app.deps import get_current_user
 from app.jinja_env import templates
 from infra.config import get_settings
@@ -340,8 +345,38 @@ async def lifespan(app: FastAPI):
     yield
 
 
+def _warn_insecure_settings(settings) -> None:
+    weak_secret_markers = ("change-me", "changeme", "replace-me", "dev-secret")
+    sk = (settings.secret_key or "").strip().lower()
+    if any(m in sk for m in weak_secret_markers):
+        print(
+            "WARN SECURITY: SECRET_KEY يبدو افتراضياً — غيّره قبل الإنتاج (openssl rand -hex 32).",
+            flush=True,
+        )
+    weak_admin = {"admin123", "admin", "password", "12345678"}
+    if (settings.default_admin_password or "").strip().lower() in weak_admin:
+        print(
+            "WARN SECURITY: DEFAULT_ADMIN_PASSWORD ضعيف — غيّره فور التثبيت.",
+            flush=True,
+        )
+    if settings.app_env == "production":
+        if not settings.session_https_only:
+            print(
+                "WARN SECURITY: APP_ENV=production لكن SESSION_HTTPS_ONLY=false — فعّل HTTPS للكوكيز.",
+                flush=True,
+            )
+        if (settings.session_same_site or "").lower() != "strict":
+            print(
+                "WARN SECURITY: APP_ENV=production — يُفضّل SESSION_SAMESITE=strict.",
+                flush=True,
+            )
+        if settings.seed_demo_users:
+            print("WARN SECURITY: SEED_DEMO_USERS=true في الإنتاج — عطّله.", flush=True)
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
+    _warn_insecure_settings(settings)
     docs_url = "/docs" if settings.show_docs else None
     redoc_url = "/redoc" if settings.show_docs else None
     openapi_url = "/openapi.json" if settings.show_docs else None
@@ -372,8 +407,7 @@ def create_app() -> FastAPI:
 
     _BRAND_CACHE: dict[str, tuple[float, dict]] = {}
     _BRAND_CACHE_TTL = 180.0
-    _USER_CACHE: dict[int, tuple[float, object]] = {}
-    _USER_CACHE_TTL = 60.0
+    from app.user_cache import cache_drop_stale, cache_get, cache_set
 
     # =====================================================================
     # ترتيب الـ middlewares في FastAPI: الأخير المُضاف يُنفَّذ أولاً عند
@@ -420,10 +454,9 @@ def create_app() -> FastAPI:
             # مسار خفيف + مستخدم مخزّن مؤقتاً: بدون فتح جلسة قاعدة بيانات
             if light and uid:
                 uid_i = int(uid)
-                now_u = time.monotonic()
-                hit_u = _USER_CACHE.get(uid_i)
-                if hit_u is not None and (now_u - hit_u[0]) < _USER_CACHE_TTL:
-                    request.state.current_user = hit_u[1]
+                cached_u = cache_get(uid_i)
+                if cached_u is not None:
+                    request.state.current_user = cached_u
                     bounced = _after_user_redirect()
                     if bounced is not None:
                         return bounced
@@ -439,10 +472,9 @@ def create_app() -> FastAPI:
                 u = None
                 if uid:
                     uid_i = int(uid)
-                    now_u = time.monotonic()
-                    hit_u = _USER_CACHE.get(uid_i)
-                    if hit_u is not None and (now_u - hit_u[0]) < _USER_CACHE_TTL:
-                        u = hit_u[1]
+                    cached_u = cache_get(uid_i)
+                    if cached_u is not None:
+                        u = cached_u
                         request.state.current_user = u
                     else:
                         u = db.get(_User, uid_i)
@@ -452,10 +484,10 @@ def create_app() -> FastAPI:
                             _ = list(getattr(u, "permission_grants", None) or [])
                             _ = list(getattr(u, "permission_denies", None) or [])
                             request.state.current_user = u
-                            _USER_CACHE[uid_i] = (now_u, u)
+                            cache_set(uid_i, u)
                         else:
                             u = None
-                            _USER_CACHE.pop(uid_i, None)
+                            cache_drop_stale(uid_i)
                 if not light:
                     try:
                         from modules.branding.service import resolve_active_branding
@@ -583,7 +615,9 @@ def create_app() -> FastAPI:
         return response
 
     # SessionMiddleware يجب أن يُضاف بعد المخصَّص ليُنفَّذ أولاً
+    app.add_middleware(CsrfMiddleware)
     app.add_middleware(GZipMiddleware, minimum_size=500)
+    app.add_middleware(RateLimitMiddleware)
     app.add_middleware(
         SessionMiddleware,
         secret_key=settings.secret_key,
@@ -597,7 +631,7 @@ def create_app() -> FastAPI:
     static_dir.mkdir(exist_ok=True)
     uploads_dir = static_dir / "uploads"
     uploads_dir.mkdir(exist_ok=True)
-    app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
+    app.include_router(uploads_router)
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     @app.middleware("http")
@@ -719,6 +753,7 @@ def create_app() -> FastAPI:
             if "unknown column" in low or "no such column" in low:
                 detail = line.strip()
                 break
+        safe_detail = escape(detail)
         body = (
             "<!DOCTYPE html><html lang='ar' dir='rtl'><head><meta charset='utf-8'/>"
             "<title>خطأ مخطط قاعدة البيانات</title>"
@@ -729,7 +764,7 @@ def create_app() -> FastAPI:
             "<div class='box'><h1 style='margin-top:0;font-size:1.2rem'>تعذّر إصلاح مخطط القاعدة</h1>"
             "<p>الكود أحدث من قاعدة البيانات (أو العكس). أعد تشغيل التطبيق بعد رفع آخر الملفات، "
             "أو نفّذ إصلاح المخطط يدوياً.</p>"
-            f"<code>{detail}</code>"
+            f"<code>{safe_detail}</code>"
             "<p style='margin-bottom:0'><a href='/'>الرئيسية</a> · "
             "<a href='/catalog/products'>المنتجات</a></p></div></body></html>"
         )
@@ -760,12 +795,21 @@ def create_app() -> FastAPI:
         method = (request.method or "GET").upper()
         if method in ("POST", "PUT", "PATCH", "DELETE"):
             referer = (request.headers.get("referer") or "").strip()
-            if referer.startswith("/") or referer.startswith("http://") or referer.startswith("https://"):
-                sep = "&" if "?" in referer else "?"
-                return RedirectResponse(
-                    f"{referer}{sep}_schema_repaired=1",
-                    status_code=303,
-                )
+            if referer:
+                if referer.startswith("/"):
+                    safe_referer = referer
+                else:
+                    parsed = urlparse(referer)
+                    if parsed.netloc in ("", request.url.netloc):
+                        safe_referer = referer
+                    else:
+                        safe_referer = ""
+                if safe_referer:
+                    sep = "&" if "?" in safe_referer else "?"
+                    return RedirectResponse(
+                        f"{safe_referer}{sep}_schema_repaired=1",
+                        status_code=303,
+                    )
             path = request.url.path.rstrip("/")
             if path.endswith("/delete"):
                 path = path[: -len("/delete")]

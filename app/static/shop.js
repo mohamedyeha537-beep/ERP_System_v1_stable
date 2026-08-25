@@ -1450,8 +1450,11 @@
       name: null,
     })
       .then(function (res) {
-        if (res && res.found && res.name) {
-          applyLookupGuestName(res.name);
+        if (res && res.found) {
+          var nameEl = document.getElementById("shop-name");
+          if (nameEl && !((nameEl.value || "").trim())) {
+            nameEl.placeholder = "رقم مسجّل — أدخل الاسم للتأكيد";
+          }
         }
       })
       .catch(function () {

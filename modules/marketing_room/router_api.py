@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
@@ -22,7 +23,7 @@ def _require_key(x_api_key: str | None) -> None:
     expected = (os.environ.get("MARKETING_AGENT_API_KEY") or "").strip()
     if not expected:
         raise HTTPException(503, "MARKETING_AGENT_API_KEY غير مضبوط")
-    if not x_api_key or x_api_key.strip() != expected:
+    if not x_api_key or not secrets.compare_digest(x_api_key.strip(), expected):
         raise HTTPException(401, "مفتاح غير صالح")
 
 

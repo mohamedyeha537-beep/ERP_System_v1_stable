@@ -347,7 +347,7 @@
   </dialog>
   <form method="post" id="shortage-deduct-form" action="/pos/shift/shortages/0/deduct" style="display:none" aria-hidden="true"></form>
 
-  <script type="application/json" id="shortage-wallets-json">{{ wallets_for_forgive_json | default('{\"cash\":[],\"bank\":[]}') | safe }}</script>
+  <script type="application/json" id="shortage-wallets-json">{{ wallets_for_forgive | default({"cash": [], "bank": []}) | tojson }}</script>
   <script>
   (function () {
     document.querySelectorAll(".shortage-deduct-form").forEach(function (form) {

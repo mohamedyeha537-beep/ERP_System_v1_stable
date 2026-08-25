@@ -11,6 +11,7 @@ import urllib.request
 from typing import TypedDict
 
 from modules.messaging.send_gap import MIN_SEND_GAP_SEC, wait_send_gap
+from modules.common.safe_http_url import is_safe_http_url
 
 LOG = logging.getLogger("messaging.textmebot")
 
@@ -66,8 +67,12 @@ def _build_params(
         "json": "yes" if json_response else "no",
     }
     if img:
+        if not is_safe_http_url(img, allow_http=False):
+            raise RuntimeError("رابط الصورة غير مسموح.")
         params["file"] = img
     if doc:
+        if not is_safe_http_url(doc, allow_http=False):
+            raise RuntimeError("رابط المستند غير مسموح.")
         params["document"] = doc
         if document_filename:
             params["filename"] = document_filename.strip()
@@ -81,6 +86,8 @@ def _build_params(
         label = (btn.get("text") or "").strip()
         action = (btn.get("id") or "").strip()
         if not label or not action:
+            continue
+        if action.startswith(("http://", "https://")) and not is_safe_http_url(action, allow_http=False):
             continue
         params[f"button{idx}"] = label
         params[f"button{idx}id"] = action

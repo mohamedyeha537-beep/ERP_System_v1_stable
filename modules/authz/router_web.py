@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from app.deps import DBSession, require_permission, LoggedInUser
 from app.jinja_env import templates
+from app.login_lockout import is_locked, record_failure, record_success
 from modules.authz.models import Permission, Role, User
 from modules.authz.permissions import ADMIN_ROLES, ADMIN_USERS
 from modules.authz.service import (
@@ -89,14 +90,28 @@ def login_submit(
     username: str = Form(...),
     password: str = Form(...),
 ):
-    user = get_user_by_username(db, username.strip())
+    uname = username.strip()
+    forwarded = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    client_ip = forwarded or (request.client.host if request.client else "unknown")
+    if is_locked(client_ip, uname):
+        return templates.TemplateResponse(
+            "login.html",
+            {
+                "request": request,
+                "error": "تم قفل تسجيل الدخول مؤقتاً بعد محاولات فاشلة. حاول بعد 15 دقيقة.",
+            },
+            status_code=status.HTTP_200_OK,
+        )
+    user = get_user_by_username(db, uname)
     if user is None or not verify_password(password, user.password_hash):
+        record_failure(client_ip, uname)
         # استخدام 200 بدل 401/403 لتفادي ERR_INVALID_HTTP_RESPONSE في بعض المتصفحات مع نماذج HTML
         return templates.TemplateResponse(
             "login.html",
             {"request": request, "error": "اسم المستخدم أو كلمة المرور غير صحيحة."},
             status_code=status.HTTP_200_OK,
         )
+    record_success(client_ip, uname)
     if not user.is_active:
         return templates.TemplateResponse(
             "login.html",
@@ -467,6 +482,9 @@ async def admin_user_roles_save(
     db.commit()
     from urllib.parse import quote
 
+    from app.user_cache import invalidate_user_cache
+
+    invalidate_user_cache(user_id)
     return RedirectResponse(
         f"/admin/users?notice={quote('تم تحديث ' + u.username)}",
         status_code=302,
@@ -508,12 +526,23 @@ def admin_user_delete(
 def admin_user_password_save(
     user_id: int,
     db: DBSession,
-    _: User = Depends(require_permission(ADMIN_USERS)),
+    actor: User = Depends(require_permission(ADMIN_USERS)),
     password: str = Form(...),
+    admin_password: str = Form(""),
 ):
+    from urllib.parse import quote
+
+    from app.user_cache import invalidate_user_cache
+
     u = db.get(User, user_id)
     if u is None:
         return RedirectResponse("/admin/users", status_code=302)
+    if not verify_password((admin_password or "").strip(), actor.password_hash):
+        return RedirectResponse(
+            "/admin/users?error="
+            + quote("أدخل كلمة مرور حسابك الحالي لتأكيد تغيير كلمة مرور مستخدم آخر."),
+            status_code=302,
+        )
     new_password = (password or "").strip()
     if len(new_password) < _MIN_PASSWORD_LENGTH:
         return RedirectResponse(
@@ -522,8 +551,7 @@ def admin_user_password_save(
         )
     u.password_hash = hash_password(new_password)
     db.commit()
-    from urllib.parse import quote
-
+    invalidate_user_cache(user_id)
     return RedirectResponse(
         f"/admin/users?notice={quote('تم تغيير كلمة مرور ' + u.username)}",
         status_code=302,

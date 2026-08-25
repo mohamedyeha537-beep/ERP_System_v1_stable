@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.deps import LoggedInUser, get_db_session, require_permission
 from app.jinja_env import templates
+from app.security_utils import require_ip_allowlist, verify_hmac_header
 from infra.config import get_settings
 from modules.authz.models import User
 from modules.authz.permissions import ADMIN_SETTINGS
@@ -31,18 +32,45 @@ def sync_local_status(
 
 
 def verify_sync_api_key(
-    x_sync_api_key: str | None = Header(default=None, alias="X-Sync-API-Key")
+    request: Request,
+    x_sync_api_key: str | None = Header(default=None, alias="X-Sync-API-Key"),
+    x_sync_signature: str | None = Header(default=None, alias="X-Sync-Signature"),
 ):
-    expected = (get_settings().online_sync_api_key or "").strip()
+    settings = get_settings()
+    require_ip_allowlist(
+        request,
+        settings.online_sync_ip_allowlist,
+        label="Sync API",
+    )
+    expected = (settings.online_sync_api_key or "").strip()
     if not x_sync_api_key or not expected or not secrets.compare_digest(x_sync_api_key, expected):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="مفتاح المزامنة غير صالح.")
+    return True
+
+
+async def verify_sync_hmac(
+    request: Request,
+    x_sync_signature: str | None = Header(default=None, alias="X-Sync-Signature"),
+    _: bool = Depends(verify_sync_api_key),
+):
+    """يتحقق من مفتاح المزامنة + (اختياري) توقيع HMAC للجسم."""
+    settings = get_settings()
+    if not settings.online_sync_require_hmac:
+        return True
+    secret = (settings.online_sync_api_key or "").strip()
+    body = await request.body()
+    if not verify_hmac_header(secret, body, x_sync_signature):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="توقيع المزامنة غير صالح.",
+        )
     return True
 
 
 @router.post("/push", response_model=SyncPushOut)
 def sync_push(
     body: SyncPushIn,
-    _: bool = Depends(verify_sync_api_key),
+    _: bool = Depends(verify_sync_hmac),
     db: Session = Depends(get_db_session),
 ):
     """نقطة استقبال الأحداث القادمة من مواقع محلية أخرى."""
@@ -95,7 +123,7 @@ def sync_push(
 @router.post("/pull", response_model=SyncPullOut)
 def sync_pull(
     body: SyncPullIn,
-    _: bool = Depends(verify_sync_api_key),
+    _: bool = Depends(verify_sync_hmac),
     db: Session = Depends(get_db_session),
 ):
     """ترجع أحداث من السيرفر المركزي للموقع الطالب."""

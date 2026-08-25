@@ -269,14 +269,14 @@ def shop_checkout_guest(payload: GuestPayload, db: DBSession):
 
 @api_router.post("/checkout/lookup-guest")
 def shop_checkout_lookup_guest(payload: GuestPayload, db: DBSession):
-    """يعيد اسم الزبون المسجّل لنفس رقم الهاتف (بدون بيانات حسّاسة أخرى)."""
+    """هل الرقم مسجّل؟ لا يُعاد الاسم — منع كشف بيانات عبر الهاتف."""
     _require_shop(db)
     try:
         get_shop_session(db, payload.token)
     except ShopError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     name = lookup_guest_name_by_phone(db, payload.phone)
-    return {"ok": True, "found": bool(name), "name": name or ""}
+    return {"ok": True, "found": bool(name)}
 
 
 @api_router.post("/checkout/referral")

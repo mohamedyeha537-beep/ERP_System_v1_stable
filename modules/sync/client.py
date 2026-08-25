@@ -10,6 +10,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session as ORMSession
 
+from app.security_utils import hmac_sha256_hex
 from infra.config import get_settings
 from modules.sync.models import SyncIncomingEvent
 from modules.sync.schemas import SyncPullIn, SyncPushIn
@@ -35,13 +36,15 @@ def _json_default(obj: Any) -> Any:
 
 def _http_post(url: str, payload: dict[str, Any], api_key: str) -> dict[str, Any] | None:
     data = json.dumps(payload, ensure_ascii=False, default=_json_default).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "X-Sync-API-Key": api_key,
+        "X-Sync-Signature": f"sha256={hmac_sha256_hex(api_key, data)}",
+    }
     req = urllib.request.Request(
         url,
         data=data,
-        headers={
-            "Content-Type": "application/json",
-            "X-Sync-API-Key": api_key,
-        },
+        headers=headers,
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=15) as resp:

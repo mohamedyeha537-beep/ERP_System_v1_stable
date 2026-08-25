@@ -1,6 +1,8 @@
 """تأكيد انتهاء التنظيف عبر رابط واتساب (عام — بدون تسجيل دخول)."""
 from __future__ import annotations
 
+import html as html_module
+
 from fastapi import APIRouter, Form, Query
 from fastapi.responses import HTMLResponse
 
@@ -20,12 +22,13 @@ def _page(title: str, body: str, *, ok: bool, status_code: int | None = None) ->
     bg = "#ecfdf5" if ok else "#fef2f2"
     if status_code is None:
         status_code = 200 if ok else 400
+    safe_title = html_module.escape(title)
     html = f"""<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>{title}</title>
+  <title>{safe_title}</title>
   <style>
     body {{ font-family: Tahoma, Segoe UI, sans-serif; margin: 0; padding: 1.5rem;
            background: #f8fafc; color: #0f172a; }}
@@ -45,7 +48,7 @@ def _page(title: str, body: str, *, ok: bool, status_code: int | None = None) ->
 </head>
 <body>
   <div class="card">
-    <h1>{title}</h1>
+    <h1>{safe_title}</h1>
     {body}
   </div>
 </body>
@@ -54,11 +57,14 @@ def _page(title: str, body: str, *, ok: bool, status_code: int | None = None) ->
 
 
 def _confirm_page(*, room_id: int, token: str, name: str, number: str) -> HTMLResponse:
+    safe_name = html_module.escape(name)
+    safe_number = html_module.escape(number)
+    safe_token = html_module.escape(token)
     body = f"""
-    <p>الشقة: <strong>{name}</strong> (#{number})</p>
+    <p>الشقة: <strong>{safe_name}</strong> (#{safe_number})</p>
     <div class="actions">
       <form method="post" action="/api/hotel/housekeeping/done/{int(room_id)}">
-        <input type="hidden" name="t" value="{token}" />
+        <input type="hidden" name="t" value="{safe_token}" />
         <button class="btn btn-yes" type="submit">نعم — انتهى التنظيف</button>
       </form>
       <a class="btn btn-no" href="about:blank" onclick="window.close();return false;">إلغاء — لم ينتهِ بعد</a>
@@ -71,7 +77,7 @@ def _confirm_page(*, room_id: int, token: str, name: str, number: str) -> HTMLRe
 def housekeeping_done_link(
     room_id: int,
     db: DBSession,
-    t: str = Query("", max_length=80),
+    t: str = Query("", max_length=120),
 ):
     """عرض سؤال التأكيد أولاً — لا يُحدَّث شيء قبل الضغط على «نعم»."""
     if not verify_housekeeping_done_token(db, room_id, t):
@@ -96,7 +102,7 @@ def housekeeping_done_link(
 def housekeeping_done_confirm(
     room_id: int,
     db: DBSession,
-    t: str = Form("", max_length=80),
+    t: str = Form("", max_length=120),
 ):
     """تنفيذ التأكيد بعد موافقة الموظف صراحة."""
     if not verify_housekeeping_done_token(db, room_id, t):
@@ -109,6 +115,8 @@ def housekeeping_done_confirm(
     if room is None:
         return _page("الشقة غير موجودة", "<p>تعذّر العثور على الشقة.</p>", ok=False)
     name = room_display_name(room)
+    safe_name = html_module.escape(name)
+    safe_number = html_module.escape(str(room.number))
     try:
         mark_room_clean(db, room_id, user_id=None)
         db.commit()
@@ -117,13 +125,17 @@ def housekeeping_done_confirm(
         if "ليست بحاجة" in str(exc) or "جاهز" in str(exc):
             return _page(
                 "الشقة جاهزة ✓",
-                f"<p><strong>{name}</strong> (#{room.number}) متاحة للحجز مسبقاً.</p>",
+                f"<p><strong>{safe_name}</strong> (#{safe_number}) متاحة للحجز مسبقاً.</p>",
                 ok=True,
             )
-        return _page("تعذّر التحديث", f"<p>{exc}</p>", ok=False)
+        return _page(
+            "تعذّر التحديث",
+            f"<p>{html_module.escape(str(exc))}</p>",
+            ok=False,
+        )
     return _page(
         "تم تسجيل انتهاء التنظيف ✓",
-        f"<p>الشقة <strong>{name}</strong> (#{room.number}) أصبحت <strong>متاحة للحجز</strong>.</p>"
+        f"<p>الشقة <strong>{safe_name}</strong> (#{safe_number}) أصبحت <strong>متاحة للحجز</strong>.</p>"
         "<p>يمكنك إغلاق هذه الصفحة.</p>",
         ok=True,
     )

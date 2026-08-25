@@ -1,15 +1,20 @@
 """روابط تأكيد انتهاء التنظيف عبر واتساب (بدون الاعتماد على webhook الوارد فقط)."""
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import ipaddress
+import json
 import secrets
+import time
 from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session
 
 from modules.settings.service import get_setting, set_setting
+
+_HK_TOKEN_TTL_SECONDS = 86400  # 24 ساعة
 
 
 def _signing_secret(db: Session) -> str:
@@ -26,14 +31,34 @@ def _signing_secret(db: Session) -> str:
 
 
 def make_housekeeping_done_token(db: Session, room_id: int) -> str:
-    raw = f"hk-done:{int(room_id)}".encode()
-    digest = hmac.new(_signing_secret(db).encode(), raw, hashlib.sha256).hexdigest()
-    return digest[:32]
+    secret = _signing_secret(db)
+    ts = int(time.time())
+    msg = f"{int(room_id)}:{ts}".encode()
+    sig = hmac.new(secret.encode(), msg, hashlib.sha256).hexdigest()[:32]
+    payload = {"r": int(room_id), "t": ts, "s": sig}
+    return base64.urlsafe_b64encode(
+        json.dumps(payload, separators=(",", ":")).encode()
+    ).decode()
 
 
 def verify_housekeeping_done_token(db: Session, room_id: int, token: str) -> bool:
-    expected = make_housekeeping_done_token(db, room_id)
-    return hmac.compare_digest(expected, (token or "").strip())
+    raw = (token or "").strip()
+    if not raw:
+        return False
+    try:
+        data = json.loads(base64.urlsafe_b64decode(raw.encode()).decode())
+    except Exception:
+        return False
+    if data.get("r") != int(room_id):
+        return False
+    ts = int(data.get("t", 0))
+    if ts <= 0 or int(time.time()) - ts > _HK_TOKEN_TTL_SECONDS:
+        return False
+    sig = (data.get("s") or "").strip()
+    secret = _signing_secret(db)
+    msg = f"{int(room_id)}:{ts}".encode()
+    expected_sig = hmac.new(secret.encode(), msg, hashlib.sha256).hexdigest()[:32]
+    return hmac.compare_digest(sig, expected_sig)
 
 
 def base_url_reachable_from_phone(base_url: str) -> bool:

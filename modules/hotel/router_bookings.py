@@ -4081,7 +4081,7 @@ def booking_add_violation(
     )
 
 
-@bookings_router.get("/extra-services")
+@bookings_router.get("/extra-services", dependencies=[Depends(_mod_booking)])
 def extra_services_redirect(request: Request):
     qp = request.query_params
     saved = qp.get("saved")

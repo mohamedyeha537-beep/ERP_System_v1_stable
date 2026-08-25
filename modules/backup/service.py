@@ -433,17 +433,26 @@ def _make_backup_mysql(target_dir: Path) -> Path:
 
 
 def make_backup(target_dir: Path | None = None) -> Path:
-    """ينشئ نسخة احتياطية ويعيد مسار الملف."""
+    """ينشئ نسخة احتياطية ويعيد مسار الملف، مع ملف توقيع .sig."""
     if target_dir is None:
         target_dir = _backup_dir()
     target_dir = Path(target_dir)
     if is_postgresql():
-        return _make_backup_postgresql(target_dir)
-    if is_mysql():
-        return _make_backup_mysql(target_dir)
-    if is_sqlite():
-        return _make_backup_sqlite(target_dir)
-    raise RuntimeError("نوع قاعدة البيانات غير مدعوم للنسخ الاحتياطي.")
+        path = _make_backup_postgresql(target_dir)
+    elif is_mysql():
+        path = _make_backup_mysql(target_dir)
+    elif is_sqlite():
+        path = _make_backup_sqlite(target_dir)
+    else:
+        raise RuntimeError("نوع قاعدة البيانات غير مدعوم للنسخ الاحتياطي.")
+    try:
+        from app.security_utils import sign_file
+        from infra.config import get_settings
+
+        sign_file(path, get_settings().secret_key)
+    except Exception:
+        pass
+    return path
 
 
 def list_backups(target_dir: Path | None = None) -> list[tuple[str, int, datetime]]:
@@ -843,7 +852,19 @@ def _repatch_schema_after_restore() -> None:
 
 
 def restore_backup(uploaded_path: Path) -> Path:
-    """استعادة من نسخة احتياطية (.db / .dump / .sql)."""
+    """استعادة من نسخة احتياطية (.db / .dump / .sql) مع التحقق من التوقيع إن وُجد/طُلب."""
+    from app.security_utils import verify_file_signature
+    from infra.config import get_settings
+
+    settings = get_settings()
+    require_sig = bool(getattr(settings, "backup_require_signature", False)) or (
+        (getattr(settings, "app_env", "") or "").lower() == "production"
+    )
+    verify_file_signature(
+        uploaded_path,
+        settings.secret_key,
+        required=require_sig,
+    )
     suffix = uploaded_path.suffix.lower()
     if is_sqlite():
         if suffix != ".db":

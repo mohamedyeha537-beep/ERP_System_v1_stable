@@ -13,6 +13,8 @@ from urllib.parse import quote
 
 from sqlalchemy.orm import Session
 
+from infra.config import get_settings
+from modules.common.safe_http_url import assert_safe_http_url, is_safe_http_url
 from modules.marketing_room.config import (
     marketing_ai_settings,
     marketing_higgsfield_settings,
@@ -20,6 +22,31 @@ from modules.marketing_room.config import (
 )
 
 LOG = logging.getLogger("marketing_room.ai")
+
+
+def _allow_http_dev() -> bool:
+    return get_settings().app_env != "production"
+
+
+def _normalize_base_url(base_url: str) -> str:
+    raw = (base_url or "").strip().rstrip("/")
+    if not raw:
+        return ""
+    if "://" not in raw:
+        raw = f"https://{raw}"
+    return raw
+
+
+def _assert_api_base_url(base_url: str) -> str:
+    base = _normalize_base_url(base_url)
+    assert_safe_http_url(base, allow_http=_allow_http_dev())
+    return base
+
+
+def _assert_download_url(url: str) -> str:
+    raw = (url or "").strip()
+    assert_safe_http_url(raw, allow_http=False)
+    return raw
 
 
 def _ssl_context() -> ssl.SSLContext:
@@ -35,6 +62,11 @@ def chat_json(db: Session, *, system: str, user: str, max_tokens: int = 2000) ->
     cfg = marketing_ai_settings(db)
     if not cfg["api_key"]:
         return None
+    try:
+        base = _assert_api_base_url(cfg["base_url"])
+    except ValueError as exc:
+        LOG.warning("chat_json blocked base_url: %s", exc)
+        return None
     payload = {
         "model": cfg["model"],
         "messages": [
@@ -45,7 +77,7 @@ def chat_json(db: Session, *, system: str, user: str, max_tokens: int = 2000) ->
         "max_tokens": max_tokens,
     }
     req = urllib.request.Request(
-        f"{cfg['base_url']}/chat/completions",
+        f"{base}/chat/completions",
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         headers={
             "Content-Type": "application/json; charset=utf-8",
@@ -67,6 +99,11 @@ def chat_text(db: Session, *, system: str, user: str, max_tokens: int = 1200) ->
     cfg = marketing_ai_settings(db)
     if not cfg["api_key"]:
         return None
+    try:
+        base = _assert_api_base_url(cfg["base_url"])
+    except ValueError as exc:
+        LOG.warning("chat_text blocked base_url: %s", exc)
+        return None
     payload = {
         "model": cfg["model"],
         "messages": [
@@ -77,7 +114,7 @@ def chat_text(db: Session, *, system: str, user: str, max_tokens: int = 1200) ->
         "max_tokens": max_tokens,
     }
     req = urllib.request.Request(
-        f"{cfg['base_url']}/chat/completions",
+        f"{base}/chat/completions",
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         headers={
             "Content-Type": "application/json; charset=utf-8",
@@ -192,10 +229,21 @@ def generate_video_file(
     hg = marketing_higgsfield_settings(db)
     if not hg.get("api_key"):
         return None
-    return _generate_higgsfield_video(hg, prompt=prompt, dest=dest, image_url=image_url)
+    safe_image_url = None
+    if image_url:
+        if not is_safe_http_url(image_url, allow_http=False):
+            LOG.warning("blocked unsafe image_url for video: %s", image_url[:120])
+            return None
+        safe_image_url = image_url.strip()
+    return _generate_higgsfield_video(hg, prompt=prompt, dest=dest, image_url=safe_image_url)
 
 
 def _generate_openai_image(cfg: dict[str, str], *, prompt: str, dest: Path) -> Path | None:
+    try:
+        base = _assert_api_base_url(cfg["base_url"])
+    except ValueError as exc:
+        LOG.warning("openai image blocked base_url: %s", exc)
+        return None
     payload = {
         "model": cfg["model"],
         "prompt": prompt[:3500],
@@ -204,7 +252,7 @@ def _generate_openai_image(cfg: dict[str, str], *, prompt: str, dest: Path) -> P
         "response_format": "b64_json",
     }
     req = urllib.request.Request(
-        f"{cfg['base_url']}/images/generations",
+        f"{base}/images/generations",
         data=json.dumps(payload).encode("utf-8"),
         headers={
             "Content-Type": "application/json",
@@ -265,6 +313,9 @@ def _generate_fal_image(cfg: dict[str, str], *, prompt: str, dest: Path) -> Path
     if not image_url:
         LOG.warning("fal.ai response without image url: %s", str(raw)[:400])
         return None
+    if not is_safe_http_url(image_url, allow_http=False):
+        LOG.warning("blocked unsafe fal image_url: %s", image_url[:120])
+        return None
     try:
         img_req = urllib.request.Request(image_url, method="GET")
         with urllib.request.urlopen(img_req, timeout=90, context=_ssl_context()) as resp:
@@ -282,7 +333,11 @@ def _generate_higgsfield_image(cfg: dict[str, str], *, prompt: str, dest: Path) 
     import time
 
     model_id = (cfg.get("model") or "bytedance/seedream/v4/text-to-image").strip().lstrip("/")
-    base = (cfg.get("base_url") or "https://platform.higgsfield.ai").rstrip("/")
+    try:
+        base = _assert_api_base_url(cfg.get("base_url") or "https://platform.higgsfield.ai")
+    except ValueError as exc:
+        LOG.warning("higgsfield image blocked base_url: %s", exc)
+        return None
     url = f"{base}/{quote(model_id, safe='/')}"
     payload: dict[str, Any] = {
         "prompt": prompt[:3500],
@@ -335,7 +390,11 @@ def _generate_higgsfield_video(
     import time
 
     model_id = (cfg.get("video_model") or "higgsfield-ai/soul/standard").strip().lstrip("/")
-    base = (cfg.get("base_url") or "https://platform.higgsfield.ai").rstrip("/")
+    try:
+        base = _assert_api_base_url(cfg.get("base_url") or "https://platform.higgsfield.ai")
+    except ValueError as exc:
+        LOG.warning("higgsfield video blocked base_url: %s", exc)
+        return None
     url = f"{base}/{quote(model_id, safe='/')}"
     payload: dict[str, Any] = {"prompt": prompt[:2000]}
     if image_url:
@@ -379,7 +438,11 @@ def _higgsfield_poll_media(
 ) -> str | None:
     import time
 
-    base = (cfg.get("base_url") or "https://platform.higgsfield.ai").rstrip("/")
+    try:
+        base = _assert_api_base_url(cfg.get("base_url") or "https://platform.higgsfield.ai")
+    except ValueError as exc:
+        LOG.warning("higgsfield poll blocked base_url: %s", exc)
+        return None
     status_url = f"{base}/requests/{quote(request_id, safe='')}/status"
     deadline = time.time() + timeout_sec
     while time.time() < deadline:
@@ -433,7 +496,12 @@ def _extract_media_url(raw: dict[str, Any], *, kind: str = "image") -> str | Non
 
 def _download_to(dest: Path, url: str) -> Path | None:
     try:
-        img_req = urllib.request.Request(url, method="GET")
+        safe_url = _assert_download_url(url)
+    except ValueError as exc:
+        LOG.warning("media download blocked: %s", exc)
+        return None
+    try:
+        img_req = urllib.request.Request(safe_url, method="GET")
         with urllib.request.urlopen(img_req, timeout=120, context=_ssl_context()) as resp:
             data = resp.read()
     except Exception as exc:

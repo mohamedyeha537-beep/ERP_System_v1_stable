@@ -316,9 +316,7 @@ def pos_shift_shortages_page(
                 "cash_payment_methods": cash_pms,
                 "bank_payment_methods": bank_pms,
                 "employees": employees,
-                "wallets_for_forgive_json": json.dumps(
-                    wallets_for_forgive, ensure_ascii=False
-                ),
+                "wallets_for_forgive": wallets_for_forgive,
                 "can_deduct_shortage": can_apply_shortage_deduction(user),
                 "can_forgive_shortage": user_has_permission(user, PURCHASES_MANAGE)
                 or user_has_permission(user, PAYMENTS_MANAGE),

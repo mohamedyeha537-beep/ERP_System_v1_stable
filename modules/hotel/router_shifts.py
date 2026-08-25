@@ -641,7 +641,7 @@ def hotel_shift_bank_declare(
 
 
 @shifts_router.get("/shift/expense")
-def hotel_shift_expense_get():
+def hotel_shift_expense_get(_: User = Depends(_shift_view)):
     return RedirectResponse("/admin/hotel/shift#hotel-shift-expense", status_code=302)
 
 

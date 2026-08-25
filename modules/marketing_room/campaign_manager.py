@@ -13,6 +13,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from modules.common.safe_http_url import assert_safe_http_url, is_safe_http_url
 from modules.marketing_room.ai_client import chat_json
 from modules.marketing_room.config import marketing_meta_settings
 from modules.marketing_room.models import MarketingArtifact, MarketingRun
@@ -56,6 +57,7 @@ def _ssl_context() -> ssl.SSLContext:
 
 
 def _http_get_json(url: str, *, timeout: int = 60) -> dict[str, Any]:
+    assert_safe_http_url(url, allow_http=False, allowed_hosts=frozenset({"graph.facebook.com"}))
     req = urllib.request.Request(url, method="GET")
     with urllib.request.urlopen(req, timeout=timeout, context=_ssl_context()) as resp:
         return json.loads(resp.read().decode("utf-8"))

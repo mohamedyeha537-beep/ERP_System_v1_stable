@@ -838,6 +838,13 @@ def _unit_cost_via_bom(
         ).all()
     )
     if not bom:
+        from modules.catalog.models import Product
+
+        prod = db.get(Product, int(product_id))
+        if prod is not None and prod.reference_unit_cost:
+            ref = Decimal(str(prod.reference_unit_cost)).quantize(Decimal("0.001"))
+            if ref > Decimal("0"):
+                return ref
         return avg_costs.get(int(product_id), Decimal("0"))
     cost = Decimal("0")
     for b in bom:

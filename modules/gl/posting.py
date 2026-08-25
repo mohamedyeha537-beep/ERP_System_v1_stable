@@ -218,7 +218,7 @@ def sale_cogs_amount(db: Session, sale: Sale) -> Decimal:
     from modules.reporting.queries import _unit_cost_via_bom, avg_unit_cost_per_product
 
     fifo_total = sale_fifo_cogs(db, sale.id)
-    if fifo_total is not None and fifo_total > 0:
+    if fifo_total is not None:
         return fifo_total
     avg_costs = avg_unit_cost_per_product(db)
     total = _ZERO
@@ -619,6 +619,10 @@ def post_hotel_booking_payment_refund_shadow(
 def post_purchase_payment_shadow(db: Session, pp: PurchasePayment) -> None:
     amount = _q(pp.amount)
     if amount <= 0:
+        return
+    purchase = db.get(Purchase, int(pp.purchase_id))
+    if purchase is not None and purchase.kind == PurchaseKind.EXPENSE:
+        # المصروف النقدي يُرحّل مرة واحدة عبر post_expense_shadow (Dr مصروف / Cr نقد)
         return
     cash_code = _cash_account_code_for_pm(db, int(pp.payment_method_id))
     post_balanced_entry(

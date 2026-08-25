@@ -53,6 +53,33 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("INTEGRATION_API_KEY", "integration_api_key"),
     )
+    # قائمة IP/CIDR مفصولة بفواصل — فارغة = لا قيد (للتطوير فقط)
+    integration_api_ip_allowlist: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "INTEGRATION_API_IP_ALLOWLIST", "integration_api_ip_allowlist"
+        ),
+    )
+    online_sync_ip_allowlist: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "ONLINE_SYNC_IP_ALLOWLIST", "online_sync_ip_allowlist"
+        ),
+    )
+    # عند true يُطلب توقيع HMAC-SHA256 للجسم (X-Sync-Signature)
+    online_sync_require_hmac: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "ONLINE_SYNC_REQUIRE_HMAC", "online_sync_require_hmac"
+        ),
+    )
+    # عند true تُرفض استعادة نسخة بلا ملف .sig صالح
+    backup_require_signature: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "BACKUP_REQUIRE_SIGNATURE", "backup_require_signature"
+        ),
+    )
     default_admin_username: str = Field(
         default="admin",
         validation_alias=AliasChoices("DEFAULT_ADMIN_USERNAME", "default_admin_username"),
@@ -73,6 +100,10 @@ class Settings(BaseSettings):
     show_docs: bool = Field(
         default=False,
         validation_alias=AliasChoices("SHOW_DOCS", "show_docs"),
+    )
+    app_env: str = Field(
+        default="development",
+        validation_alias=AliasChoices("APP_ENV", "app_env"),
     )
     # ========== مزامنة أوفلاين/أونلاين ==========
     sync_enabled: bool = Field(

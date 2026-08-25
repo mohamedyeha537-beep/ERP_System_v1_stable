@@ -286,7 +286,7 @@ def verify_refund_otp(
         raise SupervisorOtpError("تجاوزت محاولات إدخال الرمز. اطلب رمزاً جديداً.")
 
     challenge.attempts = int(challenge.attempts or 0) + 1
-    if _hash_code(plain) != challenge.code_hash:
+    if not secrets.compare_digest(_hash_code(plain), challenge.code_hash):
         db.commit()
         raise SupervisorOtpError("رمز الاعتماد غير صحيح.")
 
@@ -393,14 +393,8 @@ def require_otp_or_skip(
     session: dict | None = None,
     booking_id: int | None = None,
     sale_id: int | None = None,
-    is_admin: bool = False,
 ) -> bool:
-    """يتحقق من OTP إن كان مطلوباً. يعيد True إذا مُرّر / غير مطلوب.
-
-    للأدمن: لا OTP مطلقاً (كما كان سلوك الاسترداد).
-    """
-    if is_admin:
-        return True
+    """يتحقق من OTP إن كان مطلوباً. يعيد True إذا مُرّر / غير مطلوب."""
     if not otp_purpose_required(db, purpose):
         return True
     if purpose == PURPOSE_HOTEL_REFUND and session is not None:

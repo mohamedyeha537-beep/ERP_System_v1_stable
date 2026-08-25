@@ -470,53 +470,10 @@ _DEMO_USER_VIEW_SCOPE: dict[str, str] = {
     "treasury": UserViewScope.BOTH.value,
 }
 
-TREASURY_TEST_USERNAME = "treasury"
-TREASURY_TEST_PASSWORD = "khazina123"
-
-
 def ensure_treasury_clerk_login_user(db: Session) -> User | None:
-    """ينشئ حساب تجربة لأمين الخزينة (مطعم + فندق) إن لم يوجد."""
+    """يضمن وجود دور أمين الخزينة فقط — لا يُنشئ مستخدمًا بكلمة مرور ثابتة."""
     ensure_treasury_clerk_role(db)
-    role = get_treasury_clerk_role(db)
-    if role is None:
-        return None
-    user = get_user_by_username(db, TREASURY_TEST_USERNAME)
-    if user is None:
-        user = User(
-            username=TREASURY_TEST_USERNAME,
-            password_hash=hash_password(TREASURY_TEST_PASSWORD),
-            is_active=True,
-            roles=[role],
-            view_scope=UserViewScope.BOTH.value,
-        )
-        db.add(user)
-        db.flush()
-    else:
-        if role.id not in {r.id for r in (user.roles or [])}:
-            user.roles = list(user.roles or []) + [role]
-        user.view_scope = UserViewScope.BOTH.value
-        user.is_active = True
-        db.flush()
-    from modules.hr.models import Employee, EmployeeStatus, PayType
-
-    emp = db.execute(
-        select(Employee).where(Employee.user_id == user.id)
-    ).scalar_one_or_none()
-    if emp is None:
-        emp = Employee(
-            full_name_ar="أمين خزينة — تجريبي",
-            job_title="أمين خزينة",
-            pay_type=PayType.MONTHLY,
-            status=EmployeeStatus.ACTIVE,
-            user_id=user.id,
-            business_domain="shared",
-        )
-        db.add(emp)
-        db.flush()
-    elif (emp.business_domain or "") != "shared":
-        emp.business_domain = "shared"
-        db.flush()
-    return user
+    return None
 
 
 def ensure_demo_users(db: Session) -> None:

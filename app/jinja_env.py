@@ -599,6 +599,18 @@ def _guest_id_document_url(filename: str | None) -> str | None:
 templates.env.globals["product_modifiers"] = _product_modifiers
 templates.env.globals["product_image_url"] = _product_image_url
 templates.env.globals["guest_id_document_url"] = _guest_id_document_url
+
+
+def _csrf_token(request: Request) -> str:
+    session = getattr(request, "session", None)
+    if not isinstance(session, dict):
+        return ""
+    from app.csrf import ensure_csrf_token
+
+    return ensure_csrf_token(session)
+
+
+templates.env.globals["csrf_token"] = _csrf_token
 templates.env.filters["json_attr"] = _json_attr
 templates.env.filters["enum_val"] = _enum_val
 templates.env.filters["driver_btn_label"] = _driver_btn_label
