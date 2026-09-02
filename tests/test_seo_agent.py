@@ -19,11 +19,22 @@ os.environ["SEO_ALLOW_AUTO_APPLY"] = "false"
 os.environ["SEO_REQUIRE_PRODUCTION_APPROVAL"] = "true"
 os.environ["SEO_PUBLIC_BASE_URL"] = "https://pos.baytak.ly"
 
+
+def _apply_seo_env() -> None:
+    os.environ["DATABASE_URL"] = "sqlite:///./tests/test_seo.db"
+    os.environ["SEO_AGENT_ENABLED"] = "true"
+    os.environ["SEO_ENVIRONMENT"] = "staging"
+    os.environ["SEO_AGENT_API_KEY"] = "test-seo-api-key-not-real"
+    os.environ["SEO_PUBLIC_BASE_URL"] = "https://pos.baytak.ly"
+
+
 from modules.seo.config import clear_seo_config_cache  # noqa: E402
 
 clear_seo_config_cache()
 
 from app.main import create_app  # noqa: E402
+from infra.config import get_settings  # noqa: E402
+from infra.db import reset_engine  # noqa: E402
 
 
 HEADERS_OK = {
@@ -35,10 +46,16 @@ HEADERS_OK = {
 
 @pytest.fixture
 def client():
+    _apply_seo_env()
     clear_seo_config_cache()
+    get_settings.cache_clear()
+    reset_engine()
     app = create_app()
     with TestClient(app) as c:
         yield c
+    reset_engine()
+    get_settings.cache_clear()
+    clear_seo_config_cache()
 
 
 def _csrf(client: TestClient) -> str:

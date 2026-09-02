@@ -14,6 +14,8 @@
 {% if web_mkt.google_site_verification %}
 <meta name="google-site-verification" content="{{ web_mkt.google_site_verification }}" />
 {% endif %}
+<meta property="og:locale" content="ar_LY" />
+<meta property="og:site_name" content="{{ web_mkt.og_site_name or web_mkt.page_title }}" />
 <meta property="og:type" content="{{ web_mkt.og_type or 'website' }}" />
 <meta property="og:title" content="{{ web_mkt.og_title or web_mkt.page_title }}" />
 {% if web_mkt.og_description %}
@@ -29,6 +31,9 @@
 <meta name="twitter:title" content="{{ web_mkt.og_title or web_mkt.page_title }}" />
 {% if web_mkt.og_description %}
 <meta name="twitter:description" content="{{ web_mkt.og_description }}" />
+{% endif %}
+{% if web_mkt.og_image_url %}
+<meta name="twitter:image" content="{{ web_mkt.og_image_url }}" />
 {% endif %}
 {% if web_mkt.json_ld %}{{ web_mkt.json_ld }}{% endif %}
 {% if web_mkt.tracking_head %}{{ web_mkt.tracking_head }}{% endif %}

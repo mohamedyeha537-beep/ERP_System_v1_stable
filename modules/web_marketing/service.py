@@ -304,6 +304,7 @@ def get_public_web_config(
         "og_description": desc,
         "og_image_url": og_abs,
         "og_type": "website",
+        "og_site_name": (cfg.get("meta_title") or title).strip(),
         "google_site_verification": gsv,
         "json_ld": json_ld,
         "tracking_enabled": (cfg.get("enabled") or "1") == "1",
