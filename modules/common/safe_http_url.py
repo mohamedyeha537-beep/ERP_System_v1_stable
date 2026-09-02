@@ -13,6 +13,17 @@ _BLOCKED_HOSTNAMES = frozenset(
         "::1",
         "0.0.0.0",
         "metadata.google.internal",
+        "metadata.goog",
+        "instance-data",
+    }
+)
+
+# عناوين metadata سحابية شائعة (IPv4)
+_BLOCKED_LITERAL_IPS = frozenset(
+    {
+        "169.254.169.254",
+        "169.254.170.2",
+        "10.0.0.0",  # يُرفض أصلاً عبر is_private عند التحليل الكامل
     }
 )
 
@@ -23,12 +34,17 @@ def _hostname_blocked(hostname: str) -> bool:
         return True
     if host in _BLOCKED_HOSTNAMES:
         return True
-    if host.endswith(".local") or host.endswith(".internal"):
+    if host in _BLOCKED_LITERAL_IPS:
+        return True
+    if host.endswith(".local") or host.endswith(".internal") or host.endswith(".localhost"):
         return True
     return False
 
 
 def _ip_blocked(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    # IPv4-mapped IPv6 (::ffff:127.0.0.1) — افحص الـ IPv4 المضمّن
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        return _ip_blocked(ip.ipv4_mapped)
     return bool(
         ip.is_private
         or ip.is_loopback
@@ -45,7 +61,7 @@ def is_safe_http_url(
     allow_http: bool = False,
     allowed_hosts: frozenset[str] | None = None,
 ) -> bool:
-    """يرفض file:// والشبكات الداخلية وmetadata link-local."""
+    """يرفض file:// والشبكات الداخلية وmetadata وlink-local وIPv6 الخاصة."""
     raw = (url or "").strip()
     if not raw:
         return False
@@ -58,10 +74,13 @@ def is_safe_http_url(
         return False
     if scheme == "http" and not allow_http:
         return False
+    # userinfo في URL قد يُستخدم للالتفاف — ارفضه
+    if parsed.username is not None or parsed.password is not None:
+        return False
     host = (parsed.hostname or "").strip().lower()
     if _hostname_blocked(host):
         return False
-    if allowed_hosts is not None and host not in allowed_hosts:
+    if allowed_hosts is not None and host not in {h.lower() for h in allowed_hosts}:
         return False
     try:
         ip = ipaddress.ip_address(host)
@@ -69,7 +88,8 @@ def is_safe_http_url(
             return False
     except ValueError:
         try:
-            for info in socket.getaddrinfo(host, parsed.port or (443 if scheme == "https" else 80)):
+            port = parsed.port or (443 if scheme == "https" else 80)
+            for info in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM):
                 addr = info[4][0]
                 ip = ipaddress.ip_address(addr)
                 if _ip_blocked(ip):

@@ -57,9 +57,12 @@ def _ssl_context() -> ssl.SSLContext:
 
 
 def _http_get_json(url: str, *, timeout: int = 60) -> dict[str, Any]:
-    assert_safe_http_url(url, allow_http=False, allowed_hosts=frozenset({"graph.facebook.com"}))
+    from modules.common.safe_http import open_safe_http
+
+    hosts = frozenset({"graph.facebook.com"})
+    assert_safe_http_url(url, allow_http=False, allowed_hosts=hosts)
     req = urllib.request.Request(url, method="GET")
-    with urllib.request.urlopen(req, timeout=timeout, context=_ssl_context()) as resp:
+    with open_safe_http(req, timeout=timeout, allow_http=False, allowed_hosts=hosts) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 

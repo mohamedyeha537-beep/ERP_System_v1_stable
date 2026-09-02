@@ -128,9 +128,13 @@ def try_ai_reply(db: Session, session: WebChatSession, text: str) -> HermesReply
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=25, context=_ssl_context()) as resp:
+        from modules.common.safe_http import open_safe_http
+        from modules.common.safe_http_url import assert_safe_http_url
+
+        assert_safe_http_url(f"{base}/chat/completions", allow_http=True)
+        with open_safe_http(req, timeout=25, allow_http=True) as resp:
             raw = json.loads(resp.read().decode("utf-8"))
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, KeyError) as exc:
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError) as exc:
         LOG.warning("hermes AI call failed: %s", exc)
         return None
 

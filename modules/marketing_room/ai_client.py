@@ -14,6 +14,7 @@ from urllib.parse import quote
 from sqlalchemy.orm import Session
 
 from infra.config import get_settings
+from modules.common.safe_http import open_safe_http
 from modules.common.safe_http_url import assert_safe_http_url, is_safe_http_url
 from modules.marketing_room.config import (
     marketing_ai_settings,
@@ -86,7 +87,7 @@ def chat_json(db: Session, *, system: str, user: str, max_tokens: int = 2000) ->
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=70, context=_ssl_context()) as resp:
+        with open_safe_http(req, timeout=70, allow_http=_allow_http_dev()) as resp:
             raw = json.loads(resp.read().decode("utf-8"))
         content = (raw["choices"][0]["message"]["content"] or "").strip()
     except Exception as exc:
@@ -123,7 +124,7 @@ def chat_text(db: Session, *, system: str, user: str, max_tokens: int = 1200) ->
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=70, context=_ssl_context()) as resp:
+        with open_safe_http(req, timeout=70, allow_http=_allow_http_dev()) as resp:
             raw = json.loads(resp.read().decode("utf-8"))
         return (raw["choices"][0]["message"]["content"] or "").strip() or None
     except Exception as exc:
@@ -261,7 +262,7 @@ def _generate_openai_image(cfg: dict[str, str], *, prompt: str, dest: Path) -> P
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=120, context=_ssl_context()) as resp:
+        with open_safe_http(req, timeout=120, allow_http=_allow_http_dev()) as resp:
             raw = json.loads(resp.read().decode("utf-8"))
         b64 = raw["data"][0]["b64_json"]
     except Exception as exc:
@@ -303,7 +304,7 @@ def _generate_fal_image(cfg: dict[str, str], *, prompt: str, dest: Path) -> Path
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=180, context=_ssl_context()) as resp:
+        with open_safe_http(req, timeout=180, allow_http=_allow_http_dev()) as resp:
             raw = json.loads(resp.read().decode("utf-8"))
     except Exception as exc:
         LOG.warning("fal.ai image generation failed: %s", exc)
@@ -318,7 +319,7 @@ def _generate_fal_image(cfg: dict[str, str], *, prompt: str, dest: Path) -> Path
         return None
     try:
         img_req = urllib.request.Request(image_url, method="GET")
-        with urllib.request.urlopen(img_req, timeout=90, context=_ssl_context()) as resp:
+        with open_safe_http(img_req, timeout=90, allow_http=False) as resp:
             data = resp.read()
     except Exception as exc:
         LOG.warning("fal.ai image download failed: %s", exc)
@@ -354,7 +355,7 @@ def _generate_higgsfield_image(cfg: dict[str, str], *, prompt: str, dest: Path) 
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=180, context=_ssl_context()) as resp:
+        with open_safe_http(req, timeout=180, allow_http=_allow_http_dev()) as resp:
             raw = json.loads(resp.read().decode("utf-8"))
     except Exception as exc:
         LOG.warning("higgsfield image submit failed: %s", exc)
@@ -410,7 +411,7 @@ def _generate_higgsfield_video(
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=180, context=_ssl_context()) as resp:
+        with open_safe_http(req, timeout=180, allow_http=_allow_http_dev()) as resp:
             raw = json.loads(resp.read().decode("utf-8"))
     except Exception as exc:
         LOG.warning("higgsfield video submit failed: %s", exc)
@@ -452,7 +453,7 @@ def _higgsfield_poll_media(
             method="GET",
         )
         try:
-            with urllib.request.urlopen(req, timeout=45, context=_ssl_context()) as resp:
+            with open_safe_http(req, timeout=45, allow_http=_allow_http_dev()) as resp:
                 raw = json.loads(resp.read().decode("utf-8"))
         except Exception as exc:
             LOG.warning("higgsfield poll failed: %s", exc)
@@ -502,7 +503,7 @@ def _download_to(dest: Path, url: str) -> Path | None:
         return None
     try:
         img_req = urllib.request.Request(safe_url, method="GET")
-        with urllib.request.urlopen(img_req, timeout=120, context=_ssl_context()) as resp:
+        with open_safe_http(img_req, timeout=120, allow_http=False) as resp:
             data = resp.read()
     except Exception as exc:
         LOG.warning("media download failed: %s", exc)

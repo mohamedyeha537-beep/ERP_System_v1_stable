@@ -219,10 +219,14 @@ def _format_ticket_message(
 
 
 def _send_whatsapp(target: str, message: str) -> tuple[bool, str]:
+    from modules.common.safe_http import open_safe_http
+    from modules.common.safe_http_url import assert_safe_http_url
+
     url = (target or "").strip()
     if not url.startswith(("http://", "https://")):
         return False, f"غير مُعدّ: {url or '—'}"
     try:
+        assert_safe_http_url(url, allow_http=True)
         payload = json.dumps({"text": message}, ensure_ascii=False).encode("utf-8")
         req = urllib.request.Request(
             url,
@@ -230,7 +234,7 @@ def _send_whatsapp(target: str, message: str) -> tuple[bool, str]:
             method="POST",
             headers={"Content-Type": "application/json; charset=utf-8"},
         )
-        with urllib.request.urlopen(req, timeout=4) as resp:
+        with open_safe_http(req, timeout=4, allow_http=True) as resp:
             return True, f"OK ({resp.status})"
     except Exception as exc:
         log.warning("WhatsApp webhook failed: %s", exc)

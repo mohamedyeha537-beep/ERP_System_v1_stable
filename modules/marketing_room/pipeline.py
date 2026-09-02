@@ -3,14 +3,14 @@ from __future__ import annotations
 
 import json
 import logging
-import ssl
-import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy.orm import Session
 
+from modules.common.safe_http import open_safe_http
+from modules.common.safe_http_url import assert_safe_http_url
 from modules.marketing_room.config import marketing_ai_settings, marketing_n8n_webhook_url
 from modules.marketing_room.context_service import build_marketing_context
 from modules.marketing_room.models import MarketingAgentLog, MarketingArtifact, MarketingRun
@@ -22,13 +22,10 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _ssl_context() -> ssl.SSLContext:
-    try:
-        import certifi
+def _allow_http_dev() -> bool:
+    from infra.config import get_settings
 
-        return ssl.create_default_context(cafile=certifi.where())
-    except ImportError:
-        return ssl.create_default_context()
+    return get_settings().app_env != "production"
 
 
 def _log(db: Session, run_id: int, role: str, message: str, *, level: str = "info") -> None:
@@ -144,6 +141,12 @@ def _call_openai_bundle(db: Session, ctx: dict[str, Any]) -> dict[str, Any] | No
     cfg = marketing_ai_settings(db)
     if not cfg["api_key"]:
         return None
+    try:
+        base = (cfg["base_url"] or "").strip().rstrip("/")
+        assert_safe_http_url(f"{base}/chat/completions", allow_http=_allow_http_dev())
+    except ValueError as exc:
+        LOG.warning("marketing AI blocked base_url: %s", exc)
+        return None
     prompt = (
         "أنت فريق تسويق لمطعم وشقق فندقية في ليبيا. "
         "أرجع JSON فقط بالمفاتيح: "
@@ -162,7 +165,7 @@ def _call_openai_bundle(db: Session, ctx: dict[str, Any]) -> dict[str, Any] | No
         "max_tokens": 1800,
     }
     req = urllib.request.Request(
-        f"{cfg['base_url']}/chat/completions",
+        f"{base}/chat/completions",
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         headers={
             "Content-Type": "application/json; charset=utf-8",
@@ -171,7 +174,7 @@ def _call_openai_bundle(db: Session, ctx: dict[str, Any]) -> dict[str, Any] | No
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=55, context=_ssl_context()) as resp:
+        with open_safe_http(req, timeout=55, allow_http=_allow_http_dev()) as resp:
             raw = json.loads(resp.read().decode("utf-8"))
         content = (raw["choices"][0]["message"]["content"] or "").strip()
     except Exception as exc:
@@ -184,6 +187,11 @@ def _call_n8n_bundle(db: Session, ctx: dict[str, Any], run_id: int) -> dict[str,
     url = marketing_n8n_webhook_url(db)
     if not url:
         return None
+    try:
+        assert_safe_http_url(url, allow_http=_allow_http_dev())
+    except ValueError as exc:
+        LOG.warning("marketing n8n blocked webhook: %s", exc)
+        return None
     payload = {"run_id": run_id, "context": ctx, "action": "marketing_daily_pipeline"}
     req = urllib.request.Request(
         url,
@@ -192,7 +200,7 @@ def _call_n8n_bundle(db: Session, ctx: dict[str, Any], run_id: int) -> dict[str,
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=60, context=_ssl_context()) as resp:
+        with open_safe_http(req, timeout=60, allow_http=_allow_http_dev()) as resp:
             body = resp.read().decode("utf-8")
         data = json.loads(body) if body.strip() else None
     except Exception as exc:

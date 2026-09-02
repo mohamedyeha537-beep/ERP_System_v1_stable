@@ -7,6 +7,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, time, timedelta
 from typing import Any
+from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session
 
@@ -16,9 +17,59 @@ from modules.settings.service import get_bool, get_int, get_setting
 
 log = logging.getLogger("hotel.lock_cards")
 
+# وكيل USB محلي فقط — ليس proxy عامًا
+_ENCODER_ALLOWED_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+_ENCODER_PORT_MIN = 9190
+_ENCODER_PORT_MAX = 9299
+_ENCODER_PATHS = {
+    "guest_card": "/guest-card",
+    "erase": "/erase",
+    "read": "/read",
+    "status": "/status",
+}
+
 
 class LockCardError(Exception):
     pass
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """يمنع إعادة توجيه الوكيل المحلي إلى عناوين أخرى (SSRF)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+        raise urllib.error.HTTPError(req.full_url, code, "redirect blocked for lock encoder", headers, fp)
+
+
+def assert_local_encoder_base_url(url: str) -> str:
+    """يقيّد رابط وكيل الأقفال إلى loopback + منفذ ضيق + بدون مسار/استعلام."""
+    raw = (url or "").strip().rstrip("/")
+    if not raw:
+        raise LockCardError("رابط وكيل البرمجة فارغ.")
+    try:
+        parsed = urlparse(raw)
+    except Exception as exc:
+        raise LockCardError("رابط وكيل البرمجة غير صالح.") from exc
+    if (parsed.scheme or "").lower() != "http":
+        raise LockCardError("وكيل الأقفال يجب أن يكون HTTP محليًا فقط.")
+    if parsed.username is not None or parsed.password is not None:
+        raise LockCardError("رابط وكيل الأقفال لا يقبل بيانات مستخدم.")
+    host = (parsed.hostname or "").strip().lower()
+    if host not in _ENCODER_ALLOWED_HOSTS:
+        raise LockCardError("وكيل الأقفال مسموح على localhost فقط.")
+    port = parsed.port or 80
+    if port < _ENCODER_PORT_MIN or port > _ENCODER_PORT_MAX:
+        raise LockCardError(
+            f"منفذ وكيل الأقفال يجب أن يكون بين {_ENCODER_PORT_MIN} و {_ENCODER_PORT_MAX}."
+        )
+    path = (parsed.path or "").rstrip("/") or ""
+    if path not in ("",):
+        raise LockCardError("رابط وكيل الأقفال يجب أن يكون أساسًا بلا مسار.")
+    if parsed.query or parsed.fragment:
+        raise LockCardError("رابط وكيل الأقفال لا يقبل استعلامًا أو fragment.")
+    # توحيد الشكل
+    if host == "::1":
+        return f"http://[::1]:{port}"
+    return f"http://{host}:{port}"
 
 
 def lock_encoder_enabled(db: Session) -> bool:
@@ -26,7 +77,11 @@ def lock_encoder_enabled(db: Session) -> bool:
 
 
 def encoder_base_url(db: Session) -> str:
-    return (get_setting(db, "hotel_lock_encoder_url", "http://127.0.0.1:9199") or "").rstrip("/")
+    raw = (get_setting(db, "hotel_lock_encoder_url", "http://127.0.0.1:9199") or "").rstrip("/")
+    try:
+        return assert_local_encoder_base_url(raw or "http://127.0.0.1:9199")
+    except LockCardError:
+        return "http://127.0.0.1:9199"
 
 
 def _fmt_lock_dt(value: datetime) -> str:
@@ -116,32 +171,34 @@ def build_read_payload(db: Session) -> dict[str, Any]:
 
 def call_local_encoder(payload: dict[str, Any], *, timeout: float = 25.0) -> dict[str, Any]:
     """يستدعي الوكيل المحلي على جهاز الاستقبال (عادة 127.0.0.1)."""
-    base = (payload.get("encoder_url") or "").rstrip("/")
-    if not base:
-        raise LockCardError("رابط وكيل البرمجة غير مضبوط.")
+    try:
+        base = assert_local_encoder_base_url(payload.get("encoder_url") or "")
+    except LockCardError:
+        raise
     action = payload.get("action") or "guest_card"
-    path = {
-        "guest_card": "/guest-card",
-        "erase": "/erase",
-        "read": "/read",
-        "status": "/status",
-    }.get(action)
+    path = _ENCODER_PATHS.get(action)
     if not path:
         raise LockCardError(f"عملية غير معروفة: {action}")
     url = base + path
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=body,
-        headers={"Content-Type": "application/json; charset=utf-8"},
-        method="POST" if action != "status" else "GET",
-    )
     if action == "status":
         req = urllib.request.Request(base + "/status", method="GET")
+    else:
+        req = urllib.request.Request(
+            url,
+            data=body,
+            headers={"Content-Type": "application/json; charset=utf-8"},
+            method="POST",
+        )
+    opener = urllib.request.build_opener(_NoRedirect)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with opener.open(req, timeout=timeout) as resp:
             raw = resp.read().decode("utf-8")
             data = json.loads(raw) if raw else {}
+    except urllib.error.HTTPError as exc:
+        if "redirect blocked" in (exc.msg or ""):
+            raise LockCardError("رُفض إعادة توجيه من وكيل الأقفال.") from exc
+        raise LockCardError(f"فشل استدعاء الوكيل: HTTP {exc.code}") from exc
     except urllib.error.URLError as exc:
         raise LockCardError(
             "تعذّر الاتصال بوكيل برمجة البطاقات على هذا الجهاز. "

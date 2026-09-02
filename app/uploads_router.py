@@ -1,33 +1,21 @@
-"""عرض ملفات /uploads — عام للكتalog، محمي للإيصالات والمستندات."""
+"""عرض ملفات /uploads — عام للكتalog، محمي للمستندات الحساسة بمستوى المورد."""
 from __future__ import annotations
 
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
+from sqlalchemy.orm import Session
 
-from app.deps import get_current_user
+from app.deps import get_current_user, get_db_session
+from app.upload_authorization import user_may_access_upload
 
 router = APIRouter(tags=["uploads"])
 
-# مسارات يمكن للزائر/المتجر رؤيتها بدون تسجيل دخول
 _PUBLIC_PREFIXES: tuple[str, ...] = (
     "products/",
-    "hotel/",
     "hotel/rooms/",
     "hotel/room_media/",
-)
-
-_SENSITIVE_PREFIXES: tuple[str, ...] = (
-    "sale_payments/",
-    "purchases/",
-    "hotel/guest_documents/",
-    "hotel/agreement_requests/",
-    "receipts/",
-    "messaging/",
-    "notifications/",
-    "web_chat_guides/",
-    "payment_methods/",
 )
 
 
@@ -45,10 +33,14 @@ def _resolve_upload_path(relative: str) -> Path | None:
     root = _static_uploads_root().resolve()
     fp = (root / "/".join(parts)).resolve()
     try:
-        if not str(fp).startswith(str(root)):
+        if not fp.is_relative_to(root):
             return None
-    except (ValueError, OSError):
-        return None
+    except (ValueError, OSError, AttributeError):
+        # Python < 3.9 fallback (المشروع على 3.10+)
+        try:
+            fp.relative_to(root)
+        except ValueError:
+            return None
     return fp if fp.is_file() else None
 
 
@@ -57,25 +49,25 @@ def _is_public_path(relative: str) -> bool:
     return any(rel.startswith(p) for p in _PUBLIC_PREFIXES)
 
 
-def _is_sensitive_path(relative: str) -> bool:
-    rel = relative.replace("\\", "/").lstrip("/")
-    if _is_public_path(rel):
-        return False
-    if any(rel.startswith(p) for p in _SENSITIVE_PREFIXES):
-        return True
-    # أي مسار غير معروف — يتطلب تسجيل دخول
-    return True
-
-
 @router.get("/uploads/{file_path:path}")
 def serve_upload(
     file_path: str,
     request: Request,
+    db: Session = Depends(get_db_session),
     user=Depends(get_current_user),
 ):
     fp = _resolve_upload_path(file_path)
     if fp is None:
         raise HTTPException(status_code=404, detail="الملف غير موجود.")
-    if _is_sensitive_path(file_path) and user is None:
+
+    if _is_public_path(file_path):
+        return FileResponse(fp)
+
+    if user is None:
         raise HTTPException(status_code=401, detail="يجب تسجيل الدخول لعرض هذا الملف.")
+
+    if not user_may_access_upload(db, user, file_path):
+        # 404 وليس 403 لتقليل تسريب وجود الملف
+        raise HTTPException(status_code=404, detail="الملف غير موجود.")
+
     return FileResponse(fp)

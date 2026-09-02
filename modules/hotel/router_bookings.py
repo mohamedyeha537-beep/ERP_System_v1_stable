@@ -2423,6 +2423,12 @@ def hotel_booking_settings_save(
             "1" if hotel_lock_encoder_enabled == "on" else "0",
         )
         url = (hotel_lock_encoder_url or "").strip() or "http://127.0.0.1:9199"
+        try:
+            from modules.hotel.lock_cards import assert_local_encoder_base_url
+
+            url = assert_local_encoder_base_url(url)
+        except Exception:
+            url = "http://127.0.0.1:9199"
         set_setting(db, "hotel_lock_encoder_url", url[:240])
         set_setting(db, "hotel_lock_co_id", (hotel_lock_co_id or "").strip()[:20])
         usb = (hotel_lock_usb_flag or "1").strip()

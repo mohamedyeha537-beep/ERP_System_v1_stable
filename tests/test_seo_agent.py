@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -40,12 +41,33 @@ def client():
         yield c
 
 
-def _login(client: TestClient) -> None:
+def _csrf(client: TestClient) -> str:
+    page = client.get("/auth/login")
+    m = re.search(r'name="csrf_token" value="([^"]+)"', page.text)
+    if not m:
+        m = re.search(r'name="csrf-token" content="([^"]+)"', page.text)
+    assert m, "csrf missing"
+    return m.group(1)
+
+
+def _login(client: TestClient) -> str:
+    token = _csrf(client)
     client.post(
         "/auth/login",
-        data={"username": "admin", "password": "admin123"},
+        data={"username": "admin", "password": "admin123", "csrf_token": token},
         follow_redirects=False,
     )
+    # بعد الدخول يُجدَّد رمز CSRF في الجلسة — خذه من صفحة محمية
+    page = client.get("/admin/seo")
+    m = re.search(r'name="csrf-token" content="([^"]+)"', page.text)
+    if not m:
+        m = re.search(r'name="csrf_token" value="([^"]+)"', page.text)
+    assert m, "csrf missing after login"
+    return m.group(1)
+
+
+def _csrf_headers(token: str) -> dict[str, str]:
+    return {"X-CSRF-Token": token}
 
 
 def test_health_ok_and_rejects_bad_key(client: TestClient) -> None:
@@ -130,11 +152,19 @@ def test_staging_apply_after_approval_and_rollback(client: TestClient) -> None:
     fix_id = sug.json()["items"][0]["fix_id"]
     assert fix_id
 
-    _login(client)
-    appr = client.post(f"/api/seo/fixes/{fix_id}/approve", follow_redirects=False)
+    csrf = _login(client)
+    appr = client.post(
+        f"/api/seo/fixes/{fix_id}/approve",
+        headers=_csrf_headers(csrf),
+        follow_redirects=False,
+    )
     assert appr.status_code == 200, appr.text
 
-    apply = client.post(f"/api/seo/fixes/{fix_id}/apply", follow_redirects=False)
+    apply = client.post(
+        f"/api/seo/fixes/{fix_id}/apply",
+        headers=_csrf_headers(csrf),
+        follow_redirects=False,
+    )
     assert apply.status_code == 200, apply.text
     assert apply.json()["status"] == "applied"
 
@@ -146,7 +176,11 @@ def test_staging_apply_after_approval_and_rollback(client: TestClient) -> None:
     finally:
         db.close()
 
-    rb = client.post(f"/api/seo/fixes/{fix_id}/rollback", follow_redirects=False)
+    rb = client.post(
+        f"/api/seo/fixes/{fix_id}/rollback",
+        headers=_csrf_headers(csrf),
+        follow_redirects=False,
+    )
     assert rb.status_code == 200, rb.text
     assert rb.json()["status"] == "rolled_back"
 
@@ -216,8 +250,12 @@ def test_production_rejects_apply_without_prod_flag(client: TestClient, monkeypa
     finally:
         db.close()
 
-    _login(client)
-    apply = client.post(f"/api/seo/fixes/{fix_id}/apply", follow_redirects=False)
+    csrf = _login(client)
+    apply = client.post(
+        f"/api/seo/fixes/{fix_id}/apply",
+        headers=_csrf_headers(csrf),
+        follow_redirects=False,
+    )
     assert apply.status_code == 403
 
     # restore staging for other tests in same process

@@ -149,7 +149,11 @@ def _request_send(
     max_retries: int = 2,
 ) -> str:
     """TextMeBot يقبل GET (موصى به) — POST JSON لا يُمرَّر apikey بشكل صحيح."""
+    from modules.common.safe_http import open_safe_http
+    from modules.common.safe_http_url import assert_safe_http_url
+
     url_base = (url_base or DEFAULT_BASE_URL).strip().split("?")[0]
+    assert_safe_http_url(url_base, allow_http=True)
     query = urllib.parse.urlencode(params)
     full = f"{url_base}?{query}"
     last_error = "TextMeBot: فشل الإرسال."
@@ -160,7 +164,7 @@ def _request_send(
             _wait_textmebot_gap()
         req = urllib.request.Request(full, method="GET")
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with open_safe_http(req, timeout=timeout, allow_http=True) as resp:
                 body = resp.read().decode("utf-8", errors="replace")
                 if resp.status >= 400:
                     raise RuntimeError(f"HTTP {resp.status}: {body[:200]}")

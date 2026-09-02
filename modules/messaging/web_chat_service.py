@@ -184,6 +184,14 @@ def _forward_to_n8n(db: Session, session: WebChatSession, message: WebChatMessag
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
     def _post() -> None:
+        from modules.common.safe_http import open_safe_http
+        from modules.common.safe_http_url import assert_safe_http_url
+
+        try:
+            assert_safe_http_url(url, allow_http=True)
+        except ValueError as exc:
+            LOG.warning("web chat n8n webhook blocked: %s", exc)
+            return
         req = urllib.request.Request(
             url,
             data=body,
@@ -191,7 +199,7 @@ def _forward_to_n8n(db: Session, session: WebChatSession, message: WebChatMessag
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=12) as resp:
+            with open_safe_http(req, timeout=12, allow_http=True) as resp:
                 resp.read()
         except urllib.error.URLError as exc:
             LOG.warning("web chat n8n forward failed: %s", exc)
